@@ -14,6 +14,8 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 - **Bring a compatible model:** browse to a DLL or model folder and validate it.
 - **Choose resolution and upscaling:** Normal or Super resolution, aspect controls,
   spatial reconstruction, NVIDIA DLSS SR or Intel XeSS.
+- **Let the network adapt:** automatically reduce or restore Phoenix transformer
+  blocks to target game FPS or a GPU-time budget (experimental).
 - **Make it your own:** tone, structure, skin controls and adjustable neural work.
 - **Compare as you go:** split/difference views and timing history across backends.
 - **Keep it practical:** CPU thread limits, presets and Save configuration at the top.
@@ -137,11 +139,15 @@ The values above are from the screenshot session, not the controlled benchmark.
   still unverified; XeSS has been exercised on NVIDIA, not Intel hardware.
 - **Tune the look:** local tone and structure, skin masking, motion/depth guides,
   and route-specific NVIDIA intensity/style/exposure controls.
-- **Tune the workload:** experiment with transformer-block repetitions and
-  refinement passes. Adaptive blocks can target an inference-time budget or
-  desired game FPS. This adjusts supported transformer blocks, not every layer;
-  reducing the network is an untrained approximation and can hurt quality.
-  An FPS target is a target, not a contract with physics.
+- **Scale neural work dynamically:** enable **Enable approximate network** and
+  **Adaptive blocks**, then choose **DLSS5 Phoenix GPU time** or **Desired game
+  FPS**. Phoenix reduces the number of executed transformer blocks under load
+  and restores them as performance allows, within your minimum and maximum.
+  Time-budget mode uses measured inference GPU time; FPS mode uses the game's
+  presentation rate. Reduced depth trades image quality for speed and is an
+  experimental approximation. A target is not a contract with physics.
+- **Tune the workload manually:** experiment with transformer-block repetitions
+  and refinement passes to explore the quality/performance tradeoff.
 - **Compare before committing:** split-screen and difference views, swappable
   sources, presets, history resets and timing diagnostics.
 - **Keep the practical bits practical:** automatic CPU worker count or a manual
