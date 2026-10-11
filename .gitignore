@@ -1,0 +1,22 @@
+# Generated build and source-package output
+/build/
+/dist/
+
+# Python tooling caches
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+*.pyc
+
+# Compiled binaries, kernels, local model data and archives
+*.dll
+*.exe
+*.addon64
+*.lib
+*.obj
+*.exp
+*.cubin
+*.ptx
+*.spv
+*.bin
+*.zip

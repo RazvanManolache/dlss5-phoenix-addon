@@ -1,0 +1,88 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+// Phoenix portable GEMM. Same resident ABI and publish arithmetic as the
+// Apache-2.0 Intel implementation; no cooperative-matrix capability required.
+// Each 32-lane group computes an 8x16 tile. Bounds include partial M/N/K.
+#include "publish.glsl"
+layout(local_size_x = 32) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+layout(push_constant, scalar) uniform Push {
+    HalfBuf a, b;
+    FloatBuf c, d;
+    uint m, n, k, batch, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+#include "specialize.glsl"
+// Packed weights are decoded while filling the shared operand tile.
+#include "packed_weight.glsl"
+// Cooperatively load each operand tile once. This is ordinary shared-memory
+// compute and runs without matrix extensions on AMD, Intel, and NVIDIA.
+shared float a_tile[8 * 32];
+shared float b_tile[32 * 16];
+void main() {
+    uint flags = operation_flags();
+    uint lda = pc.lda == 0u ? pc.k : pc.lda;
+    uint ldb = pc.ldb == 0u ? ((flags & 1u) != 0u ? pc.k : pc.n) : pc.ldb;
+    uint ldc = pc.ldc == 0u ? pc.n : pc.ldc;
+    uint row_tiles = (pc.m + 7u) / 8u;
+    uint tile = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
+    uint batch_index = tile / row_tiles;
+    if (batch_index >= max(pc.batch, 1u))
+        return;
+    uint ao = batch_index * pc.sa, bo = batch_index * pc.sb, co = batch_index * pc.sc;
+    uint lane = gl_LocalInvocationID.x, rowbase = (tile % row_tiles) * 8u,
+         colbase = gl_WorkGroupID.x * 16u;
+    precise float sums[4];
+    for (uint iteration_index = 0u; iteration_index < 4u; ++iteration_index)
+        sums[iteration_index] = 0.0;
+    for (uint kb = 0u; kb < pc.k; kb += 32u) {
+        for (uint e = lane; e < 256u; e += 32u) {
+            uint row = rowbase + e / 32u, k = kb + e % 32u;
+            a_tile[e] = row < pc.m && k < pc.k ? float(pc.a.v[ao + row * lda + k]) : 0.0;
+        }
+        for (uint e = lane; e < 512u; e += 32u) {
+            uint k = (flags & 1u) != 0u ? e % 32u : e / 16u;
+            uint col = (flags & 1u) != 0u ? e / 32u : e % 16u;
+            b_tile[k * 16u + col] =
+                kb + k < pc.k && colbase + col < pc.n
+                    ? matrix_b(bo + ((flags & 1u) != 0u ? (colbase + col) * ldb + kb + k
+                                                        : (kb + k) * ldb + colbase + col))
+                    : 0.0;
+        }
+        barrier();
+        for (uint k = 0u; k < min(32u, pc.k - kb); ++k) {
+            for (uint iteration_index = 0u; iteration_index < 4u; ++iteration_index) {
+                uint e = lane + iteration_index * 32u;
+                sums[iteration_index] = fma(a_tile[(e / 16u) * 32u + k], b_tile[k * 16u + e % 16u],
+                                            sums[iteration_index]);
+            }
+        }
+        barrier();
+    }
+    for (uint iteration_index = 0u; iteration_index < 4u; ++iteration_index) {
+        uint e = lane + iteration_index * 32u, row = rowbase + e / 16u, col = colbase + e % 16u;
+        if (row >= pc.m || col >= pc.n || ((flags & 0x10000u) != 0u && col >= 4u))
+            continue;
+        float outvalue = publish((flags >> 8u) & 15u, sums[iteration_index]);
+        uint at = co + row * ldc + col;
+        if ((flags & 0x1000u) != 0u)
+            HalfBuf(uint64_t(pc.c)).v[at] = float16_t(outvalue);
+        else
+            pc.c.v[at] = outvalue;
+    }
+}

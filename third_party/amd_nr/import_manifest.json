@@ -1,0 +1,28 @@
+{
+  "schema": "phoenix-source-inputs/1",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "81eb5968d10a98b1b62a1681e017734a6da3028a2ea645b05c449b924c4cdb7b",
+      "pre_readability_sha256": "81eb5968d10a98b1b62a1681e017734a6da3028a2ea645b05c449b924c4cdb7b"
+    },
+    {
+      "path": "NOTICE",
+      "sha256": "afff44d52f7060e24d7bd0f1c5a9d0575022faf2c7a884e2e070c8f95e59eceb",
+      "pre_readability_sha256": "fe7c632367d4f779ef93603c4c71504a12acad8d12d457758f6bf6b506c0ff4a"
+    },
+    {
+      "path": "windows/shaders/rdna4/include/coherent_act.glsl",
+      "sha256": "a881f9a512e05f087ec66d82d263ceeecb924646682abd4a7df58eeb10c162b9",
+      "pre_readability_sha256": "5345c789ce9b564b3cce2e0ded441c4fbab6e5726fb58f6f4e44d28fafa354a2"
+    },
+    {
+      "path": "windows/shaders/rdna4/include/coopmm.glsl",
+      "sha256": "421f7541a9d74ae18a1261e714fbcbd9ace20b55edf3f2c2f1657bcb39b46f46",
+      "pre_readability_sha256": "78994a54bfd0f99103e6bc7f73243bd9785747f49c3aece590922e60042ced0f"
+    }
+  ],
+  "commit": "9e4574e1812d7d0632d6db02721a20c9617be434",
+  "repository": "https://github.com/mochizuki0323/DLSSNR-AMD",
+  "readability_refresh": "2026-10-10; local input checksums refreshed; previous recorded digests retained"
+}

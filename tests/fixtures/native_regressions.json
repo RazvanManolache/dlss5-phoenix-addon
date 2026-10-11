@@ -1,0 +1,61 @@
+{
+  "schema": "phoenix-native-regressions/1",
+  "model_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "reference_hardware": "NVIDIA GeForce RTX 5080, driver 616.64",
+  "reference_kernel_set": "Previously validated production kernel selection (1074); checksums only, no binaries or model tensors.",
+  "scope": "Regression against existing Phoenix native outputs, not NVIDIA DLSS parity. Two readbacks per 128-frame history sequence.",
+  "cases": [
+    {
+      "width": 640,
+      "height": 384,
+      "input_files": {
+        "input.meta": "2b29e252880a2c4089490f9526b26f0808c947cfb36a190d2f3f2566d7e020f7",
+        "input.motion.bin": "ca02793076b8845454d3cc4d949bda5bc49fe16d063e310331f86318ed644ba7",
+        "input.proxy.bin": "e26964e7317540ce6f58c606ab8ad19caad9bd16a2dfdc1e739d59857ddb9cb6"
+      },
+      "output_hashes": {
+        "0": "05f9720fcf12daa560fce2bf25d8da1e0645bd990982dfae1877b4c718cb7440",
+        "127": "80214c10dd29092fb22ad9fc99ef8863479a9bea9a86332de7a44fdd685c2c9e"
+      }
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "input_files": {
+        "input.meta": "098c919cf841ff95adc224bcdaef31bce7774017e2f27ef38b7657ab10b74ffb",
+        "input.motion.bin": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
+        "input.proxy.bin": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18"
+      },
+      "output_hashes": {
+        "0": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+        "127": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb"
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "input_files": {
+        "input.meta": "e03b2de62bc07233caad523c2810cb19f5e0a25eef50ca6c7c1d19e23e239631",
+        "input.motion.bin": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+        "input.proxy.bin": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa"
+      },
+      "output_hashes": {
+        "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+        "127": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc"
+      }
+    },
+    {
+      "width": 2560,
+      "height": 1080,
+      "input_files": {
+        "input.meta": "e41ce7777720c819656e2eeabda633d6470852c90118e48680baf322c01f3da8",
+        "input.motion.bin": "bbd99c7069e5ce69c6947c9a47d435b3a7570711c122bb0d920f425ed245052a",
+        "input.proxy.bin": "de9f4c68553e672f51c195ba52a53fc5a6c3768e0663c9765a68411a0c9cb367"
+      },
+      "output_hashes": {
+        "0": "4d74fd244f11ed9c7c7579eb1a99e479ae58cba1a2289b4c930d5e4266100fea",
+        "127": "8877e92321c1a1b5c92171d2c8f49fbbdf58bd37ad53878c42675a5a2c80b3ee"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+AMD cooperative-matrix interface from DLSSNR-AMD, copyright (c) 2026 mochizuki0323, MIT.
+Phoenix adaptations are in src/vulkan/phoenix_fp8.glsl and gemm_matrix.comp.
+The original RDNA4 lane-layout assumptions and host application are not used.
+
+DLSS5 Phoenix publication scope (2026-10-10)
+------------------------------------------
+The notice above was supplied by the local import. Its src/vulkan paths describe
+the original integration tree. This dependency subset contains only the two
+upstream GLSL interface headers, LICENSE, this NOTICE and source records.
+The headers match the pinned upstream revision; see PROVENANCE.md.
+
+DLSS5 Phoenix readability refresh (2026-10-10): locally formatted runtime
+source and added operation/formatting comments. Original attribution and
+license text are retained. See PROVENANCE.md for the recorded origin.

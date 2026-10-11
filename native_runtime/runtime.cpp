@@ -1,0 +1,346 @@
+// Owns one selected backend, immutable graph, frame preparation and per-pass history.
+// A frame commits its new histories only after inference/resolve and finite-value checks complete.
+
+#include "graph.h"
+#include "frame.h"
+#include "thread_config.h"
+#include <chrono>
+#include <mutex>
+using namespace phoenix_cpp;
+namespace {
+using Clock = std::chrono::steady_clock;
+double elapsed(Clock::time_point started) {
+    return std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+}
+struct Runtime {
+    HMODULE module = nullptr;
+    Backend* backend = nullptr;
+    DestroyBackend destroy = nullptr;
+    std::unique_ptr<Model> model;
+    std::unique_ptr<Graph> graph;
+    std::unique_ptr<FrameState> frame;
+    std::array<unsigned, 8> repeats{};
+    std::vector<std::vector<float>> histories;
+    Json status, signature;
+    phoenix_model::WeightSource weight_source;
+    std::mutex lock;
+    std::string error;
+    Runtime(const Json& config, unsigned width, unsigned height) {
+        struct Rollback {
+            Runtime& runtime;
+            bool done = false;
+            ~Rollback() {
+                if (!done) {
+                    runtime.graph.reset();
+                    runtime.model.reset();
+                    if (runtime.backend && runtime.destroy)
+                        runtime.destroy(runtime.backend);
+                    if (runtime.module)
+                        FreeLibrary(runtime.module);
+                }
+            }
+        } rollback{*this};
+        demand(width && height && width <= 8192 && height <= 8192, "Unsupported frame extent");
+        auto validated = config.value("validated_devices", std::vector<std::string>{});
+        auto selected = config.at("device").get<std::string>();
+        bool tested = std::find(validated.begin(), validated.end(), selected) != validated.end();
+        demand(tested || config.value("allow_unvalidated", false),
+               "Selected C++ device has no validation entry; explicit opt-in required");
+        auto root = std::filesystem::u8path(config.at("runtime_root").get<std::string>());
+        demand(root.is_absolute(), "Native runtime root must be absolute");
+        std::string kind = config.at("backend"), device = config.at("device");
+        demand(kind == "cpu" || kind == "cuda" || kind == "vulkan" || kind == "hip" ||
+                   kind == "sycl",
+               "Unknown backend");
+        module =
+            LoadLibraryExW((root / ("phoenix_" + kind + "_cpp.dll")).c_str(), nullptr,
+                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        demand(module != nullptr, "Compiled backend library unavailable");
+        const bool cpu_device = device == "cpu" || device == "sycl:cpu";
+        const unsigned requested_threads = cpu_thread_request(config),
+                       cpu_threads = phoenix_threads::resolve(requested_threads);
+        auto create =
+            reinterpret_cast<CreateBackend>(GetProcAddress(module, "phoenix_backend_create"));
+        destroy =
+            reinterpret_cast<DestroyBackend>(GetProcAddress(module, "phoenix_backend_destroy"));
+        demand(create && destroy, "Backend ABI unavailable");
+        char message[2048]{};
+        if (kind == "cpu") {
+            using CreateThreads = Backend* (*)(const char*, unsigned, char*, size_t);
+            auto create_threads = reinterpret_cast<CreateThreads>(
+                GetProcAddress(module, "phoenix_backend_create_threads"));
+            demand(create_threads != nullptr,
+                   "CPU thread control requires the matching CPU backend build");
+            backend = create_threads(device.c_str(), cpu_threads, message, sizeof(message));
+        } else
+            backend = create(device.c_str(), (root / "vulkan").c_str(), message, sizeof(message));
+        demand(backend != nullptr, message);
+        weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
+        model = std::make_unique<Model>(weight_source);
+        // Six spatial reductions. Preserve the portable plan's minimum/padding policy.
+        auto align = [](unsigned value, unsigned alignment_bytes) {
+            return (value + alignment_bytes - 1) / alignment_bytes * alignment_bytes;
+        };
+        auto alignment = [&](unsigned value) {
+            unsigned reductions = 0;
+            for (unsigned iteration_index = 0; iteration_index < 6; ++iteration_index) {
+                auto next = align((value + 1) / 2, 4);
+                if (next < value)
+                    ++reductions;
+                value = next;
+            }
+            return 1u << reductions;
+        };
+        auto horizontal_alignment = alignment(width), vertical_alignment = alignment(height);
+        unsigned working_width = std::max(320u, align(width, horizontal_alignment)),
+                 working_height = std::max(320u, align(height, vertical_alignment));
+        if (working_height % (vertical_alignment * 4) == 0 &&
+            working_width % (horizontal_alignment * 4) == 0)
+            working_width += horizontal_alignment;
+        frame = std::make_unique<FrameState>(
+            width, height, working_width, working_height,
+            cpu_device ? cpu_threads
+                       : std::min(16u, std::max(1u, std::thread::hardware_concurrency() / 2)));
+        status = {{"backend", backend->name()},
+                  {"device", device},
+                  {"runtime", "native-cpp"},
+                  {"width", width},
+                  {"height", height},
+                  {"working_width", working_width},
+                  {"working_height", working_height},
+                  {"inference_validated", tested},
+                  {"python_required", false}};
+        if (cpu_device)
+            status.update({{"cpu_threads", cpu_threads},
+                           {"cpu_threads_requested", requested_threads},
+                           {"cpu_threads_available", phoenix_threads::available()}});
+        repeats.fill(UINT32_MAX);
+        rollback.done = true;
+    }
+    ~Runtime() {
+        graph.reset();
+        model.reset();
+        if (backend && destroy)
+            destroy(backend);
+        if (module)
+            FreeLibrary(module);
+    }
+    // Execute sampling passes against separate histories. Stage timings include host
+    // preparation and transfers; operator events alone do not describe game frame time.
+    void run(const float* color, const float* motion, const float* depth, const float* validity,
+             const Json& metadata, float* output) {
+        std::lock_guard guard(lock);
+        auto start = Clock::now();
+        size_t pixel_count = size_t(frame->width) * frame->height;
+        demand(color && output, "Missing frame buffers");
+        for (size_t iteration_index = 0; iteration_index < pixel_count * 3; ++iteration_index)
+            demand(std::isfinite(color[iteration_index]), "Nonfinite frame input");
+        for (size_t iteration_index = 0; iteration_index < pixel_count * 3; ++iteration_index)
+            demand(color[iteration_index] >= 0 && color[iteration_index] <= 1,
+                   "Frame input requires model proxy range 0..1");
+        // Preflight every consumed metadata field and declared input before changing
+        // temporal state or rebuilding the graph. Rejected requests must be invisible
+        // to the next valid frame, including a reset paired with invalid metadata.
+        const bool reset = metadata.value("reset", false);
+        auto controls = Controls::from(metadata.value("controls", Json::object()));
+        auto requested = metadata.value("repeats", std::array<unsigned, 8>{1, 1, 1, 1, 1, 1, 1, 1});
+        unsigned passes = metadata.value("passes", 1u);
+        demand(passes >= 1 && passes <= 4, "Network passes outside 1..4");
+        for (auto count : requested)
+            demand(count <= 4, "Block repetition outside 0..4");
+        bool has_motion = metadata.value("has_motion", false),
+             has_depth = metadata.value("has_depth", false),
+             has_history_validity = metadata.value("has_history_validity", false),
+             reversed_depth = metadata.value("reversed_depth", false);
+        const auto motion_from_frame = metadata.value("motion_from_frame", uint64_t(0));
+        demand(!has_history_validity || has_motion, "History validity requires motion");
+        demand(!has_motion || motion, "Missing declared motion");
+        demand(!has_depth || depth, "Missing declared depth");
+        demand(!has_history_validity || validity, "Missing declared validity");
+        for (size_t iteration_index = 0; iteration_index < pixel_count; ++iteration_index) {
+            if (has_motion)
+                demand(std::isfinite(motion[iteration_index * 2]) &&
+                           std::isfinite(motion[iteration_index * 2 + 1]),
+                       "Nonfinite motion");
+            if (has_depth)
+                demand(std::isfinite(depth[iteration_index]), "Nonfinite depth");
+            if (has_history_validity)
+                demand(validity[iteration_index] == 0 || validity[iteration_index] == 1,
+                       "Nonbinary validity");
+        }
+        Json next_signature = {
+            requested,          passes,        controls.style,     controls.tone,
+            controls.structure, controls.skin, controls.auto_mask, reversed_depth};
+        if (reset)
+            histories.clear();
+        if (next_signature != signature) {
+            histories.clear();
+            signature = next_signature;
+        }
+        // Backend allocation/build/execution failures are outside preflight: these
+        // operations can replace the graph and invalidate history before failing.
+        if (requested != repeats) {
+            graph.reset();
+            repeats.fill(UINT32_MAX);
+            if (!model->decoded())
+                model = std::make_unique<Model>(weight_source);
+            graph = std::make_unique<Graph>(*backend, *model);
+            graph->build(frame->padded_width, frame->padded_height, requested);
+            model->discard_decoded();
+            repeats = requested;
+            histories.clear();
+        }
+        if (histories.size() != passes)
+            histories.assign(passes, {});
+        struct HistoryBorrow {
+            FrameState& frame;
+            ~HistoryBorrow() {
+                frame.history_view = nullptr;
+            }
+        } history_borrow{*frame};
+        std::vector<std::vector<float>> next_histories(passes);
+        std::vector<float> conditioning_history, resolve_history;
+        std::vector<uint8_t> conditioning_valid, resolve_valid;
+        std::vector<float> current(color, color + pixel_count * 3), next, head;
+        std::vector<Event> events;
+        double prepare_ms = 0, execute_ms = 0, resolve_ms = 0;
+        bool history_used = false;
+        size_t pre_pixels = 0, post_pixels = 0;
+        uint64_t temporary_capacity_high_water = 0;
+        auto nested_capacity = [](const std::vector<std::vector<float>>& buffers) {
+            uint64_t bytes = buffers.capacity() * sizeof(std::vector<float>);
+            for (const auto& buffer : buffers)
+                bytes += buffer.capacity() * sizeof(float);
+            return bytes;
+        };
+        auto sample_temporary_capacity = [&](uint64_t feature_bytes = 0) {
+            const uint64_t bytes = (conditioning_history.capacity() + resolve_history.capacity() +
+                                    current.capacity() + next.capacity() + head.capacity()) *
+                                       sizeof(float) +
+                                   conditioning_valid.capacity() + resolve_valid.capacity() +
+                                   events.capacity() * sizeof(Event) +
+                                   nested_capacity(next_histories) + feature_bytes;
+            temporary_capacity_high_water = std::max(temporary_capacity_high_water, bytes);
+        };
+        for (unsigned pass = 0; pass < passes; ++pass) {
+            auto stage_started = Clock::now();
+            frame->history_view = &histories[pass];
+            frame->warp(has_motion ? motion : nullptr, has_depth ? depth : nullptr,
+                        has_history_validity ? validity : nullptr, reversed_depth,
+                        conditioning_history, resolve_history, conditioning_valid, resolve_valid);
+            pre_pixels =
+                std::count(conditioning_valid.begin(), conditioning_valid.end(), uint8_t(1));
+            post_pixels = std::count(resolve_valid.begin(), resolve_valid.end(), uint8_t(1));
+            history_used = history_used || pre_pixels || post_pixels;
+            auto features =
+                frame->features(current.data(), controls, conditioning_history, conditioning_valid);
+            sample_temporary_capacity(features.capacity() * sizeof(uint16_t));
+            prepare_ms += elapsed(stage_started);
+            stage_started = Clock::now();
+            graph->run(features, head, events);
+            sample_temporary_capacity();
+            execute_ms += elapsed(stage_started);
+            stage_started = Clock::now();
+            current = frame->resolve(current.data(), head, controls, resolve_history, resolve_valid,
+                                     next);
+            resolve_ms += elapsed(stage_started);
+            for (float value : current)
+                demand(std::isfinite(value), "Nonfinite network result");
+            for (float value : next)
+                demand(std::isfinite(value), "Nonfinite history result");
+            next_histories[pass] = std::move(next);
+            sample_temporary_capacity();
+        }
+        frame->history_view = nullptr;
+        histories = std::move(next_histories);
+        std::copy(current.begin(), current.end(), output);
+        Json layers = Json::array();
+        std::map<std::pair<unsigned, unsigned>, double> sums;
+        for (auto event : events)
+            sums[{event.block, event.layer}] += event.milliseconds;
+        double total = 0;
+        for (auto [layer_key, milliseconds] : sums)
+            total += milliseconds;
+        for (auto [layer_key, milliseconds] : sums)
+            layers.push_back({{"block", layer_key.first == UINT32_MAX ? -1 : int(layer_key.first)},
+                              {"layer", layer_key.second},
+                              {"ms", milliseconds},
+                              {"percent", total ? 100 * milliseconds / total : 0}});
+        status.update(
+            {{"state", "completed"},
+             {"prepare_ms", prepare_ms},
+             {"execute_with_transfers_ms", execute_ms},
+             {"resolve_ms", resolve_ms},
+             {"worker_ms", elapsed(start)},
+             {"command_count", graph->commands.size()},
+             {"timing_intervals", events.size()},
+             {"operator_ms", total},
+             {"operator_clock", std::string(backend->name()) == "cpu-cpp" ? "CPU wall"
+                                : status.value("device", std::string()) == "sycl:cpu"
+                                    ? "CPU queue events"
+                                    : "GPU events"},
+             {"resident_bytes", graph->memory_bytes()},
+             {"resident_weight_bytes", graph->weight_bytes()},
+             {"resident_scratch_bytes", graph->memory_bytes() - graph->weight_bytes()},
+             {"backend_allocation_bytes", graph->memory_bytes()},
+             {"host_frame_buffers",
+              {{"noise_capacity_bytes", frame->noise.capacity() * sizeof(uint16_t)},
+               {"retained_history_capacity_bytes",
+                nested_capacity(histories) + frame->history.capacity() * sizeof(float)},
+               {"temporary_capacity_sampled_high_water_bytes", temporary_capacity_high_water},
+               {"scope",
+                "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport."}}},
+             {"layers", layers},
+             {"passes", passes},
+             {"repeats", requested},
+             {"history_used", history_used},
+             {"history_pre_valid_pixels", pre_pixels},
+             {"history_post_valid_pixels", post_pixels},
+             {"motion_from_frame", motion_from_frame},
+             {"host_boundary", "C++ host preparation and resolve; no zero-copy claim"}});
+    }
+};
+thread_local std::string last_error;
+}
+extern "C" __declspec(dllexport) void* phoenix_runtime_create(const char* json, unsigned width,
+                                                              unsigned height) {
+    try {
+        auto runtime = std::make_unique<Runtime>(Json::parse(json), width, height);
+        last_error.clear();
+        return runtime.release();
+    } catch (const std::exception& exception) {
+        last_error = exception.what();
+        return nullptr;
+    }
+}
+extern "C" __declspec(dllexport) void phoenix_runtime_destroy(void* runtime) {
+    delete static_cast<Runtime*>(runtime);
+}
+extern "C" __declspec(dllexport) int phoenix_runtime_frame(void* runtime, const float* color,
+                                                           const float* motion, const float* depth,
+                                                           const float* validity,
+                                                           const char* metadata, float* output) {
+    try {
+        demand(runtime, "Missing runtime");
+        static_cast<Runtime*>(runtime)->run(color, motion, depth, validity, Json::parse(metadata),
+                                            output);
+        return 0;
+    } catch (const std::exception& exception) {
+        last_error = exception.what();
+        return -1;
+    }
+}
+extern "C" __declspec(dllexport) const char* phoenix_runtime_error() {
+    return last_error.c_str();
+}
+extern "C" __declspec(dllexport) size_t phoenix_runtime_status(void* handle, char* destination,
+                                                               size_t capacity) {
+    if (!handle)
+        return 0;
+    auto& runtime = *static_cast<Runtime*>(handle);
+    std::lock_guard guard(runtime.lock);
+    auto text = runtime.status.dump();
+    if (destination && capacity > text.size())
+        std::memcpy(destination, text.c_str(), text.size() + 1);
+    return text.size() + 1;
+}

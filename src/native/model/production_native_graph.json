@@ -1,0 +1,8841 @@
+{
+  "schema": "phoenix-native-graph/1",
+  "supported_dll_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "barriers_after": [
+    1,
+    2,
+    6,
+    10,
+    16,
+    24,
+    57,
+    58,
+    98,
+    99,
+    132,
+    140,
+    146,
+    150,
+    154
+  ],
+  "layers": [
+    {
+      "index": 1,
+      "kernel": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+      "grid": [
+        "W3",
+        "H3",
+        1
+      ],
+      "scalars": {
+        "208": "height",
+        "212": "width",
+        "240": "H0",
+        "244": "W0",
+        "256": "H1",
+        "260": "W1"
+      },
+      "bindings": {
+        "216": {
+          "role": "output_full_stem_skip",
+          "target": "tensor:001.output_full_stem_skip"
+        },
+        "224": {
+          "role": "trained_weights",
+          "target": "weight:block0.layer0.layer"
+        },
+        "232": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "248": {
+          "role": "output_downsample",
+          "target": "tensor:001.output_downsample"
+        }
+      },
+      "descriptors": {
+        "0": {
+          "role": "color",
+          "binding": "color"
+        },
+        "8": {
+          "role": "history_previous",
+          "binding": "history_previous"
+        },
+        "16": {
+          "role": "motion",
+          "binding": "motion"
+        },
+        "24": {
+          "role": "depth_optional",
+          "binding": null
+        },
+        "32": {
+          "role": "aux_optional",
+          "binding": null
+        }
+      }
+    },
+    {
+      "index": 2,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+      "grid": [
+        "W4",
+        "H4",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 0,
+        "36": 0,
+        "48": 0,
+        "52": 0,
+        "72": 0,
+        "76": 0,
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:001.output_downsample"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:002.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block1.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:002.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 3,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "grid": [
+        "ceil8(W1+4)*1",
+        "ceil8(H1+4)*1",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 4294967292,
+        "36": 4294967292,
+        "48": 0,
+        "52": 0,
+        "72": 0,
+        "76": 0,
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:002.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:003.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block2.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:002.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:003.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 4,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "grid": [
+        "ceil8(W1+4)*1",
+        "H4",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 4294967292,
+        "36": 0,
+        "48": 4294967292,
+        "52": 4294967292,
+        "72": 0,
+        "76": 0,
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:003.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:004.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block3.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:003.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:004.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 5,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+      "grid": [
+        "W4",
+        "ceil8(H1+4)*1",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 0,
+        "36": 4294967292,
+        "48": 4294967292,
+        "52": 0,
+        "72": "H2",
+        "76": "W2",
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:004.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:005.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block4.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:004.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": "tensor:005.output_downsample_optional"
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 6,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "grid": [
+        "ceil8(W2+0)*1",
+        "H5",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:005.output_downsample_optional"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:006.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block5.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:006.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 7,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "grid": [
+        "ceil8(W2+4)*1",
+        "ceil8(H2+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:006.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:007.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block6.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:006.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:007.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 8,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "grid": [
+        "ceil8(W2+4)*1",
+        "H5",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:007.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:008.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block7.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:007.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:008.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 9,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "grid": [
+        "ceil8(W2+0)*1",
+        "ceil8(H2+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": "H3",
+        "84": "W3"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:008.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:009.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block8.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:008.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": "tensor:009.output_downsample_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 10,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:009.output_downsample_optional"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:010.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block9.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:010.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 11,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:010.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:011.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block10.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:010.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:011.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 12,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:011.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:012.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block11.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:011.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:012.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 13,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:012.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:013.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block12.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:012.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:013.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 14,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:013.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:014.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block13.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:013.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:014.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 15,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": "H4",
+        "84": "W4"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:014.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:015.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block14.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:014.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": "tensor:015.output_downsample_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 16,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:015.output_downsample_optional"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:016.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block15.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:016.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 17,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:016.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:017.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block16.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:016.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:017.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 18,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:017.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:018.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block17.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:017.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:018.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 19,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:018.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:019.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block18.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:018.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:019.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 20,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:019.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:020.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block19.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:019.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:020.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 21,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:020.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:021.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block20.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:020.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:021.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 22,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:021.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:022.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block21.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:021.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:022.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 23,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": "H5",
+        "84": "W5"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:022.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:023.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block22.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:022.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": "tensor:023.output_downsample_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 24,
+      "kernel": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:023.output_downsample_optional"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:024.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block23.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:024.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 25,
+      "kernel": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:024.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:023.output_downsample_optional"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:025.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block23.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:025.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:024.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 26,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:025.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:026.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block23.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:025.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:026.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 27,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:026.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:025.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:027.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block23.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:027.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:026.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 28,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:027.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:028.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block24.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:027.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:028.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 29,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:028.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:027.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:029.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block24.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:029.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:028.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 30,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:029.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:030.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block24.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:029.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:030.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 31,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:030.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:029.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:031.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block24.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:031.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:030.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 32,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:031.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:032.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block25.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:031.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:032.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 33,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:032.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:031.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:033.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block25.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:033.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:032.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 34,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:033.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:034.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block25.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:033.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:034.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 35,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:034.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:033.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:035.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block25.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:035.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:034.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 36,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:035.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:036.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block26.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:035.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:036.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 37,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:036.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:035.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:037.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block26.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:037.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:036.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 38,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:037.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:038.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block26.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:037.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:038.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 39,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:038.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:037.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:039.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block26.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:039.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:038.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 40,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:039.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:040.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block27.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:039.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:040.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 41,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:040.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:039.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:041.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block27.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:041.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:040.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 42,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:041.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:042.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block27.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:041.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:042.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 43,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:042.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:041.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:043.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block27.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:043.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:042.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 44,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:043.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:044.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block28.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:043.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:044.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 45,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:044.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:043.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:045.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block28.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:045.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:044.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 46,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:045.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:046.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block28.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:045.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:046.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 47,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:046.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:045.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:047.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block28.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:047.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:046.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 48,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:047.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:048.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block29.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:047.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:048.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 49,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:048.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:047.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:049.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block29.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:049.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:048.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 50,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:049.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:050.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block29.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:049.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:050.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 51,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:050.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:049.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:051.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block29.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:051.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:050.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 52,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:051.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:052.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block30.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:051.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:052.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 53,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:052.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:051.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:053.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block30.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:053.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:052.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 54,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:053.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:054.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block30.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:053.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:054.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 55,
+      "kernel": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "56": 0,
+        "60": 4294967292,
+        "64": "H5",
+        "68": "W5",
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:054.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:053.output"
+        },
+        "16": {
+          "role": "output_encoder_skip",
+          "target": "tensor:055.output_encoder_skip"
+        },
+        "24": {
+          "role": "output_pool",
+          "target": "tensor:055.output_pool"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block30.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:054.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:055.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 56,
+      "kernel": "cc_split_swin_16h_final_head_512_wait_fp8",
+      "grid": [
+        "ceil8(LW+0)*4",
+        "ceil8(LH+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "LH",
+        "36": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:055.output_pool"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:056.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block30.layer4.layer"
+        },
+        "24": {
+          "role": "wait",
+          "target": "counter:055.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 57,
+      "kernel": "cc_vit_1d_repack_2d_to_1d_fp8",
+      "grid": [
+        "T",
+        1,
+        1
+      ],
+      "scalars": {
+        "16": "LH",
+        "20": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:056.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:057.output"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 58,
+      "kernel": "cc_vit_1d_ffn_expand_publish_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:057.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:058.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block31.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:058.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 59,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:058.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:057.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:059.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block31.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:059.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:059.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:058.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:059.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 60,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:059.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:060.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:060.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:060.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block31.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:060.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:060.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:059.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:060.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 61,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:060.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:060.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:060.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:061.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block31.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:060.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:061.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 62,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:061.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:059.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:062.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block31.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:062.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:062.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:061.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:062.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 63,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:062.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:063.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block32.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:062.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:063.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 64,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:063.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:062.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:064.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block32.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:064.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:064.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:063.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:064.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 65,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:064.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:065.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:065.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:065.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block32.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:065.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:065.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:064.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:065.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 66,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:065.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:065.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:065.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:066.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block32.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:065.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:066.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 67,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:066.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:064.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:067.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block32.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:067.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:067.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:066.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:067.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 68,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:067.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:068.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block33.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:067.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:068.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 69,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:068.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:067.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:069.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block33.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:069.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:069.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:068.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:069.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 70,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:069.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:070.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:070.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:070.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block33.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:070.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:070.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:069.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:070.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 71,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:070.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:070.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:070.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:071.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block33.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:070.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:071.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 72,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:071.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:069.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:072.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block33.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:072.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:072.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:071.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:072.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 73,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:072.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:073.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block34.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:072.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:073.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 74,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:073.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:072.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:074.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block34.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:074.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:074.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:073.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:074.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 75,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:074.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:075.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:075.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:075.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block34.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:075.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:075.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:074.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:075.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 76,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:075.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:075.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:075.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:076.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block34.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:075.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:076.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 77,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:076.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:074.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:077.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block34.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:077.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:077.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:076.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:077.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 78,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:077.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:078.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block35.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:077.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:078.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 79,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:078.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:077.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:079.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block35.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:079.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:079.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:078.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:079.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 80,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:079.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:080.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:080.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:080.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block35.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:080.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:080.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:079.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:080.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 81,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:080.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:080.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:080.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:081.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block35.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:080.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:081.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 82,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:081.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:079.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:082.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block35.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:082.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:082.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:081.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:082.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 83,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:082.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:083.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block36.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:082.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:083.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 84,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:083.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:082.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:084.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block36.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:084.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:084.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:083.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:084.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 85,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:084.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:085.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:085.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:085.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block36.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:085.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:085.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:084.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:085.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 86,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:085.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:085.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:085.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:086.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block36.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:085.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:086.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 87,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:086.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:084.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:087.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block36.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:087.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:087.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:086.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:087.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 88,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:087.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:088.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block37.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:087.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:088.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 89,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:088.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:087.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:089.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block37.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:089.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:089.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:088.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:089.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 90,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:089.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:090.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:090.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:090.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block37.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:090.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:090.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:089.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:090.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 91,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:090.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:090.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:090.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:091.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block37.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:090.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:091.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 92,
+      "kernel": "cc_vit_1d_projection_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:091.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:089.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:092.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block37.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:092.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:092.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:091.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:092.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 93,
+      "kernel": "cc_vit_1d_ffn_expand_chained_fp8",
+      "grid": [
+        "up128(T)/4",
+        1,
+        1
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:092.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": null
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:093.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block38.layer0.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": null
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:092.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:093.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 94,
+      "kernel": "cc_vit_1d_ffn_contract_chained_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:093.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:092.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:094.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block38.layer1.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:094.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:094.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:093.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:094.publication_optional"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 95,
+      "kernel": "cc_vit_1d_qkv_chained_fp8",
+      "grid": [
+        "up128(T)/8",
+        1,
+        2
+      ],
+      "scalars": {
+        "72": "LH",
+        "76": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:094.output"
+        },
+        "8": {
+          "role": "output_q",
+          "target": "tensor:095.output_q"
+        },
+        "16": {
+          "role": "output_k",
+          "target": "tensor:095.output_k"
+        },
+        "24": {
+          "role": "output_v",
+          "target": "tensor:095.output_v"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block38.layer2.layer"
+        },
+        "40": {
+          "role": "reduction_counter",
+          "target": "counter:095.reduction_counter"
+        },
+        "48": {
+          "role": "reduction_scratch",
+          "target": "tensor:095.reduction_scratch"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:094.publication_optional"
+        },
+        "64": {
+          "role": "publication",
+          "target": "counter:095.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 96,
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "grid": [
+        32,
+        "ceil256(T)",
+        1
+      ],
+      "scalars": {
+        "56": "LH",
+        "60": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_q",
+          "target": "tensor:095.output_q"
+        },
+        "8": {
+          "role": "input_k",
+          "target": "tensor:095.output_k"
+        },
+        "16": {
+          "role": "input_v",
+          "target": "tensor:095.output_v"
+        },
+        "24": {
+          "role": "output",
+          "target": "tensor:096.output"
+        },
+        "32": {
+          "role": "trained_weights",
+          "target": "weight:block38.layer3.layer"
+        },
+        "40": {
+          "role": "wait",
+          "target": "counter:095.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:096.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 97,
+      "kernel": "cc_vit_1d_projection_wait_fp8",
+      "grid": [
+        "up128(T)/16",
+        1,
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:096.output"
+        },
+        "8": {
+          "role": "input_skip_optional",
+          "target": "tensor:094.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:097.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block38.layer4.layer"
+        },
+        "32": {
+          "role": "reduction_counter_optional",
+          "target": "counter:097.reduction_counter_optional"
+        },
+        "40": {
+          "role": "reduction_scratch_optional",
+          "target": "tensor:097.reduction_scratch_optional"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:096.publication"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 98,
+      "kernel": "cc_vit_1d_repack_1d_to_2d_fp8",
+      "grid": [
+        "T",
+        1,
+        1
+      ],
+      "scalars": {
+        "16": "LH",
+        "20": "LW"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:097.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:098.output"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 99,
+      "kernel": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "64": "LH",
+        "68": "LW",
+        "72": "H5",
+        "76": "W5"
+      },
+      "bindings": {
+        "0": {
+          "role": "input_low",
+          "target": "tensor:098.output"
+        },
+        "8": {
+          "role": "input_encoder_skip",
+          "target": "tensor:055.output_encoder_skip"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:099.output"
+        },
+        "24": {
+          "role": "scratch",
+          "target": "tensor:099.scratch"
+        },
+        "32": {
+          "role": "counter",
+          "target": "counter:099.counter"
+        },
+        "40": {
+          "role": "publication",
+          "target": "counter:099.publication"
+        },
+        "48": {
+          "role": "scratch_secondary",
+          "target": "tensor:099.scratch_secondary"
+        },
+        "56": {
+          "role": "trained_weights",
+          "target": "weight:block39.layer0.layer"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 100,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:099.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:100.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block40.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:099.publication"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:100.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 101,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:100.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:099.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:101.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block40.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:101.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:100.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 102,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:101.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:102.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block40.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:101.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:102.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 103,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:102.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:101.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:103.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block40.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:103.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:102.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 104,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:103.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:104.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block41.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:103.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:104.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 105,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:104.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:103.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:105.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block41.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:105.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:104.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 106,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:105.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:106.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block41.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:105.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:106.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 107,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:106.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:105.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:107.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block41.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:107.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:106.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 108,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:107.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:108.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block42.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:107.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:108.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 109,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:108.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:107.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:109.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block42.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:109.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:108.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 110,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:109.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:110.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block42.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:109.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:110.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 111,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:110.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:109.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:111.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block42.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:111.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:110.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 112,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:111.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:112.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block43.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:111.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:112.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 113,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:112.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:111.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:113.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block43.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:113.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:112.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 114,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:113.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:114.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block43.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:113.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:114.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 115,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:114.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:113.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:115.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block43.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:115.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:114.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 116,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:115.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:116.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block44.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:115.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:116.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 117,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:116.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:115.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:117.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block44.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:117.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:116.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 118,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:117.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:118.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block44.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:117.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:118.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 119,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:118.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:117.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:119.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block44.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:119.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:118.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 120,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:119.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:120.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block45.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:119.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:120.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 121,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:120.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:119.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:121.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block45.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:121.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:120.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 122,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:121.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:122.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block45.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:121.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:122.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 123,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:122.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:121.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:123.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block45.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:123.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:122.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 124,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:123.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:124.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block46.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:123.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:124.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 125,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:124.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:123.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:125.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block46.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:125.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:124.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 126,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+4)*1",
+        "ceil8(H5+0)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 4294967292,
+        "36": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:125.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:126.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block46.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:125.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:126.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 127,
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 4294967292,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:126.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:125.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:127.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block46.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:127.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:126.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 128,
+      "kernel": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+0)*1",
+        2
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "40": 0,
+        "44": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:127.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:128.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block47.layer0.layer"
+        },
+        "32": {
+          "role": "wait_optional",
+          "target": "counter:127.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:128.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 129,
+      "kernel": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:128.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:127.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:129.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block47.layer1.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": "counter:129.publication_optional"
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:128.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 130,
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "grid": [
+        "ceil8(W5+0)*1",
+        "ceil8(H5+4)*1",
+        4
+      ],
+      "scalars": {
+        "24": "H5",
+        "28": "W5",
+        "32": 0,
+        "36": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:129.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:130.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block47.layer2.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:129.publication_optional"
+        },
+        "48": {
+          "role": "publication",
+          "target": "counter:130.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 131,
+      "kernel": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+      "grid": [
+        "ceil8(W5+0)*2",
+        "ceil8(H5+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H5",
+        "36": "W5",
+        "40": 0,
+        "44": 0,
+        "64": 0,
+        "68": 4294967292
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:130.output"
+        },
+        "8": {
+          "role": "input_skip",
+          "target": "tensor:129.output"
+        },
+        "16": {
+          "role": "output",
+          "target": "tensor:131.output"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block47.layer3.layer"
+        },
+        "48": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "56": {
+          "role": "wait",
+          "target": "counter:130.publication"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 132,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:131.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:132.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block48.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": "tensor:023.output"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:132.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 133,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:132.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:133.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block49.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:132.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:133.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 134,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:133.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:134.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block50.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:133.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:134.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 135,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:134.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:135.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block51.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:134.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:135.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 136,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:135.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:136.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block52.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:135.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:136.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 137,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:136.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:137.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block53.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:136.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:137.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 138,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "grid": [
+        "ceil8(W4+4)*1",
+        "ceil8(H4+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:137.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:138.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block54.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:137.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:138.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 139,
+      "kernel": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+      "grid": [
+        "ceil8(W4+0)*1",
+        "ceil8(H4+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H4",
+        "36": "W4",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:138.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:139.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block55.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:138.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 140,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:139.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:140.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block56.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": "tensor:015.output"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:140.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 141,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:140.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:141.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block57.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:140.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:141.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 142,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:141.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:142.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block58.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:141.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:142.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 143,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:142.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:143.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block59.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:142.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:143.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 144,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "grid": [
+        "ceil8(W3+4)*1",
+        "ceil8(H3+0)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:143.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:144.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block60.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:143.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:144.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 145,
+      "kernel": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+      "grid": [
+        "ceil8(W3+0)*1",
+        "ceil8(H3+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H3",
+        "36": "W3",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:144.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:145.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block61.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:144.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 146,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+      "grid": [
+        "ceil8(W2+0)*1",
+        "H5",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 0,
+        "44": 0,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:145.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:146.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block62.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": "tensor:009.output"
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:146.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 147,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "grid": [
+        "ceil8(W2+4)*1",
+        "ceil8(H2+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 4294967292,
+        "44": 4294967292,
+        "56": 0,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:146.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:147.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block63.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:146.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:147.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 148,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "grid": [
+        "ceil8(W2+4)*1",
+        "H5",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 4294967292,
+        "44": 0,
+        "56": 4294967292,
+        "60": 4294967292,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:147.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:148.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block64.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:147.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": "counter:148.publication_optional"
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 149,
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "grid": [
+        "ceil8(W2+0)*1",
+        "ceil8(H2+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H2",
+        "36": "W2",
+        "40": 0,
+        "44": 4294967292,
+        "56": 4294967292,
+        "60": 0,
+        "80": 0,
+        "84": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:148.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:149.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block65.layer0.layer"
+        },
+        "24": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        },
+        "48": {
+          "role": "wait_optional",
+          "target": "counter:148.publication_optional"
+        },
+        "64": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "72": {
+          "role": "output_downsample_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 150,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+      "grid": [
+        "W4",
+        "H4",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 0,
+        "36": 0,
+        "48": 0,
+        "52": 0,
+        "72": 0,
+        "76": 0,
+        "88": "H1",
+        "92": "W1"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:149.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:150.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block66.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": null
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:150.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": "tensor:005.output"
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 151,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "grid": [
+        "ceil8(W1+4)*1",
+        "ceil8(H1+4)*1",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 4294967292,
+        "36": 4294967292,
+        "48": 0,
+        "52": 0,
+        "72": 0,
+        "76": 0,
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:150.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:151.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block67.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:150.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:151.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 152,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "grid": [
+        "ceil8(W1+4)*1",
+        "H4",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 4294967292,
+        "36": 0,
+        "48": 4294967292,
+        "52": 4294967292,
+        "72": 0,
+        "76": 0,
+        "88": 0,
+        "92": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:151.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:152.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block68.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:151.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": "counter:152.publication_optional"
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 153,
+      "kernel": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+      "grid": [
+        "W4",
+        "ceil8(H1+4)*1",
+        1
+      ],
+      "scalars": {
+        "24": "H1",
+        "28": "W1",
+        "32": 0,
+        "36": 4294967292,
+        "48": 4294967292,
+        "52": 0,
+        "72": 0,
+        "76": 0,
+        "88": "H1",
+        "92": "W1"
+      },
+      "bindings": {
+        "0": {
+          "role": "input",
+          "target": "tensor:152.output"
+        },
+        "8": {
+          "role": "output",
+          "target": "tensor:153.output"
+        },
+        "16": {
+          "role": "trained_weights",
+          "target": "weight:block69.layer0.layer"
+        },
+        "40": {
+          "role": "wait_optional",
+          "target": "counter:152.publication_optional"
+        },
+        "56": {
+          "role": "publication_optional",
+          "target": null
+        },
+        "64": {
+          "role": "output_downsample_optional",
+          "target": null
+        },
+        "80": {
+          "role": "input_upsample_skip_optional",
+          "target": null
+        }
+      },
+      "descriptors": {}
+    },
+    {
+      "index": 154,
+      "kernel": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+      "grid": [
+        "ceil8(W0+4)*1",
+        "ceil8(H0+4)*1",
+        1
+      ],
+      "scalars": {
+        "32": "H0",
+        "36": "W0",
+        "40": 4294967292,
+        "44": 4294967292,
+        "48": 1023410176,
+        "52": 1,
+        "172": "width",
+        "176": "height",
+        "180": 0
+      },
+      "bindings": {
+        "0": {
+          "role": "input_low",
+          "target": "tensor:153.output"
+        },
+        "8": {
+          "role": "input_stem_skip",
+          "target": "tensor:001.output_full_stem_skip"
+        },
+        "24": {
+          "role": "trained_weights",
+          "target": "weight:block70.layer0.layer"
+        },
+        "104": {
+          "role": "blend_scale",
+          "target": "weight:block70.layer0.blend_scale"
+        }
+      },
+      "descriptors": {
+        "16": {
+          "role": "neural_output_surface",
+          "binding": "neural_output_surface"
+        },
+        "56": {
+          "role": "color",
+          "binding": "color"
+        },
+        "88": {
+          "role": "history_previous",
+          "binding": "history_previous"
+        },
+        "96": {
+          "role": "motion",
+          "binding": "motion"
+        }
+      }
+    }
+  ],
+  "tensors": {
+    "tensor:001.output_full_stem_skip": {
+      "shape": [
+        "H0",
+        "W0",
+        32
+      ],
+      "producer": 1,
+      "last_use": 154
+    },
+    "tensor:001.output_downsample": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 1,
+      "last_use": 2
+    },
+    "tensor:002.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 2,
+      "last_use": 3
+    },
+    "tensor:003.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 3,
+      "last_use": 4
+    },
+    "tensor:004.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 4,
+      "last_use": 5
+    },
+    "tensor:005.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 5,
+      "last_use": 150
+    },
+    "tensor:005.output_downsample_optional": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 5,
+      "last_use": 6
+    },
+    "tensor:006.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 6,
+      "last_use": 7
+    },
+    "tensor:007.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 7,
+      "last_use": 8
+    },
+    "tensor:008.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 8,
+      "last_use": 9
+    },
+    "tensor:009.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 9,
+      "last_use": 146
+    },
+    "tensor:009.output_downsample_optional": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 9,
+      "last_use": 10
+    },
+    "tensor:010.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 10,
+      "last_use": 11
+    },
+    "tensor:011.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 11,
+      "last_use": 12
+    },
+    "tensor:012.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 12,
+      "last_use": 13
+    },
+    "tensor:013.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 13,
+      "last_use": 14
+    },
+    "tensor:014.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 14,
+      "last_use": 15
+    },
+    "tensor:015.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 15,
+      "last_use": 140
+    },
+    "tensor:015.output_downsample_optional": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 15,
+      "last_use": 16
+    },
+    "tensor:016.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 16,
+      "last_use": 17
+    },
+    "tensor:017.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 17,
+      "last_use": 18
+    },
+    "tensor:018.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 18,
+      "last_use": 19
+    },
+    "tensor:019.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 19,
+      "last_use": 20
+    },
+    "tensor:020.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 20,
+      "last_use": 21
+    },
+    "tensor:021.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 21,
+      "last_use": 22
+    },
+    "tensor:022.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 22,
+      "last_use": 23
+    },
+    "tensor:023.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 23,
+      "last_use": 132
+    },
+    "tensor:023.output_downsample_optional": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 23,
+      "last_use": 25
+    },
+    "tensor:024.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 24,
+      "last_use": 25
+    },
+    "tensor:025.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 25,
+      "last_use": 27
+    },
+    "tensor:026.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 26,
+      "last_use": 27
+    },
+    "tensor:027.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 27,
+      "last_use": 29
+    },
+    "tensor:028.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 28,
+      "last_use": 29
+    },
+    "tensor:029.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 29,
+      "last_use": 31
+    },
+    "tensor:030.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 30,
+      "last_use": 31
+    },
+    "tensor:031.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 31,
+      "last_use": 33
+    },
+    "tensor:032.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 32,
+      "last_use": 33
+    },
+    "tensor:033.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 33,
+      "last_use": 35
+    },
+    "tensor:034.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 34,
+      "last_use": 35
+    },
+    "tensor:035.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 35,
+      "last_use": 37
+    },
+    "tensor:036.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 36,
+      "last_use": 37
+    },
+    "tensor:037.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 37,
+      "last_use": 39
+    },
+    "tensor:038.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 38,
+      "last_use": 39
+    },
+    "tensor:039.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 39,
+      "last_use": 41
+    },
+    "tensor:040.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 40,
+      "last_use": 41
+    },
+    "tensor:041.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 41,
+      "last_use": 43
+    },
+    "tensor:042.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 42,
+      "last_use": 43
+    },
+    "tensor:043.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 43,
+      "last_use": 45
+    },
+    "tensor:044.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 44,
+      "last_use": 45
+    },
+    "tensor:045.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 45,
+      "last_use": 47
+    },
+    "tensor:046.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 46,
+      "last_use": 47
+    },
+    "tensor:047.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 47,
+      "last_use": 49
+    },
+    "tensor:048.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 48,
+      "last_use": 49
+    },
+    "tensor:049.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 49,
+      "last_use": 51
+    },
+    "tensor:050.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 50,
+      "last_use": 51
+    },
+    "tensor:051.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 51,
+      "last_use": 53
+    },
+    "tensor:052.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 52,
+      "last_use": 53
+    },
+    "tensor:053.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 53,
+      "last_use": 55
+    },
+    "tensor:054.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 54,
+      "last_use": 55
+    },
+    "tensor:055.output_encoder_skip": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 55,
+      "last_use": 99
+    },
+    "tensor:055.output_pool": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 55,
+      "last_use": 56
+    },
+    "tensor:056.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 56,
+      "last_use": 57
+    },
+    "tensor:057.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 57,
+      "last_use": 59
+    },
+    "tensor:058.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 58,
+      "last_use": 59
+    },
+    "tensor:059.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 59,
+      "last_use": 62
+    },
+    "tensor:059.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 59,
+      "last_use": 59
+    },
+    "tensor:060.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 60,
+      "last_use": 61
+    },
+    "tensor:060.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 60,
+      "last_use": 61
+    },
+    "tensor:060.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 60,
+      "last_use": 61
+    },
+    "tensor:060.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 60,
+      "last_use": 60
+    },
+    "tensor:061.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 61,
+      "last_use": 62
+    },
+    "tensor:062.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 62,
+      "last_use": 64
+    },
+    "tensor:062.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 62,
+      "last_use": 62
+    },
+    "tensor:063.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 63,
+      "last_use": 64
+    },
+    "tensor:064.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 64,
+      "last_use": 67
+    },
+    "tensor:064.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 64,
+      "last_use": 64
+    },
+    "tensor:065.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 65,
+      "last_use": 66
+    },
+    "tensor:065.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 65,
+      "last_use": 66
+    },
+    "tensor:065.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 65,
+      "last_use": 66
+    },
+    "tensor:065.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 65,
+      "last_use": 65
+    },
+    "tensor:066.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 66,
+      "last_use": 67
+    },
+    "tensor:067.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 67,
+      "last_use": 69
+    },
+    "tensor:067.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 67,
+      "last_use": 67
+    },
+    "tensor:068.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 68,
+      "last_use": 69
+    },
+    "tensor:069.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 69,
+      "last_use": 72
+    },
+    "tensor:069.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 69,
+      "last_use": 69
+    },
+    "tensor:070.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 70,
+      "last_use": 71
+    },
+    "tensor:070.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 70,
+      "last_use": 71
+    },
+    "tensor:070.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 70,
+      "last_use": 71
+    },
+    "tensor:070.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 70,
+      "last_use": 70
+    },
+    "tensor:071.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 71,
+      "last_use": 72
+    },
+    "tensor:072.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 72,
+      "last_use": 74
+    },
+    "tensor:072.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 72,
+      "last_use": 72
+    },
+    "tensor:073.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 73,
+      "last_use": 74
+    },
+    "tensor:074.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 74,
+      "last_use": 77
+    },
+    "tensor:074.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 74,
+      "last_use": 74
+    },
+    "tensor:075.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 75,
+      "last_use": 76
+    },
+    "tensor:075.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 75,
+      "last_use": 76
+    },
+    "tensor:075.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 75,
+      "last_use": 76
+    },
+    "tensor:075.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 75,
+      "last_use": 75
+    },
+    "tensor:076.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 76,
+      "last_use": 77
+    },
+    "tensor:077.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 77,
+      "last_use": 79
+    },
+    "tensor:077.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 77,
+      "last_use": 77
+    },
+    "tensor:078.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 78,
+      "last_use": 79
+    },
+    "tensor:079.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 79,
+      "last_use": 82
+    },
+    "tensor:079.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 79,
+      "last_use": 79
+    },
+    "tensor:080.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 80,
+      "last_use": 81
+    },
+    "tensor:080.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 80,
+      "last_use": 81
+    },
+    "tensor:080.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 80,
+      "last_use": 81
+    },
+    "tensor:080.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 80,
+      "last_use": 80
+    },
+    "tensor:081.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 81,
+      "last_use": 82
+    },
+    "tensor:082.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 82,
+      "last_use": 84
+    },
+    "tensor:082.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 82,
+      "last_use": 82
+    },
+    "tensor:083.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 83,
+      "last_use": 84
+    },
+    "tensor:084.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 84,
+      "last_use": 87
+    },
+    "tensor:084.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 84,
+      "last_use": 84
+    },
+    "tensor:085.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 85,
+      "last_use": 86
+    },
+    "tensor:085.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 85,
+      "last_use": 86
+    },
+    "tensor:085.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 85,
+      "last_use": 86
+    },
+    "tensor:085.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 85,
+      "last_use": 85
+    },
+    "tensor:086.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 86,
+      "last_use": 87
+    },
+    "tensor:087.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 87,
+      "last_use": 89
+    },
+    "tensor:087.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 87,
+      "last_use": 87
+    },
+    "tensor:088.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 88,
+      "last_use": 89
+    },
+    "tensor:089.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 89,
+      "last_use": 92
+    },
+    "tensor:089.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 89,
+      "last_use": 89
+    },
+    "tensor:090.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 90,
+      "last_use": 91
+    },
+    "tensor:090.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 90,
+      "last_use": 91
+    },
+    "tensor:090.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 90,
+      "last_use": 91
+    },
+    "tensor:090.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 90,
+      "last_use": 90
+    },
+    "tensor:091.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 91,
+      "last_use": 92
+    },
+    "tensor:092.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 92,
+      "last_use": 94
+    },
+    "tensor:092.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 92,
+      "last_use": 92
+    },
+    "tensor:093.output": {
+      "shape": [
+        "LH",
+        "LW",
+        4096
+      ],
+      "producer": 93,
+      "last_use": 94
+    },
+    "tensor:094.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 94,
+      "last_use": 97
+    },
+    "tensor:094.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 94,
+      "last_use": 94
+    },
+    "tensor:095.output_q": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 95,
+      "last_use": 96
+    },
+    "tensor:095.output_k": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 95,
+      "last_use": 96
+    },
+    "tensor:095.output_v": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 95,
+      "last_use": 96
+    },
+    "tensor:095.reduction_scratch": {
+      "shape": [
+        "LH",
+        "LW",
+        6144
+      ],
+      "producer": 95,
+      "last_use": 95
+    },
+    "tensor:096.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 96,
+      "last_use": 97
+    },
+    "tensor:097.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 97,
+      "last_use": 98
+    },
+    "tensor:097.reduction_scratch_optional": {
+      "shape": [
+        "LH",
+        "LW",
+        2048
+      ],
+      "producer": 97,
+      "last_use": 97
+    },
+    "tensor:098.output": {
+      "shape": [
+        "LH",
+        "LW",
+        1024
+      ],
+      "producer": 98,
+      "last_use": 99
+    },
+    "tensor:099.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 99,
+      "last_use": 101
+    },
+    "tensor:099.scratch": {
+      "shape": [
+        "H5",
+        "W5",
+        2048
+      ],
+      "producer": 99,
+      "last_use": 99
+    },
+    "tensor:099.scratch_secondary": {
+      "shape": [
+        "H5",
+        "W5",
+        2048
+      ],
+      "producer": 99,
+      "last_use": 99
+    },
+    "tensor:100.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 100,
+      "last_use": 101
+    },
+    "tensor:101.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 101,
+      "last_use": 103
+    },
+    "tensor:102.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 102,
+      "last_use": 103
+    },
+    "tensor:103.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 103,
+      "last_use": 105
+    },
+    "tensor:104.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 104,
+      "last_use": 105
+    },
+    "tensor:105.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 105,
+      "last_use": 107
+    },
+    "tensor:106.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 106,
+      "last_use": 107
+    },
+    "tensor:107.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 107,
+      "last_use": 109
+    },
+    "tensor:108.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 108,
+      "last_use": 109
+    },
+    "tensor:109.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 109,
+      "last_use": 111
+    },
+    "tensor:110.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 110,
+      "last_use": 111
+    },
+    "tensor:111.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 111,
+      "last_use": 113
+    },
+    "tensor:112.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 112,
+      "last_use": 113
+    },
+    "tensor:113.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 113,
+      "last_use": 115
+    },
+    "tensor:114.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 114,
+      "last_use": 115
+    },
+    "tensor:115.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 115,
+      "last_use": 117
+    },
+    "tensor:116.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 116,
+      "last_use": 117
+    },
+    "tensor:117.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 117,
+      "last_use": 119
+    },
+    "tensor:118.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 118,
+      "last_use": 119
+    },
+    "tensor:119.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 119,
+      "last_use": 121
+    },
+    "tensor:120.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 120,
+      "last_use": 121
+    },
+    "tensor:121.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 121,
+      "last_use": 123
+    },
+    "tensor:122.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 122,
+      "last_use": 123
+    },
+    "tensor:123.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 123,
+      "last_use": 125
+    },
+    "tensor:124.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 124,
+      "last_use": 125
+    },
+    "tensor:125.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 125,
+      "last_use": 127
+    },
+    "tensor:126.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 126,
+      "last_use": 127
+    },
+    "tensor:127.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 127,
+      "last_use": 129
+    },
+    "tensor:128.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 128,
+      "last_use": 129
+    },
+    "tensor:129.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 129,
+      "last_use": 131
+    },
+    "tensor:130.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 130,
+      "last_use": 131
+    },
+    "tensor:131.output": {
+      "shape": [
+        "H5",
+        "W5",
+        512
+      ],
+      "producer": 131,
+      "last_use": 132
+    },
+    "tensor:132.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 132,
+      "last_use": 133
+    },
+    "tensor:133.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 133,
+      "last_use": 134
+    },
+    "tensor:134.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 134,
+      "last_use": 135
+    },
+    "tensor:135.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 135,
+      "last_use": 136
+    },
+    "tensor:136.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 136,
+      "last_use": 137
+    },
+    "tensor:137.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 137,
+      "last_use": 138
+    },
+    "tensor:138.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 138,
+      "last_use": 139
+    },
+    "tensor:139.output": {
+      "shape": [
+        "H4",
+        "W4",
+        256
+      ],
+      "producer": 139,
+      "last_use": 140
+    },
+    "tensor:140.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 140,
+      "last_use": 141
+    },
+    "tensor:141.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 141,
+      "last_use": 142
+    },
+    "tensor:142.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 142,
+      "last_use": 143
+    },
+    "tensor:143.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 143,
+      "last_use": 144
+    },
+    "tensor:144.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 144,
+      "last_use": 145
+    },
+    "tensor:145.output": {
+      "shape": [
+        "H3",
+        "W3",
+        128
+      ],
+      "producer": 145,
+      "last_use": 146
+    },
+    "tensor:146.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 146,
+      "last_use": 147
+    },
+    "tensor:147.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 147,
+      "last_use": 148
+    },
+    "tensor:148.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 148,
+      "last_use": 149
+    },
+    "tensor:149.output": {
+      "shape": [
+        "H2",
+        "W2",
+        64
+      ],
+      "producer": 149,
+      "last_use": 150
+    },
+    "tensor:150.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 150,
+      "last_use": 151
+    },
+    "tensor:151.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 151,
+      "last_use": 152
+    },
+    "tensor:152.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 152,
+      "last_use": 153
+    },
+    "tensor:153.output": {
+      "shape": [
+        "H1",
+        "W1",
+        32
+      ],
+      "producer": 153,
+      "last_use": 154
+    }
+  }
+}

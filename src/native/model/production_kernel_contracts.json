@@ -1,0 +1,470 @@
+{
+  "schema": "phoenix-native-production-kernels/1",
+  "architecture": "sm_120",
+  "kernels": [
+    {
+      "source": "src/native/kernels/production/optimized/decoder/input_upsampling.cu",
+      "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+      "entry": "phoenix_decoder_input_upsampling",
+      "parameter_bytes": 80,
+      "block": [
+        32,
+        2,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/feed_forward.cu",
+      "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_feed_forward",
+      "parameter_bytes": 56,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/feed_forward_input_view_tile_sync.cu",
+      "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync",
+      "parameter_bytes": 56,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/feed_forward_projection.cu",
+      "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/feed_forward_projection_input_view.cu",
+      "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/final_head_wait.cu",
+      "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_final_head_wait",
+      "parameter_bytes": 40,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/projection.cu",
+      "name": "cc_split_swin_16h_proj_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_projection",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/projection_output_view_wait.cu",
+      "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_projection_output_view_wait",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/projection_pool.cu",
+      "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_projection_pool",
+      "parameter_bytes": 80,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/query_key_value.cu",
+      "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "entry": "phoenix_global_attention_split_heads_512_query_key_value",
+      "parameter_bytes": 56,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/output/reconstruction.cu",
+      "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+      "entry": "phoenix_output_reconstruction",
+      "parameter_bytes": 184,
+      "block": [
+        32,
+        1,
+        1
+      ],
+      "ptx_options": {
+        "texture_mode": "independent",
+        "max_registers": 128
+      }
+    },
+    {
+      "source": "src/native/kernels/production/optimized/input/preparation.cu",
+      "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+      "entry": "phoenix_input_preparation",
+      "parameter_bytes": 264,
+      "block": [
+        32,
+        1,
+        1
+      ],
+      "ptx_options": {
+        "texture_mode": "independent",
+        "max_registers": 128
+      }
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_32/attention.cu",
+      "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "entry": "phoenix_window_attention_channels_32_attention",
+      "parameter_bytes": 96,
+      "block": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_32/downsample.cu",
+      "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+      "entry": "phoenix_window_attention_channels_32_downsample",
+      "parameter_bytes": 96,
+      "block": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_32/input_view.cu",
+      "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_32_input_view",
+      "parameter_bytes": 96,
+      "block": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_32/output_view.cu",
+      "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+      "entry": "phoenix_window_attention_channels_32_output_view",
+      "parameter_bytes": 96,
+      "block": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_32/upsample.cu",
+      "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_32_upsample",
+      "parameter_bytes": 96,
+      "block": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_64/attention.cu",
+      "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "entry": "phoenix_window_attention_channels_64_attention",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        2,
+        1
+      ],
+      "assembler_optimization": 1
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_64/downsample.cu",
+      "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "entry": "phoenix_window_attention_channels_64_downsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        2,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_64/input_view.cu",
+      "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_64_input_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        2,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_64/output_view.cu",
+      "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "entry": "phoenix_window_attention_channels_64_output_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        2,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_64/upsample.cu",
+      "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_64_upsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        2,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_128/attention.cu",
+      "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "entry": "phoenix_window_attention_channels_128_attention",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        4,
+        1
+      ],
+      "assembler_optimization": 1
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_128/downsample.cu",
+      "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+      "entry": "phoenix_window_attention_channels_128_downsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        4,
+        1
+      ],
+      "assembler_optimization": 1
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_128/input_view.cu",
+      "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_128_input_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_128/output_view.cu",
+      "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+      "entry": "phoenix_window_attention_channels_128_output_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_128/upsample.cu",
+      "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_128_upsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_256/attention.cu",
+      "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "entry": "phoenix_window_attention_channels_256_attention",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_256/downsample.cu",
+      "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+      "entry": "phoenix_window_attention_channels_256_downsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_256/input_view.cu",
+      "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_256_input_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_256/output_view.cu",
+      "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+      "entry": "phoenix_window_attention_channels_256_output_view",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        8,
+        1
+      ],
+      "assembler_optimization": 1
+    },
+    {
+      "source": "src/native/kernels/production/optimized/window_attention/channels_256/upsample.cu",
+      "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+      "entry": "phoenix_window_attention_channels_256_upsample",
+      "parameter_bytes": 88,
+      "block": [
+        32,
+        8,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/attention.cu",
+      "name": "cc_vit_1d_attention_chained_fp8",
+      "entry": "phoenix_global_attention_transformer_attention",
+      "parameter_bytes": 64,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/feed_forward_contract.cu",
+      "name": "cc_vit_1d_ffn_contract_chained_fp8",
+      "entry": "phoenix_global_attention_transformer_feed_forward_contract",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/feed_forward_expand.cu",
+      "name": "cc_vit_1d_ffn_expand_chained_fp8",
+      "entry": "phoenix_global_attention_transformer_feed_forward_expand",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/feed_forward_expand_publish.cu",
+      "name": "cc_vit_1d_ffn_expand_publish_fp8",
+      "entry": "phoenix_global_attention_transformer_feed_forward_expand_publish",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ],
+      "assembler_optimization": 1
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/projection.cu",
+      "name": "cc_vit_1d_projection_chained_fp8",
+      "entry": "phoenix_global_attention_transformer_projection",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/projection_wait.cu",
+      "name": "cc_vit_1d_projection_wait_fp8",
+      "entry": "phoenix_global_attention_transformer_projection_wait",
+      "parameter_bytes": 72,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/global_attention/transformer/query_key_value.cu",
+      "name": "cc_vit_1d_qkv_chained_fp8",
+      "entry": "phoenix_global_attention_transformer_query_key_value",
+      "parameter_bytes": 80,
+      "block": [
+        32,
+        4,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/layout/tokens_to_image.cu",
+      "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+      "entry": "phoenix_tokens_to_image",
+      "parameter_bytes": 24,
+      "block": [
+        256,
+        1,
+        1
+      ]
+    },
+    {
+      "source": "src/native/kernels/production/optimized/layout/image_to_tokens.cu",
+      "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+      "entry": "phoenix_image_to_tokens",
+      "parameter_bytes": 24,
+      "block": [
+        256,
+        1,
+        1
+      ]
+    }
+  ]
+}

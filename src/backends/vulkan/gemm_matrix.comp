@@ -1,0 +1,212 @@
+#version 450
+// Derived from Intel NR gemm_resident.comp, Apache-2.0 (third_party/intel_nr/NOTICE).
+// Phoenix: capability-selected tile height, zero-padded boundary loads, unchanged
+// resident ABI and Phoenix publication arithmetic. No device-specific lane layout.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_shader_subgroup_basic : require
+#include "publish.glsl"
+#ifndef MATRIX_M
+#define MATRIX_M 16
+#endif
+#ifdef FP8_K
+#include "phoenix_fp8.glsl"
+#endif
+layout(local_size_x = 32) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+// Stable resident packet: a/b inputs, c output, d auxiliary, m/n/k GEMM
+// dimensions, sa/sb/sc batch strides, lda/ldb/ldc row strides in elements.
+// p0..p3 are scalar parameters; residual_cos carries the optional extra view.
+layout(push_constant, scalar) uniform Push {
+    HalfBuf a, b;
+    FloatBuf c, d;
+    uint m, n, k, batch, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+#include "specialize.glsl"
+#include "packed_weight.glsl"
+shared float16_t a_tile[MATRIX_M * 16];
+shared float16_t b_tile[16 * 16];
+shared float output_tile[MATRIX_M * 16];
+// Each subgroup owns one output tile. Boundary loads contribute zeros;
+// the deterministic image-boundary projections retain ascending K/FMA order,
+// while inner layers use cooperative matrix multiplication and publication.
+void main() {
+    uint flags = operation_flags();
+    uint left_row_stride = pc.lda == 0u ? pc.k : pc.lda;
+    uint right_row_stride = pc.ldb == 0u ? ((flags & 1u) != 0u ? pc.k : pc.n) : pc.ldb;
+    uint output_row_stride = pc.ldc == 0u ? pc.n : pc.ldc;
+    uint row_tiles = (pc.m + MATRIX_M - 1u) / MATRIX_M;
+    uint tile = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
+    uint batch_index = tile / row_tiles;
+    if (batch_index >= max(pc.batch, 1u))
+        return;
+    uint left_batch_offset = batch_index * pc.sa, right_batch_offset = batch_index * pc.sb,
+         output_batch_offset = batch_index * pc.sc;
+    uint lane = gl_LocalInvocationID.x, rowbase = (tile % row_tiles) * MATRIX_M,
+         colbase = gl_WorkGroupID.x * 16u;
+    // The unquantized image lift publishes half values. Reordering its FP32
+    // reduction can cross a half midpoint, which later FP8 layers amplify.
+    // The small unquantized 32->16 output head also feeds FP16 history. Keep
+    // both boundary projections deterministic while matrix ops run inside.
+    uint epilogue = (flags >> 8u) & 15u;
+    if (epilogue == 4u || (epilogue == 0u && pc.k == 32u && pc.n == 16u)) {
+        // Four columns share each ordered input load in registers. Compact
+        // image heads use all lanes on their four live output columns.
+        for (uint tile_element = lane; tile_element < MATRIX_M * 4u; tile_element += 32u) {
+            uint row = rowbase + tile_element / 4u, column = colbase + tile_element % 4u;
+            if (row >= pc.m || column >= pc.n || ((flags & 0x10000u) != 0u && column >= 4u))
+                continue;
+            precise float values[4] = float[4](0.0, 0.0, 0.0, 0.0);
+            uint columns = (flags & 0x10000u) != 0u ? 1u : 4u;
+            for (uint reduction_index = 0u; reduction_index < pc.k; ++reduction_index) {
+                float left_value =
+                    float(pc.a.v[left_batch_offset + row * left_row_stride + reduction_index]);
+                for (uint inner_index = 0u; inner_index < columns; ++inner_index) {
+                    uint output_column = column + inner_index * 4u;
+                    if (output_column < pc.n) {
+                        float right_value =
+                            matrix_b(right_batch_offset +
+                                     ((flags & 1u) != 0u
+                                          ? output_column * right_row_stride + reduction_index
+                                          : reduction_index * right_row_stride + output_column));
+                        values[inner_index] = fma(left_value, right_value, values[inner_index]);
+                    }
+                }
+            }
+            for (uint inner_index = 0u; inner_index < columns; ++inner_index) {
+                uint output_column = column + inner_index * 4u;
+                if (output_column >= pc.n)
+                    continue;
+                float value = publish(epilogue, values[inner_index]);
+                uint output_offset = output_batch_offset + row * output_row_stride + output_column;
+                if ((flags & 0x1000u) != 0u)
+                    HalfBuf(uint64_t(pc.c)).v[output_offset] = float16_t(half_round(value));
+                else
+                    pc.c.v[output_offset] = value;
+            }
+        }
+        return;
+    }
+    coopmat<float, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseAccumulator> sum =
+        coopmat<float, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseAccumulator>(0.0);
+#ifdef FP8_K
+    const uint step_k = FP8_K;
+#else
+    const uint step_k = 16u;
+#endif
+    for (uint kb = 0u; kb < pc.k; kb += step_k) {
+#ifndef FP8_K
+        // Aligned interior tiles can load operands directly. The old path copied
+        // every tile through shared memory and fenced twice per K=16 step.
+        if ((flags & 0x2000000u) == 0u && rowbase + MATRIX_M <= pc.m && colbase + 16u <= pc.n &&
+            kb + 16u <= pc.k) {
+            coopmat<float16_t, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseA> a;
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
+            coopMatLoad(a, pc.a.v, left_batch_offset + rowbase * left_row_stride + kb,
+                        left_row_stride, gl_CooperativeMatrixLayoutRowMajor);
+            if ((flags & 1u) != 0u)
+                coopMatLoad(b, pc.b.v, right_batch_offset + colbase * right_row_stride + kb,
+                            right_row_stride, gl_CooperativeMatrixLayoutColumnMajor);
+            else
+                coopMatLoad(b, pc.b.v, right_batch_offset + kb * right_row_stride + colbase,
+                            right_row_stride, gl_CooperativeMatrixLayoutRowMajor);
+            sum = coopMatMulAdd(a, b, sum);
+            continue;
+        }
+#endif
+#ifdef FP8_K
+        // Lossless narrowing only. Some boundary/transition operands are true
+        // FP16, so a tile that cannot be represented exactly keeps FP16 math.
+        if (lane == 0u)
+            fp8_inexact = 0u;
+        barrier();
+        for (uint tile_element = lane; tile_element < 16u * FP8_K; tile_element += 32u) {
+            uint row = rowbase + tile_element / FP8_K, reduction_index = kb + tile_element % FP8_K;
+            float left_value =
+                row < pc.m && reduction_index < pc.k
+                    ? float(pc.a.v[left_batch_offset + row * left_row_stride + reduction_index])
+                    : 0.0;
+            uint column = colbase + tile_element / FP8_K;
+            float right_value =
+                column < pc.n && reduction_index < pc.k
+                    ? matrix_b(right_batch_offset +
+                               ((flags & 1u) != 0u ? column * right_row_stride + reduction_index
+                                                   : reduction_index * right_row_stride + column))
+                    : 0.0;
+            a_fp8[tile_element] = floate4m3_t(left_value);
+            b_fp8[tile_element] = floate4m3_t(right_value);
+            if (float(a_fp8[tile_element]) != left_value ||
+                float(b_fp8[tile_element]) != right_value)
+                atomicOr(fp8_inexact, 1u);
+        }
+        barrier();
+        if (fp8_inexact == 0u) {
+            PHX_FRAG_A8 a8;
+            PHX_FRAG_B8 b8;
+            PHX_LOAD_A8(a8, a_fp8);
+            PHX_LOAD_B8(b8, b_fp8);
+            sum = coopMatMulAdd(a8, b8, sum);
+            barrier();
+            continue;
+        }
+#endif
+        for (uint sub_k = 0u; sub_k < step_k; sub_k += 16u) {
+            for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
+                uint row = rowbase + tile_element / 16u,
+                     reduction_index = kb + sub_k + tile_element % 16u;
+                a_tile[tile_element] =
+                    row < pc.m && reduction_index < pc.k
+                        ? pc.a.v[left_batch_offset + row * left_row_stride + reduction_index]
+                        : float16_t(half_round(0));
+            }
+            for (uint tile_element = lane; tile_element < 256u; tile_element += 32u) {
+                uint reduction_index = kb + sub_k + tile_element / 16u,
+                     column = colbase + tile_element % 16u;
+                b_tile[tile_element] =
+                    reduction_index < pc.k && column < pc.n
+                        ? float16_t(matrix_b(right_batch_offset +
+                                             ((flags & 1u) != 0u
+                                                  ? column * right_row_stride + reduction_index
+                                                  : reduction_index * right_row_stride + column)))
+                        : float16_t(half_round(0));
+            }
+            barrier();
+            coopmat<float16_t, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseA> a;
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
+            coopMatLoad(a, a_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+            coopMatLoad(b, b_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+            sum = coopMatMulAdd(a, b, sum);
+            barrier();
+        }
+    }
+    coopMatStore(sum, output_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
+        uint row = rowbase + tile_element / 16u, column = colbase + tile_element % 16u;
+        if (row >= pc.m || column >= pc.n || ((flags & 0x10000u) != 0u && column >= 4u))
+            continue;
+        float value = publish((flags >> 8u) & 15u, output_tile[tile_element]);
+        uint output_offset = output_batch_offset + row * output_row_stride + column;
+        if ((flags & 0x1000u) != 0u)
+            HalfBuf(uint64_t(pc.c)).v[output_offset] = float16_t(half_round(value));
+        else
+            pc.c.v[output_offset] = value;
+    }
+}

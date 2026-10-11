@@ -1,0 +1,148 @@
+# Build DLSS5 Phoenix
+
+Build from this repository with Python 3.11 or newer, Visual Studio C++ x64 build tools and Windows SDK 10.0.26100 or newer. Python is used for building; the compiled runners do not require it at runtime.
+
+Provide NVIDIA NGX SDK headers separately. They are not included here. Native RTX kernels also require a CUDA toolkit supporting the architecture in `src/native/model/production_kernel_contracts.json` (currently `sm_120`).
+
+See [external dependencies and tested versions](third_party/EXTERNAL_DEPENDENCIES.md)
+for SDK installation sources, required runtime libraries and optional backend components.
+
+Run `python tools/audit_release.py --git-visible` in a Git checkout to check that
+every source-package file is in Git's index and that model/binary payloads are
+excluded. In a source ZIP without Git, run the same command without `--git-visible`.
+
+## Addon and tests
+
+From the repository root in PowerShell:
+
+```powershell
+python tools/build_addon.py addon_release --ngx-sdk C:\SDK\NGX\include --production-only
+python -m unittest discover -s tests -p 'test_*.py'
+python -m unittest discover -s tests -p '*tests.py'
+```
+
+Use fresh output names on each build. The addon builder runs 11 C++ contract suites and a D3D12 WARP capture test before compiling `build/addon_release/phoenix.addon64`. WARP tests capture allocation and fence retirement without loading a model or running neural inference. `--production-only` explicitly omits the separate diagnostic addon. When its source is absent, the default also builds only the production addon.
+
+## Native RTX kernels
+
+```powershell
+if (-not $env:CUDA_PATH) { throw 'Set CUDA_PATH to your installed CUDA Toolkit directory.' }
+python tools/production_build_native_kernels.py native_release --compiler "$env:CUDA_PATH/bin/nvcc.exe" --jobs 4
+```
+
+This builds the 41 selected production kernels and their runtime graph/manifest under `build/native_release`. The repository contains only their source dependency set; alternative tuning profiles are not required.
+
+All 41 kernels build from checked-in CUDA source and local helper headers. The input preparation and output reconstruction stages compile their `.cu` files to `kernel.ptx` inside the build directory, then assemble that generated PTX to `kernel.cubin`. The builder preserves independent D3D12 texture/sampler addressing and the selected 128-register budget for these two stages. These settings are recorded in `production_kernel_contracts.json`; they are required to reproduce the selected production code.
+
+PTX and cubins are generated artifacts and are excluded from Git and source packages. Rebuilding requires no historical `compact_neural_render` folders, private source includes, extracted model, or pre-existing PTX. Model loading remains a separate runtime step.
+
+The catalogue also records the selected assembler optimization level where it
+differs from the default. These are production build requirements, not a tuning
+menu. Device debug tables remain in generated build files and are omitted from
+shipping cubins.
+
+The native runner queries GPU upload-heap support on the selected device. When
+available, immutable weights are written directly into GPU memory before the
+first submission. Otherwise it uses a staging upload and releases that resource
+only after the submission fence completes. Older devices and Windows runtimes
+can use this fallback; the newer SDK is needed for the build declarations.
+
+## Portable C++ runners
+
+The CPU, runtime and broker need only MSVC and the Windows SDK:
+
+```powershell
+python tools/build_portable_cpp.py runners_release --only cpu runtime broker runner device_query d3d12_transport runtime_contracts client_contracts
+& ./build/runners_release/phoenix_cpp_runtime_contracts.exe
+```
+
+Additional targets are `cuda`, `hip`, `sycl`, `vulkan_adapter`, `d3d12_transport` and `vulkan_shaders`. Select them with `--only` alongside the core targets. CUDA uses `--cuda-compiler` and `--cuda-arch`; HIP requires `--hip-sdk` and the intended `--hip-arch`; SYCL requires `--sycl-compiler`. Vulkan shaders require `--vulkan-deps` pointing to a directory containing `headers/include/vulkan/vulkan.h` and `glslang/bin/glslang.exe`. Vendor toolchains and runtime dependencies are supplied separately.
+
+## Runtime packaging
+
+A successful compilation does not establish inference correctness or make a
+self-contained game install. The validation tools and synthetic input recipes
+are checked in; they do not need the former development folder or saved captures.
+The model DLL remains an explicit external input. The supplied regression hashes
+cover the pinned model listed in `third_party/EXTERNAL_DEPENDENCIES.md`.
+
+Build the offline native probe and embedded-resource test:
+
+```powershell
+python tools/build_validation_tools.py validation_tools --ngx-sdk C:\SDK\NGX\include
+```
+
+Create `build/weight_source.json` locally, for example:
+
+```json
+{"kind":"nvidia_dll","path":"C:/Models/nvngx_dlssnr.dll","sha256":"e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"}
+```
+
+Assemble and validate a CPU runtime package:
+
+```powershell
+python native_runtime/package_build.py runners_release runners_package
+& ./build/runners_release/phoenix_cpp_client_contracts.exe ./build/runners_package ./build/weight_source.json ./build/client_contracts.json
+python tools/prepare_validation_fixtures.py ./build/runner_inputs --runtime ./build/runners_package --weight-source ./build/weight_source.json --routes ./tests/fixtures/cpu_routes.example.json
+python tools/validate_runners.py --runtime ./build/runners_package --runner ./build/runners_release/phoenix_cpp_runner.exe --jobs ./build/runner_inputs/jobs --output ./build/runner_validation
+python tools/validate_native.py --bundle ./build/native_release --probe ./build/validation_tools/native_inference_probe.exe --weight-source ./build/weight_source.json --output ./build/native_validation
+```
+
+`prepare_validation_fixtures.py` requires NumPy only for offline generation.
+It reconstructs the random inputs, motion, depth and validity masks and verifies
+every input checksum before creating jobs. `validate_runners.py` requires a
+saved output hash for every case, checks the full case count and module audit,
+and refuses an empty job set. A success receipt enables only routes actually
+tested. Failure does not produce a successful validation manifest.
+
+Before running these checks, verify the DLL with `Get-FileHash -Algorithm SHA256`
+as shown in [README.md](README.md). A different DLL, including a newer release,
+does not match the saved regression outputs merely by changing the configured digest.
+
+For more routes, build their targets and add matching vendor runtimes when packaging.
+Discover device IDs using:
+
+```powershell
+& ./build/runners_release/phoenix_cpp_devices.exe ./build/runners_package
+```
+
+Append `private-cpu` only for a package built with `opencl_cpu_proxy` and
+`--opencl-cpu PRIVATE_ICD_DIRECTORY`. That option requires both the Intel CPU ICD
+and OpenCL proxy under the package's `opencl_cpu` directory. Unbuilt optional
+providers may appear under `errors` without invalidating available device IDs.
+Pass a local JSON mapping names (`cpu`, `cuda`, `hip_amd`, `sycl_cpu`, `vulkan_amd`,
+`vulkan_nvidia`) to those IDs as `--routes`. The reference hardware is documented
+in `tests/fixtures/runner_regressions.json`; another GPU/toolchain may need its own
+reviewed numerical reference. A mismatch must be investigated, not bypassed.
+
+`validate_native.py` generates inputs for all four production extents, runs 128
+frames per extent and compares reset and history readbacks with saved Phoenix
+native output hashes. It checks debug errors, GPU execution and kernel retirement
+before marking the bundle validated. This is Phoenix regression equivalence,
+not equivalence to NVIDIA's renderer. `--cpu-only` on the standalone native probe
+checks geometry only and cannot satisfy inference validation.
+
+After both validations pass, embed the packages:
+
+```powershell
+python tools/build_addon.py addon_embedded --ngx-sdk C:\SDK\NGX\include --production-only --embed-runtime C:\Packages\ValidatedRunners --embed-native C:\Packages\ValidatedNative
+```
+
+For the example above use `./build/runners_package` and `./build/native_release`
+as the embedding paths. Check the final addon resources in a fresh explicit cache:
+
+```powershell
+& ./build/validation_tools/embedded_runtime_tests.exe ./build/addon_embedded/phoenix.addon64 ./build/resource_cache ./build/resource_test.json
+```
+
+`tools/embed_runtime.py` requires validation manifests and embeds runner libraries and kernels. The NVIDIA model DLL remains separate. No NVIDIA DLL or extracted model is included in the repository.
+
+The addon builder writes `report.json` with separate compilation, contract-test
+and artifact-verification results and a `failed_stage` on failure. If linking
+finishes but the addon disappears or cannot be read, inspect that receipt, the
+build logs and security history. Do not treat compiler completion as a successful
+package: the final addon must be readable and pass the embedded-resource test.
+
+The game also needs compatible ReShade with addon support and a `Phoenix.json` configuration. Without configuration the panel can appear while inference remains inactive. The addon supports selecting a compatible NVIDIA DLL or a local model folder; model selection does not replace the runner/kernel package.
+
+Normal gameplay does not require a readiness marker and performs no marker-file checks. Processing uses the existing configuration, enable controls and runtime initialization checks. For externally controlled tests, set `"require_gpu_ready_file": true` in `Phoenix.json`; this requires `production_game_phoenix_gpu.ready` in the configured sandbox directory, and removing that marker pauses processing. Diagnostic builds retain marker control by default; set the option to `false` to disable it explicitly. The marker is only an external test switch, not model validation.

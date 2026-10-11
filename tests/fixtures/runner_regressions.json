@@ -1,0 +1,1563 @@
+{
+  "schema": "phoenix-runner-regressions/1",
+  "model_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "generator": "numpy-PCG64-1059-uniform-0.05-0.8-float32",
+  "scope": "Saved per-route Phoenix regression outputs; not NVIDIA DLSS parity or validation of untested hardware.",
+  "reference_hardware": "Ryzen 9 9950X3D, RTX 5080, Radeon integrated graphics; route IDs selected locally.",
+  "jobs": [
+    {
+      "fixture": "small_a",
+      "route": "cpu",
+      "backend": "cpu",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "small_a",
+      "route": "cuda",
+      "backend": "cuda",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "small_a",
+      "route": "hip_amd",
+      "backend": "hip",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "small_a",
+      "route": "sycl_cpu",
+      "backend": "sycl",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "small_a",
+      "route": "vulkan_amd",
+      "backend": "vulkan",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "small_a",
+      "route": "vulkan_nvidia",
+      "backend": "vulkan",
+      "width": 96,
+      "height": 64,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "605275f3451be7b2fe15dff3c17ef260eefe61a2c4bfd66988f61634f786bee3",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e"
+          }
+        },
+        {
+          "name": "fractional_motion_mask",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 1
+          },
+          "expected_sha256": "81be4df647dea5d50262ae90091cbb1cf011b8b2d5315e17833f8a337cfc34b8",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "5b3f823465346acec5ab3ba8a8bd3183bce9be856c9156369782a1cf255656a8",
+            "depth": "0d689465a460c066d3b7ab9660b7cd05e35700f44cc5c33dbff2deff7142098e",
+            "validity": "7f658bf26d6b98b2a7a7b8eb6e499b0aeda0842824907e1186a7b5ac8680d863"
+          }
+        },
+        {
+          "name": "explicit_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 2
+          },
+          "expected_sha256": "7dceccc023989486d4352862f3318dedcbb0982c53e478656bb2af20a0118d43",
+          "planes": {
+            "color": "733c46ab8f6349669a551404f47abcaadfe7304b86738f0e6d073d98e2c14511",
+            "motion": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "cpu",
+      "backend": "cpu",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "cuda",
+      "backend": "cuda",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "hip_amd",
+      "backend": "hip",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "sycl_cpu",
+      "backend": "sycl",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "vulkan_amd",
+      "backend": "vulkan",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "odd_a",
+      "route": "vulkan_nvidia",
+      "backend": "vulkan",
+      "width": 321,
+      "height": 193,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "5307d4ada16244de0f0c5be906c57c7da0baca50ad1d5044610125e103d999e2",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b"
+          }
+        },
+        {
+          "name": "zero_motion_history",
+          "metadata": {
+            "reset": false,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "774bde89e4ecf158fb67cac5c2616d6567d7865d19b3539a3342a98ee54d3898",
+          "planes": {
+            "color": "68cc2d88e6e988a3c99ff69c5bc5481ed7609c77fe8a8ab4a636e231f438775b",
+            "motion": "d04ae10881ac7467d0af2d2ef63972318b77af630152d24a81c2b43e154bfaf2",
+            "depth": "ac45726ea062d3d411a2070f778fb97e979b76cbbc83356d37c3cac69f67afea"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "cpu",
+      "backend": "cpu",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "cuda",
+      "backend": "cuda",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "hip_amd",
+      "backend": "hip",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "sycl_cpu",
+      "backend": "sycl",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "vulkan_amd",
+      "backend": "vulkan",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "hd_a",
+      "route": "vulkan_nvidia",
+      "backend": "vulkan",
+      "width": 1920,
+      "height": 1080,
+      "cases": [
+        {
+          "name": "first_reset",
+          "metadata": {
+            "reset": true,
+            "controls": {
+              "intensity": 1.0,
+              "style": 0,
+              "local_tone": 1.0,
+              "local_structure": 1.0,
+              "skin_structure": -1.0,
+              "auto_mask": true,
+              "seed": 0,
+              "reset": false
+            },
+            "repeats": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "passes": 1,
+            "motion_from_frame": 0
+          },
+          "expected_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a",
+          "planes": {
+            "color": "484e43ae965df52408de8a172ba02d9ce97a26e2493cd99e8002dea38346fdef"
+          }
+        }
+      ]
+    }
+  ]
+}

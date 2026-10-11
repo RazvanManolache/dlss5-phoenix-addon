@@ -1,0 +1,133 @@
+#pragma once
+#include "backend.h"
+#include <algorithm>
+#include <map>
+#include <numeric>
+
+namespace phoenix_cpp {
+// Logical tensor addresses exist only during graph construction. They never
+// reach a backend; the immutable command list is relocated before execution.
+class ScratchPlan {
+    static constexpr uintptr_t logical_address_base = uintptr_t(1) << 62;
+    static constexpr unsigned logical_address_stride_bits = 34;
+    struct TensorLifetime {
+        uint64_t bytes, offset = 0;
+        size_t first = SIZE_MAX, last = 0;
+    };
+    std::vector<TensorLifetime> lifetimes_;
+    size_t index(void* address) const {
+        return size_t((uintptr_t(address) - logical_address_base) >> logical_address_stride_bits);
+    }
+
+  public:
+    Allocation reserve(uint64_t bytes) {
+        demand(bytes && bytes < (uint64_t(1) << logical_address_stride_bits),
+               "Logical scratch extent");
+        demand(lifetimes_.size() < (uint64_t(1) << 20), "Logical scratch capacity");
+        auto address =
+            logical_address_base + (uintptr_t(lifetimes_.size()) << logical_address_stride_bits);
+        lifetimes_.push_back({bytes});
+        return {reinterpret_cast<void*>(address), bytes, 0};
+    }
+    bool contains(void* address) const {
+        return uintptr_t(address) >= logical_address_base && index(address) < lifetimes_.size();
+    }
+    void touch(void* address, size_t command) {
+        if (!contains(address))
+            return;
+        auto& range = lifetimes_[index(address)];
+        range.first = std::min(range.first, command);
+        range.last = std::max(range.last, command);
+    }
+    // Best-fit allocation over command lifetimes. An input and output used by
+    // the same command cannot alias: reuse requires last_use < first_use.
+    // Coalescing adjacent free ranges avoids accumulating one arena per tensor.
+    uint64_t layout() {
+        std::vector<size_t> order;
+        for (size_t iteration_index = 0; iteration_index < lifetimes_.size(); ++iteration_index)
+            if (lifetimes_[iteration_index].first != SIZE_MAX)
+                order.push_back(iteration_index);
+        std::stable_sort(order.begin(), order.end(), [&](size_t left_index, size_t right_index) {
+            return lifetimes_[left_index].first < lifetimes_[right_index].first;
+        });
+        std::vector<size_t> active_lifetimes;
+        std::map<uint64_t, uint64_t> free_ranges;
+        uint64_t arena_extent = 0, peak_extent = 0;
+        auto aligned_bytes = [](uint64_t bytes) { return (bytes + 255) & ~uint64_t(255); };
+        auto release_range = [&](uint64_t offset, uint64_t bytes) {
+            auto next = free_ranges.lower_bound(offset);
+            if (next != free_ranges.begin()) {
+                auto previous = std::prev(next);
+                if (previous->first + previous->second == offset) {
+                    offset = previous->first;
+                    bytes += previous->second;
+                    free_ranges.erase(previous);
+                }
+            }
+            next = free_ranges.lower_bound(offset);
+            if (next != free_ranges.end() && offset + bytes == next->first) {
+                bytes += next->second;
+                free_ranges.erase(next);
+            }
+            if (offset + bytes == arena_extent) {
+                arena_extent = offset;
+                while (!free_ranges.empty()) {
+                    auto last = std::prev(free_ranges.end());
+                    if (last->first + last->second != arena_extent)
+                        break;
+                    arena_extent = last->first;
+                    free_ranges.erase(last);
+                }
+            } else
+                demand(free_ranges.emplace(offset, bytes).second,
+                       "Overlapping scratch free ranges");
+        };
+        for (size_t current : order) {
+            auto& range = lifetimes_[current];
+            for (auto iteration_index = active_lifetimes.begin();
+                 iteration_index != active_lifetimes.end();)
+                if (lifetimes_[*iteration_index].last < range.first) {
+                    auto& old = lifetimes_[*iteration_index];
+                    release_range(old.offset, aligned_bytes(old.bytes));
+                    iteration_index = active_lifetimes.erase(iteration_index);
+                } else
+                    ++iteration_index;
+            auto best = free_ranges.end();
+            auto bytes = aligned_bytes(range.bytes);
+            for (auto iteration_index = free_ranges.begin(); iteration_index != free_ranges.end();
+                 ++iteration_index)
+                if (iteration_index->second >= bytes &&
+                    (best == free_ranges.end() || iteration_index->second < best->second))
+                    best = iteration_index;
+            if (best == free_ranges.end()) {
+                range.offset = arena_extent;
+                arena_extent += bytes;
+                peak_extent = std::max(peak_extent, arena_extent);
+            } else {
+                range.offset = best->first;
+                auto remainder = best->second - bytes;
+                free_ranges.erase(best);
+                if (remainder)
+                    free_ranges.emplace(range.offset + bytes, remainder);
+            }
+            active_lifetimes.push_back(current);
+        }
+        return peak_extent;
+    }
+    uint64_t offset(void* address) const {
+        demand(contains(address), "Scratch relocation address");
+        auto tensor_index = index(address);
+        const auto& range = lifetimes_[tensor_index];
+        demand(range.first != SIZE_MAX, "Unused scratch relocation");
+        auto subview_offset = (uintptr_t(address) - logical_address_base) &
+                              ((uintptr_t(1) << logical_address_stride_bits) - 1);
+        demand(subview_offset < range.bytes, "Scratch relocation bounds");
+        return range.offset + subview_offset;
+    }
+    void* relocate(void* address, const Allocation& arena) const {
+        return contains(address)
+                   ? reinterpret_cast<void*>(uintptr_t(arena.address) + offset(address))
+                   : address;
+    }
+};
+}
