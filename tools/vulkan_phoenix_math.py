@@ -12,6 +12,10 @@ def once(text, old, new):
 def patch(gpu, out, own):
     path = gpu / "publish.glsl"
     source_text = path.read_text()
+    # Replace only the publication converter; keep imported files untouched.
+    begin = source_text.index("float e4m3(float x) {")
+    end = source_text.index("\n}", begin) + 2
+    source_text = once(source_text, source_text[begin:end], (own / "fp8_round.glsl").read_text())
     source_text = once(
         source_text,
         "float publish(uint epilogue, float value) {",
@@ -31,6 +35,13 @@ def patch(gpu, out, own):
     path.write_text(source_text)
     path = gpu / "resident.comp"
     source_text = path.read_text()
+    # Some AMD drivers flush an FP32 subnormal when multiplying by one.
+    # Identity scaling must preserve its sign for the integer quantizers below.
+    source_text = once(
+        source_text,
+        "float value = load_a(index) * pc.p0;",
+        "float value = pc.p0 == 1.0 ? load_a(index) : load_a(index) * pc.p0;",
+    )
     source_text = once(
         source_text,
         "    uint kind = operation_flags() & 0xFFu;",

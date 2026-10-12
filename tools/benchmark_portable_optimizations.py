@@ -21,13 +21,15 @@ def main():
     parser.add_argument('--processes', type=int, default=3)
     parser.add_argument('--frames', type=int, default=10)
     parser.add_argument('--motion-mode', choices=('zero', 'fractional'), default='zero')
-    parser.add_argument('--routes', choices=('cuda', 'vulkan_nvidia'), nargs='+',
+    parser.add_argument('--discarded', type=int, default=2)
+    parser.add_argument('--timeout', type=float, default=900)
+    parser.add_argument('--routes', choices=('cuda', 'vulkan_nvidia', 'cpu', 'sycl_cpu', 'hip_amd', 'vulkan_amd'), nargs='+',
                         default=['cuda', 'vulkan_nvidia'])
     parser.add_argument('--candidate-options', type=json.loads, default={},
                         help='JSON object of candidate runtime options for ablation')
     args = parser.parse_args()
-    if args.frames < 5 or args.processes < 2 or any(n < 16 or n > 1024 for n in args.batches):
-        parser.error('At least five frames, two processes and batches in 16..1024 required')
+    if args.frames < args.discarded + 2 or args.discarded < 1 or args.processes < 2 or any(n < 16 or n > 1024 for n in args.batches):
+        parser.error('At least two measured frames after warmup, two processes and batches in 16..1024 required')
     if not isinstance(args.candidate_options, dict):
         parser.error('--candidate-options must be a JSON object')
     out = args.output.resolve()
@@ -46,11 +48,11 @@ def main():
     routes = args.routes
     measurements, golden = [], {}
     receipt = {'schema': 'phoenix-portable-optimization-ab/1', 'passed': False,
-               'hardware': {'gpu': 'RTX 5080', 'cpu': 'Ryzen 9 9950X3D'},
+               'hardware': {'nvidia_gpu': 'RTX 5080', 'amd_gpu': 'Radeon gfx1036 integrated GPU', 'cpu': 'Ryzen 9 9950X3D'},
                'resolution': [1920, 1080], 'frames_per_process': args.frames,
                'motion_mode': args.motion_mode, 'golden_sha256': golden,
                'candidate_options': args.candidate_options,
-               'discarded_per_process': 2, 'measurements': measurements,
+               'discarded_per_process': args.discarded, 'measurements': measurements,
                'scope': 'Matched RGB32F host/broker boundary; initialization excluded. Owned GPU graph bytes exclude driver caches and host histories.'}
     def digest(path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -115,15 +117,16 @@ def main():
                     started = time.monotonic()
                     with (out / (name + '.log')).open('w', encoding='utf-8') as log:
                         result = subprocess.run([str(args.runner.resolve()), str(job_path), str(out / name)],
-                                                stdout=log, stderr=subprocess.STDOUT, timeout=180)
+                                                stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout)
                     report = json.loads((out / name / 'report.json').read_text(encoding='utf-8'))
                     if result.returncode or not report['passed']:
                         raise RuntimeError(name + ': ' + report.get('error', 'runner failed'))
                     hashes = [frame['output_sha256'] for frame in report['cases']]
                     if route not in golden: golden[route] = hashes
                     if hashes != golden[route]: raise RuntimeError(name + ': temporal output hash mismatch')
-                    frames = report['cases'][2:]
+                    frames = report['cases'][args.discarded:]
                     row = {'name': name, 'route': route, 'variant': variant, 'process': iteration,
+                           'device': config['device'],
                            'exact_frames': len(hashes), 'gpu_before': before, 'gpu_after': utilization(),
                            'seconds': time.monotonic() - started,
                            'frame_ms': statistics.median(frame['call_ms'] for frame in frames),

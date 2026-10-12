@@ -285,6 +285,7 @@ def main():
         "phoenix_native_init",
         "phoenix_native_init_configured",
         "phoenix_native_matrix",
+        "phoenix_native_device_id",
         "phoenix_native_features_init",
         "phoenix_native_features",
         "phoenix_native_matrix_residual",

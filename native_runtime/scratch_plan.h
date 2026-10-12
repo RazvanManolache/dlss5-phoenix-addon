@@ -112,6 +112,51 @@ class ScratchPlan {
             }
             active_lifetimes.push_back(current);
         }
+        // A chronological allocator cannot move a small live tensor out of a
+        // later large tensor's way. Try packing larger buffers first, checking
+        // their complete inclusive command lifetimes before sharing an address.
+        // Keep the chronological layout unless this reduces the actual peak.
+        // Bound the offline search so unusually large streamed graphs still
+        // initialize promptly with the existing linear allocator.
+        if (order.size() <= 8192) {
+            std::vector<uint64_t> chronological_offsets;
+            chronological_offsets.reserve(lifetimes_.size());
+            for (const auto& range : lifetimes_)
+                chronological_offsets.push_back(range.offset);
+            auto by_size = order;
+            std::stable_sort(by_size.begin(), by_size.end(), [&](size_t left, size_t right) {
+                return lifetimes_[left].bytes > lifetimes_[right].bytes;
+            });
+            std::vector<size_t> placed;
+            std::vector<std::pair<uint64_t, uint64_t>> occupied;
+            uint64_t packed_peak = 0;
+            for (size_t current : by_size) {
+                auto& range = lifetimes_[current];
+                const auto bytes = aligned_bytes(range.bytes);
+                occupied.clear();
+                for (auto index : placed) {
+                    const auto& other = lifetimes_[index];
+                    if (range.first <= other.last && other.first <= range.last)
+                        occupied.emplace_back(other.offset,
+                                              other.offset + aligned_bytes(other.bytes));
+                }
+                std::sort(occupied.begin(), occupied.end());
+                uint64_t offset = 0;
+                for (const auto& [begin, end] : occupied) {
+                    if (offset + bytes <= begin)
+                        break;
+                    offset = std::max(offset, end);
+                }
+                range.offset = offset;
+                packed_peak = std::max(packed_peak, offset + bytes);
+                placed.push_back(current);
+            }
+            if (packed_peak < peak_extent)
+                peak_extent = packed_peak;
+            else
+                for (size_t index = 0; index < lifetimes_.size(); ++index)
+                    lifetimes_[index].offset = chronological_offsets[index];
+        }
         return peak_extent;
     }
     uint64_t offset(void* address) const {

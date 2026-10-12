@@ -10,6 +10,8 @@
 #include "../src/native/support/cpu_threads.h"
 using namespace phoenix_cpp;
 extern "C" void phoenix_cpu_avx2(const Command&, uint64_t);
+extern "C" void phoenix_cpu_avx2_range(const Command&, uint64_t, uint64_t);
+extern "C" void phoenix_cpu_avx512(const Command&, uint64_t);
 bool has_avx2() {
     int cpuid_registers[4];
     __cpuid(cpuid_registers, 1);
@@ -21,17 +23,25 @@ bool has_avx2() {
     __cpuidex(cpuid_registers, 7, 0);
     return (cpuid_registers[1] & (1 << 5)) != 0;
 }
+bool has_avx512() {
+    if (!has_avx2() || (_xgetbv(0) & 0xe6) != 0xe6)
+        return false;
+    int capabilities[4];
+    __cpuidex(capabilities, 7, 0);
+    constexpr unsigned required = (1u << 16) | (1u << 17) | (1u << 30) | (1u << 31);
+    return (unsigned(capabilities[1]) & required) == required;
+}
 class CpuBackend final : public Backend {
     std::mutex dispatch_mutex_;
     std::condition_variable work_ready_, work_finished_;
     std::vector<std::thread> worker_threads_;
-    bool stopping_ = false, use_avx2_ = has_avx2();
+    bool stopping_ = false, use_avx2_ = has_avx2(), use_avx512_ = has_avx512();
     uint64_t dispatch_generation_ = 0;
     size_t unfinished_workers_ = 0;
     std::atomic<uint64_t> next_work_item_{0};
     Command pending_command_{};
-    // Sleep between graph commands; claim 32 work items at a time to amortize
-    // atomic scheduling overhead without assigning fixed rows to a thread.
+    // Sleep between graph commands; workers claim contiguous ranges to amortize
+    // scheduling and operation dispatch without assigning fixed rows to a thread.
     void worker() {
         uint64_t observed_generation = 0;
         std::unique_lock lock(dispatch_mutex_);
@@ -43,14 +53,26 @@ class CpuBackend final : public Backend {
             observed_generation = dispatch_generation_;
             auto command = pending_command_;
             lock.unlock();
-            for (uint64_t first_item; (first_item = next_work_item_.fetch_add(32)) < command.count;)
-                for (uint64_t item_index = first_item;
-                     item_index < std::min(first_item + 32, command.count); ++item_index) {
-                    if (use_avx2_)
-                        phoenix_cpu_avx2(command, item_index);
-                    else
-                        phx::Kernel<HostMath>{command.operation}(item_index);
-                }
+            const bool wide_matrix =
+                use_avx512_ && command.operation.family == phx::MatrixMultiply &&
+                command.operation.reduction_count >= 256 && command.operation.column_count >= 128 &&
+                command.operation.left_row_stride == command.operation.reduction_count;
+            const uint64_t maximum_chunk = command.operation.family == phx::Elementwise ? 2048 : 32;
+            const uint64_t minimum_chunk = command.operation.family == phx::MatrixMultiply ? 1 : 32;
+            const uint64_t chunk = std::clamp<uint64_t>(
+                (command.count + worker_threads_.size() * 4 - 1) / (worker_threads_.size() * 4),
+                minimum_chunk, maximum_chunk);
+            for (uint64_t first; (first = next_work_item_.fetch_add(chunk)) < command.count;) {
+                const auto end = std::min(first + chunk, command.count);
+                if (wide_matrix)
+                    for (auto item = first; item < end; ++item)
+                        phoenix_cpu_avx512(command, item);
+                else if (use_avx2_)
+                    phoenix_cpu_avx2_range(command, first, end);
+                else
+                    for (auto item = first; item < end; ++item)
+                        phx::Kernel<HostMath>{command.operation}(item);
+            }
             lock.lock();
             if (--unfinished_workers_ == 0)
                 work_finished_.notify_one();
@@ -113,10 +135,17 @@ class CpuBackend final : public Backend {
             {
                 std::unique_lock lock(dispatch_mutex_);
                 pending_command_ = command;
-                if (use_avx2_ && command.operation.family == phx::MatrixMultiply)
-                    pending_command_.count = uint64_t((command.operation.row_count + 7) / 8) *
-                                             ((command.operation.column_count + 7) / 8) *
-                                             command.operation.batch_count;
+                if (use_avx2_ && command.operation.family == phx::MatrixMultiply) {
+                    const bool wide_matrix =
+                        use_avx512_ && command.operation.reduction_count >= 256 &&
+                        command.operation.column_count >= 128 &&
+                        command.operation.left_row_stride == command.operation.reduction_count;
+                    const unsigned rows_per_tile = wide_matrix ? 16 : 8;
+                    pending_command_.count =
+                        uint64_t((command.operation.row_count + rows_per_tile - 1) /
+                                 rows_per_tile) *
+                        ((command.operation.column_count + 7) / 8) * command.operation.batch_count;
+                }
                 next_work_item_ = 0;
                 unfinished_workers_ = worker_threads_.size();
                 ++dispatch_generation_;

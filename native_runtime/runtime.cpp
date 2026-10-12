@@ -128,9 +128,10 @@ struct Runtime {
                          (features(backend) & FusedMatrixResidual);
         device_features = config.value("device_features", true) && features &&
                           (features(backend) & DeviceFeaturePacking);
-        fused_attention = config.value("fused_attention", true) && features &&
+        fused_attention = config.value("fused_attention", !features ||
+                              !(features(backend) & PreferUnfusedWindowAttention)) && features &&
                           (features(backend) & FusedWindowAttention);
-        window_batch_limit = config.value("window_batch_limit", fused_attention ? 512u : 128u);
+        window_batch_limit = config.value("window_batch_limit", 512u);
         demand(window_batch_limit >= 16 && window_batch_limit <= 1024,
                "Window batch limit must be 16..1024");
         weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));

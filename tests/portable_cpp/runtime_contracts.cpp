@@ -33,6 +33,40 @@ int main() {
         demand(growing.layout() == 8192 && growing.offset(large.address) == 0,
                "A larger tensor should grow a freed tail range");
 
+        // Packing by size changes placement order. Check the ownership invariant
+        // over varied overlapping lifetimes, including shared command endpoints.
+        for (unsigned seed : {7u, 119u, 1009u}) {
+            ScratchPlan varied;
+            struct LiveBuffer {
+                Allocation allocation;
+                unsigned first, last;
+            };
+            std::vector<LiveBuffer> buffers;
+            for (unsigned index = 0; index < 96; ++index) {
+                seed = seed * 1664525u + 1013904223u;
+                const unsigned first = seed % 64, last = first + (seed >> 8) % 13;
+                const auto allocation = varied.reserve(256u * (1u + (seed >> 16) % 24));
+                varied.touch(allocation.address, first);
+                varied.touch(allocation.address, last);
+                buffers.push_back({allocation, first, last});
+            }
+            const auto extent = varied.layout();
+            for (size_t left = 0; left < buffers.size(); ++left) {
+                const auto offset = varied.offset(buffers[left].allocation.address);
+                demand(offset % 256 == 0 && offset + buffers[left].allocation.bytes <= extent,
+                       "Packed tensor alignment/extent");
+                for (size_t right = left + 1; right < buffers.size(); ++right) {
+                    if (buffers[left].first > buffers[right].last ||
+                        buffers[right].first > buffers[left].last)
+                        continue;
+                    const auto other = varied.offset(buffers[right].allocation.address);
+                    demand(offset + buffers[left].allocation.bytes <= other ||
+                               other + buffers[right].allocation.bytes <= offset,
+                           "Simultaneously live packed tensors overlap");
+                }
+            }
+        }
+
         std::vector<Command> original(1);
         original[0].operation.scale = 1;
         auto copy = original;

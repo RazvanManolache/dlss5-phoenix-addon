@@ -1,32 +1,6 @@
+#define PHX_DEVICE __forceinline
 #include "backend.h"
-#include "host_math.h"
-#include <immintrin.h>
-#include <array>
-namespace {
-float half_to_float(uint16_t value) {
-    return _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(value)));
-}
-struct AvxMath : HostMath {
-    static float fma(float left, float right, float addend) {
-        return _mm_cvtss_f32(_mm_fmadd_ss(_mm_set_ss(left), _mm_set_ss(right), _mm_set_ss(addend)));
-    }
-};
-// Decode all 256 E4M3 byte codes once. Model loading rejects NaN codes;
-// this table keeps the inner GEMM loop free of scalar decoding arithmetic.
-const std::array<float, 256>& fp8_table() {
-    static const auto table = [] {
-        std::array<float, 256> values{};
-        for (unsigned code = 0; code < 256; ++code) {
-            unsigned exponent = (code >> 3) & 15, mantissa = code & 7;
-            float magnitude = exponent ? std::ldexp(1.f + float(mantissa) / 8, int(exponent) - 7)
-                                       : float(mantissa) / 512;
-            values[code] = (code & 128) ? -magnitude : magnitude;
-        }
-        return values;
-    }();
-    return table;
-}
-}
+#include "cpu_math_avx.h"
 // An AVX2 vector contains eight rows of one output column. Eight accumulators
 // form an 8x8 output tile, reusing each right-hand weight across those rows.
 // Keep the ascending reduction/FMA order: changing it changes model rounding.
@@ -69,7 +43,7 @@ extern "C" void phoenix_cpu_avx2(const phoenix_cpp::Command& command, uint64_t i
                      : uint64_t(reduction_index) * operation.right_row_stride + first_column +
                            column_in_tile);
             float right_value =
-                (operation.flags & 0x2000000)
+                (operation.flags & phx::RightInputFp8)
                     ? decode[static_cast<const uint8_t*>(operation.right_input)[right_offset]]
                     : half_to_float(
                           static_cast<const uint16_t*>(operation.right_input)[right_offset]);
@@ -89,4 +63,85 @@ extern "C" void phoenix_cpu_avx2(const phoenix_cpp::Command& command, uint64_t i
                            first_column + column_in_tile,
                        output_values[row_in_tile]);
     }
+}
+
+// Fix the pointwise operation once per contiguous range. This avoids copying
+// and branching on the full operation packet separately for every scalar value.
+template <unsigned Kind>
+void cpu_pointwise_range(phx::Operation operation, uint64_t first, uint64_t end) {
+    operation.flags = (operation.flags & ~255u) | Kind;
+    phx::Kernel<AvxMath> math{operation};
+    for (auto index = first; index < end; ++index)
+        math.unary(index);
+}
+extern "C" void phoenix_cpu_avx2_range(const phoenix_cpp::Command& command, uint64_t first,
+                                       uint64_t end) {
+    if (command.operation.family == phx::Elementwise) {
+        switch (command.operation.flags & 255u) {
+        case phx::QuantizeFp8:
+            return cpu_pointwise_range<phx::QuantizeFp8>(command.operation, first, end);
+        case phx::ActivationGate:
+            return cpu_pointwise_range<phx::ActivationGate>(command.operation, first, end);
+        case phx::RoundHalf:
+            return cpu_pointwise_range<phx::RoundHalf>(command.operation, first, end);
+        case phx::FloatToHalf:
+            return cpu_pointwise_range<phx::FloatToHalf>(command.operation, first, end);
+        case phx::CopyValues:
+            return cpu_pointwise_range<phx::CopyValues>(command.operation, first, end);
+        case phx::ScaledResidual:
+            return cpu_pointwise_range<phx::ScaledResidual>(command.operation, first, end);
+        case phx::ScaleHalf:
+            return cpu_pointwise_range<phx::ScaleHalf>(command.operation, first, end);
+        case phx::GatherWindows:
+            return cpu_pointwise_range<phx::GatherWindows>(command.operation, first, end);
+        case phx::ScatterWindows:
+            return cpu_pointwise_range<phx::ScatterWindows>(command.operation, first, end);
+        case phx::AddPositionBias:
+            return cpu_pointwise_range<phx::AddPositionBias>(command.operation, first, end);
+        case phx::SplitQkvHeads:
+            return cpu_pointwise_range<phx::SplitQkvHeads>(command.operation, first, end);
+        case phx::MergeAttentionHeads:
+            return cpu_pointwise_range<phx::MergeAttentionHeads>(command.operation, first, end);
+        case phx::AveragePool:
+            return cpu_pointwise_range<phx::AveragePool>(command.operation, first, end);
+        case phx::NearestUpsample:
+            return cpu_pointwise_range<phx::NearestUpsample>(command.operation, first, end);
+        case phx::ChannelGain:
+            return cpu_pointwise_range<phx::ChannelGain>(command.operation, first, end);
+        case phx::AddInputs:
+            return cpu_pointwise_range<phx::AddInputs>(command.operation, first, end);
+        case phx::SpatialPad:
+            return cpu_pointwise_range<phx::SpatialPad>(command.operation, first, end);
+        case phx::GateFp8ToHalf:
+            return cpu_pointwise_range<phx::GateFp8ToHalf>(command.operation, first, end);
+        case phx::Fp8ToHalf:
+            return cpu_pointwise_range<phx::Fp8ToHalf>(command.operation, first, end);
+        case phx::GateToHalf:
+            return cpu_pointwise_range<phx::GateToHalf>(command.operation, first, end);
+        case phx::UpsampleBlendAndPublish:
+            return cpu_pointwise_range<phx::UpsampleBlendAndPublish>(command.operation, first, end);
+        case phx::UpsampleResidual:
+            return cpu_pointwise_range<phx::UpsampleResidual>(command.operation, first, end);
+        case phx::PoolAndPublish:
+            return cpu_pointwise_range<phx::PoolAndPublish>(command.operation, first, end);
+        case phx::GatherWindowBatch:
+            return cpu_pointwise_range<phx::GatherWindowBatch>(command.operation, first, end);
+        case phx::ScatterWindowBatch:
+            return cpu_pointwise_range<phx::ScatterWindowBatch>(command.operation, first, end);
+        case phx::ScatterWindowBatchAndPool:
+            return cpu_pointwise_range<phx::ScatterWindowBatchAndPool>(command.operation, first,
+                                                                       end);
+        case phx::GatherUpsampleBlendBatch:
+            return cpu_pointwise_range<phx::GatherUpsampleBlendBatch>(command.operation, first,
+                                                                      end);
+        }
+    }
+    if (command.operation.family == phx::RowReduction && (command.operation.flags & 255u) == 1) {
+        phx::Kernel<AvxMath> math{command.operation};
+        for (auto index = first; index < end; ++index)
+            math.softmax(unsigned(index));
+        return;
+    }
+    for (auto index = first; index < end; ++index)
+        phoenix_cpu_avx2(command, index);
 }

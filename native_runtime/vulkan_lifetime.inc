@@ -19,6 +19,11 @@ unsigned phoenix_native_vendor(void) {
     vkGetPhysicalDeviceProperties(g.pd, &properties);
     return properties.vendorID;
 }
+unsigned phoenix_native_device_id(void) {
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(g.pd, &properties);
+    return properties.deviceID;
+}
 // Discover matrix support on the explicitly selected UUID before device creation.
 // No process environment is changed, and devices without a supported shape keep
 // the ordered scalar shader. FP8 weights still decode exactly to FP16 operands.
@@ -36,6 +41,7 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     if (vkCreateInstance(&ci, NULL, &instance) != VK_SUCCESS)
         return -1;
     unsigned count = 0, shapes = 0, fp8_caps = 0, selected_vendor = 0;
+    int selected_integrated = 0;
     if (vkEnumeratePhysicalDevices(instance, &count, NULL) == VK_SUCCESS && count && count <= 256) {
         VkPhysicalDevice* devices = calloc(count, sizeof(*devices));
         if (devices) {
@@ -45,6 +51,8 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
                     VkPhysicalDeviceProperties properties;
                     vkGetPhysicalDeviceProperties(selected, &properties);
                     selected_vendor = properties.vendorID;
+                    selected_integrated =
+                        properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
                 }
                 if (selected && !(options & 1u)) {
                     shapes = phx_matrix_shapes(instance, selected);
@@ -61,10 +69,13 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     // half-valued boundaries take the shader's original FP16 fallback.
     phx_native_fp8_k =
         phx_native_matrix_rows == 16 && (fp8_caps & 11u) == 11u && fp8_matrix ? 32u : 0u;
-    // Four subgroups share decoded weights on the measured NVIDIA path.
+    // Four subgroups share decoded weights on the measured NVIDIA and AMD iGPU paths.
     // Other vendors keep the original workgroup unless explicitly requested;
     // the one-subgroup override also remains available for reproducible A/B runs.
-    const int wide_workgroup = (options & 32u) || (!(options & 16u) && selected_vendor == 0x10de);
+    const int wide_workgroup =
+        (options & 32u) ||
+        (!(options & 16u) &&
+         (selected_vendor == 0x10de || (selected_vendor == 0x1002 && selected_integrated)));
     phx_native_workgroup_rows =
         !phx_native_fp8_k && phx_native_matrix_rows == 16 && wide_workgroup && wide_matrix
             ? 64u

@@ -18,6 +18,7 @@ class VulkanBackend final : public Backend {
     size_t submission_size = 256;
     bool detailed_profile = false;
     unsigned matrix_rows = 0;
+    bool prefer_unfused_attention = false;
     static std::mutex& global() {
         static std::mutex m;
         return m;
@@ -84,6 +85,10 @@ class VulkanBackend final : public Backend {
                         elementwise_shader.c_str(), attention_shader.c_str(),
                         history_shader.c_str(), options, fp8_matrix.c_str(), wide_matrix.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
+        // This tested RDNA2 iGPU advertises cooperative matrices, but its
+        // fused attention shader is slower than separate ordered operators.
+        prefer_unfused_attention = call<unsigned>("phoenix_native_vendor") == 0x1002 &&
+                                   call<unsigned>("phoenix_native_device_id") == 0x13c0;
         if (matrix_rows) {
             auto window = shader_path(matrix_rows == 8 ? "phoenix_window_attention8.spv"
                                                        : "phoenix_window_attention.spv");
@@ -111,7 +116,8 @@ class VulkanBackend final : public Backend {
     }
     uint32_t features() const {
         return DeviceFeaturePacking |
-               (matrix_rows ? FusedWindowAttention | FusedMatrixResidual : 0);
+               (matrix_rows ? FusedWindowAttention | FusedMatrixResidual : 0) |
+               (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0);
     }
     const char* name() const override {
         return "vulkan-cpp";

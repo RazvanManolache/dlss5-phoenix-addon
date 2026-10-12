@@ -14,6 +14,24 @@ int wmain(int argc, wchar_t** argv) {
         const auto& config = job.at("config");
         auto root = std::filesystem::u8path(config.at("runtime_root").get<std::string>());
         const auto kind = config.at("backend").get<std::string>();
+        struct PrivateCpuOpenCl {
+            DLL_DIRECTORY_COOKIE directory = nullptr;
+            HMODULE module = nullptr;
+            ~PrivateCpuOpenCl() {
+                if (module)
+                    FreeLibrary(module);
+                if (directory)
+                    RemoveDllDirectory(directory);
+            }
+        } private_cpu;
+        if (config.at("device") == "sycl:cpu") {
+            private_cpu.directory = AddDllDirectory((root / "opencl_cpu").c_str());
+            private_cpu.module =
+                LoadLibraryExW((root / "opencl_cpu/OpenCL.dll").c_str(), nullptr,
+                               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            demand(private_cpu.directory && private_cpu.module, "Private CPU ICD unavailable");
+            SetEnvironmentVariableW(L"CL_CONFIG_CPU_TBB_NUM_WORKERS", L"32");
+        }
         auto module =
             LoadLibraryExW((root / ("phoenix_" + kind + "_cpp.dll")).c_str(), nullptr,
                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
@@ -26,7 +44,9 @@ int wmain(int argc, wchar_t** argv) {
         using Features = uint32_t (*)(Backend*);
         auto features =
             reinterpret_cast<Features>(GetProcAddress(module, "phoenix_backend_features"));
-        demand(create && destroy && features, "Configured backend ABI missing");
+        auto basic_create =
+            reinterpret_cast<CreateBackend>(GetProcAddress(module, "phoenix_backend_create"));
+        demand((create || basic_create) && destroy, "Backend factory ABI missing");
         char error[2048]{};
         uint32_t options = DispatchProfiling;
         if (config.value("cuda_direct_fp8", true))
@@ -44,8 +64,10 @@ int wmain(int argc, wchar_t** argv) {
         if (config.value("cuda_matrix_columns", 16u) == 64u)
             options |= MatrixColumns64;
         auto backend = std::unique_ptr<Backend, DestroyBackend>(
-            create(config.at("device").get<std::string>().c_str(), (root / "vulkan").c_str(),
-                   options, error, sizeof(error)),
+            create ? create(config.at("device").get<std::string>().c_str(),
+                            (root / "vulkan").c_str(), options, error, sizeof(error))
+                   : basic_create(config.at("device").get<std::string>().c_str(),
+                                  (root / "vulkan").c_str(), error, sizeof(error)),
             destroy);
         demand(bool(backend), error);
         Model model(phoenix_model::WeightSource::config(config.at("weight_source")));
@@ -62,12 +84,23 @@ int wmain(int argc, wchar_t** argv) {
         std::vector<float> prior(color.size());
         std::vector<uint8_t> validity(size_t(width) * height);
         auto input_features = frame.features(color.data(), Controls{}, prior, validity);
-        const auto supported = features(backend.get());
-        Graph graph(*backend, model, supported & FusedWindowAttention,
-                    config.value("window_batch_limit", 512u), false,
-                    supported & FusedMatrixResidual);
+        const auto supported = features ? features(backend.get()) : 0;
+        Graph graph(
+            *backend, model,
+            (supported & FusedWindowAttention) &&
+                config.value("fused_attention", !(supported & PreferUnfusedWindowAttention)),
+            config.value("window_batch_limit", 512u), false, supported & FusedMatrixResidual);
         graph.build(padded_width, padded_height, {1, 1, 1, 1, 1, 1, 1, 1});
         model.discard_decoded();
+        if (config.value("plan_only", false)) {
+            Json report = {{"passed", true},
+                           {"resident_bytes", graph.memory_bytes()},
+                           {"weight_bytes", graph.weight_bytes()},
+                           {"commands", graph.commands.size()},
+                           {"scope", "Allocation plan only; no inference or timing validation"}};
+            std::ofstream(argv[2]) << report.dump(2) << '\n';
+            return 0;
+        }
         std::vector<float> head;
         std::vector<Event> events;
         auto upload = [&] {

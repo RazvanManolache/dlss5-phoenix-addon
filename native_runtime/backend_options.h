@@ -18,6 +18,7 @@ enum BackendOption : uint32_t {
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,
     DeviceFeaturePacking = 1u << 1,
-    FusedMatrixResidual = 1u << 2
+    FusedMatrixResidual = 1u << 2,
+    PreferUnfusedWindowAttention = 1u << 3 // Scheduling hint, not missing operation support.
 };
 }
