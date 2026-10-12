@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--snapshot", type=Path, default=ROOT / "docs/benchmarks/2026-10-12")
+parser.add_argument("--snapshot", type=Path, default=ROOT / "docs/benchmarks/2026-10-13")
 OUT = parser.parse_args().snapshot.resolve()
 DATA = json.loads((OUT / "measurements.json").read_text(encoding="utf-8"))
 ROWS = {row["id"]: row for row in DATA["records"]}
@@ -88,7 +88,7 @@ def native():
         p.text(left + 28, 258, f"{row['core_ms']:.3f} ms", 66, INK, True)
         p.text(left + 28, 350, f"Process-median range: {row['process_median_min_ms']:.3f}–{row['process_median_max_ms']:.3f} ms", 23, MUTED)
     p.box(48, 424, 810, 786)
-    p.text(76, 447, "All tested production extents", 28, INK, True)
+    p.text(76, 447, "Matched benchmark extents", 28, INK, True)
     p.text(76, 499, "Resolution", 23, MUTED)
     p.right(480, 499, "Phoenix", 23, GREEN)
     p.right(625, 499, "NVIDIA", 23, BLUE)
@@ -116,7 +116,7 @@ def native():
 
 
 def portable():
-    p = Panel("Portable runners: working, with plenty to optimize", "1920 × 1080 · current measured results · lower is better", 1040)
+    p = Panel("The portability lab: experimental alternate runners", "1920 × 1080 · separate from native RTX · current results; lower is better", 1040)
     p.box(48, 190, 1550, 837)
     for x, label in [(76, "Runner / tested device"), (750, "Model ms"), (1005, "Full frame ms"), (1260, "Graph MiB"), (1520, "Host RAM MiB")]:
         if x == 76:
@@ -142,12 +142,12 @@ def portable():
         p.draw.rectangle((620, y + 49, 620 + length, y + 58), fill=color)
     p.wrap(48, 866, "Thin bars show complete-frame latency on a shared logarithmic scale. Full frame includes preparation, transfers, inference, resolve and broker round trip. Host RAM is worker resident working set; graph allocations and host RAM overlap and must not be added.", 1500, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 971, f"CUDA/Vulkan RTX: {measured_date(gpu):%d %b}, {gpu['processes']} processes × {gpu['samples'] // gpu['processes']} measured frames. Other routes: {measured_date(cpu):%d %b}, {cpu['processes']} × {cpu['samples'] // cpu['processes']}. Native uses a different fixture. AMD iGPU and SYCL CPU do not certify discrete AMD/Intel GPUs.", 1500, 23)
+    p.wrap(48, 971, f"CUDA/Vulkan RTX: {measured_date(gpu):%d %b}, {gpu['processes']} processes × {gpu['samples'] // gpu['processes']} measured frames. CPU/iGPU: {measured_date(cpu):%d %b}, {cpu['processes']} × {cpu['samples'] // cpu['processes']}. CPU model time uses host timing. Discrete AMD/Intel GPUs remain untested.", 1500, 23)
     p.save("portable-runners.png")
 
 
 def memory():
-    dates = sorted({measured_date(row) for row in DATA["records"]})
+    dates = [datetime.date.fromisoformat(DATA.get("direct_memory_date", ROWS["phoenix"]["measured_date"]))]
     date_range = dates[0].strftime("%d %b %Y") if len(dates) == 1 else dates[0].strftime("%d %b") + " – " + dates[-1].strftime("%d %b %Y")
     p = Panel("Memory: shared work, less duplication", "Native full adapter · 1920 × 1080 · owned resources, separate from process residency", 1030, date_range.upper())
     p.box(48, 190, 790, 820)
@@ -181,7 +181,7 @@ def memory():
             left += width
     p.wrap(843, 709, "All tracked owned allocations reached zero after shutdown; capture readbacks retired too.", 670, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 854, f"The inner-network probe owns 409.69 MiB; the full adapter adds bridge and exposure resources. CUDA/Vulkan RTX graphs request {gpu['owned_bytes'] / MIB:.2f} MiB: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. Other portable routes retain the {cpu['owned_bytes'] / MIB:.2f} MiB result. These are different ownership scopes.", 1500, 24)
+    p.wrap(48, 854, f"The native inner-network probe owns 409.69 MiB; the full adapter adds bridge and exposure resources. Alternate-runner graphs request {gpu['owned_bytes'] / MIB:.2f} MiB on all six tested routes: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. These are different ownership scopes.", 1500, 24)
     p.wrap(48, 958, "Owned resources, GPU residency and host working set overlap. Keep them separate; NVIDIA's internal component sizes remain unknown.", 1500, 23)
     p.save("memory-breakdown.png")
 

@@ -1,16 +1,44 @@
 # DLSS5 Phoenix
 
-My attempt at a cross-backend runner for NVIDIA DLSS 5 neural rendering,
-packaged as a ReShade addon.
+My attempt at an open-source runner for NVIDIA DLSS 5 neural rendering,
+packaged as a ReShade addon. **Native RTX is the main event:** near NVIDIA's
+inference speed in the matched 1080p test, with useful controls and lower
+measured GPU residency. The alternate backends are our slightly obsessive
+portability side quest.
 
 I dislike how much of the software we add to our games is closed source. We
 rush for the best experience, often giving code access to our systems without
 being able to inspect what it does—or what that means for our privacy. I'd
 rather let you look under the hood. Better pixels shouldn't require blind trust.
 
+## Native RTX: the main event
+
+![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
+
+- **1080p inference: effectively tied.** Phoenix **3.835 ms**, NVIDIA DLSS NR
+  **3.863 ms** on RTX 5080. A 0.71% lower median is near parity, not a promised
+  game-FPS gain. NVIDIA was slightly faster at 2560×1080; Phoenix was faster at
+  the two smaller tested extents.
+- **Less measured GPU residency:** **574.7 MiB** for Phoenix versus **686.5 MiB**
+  for NVIDIA in the matched 1080p probe—about **16.3% less**. This includes the
+  harness and driver; it is not a measurement of NVIDIA's internal buffers.
+  Spare VRAM apparently needs a financing plan these days.
+- **The point is a fast, inspectable runner with controls.** Native RTX is the
+  primary path. Getting the same architecture running through other APIs is
+  extra engineering exploration. Yes, we may have taken the side quest too far.
+
+Measured **11 October 2026**, eight fresh processes per route at 1080p, same
+FP16 fixture, controls and model. GPU inference excludes upload/readback and is
+not game frame time. The native kernel bundle is unchanged in this release.
+Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
+
+[Download 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
+[Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md)
+
 ## A quick look
 
-- **Pick your runner and GPU:** native RTX, CUDA, Vulkan, HIP, CPU or SYCL.
+- **Run native RTX:** the optimized path and the focus of this project.
+- **Explore the portability lab:** experimental CUDA, Vulkan, HIP, CPU and SYCL runners.
 - **Bring a compatible model:** browse to a DLL or model folder and validate it.
 - **Choose resolution and upscaling:** Normal or Super resolution, aspect controls,
   spatial reconstruction, NVIDIA DLSS SR or Intel XeSS.
@@ -47,7 +75,8 @@ Available devices vary by machine; the screenshots illustrate controls, not
 benchmark results.
 
 [Appearance and timing controls](#what-you-can-play-with) ·
-[Measured performance](#benchmarks-the-good-the-slow-and-the-vram) ·
+[Native RTX results](#native-rtx-the-main-event) ·
+[Experimental runners](#the-portability-lab) ·
 [Build instructions](#build-from-source)
 
 ## Why I'm making this
@@ -70,44 +99,6 @@ benchmark results.
 - **A very personal hardware opinion:** after the GPU price hikes, the RTX 5080
   is the only card I'd currently consider reasonably priced for the high-end
   gaming I want. “Reasonable” is doing heroic work in that sentence.
-
-## Benchmarks: the good, the slow, and the VRAM
-
-![Native Phoenix and NVIDIA DLSS NR: inference latency across four resolutions and 1080p GPU-local memory residency](docs/benchmarks/2026-10-12/native-rtx.png)
-
-- **Native RTX is doing well:** at 1920×1080, Phoenix measured **3.835 ms** versus
-  **3.863 ms** for NVIDIA DLSS NR. That's effectively parity, with a 0.71% lower
-  median latency in this test—not a promised game-FPS gain. NVIDIA was slightly
-  faster at 2560×1080; Phoenix was faster at the two smaller tested extents.
-- **Memory is encouraging:** the matched 1080p probe measured **574.7 MiB** of
-  process GPU-local residency for Phoenix versus **686.5 MiB** for NVIDIA,
-  about **16.3% less**. This includes harness/driver resources; NVIDIA's internal
-  allocation breakdown is unknown. Saving VRAM matters when apparently even
-  spare megabytes need a financing plan.
-- **Portable speed still needs work:** on the RTX 5080, CUDA measures **90.67 ms**
-  for the model and **162.53 ms** for the complete frame; Vulkan measures
-  **114.59 ms** and **194.83 ms**. Both graphs allocate **475.26 MiB**, with
-  worker resident RAM of **306.10 MiB** and **266.62 MiB**, respectively.
-  CPU, SYCL CPU and AMD iGPU routes still take tens of seconds. These are
-  development/reference paths today. Native and portable fixtures and timing
-  boundaries differ, so a direct speedup ratio would be misleading.
-
-![Portable CUDA, Vulkan, CPU, HIP and SYCL results with tested hardware, inference and complete-frame latency, graph allocations and worker resident RAM](docs/benchmarks/2026-10-12/portable-runners.png)
-
-![Native adapter memory components and shared allocations across one, two and four refinement passes](docs/benchmarks/2026-10-12/memory-breakdown.png)
-
-- **Test machine:** RTX 5080, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores /
-  32 threads; 96 GiB installed RAM; AMD Radeon gfx1036 integrated graphics.
-- **Coverage:** native/NVIDIA and unchanged portable timings are dated
-  **11 October 2026**. CUDA/Vulkan RTX timings are dated **12 October**:
-  three fresh processes per route, ten frames each, discarding the first two;
-  fractional-motion history, eight global blocks and one pass. Results are
-  medians of process medians. The native 1080p comparison uses eight fresh
-  processes per route. All six current routes passed **42 saved regression
-  frames**; the new GPU paths also matched **120 temporal frame hashes**.
-  These are standalone inference/broker measurements, not in-game FPS.
-- [Measurement definitions, results and reproduction notes](docs/benchmarks/2026-10-12/README.md)
-  · [Memory ownership details](MEMORY_USAGE.md)
 
 ## What you can play with
 
@@ -160,6 +151,55 @@ The values above are from the screenshot session, not the controlled benchmark.
 - **Keep installation compact:** runner libraries and kernels can be embedded
   in one addon; they unpack to a private runtime cache as needed. The NVIDIA
   model DLL stays separate.
+
+## The portability lab
+
+CUDA, Vulkan, HIP, CPU and SYCL are **experimental alternate implementations**.
+They let us explore devices, validate operators and learn where execution costs
+come from. They are still much slower than native RTX; the CPU and integrated
+GPU paths are development/reference tools, not real-time gaming choices.
+
+<details>
+<summary>Current alternate-runner speed and memory charts</summary>
+
+![Experimental alternate runners: current 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
+
+- **RTX 5080:** CUDA **67.37 ms** model / **112.04 ms** full call;
+  Vulkan **111.31 ms** / **161.68 ms**.
+- **Ryzen 9950X3D, 32 workers:** CPU C++ **9.17 s** full call;
+  SYCL CPU **9.93 s**.
+- **Integrated Radeon gfx1036:** HIP **14.79 s** full call;
+  Vulkan **14.24 s**. These are iGPU results, not discrete Radeon results.
+- **All six request 453.38 MiB of model/scratch buffers.** Host RAM, caller
+  buffers, driver/JIT caches and GPU residency are separate scopes. CPU worker
+  private commitment is about **501 MiB**, SYCL CPU about **954 MiB**; the chart
+  shows resident working set instead. Equal tensor demand does not mean equal RAM.
+
+Measured **12 October 2026**, warm 1920×1080 calls, one pass and all eight block
+repetition controls set to one. CUDA/Vulkan RTX: three processes × 20 frames,
+discarding two per process; other routes: two × three, discarding one. Native
+uses a different fixture and timing boundary; do not infer a cross-runner
+speedup ratio. All six passed **42 saved regression frames**. The CUDA and
+Vulkan RTX paired trials each checked **120 exact temporal frame hashes**, with
+60 frames from the current candidate in each trial. These are offline results,
+not game FPS. The exact release binary has not had a new live-game test.
+
+</details>
+
+<details>
+<summary>Native adapter memory: shared workspace across refinement passes</summary>
+
+![Native adapter memory components and shared allocations across one, two and four refinement passes](docs/benchmarks/2026-10-13/memory-breakdown.png)
+
+The full native adapter and inner-network probe have different ownership scopes.
+See [memory ownership details](MEMORY_USAGE.md) and the
+[current measurement definitions](docs/benchmarks/2026-10-13/README.md).
+
+</details>
+
+**Test machine:** RTX 5080, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores /
+32 threads; 96 GiB RAM; AMD Radeon gfx1036 integrated graphics. Discrete AMD
+and Intel GPUs remain untested. Contributions and hardware results are welcome.
 
 ## Help wanted
 
