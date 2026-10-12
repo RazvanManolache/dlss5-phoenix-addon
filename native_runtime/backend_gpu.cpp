@@ -735,14 +735,14 @@ class GpuBackend final : public Backend {
                         for (uint64_t first = 0; first < tiles; first += 65535) {
                             const auto blocks = unsigned(std::min(uint64_t(65535), tiles - first));
                             if (columns == 128)
-                                matrix_direct_fp8<16>
-                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                                launch_matrix_direct_fp8<16>(command.operation, first, blocks,
+                                                             stream);
                             else if (columns == 64)
-                                matrix_direct_fp8<8>
-                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                                launch_matrix_direct_fp8<8>(command.operation, first, blocks,
+                                                            stream);
                             else
-                                matrix_direct_fp8<4>
-                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                                launch_matrix_direct_fp8<4>(command.operation, first, blocks,
+                                                            stream);
                         }
                     } else if (command.operation.family == phx::MatrixMultiply &&
                                command.operation.column_count <= 4) {

@@ -11,8 +11,13 @@ __device__ __forceinline__ uint32_t pack_half4_fp8(const __half* source) {
     return low | (high << 16);
 }
 
-template <unsigned ColumnTiles>
+template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX>
 __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile) {
+    // Fix known matrix/output semantics before device compilation. The common
+    // half/FP8 and gated-half/FP8 variants omit unrelated publication branches.
+    operation.family = phx::MatrixMultiply;
+    if constexpr (PublishMode != UINT32_MAX)
+        operation.flags = (operation.flags & ~0xf00u) | (PublishMode << 8u);
     const uint64_t tile = first_tile + blockIdx.x;
     const unsigned column_tiles =
         (operation.column_count + ColumnTiles * 8 - 1) / (ColumnTiles * 8);
@@ -72,4 +77,23 @@ __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile)
                                uint64_t(row) * operation.output_row_stride + column,
                            sums[column_tile][element]);
         }
+}
+
+// Keep the fully generic entry for other publication modes and experiments.
+// This selection happens during graph capture, not on each captured replay.
+template <unsigned ColumnTiles>
+static void launch_matrix_direct_fp8(phx::Operation operation, uint64_t first_tile, unsigned blocks,
+                                     cudaStream_t stream) {
+    switch ((operation.flags >> 8u) & 15u) {
+    case phx::PublishHalfThenFp8:
+        matrix_direct_fp8<ColumnTiles, phx::PublishHalfThenFp8>
+            <<<blocks, 128, 0, stream>>>(operation, first_tile);
+        break;
+    case phx::PublishGateThenHalfFp8:
+        matrix_direct_fp8<ColumnTiles, phx::PublishGateThenHalfFp8>
+            <<<blocks, 128, 0, stream>>>(operation, first_tile);
+        break;
+    default:
+        matrix_direct_fp8<ColumnTiles><<<blocks, 128, 0, stream>>>(operation, first_tile);
+    }
 }

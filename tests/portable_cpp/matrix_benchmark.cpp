@@ -69,9 +69,11 @@ int wmain(int argc, wchar_t** argv) {
         struct Shape {
             unsigned rows, columns, reduction;
         };
-        for (const auto shape : {Shape{8192, 128, 32}, Shape{8192, 32, 128}, Shape{32768, 512, 128},
-                                 Shape{2048, 1024, 256}, Shape{640, 1536, 512},
-                                 Shape{640, 4096, 1024}, Shape{640, 1024, 4096}}) {
+        for (const auto shape :
+             {Shape{8192, 128, 32}, Shape{8192, 32, 128}, Shape{32768, 512, 128},
+              Shape{130560, 512, 128}, Shape{32640, 1024, 256}, Shape{32640, 256, 1024},
+              Shape{2048, 1024, 256}, Shape{640, 1536, 512}, Shape{640, 4096, 1024},
+              Shape{640, 1024, 4096}}) {
             std::vector<uint16_t> left(size_t(shape.rows) * shape.reduction);
             std::vector<uint8_t> right(size_t(shape.columns) * shape.reduction);
             std::vector<uint16_t> output(size_t(shape.rows) * shape.columns);
@@ -87,8 +89,8 @@ int wmain(int argc, wchar_t** argv) {
             backend->upload(right_buffer, right.data(), right.size());
             phx::Operation operation{};
             operation.family = phx::MatrixMultiply;
-            operation.flags =
-                1 | phx::RightInputFp8 | phx::LeftInputFp8Grid | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
+            operation.flags = 1 | phx::RightInputFp8 | phx::LeftInputFp8Grid | phx::StoreHalf |
+                              (phx::PublishHalfThenFp8 << 8);
             operation.left_input = left_buffer.address;
             operation.right_input = right_buffer.address;
             operation.output = output_buffer.address;
