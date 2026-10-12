@@ -24,7 +24,8 @@ unsigned phoenix_native_vendor(void) {
 // the ordered scalar shader. FP8 weights still decode exactly to FP16 operands.
 int phoenix_native_init_configured(const char* uuid, const char* gemm, const char* matrix8,
                                    const char* matrix16, const char* unary, const char* row,
-                                   const char* history, unsigned options) {
+                                   const char* history, unsigned options, const char* fp8_matrix,
+                                   const char* wide_matrix) {
     if (!uuid || strlen(uuid) != 32 || g.ready)
         return -1;
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -34,23 +35,45 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     VkInstance instance;
     if (vkCreateInstance(&ci, NULL, &instance) != VK_SUCCESS)
         return -1;
-    unsigned count = 0, shapes = 0;
+    unsigned count = 0, shapes = 0, fp8_caps = 0, selected_vendor = 0;
     if (vkEnumeratePhysicalDevices(instance, &count, NULL) == VK_SUCCESS && count && count <= 256) {
         VkPhysicalDevice* devices = calloc(count, sizeof(*devices));
         if (devices) {
             if (vkEnumeratePhysicalDevices(instance, &count, devices) == VK_SUCCESS) {
                 VkPhysicalDevice selected = phx_select(devices, count, uuid);
-                if (selected && !(options & 1u))
+                if (selected) {
+                    VkPhysicalDeviceProperties properties;
+                    vkGetPhysicalDeviceProperties(selected, &properties);
+                    selected_vendor = properties.vendorID;
+                }
+                if (selected && !(options & 1u)) {
                     shapes = phx_matrix_shapes(instance, selected);
+                    if (options & 8u)
+                        fp8_caps = phx_fp8_caps(instance, selected);
+                }
             }
             free(devices);
         }
     }
     vkDestroyInstance(instance, NULL);
     phx_native_matrix_rows = (shapes & 2u) ? 16u : (shapes & 1u) ? 8u : 0u;
-    const char* selected_shader = phx_native_matrix_rows == 16  ? matrix16
-                                  : phx_native_matrix_rows == 8 ? matrix8
-                                                                : gemm;
+    // A tile uses FP8 only when both operands are exactly representable. True
+    // half-valued boundaries take the shader's original FP16 fallback.
+    phx_native_fp8_k =
+        phx_native_matrix_rows == 16 && (fp8_caps & 11u) == 11u && fp8_matrix ? 32u : 0u;
+    // Four subgroups share decoded weights on the measured NVIDIA path.
+    // Other vendors keep the original workgroup unless explicitly requested;
+    // the one-subgroup override also remains available for reproducible A/B runs.
+    const int wide_workgroup = (options & 32u) || (!(options & 16u) && selected_vendor == 0x10de);
+    phx_native_workgroup_rows =
+        !phx_native_fp8_k && phx_native_matrix_rows == 16 && wide_workgroup && wide_matrix
+            ? 64u
+            : phx_native_matrix_rows;
+    const char* selected_shader = phx_native_fp8_k                  ? fp8_matrix
+                                  : phx_native_workgroup_rows == 64 ? wide_matrix
+                                  : phx_native_matrix_rows == 16    ? matrix16
+                                  : phx_native_matrix_rows == 8     ? matrix8
+                                                                    : gemm;
     memcpy(phx_native_uuid, uuid, 33);
     phx_native_configured = 1;
     int result = xmx_init(selected_shader);
@@ -69,7 +92,8 @@ unsigned phoenix_native_matrix(void) {
 // Preserve the original factory for external clients of the resident ABI.
 int phoenix_native_init(const char* uuid, const char* gemm, const char* unary, const char* row,
                         const char* history) {
-    return phoenix_native_init_configured(uuid, gemm, gemm, gemm, unary, row, history, 1u);
+    return phoenix_native_init_configured(uuid, gemm, gemm, gemm, unary, row, history, 1u, NULL,
+                                          NULL);
 }
 // The five operands can be views into the same scratch arena. Apply their byte
 // offsets before recording, exactly as the scalar GEMM/unary adapters do.
@@ -193,6 +217,9 @@ void xmx_shutdown(void) {
     xmx_profile_reset();
     phx_native_configured = 0;
     phx_native_matrix_rows = 0;
+    phx_native_fp8_k = 0;
+    phx_native_workgroup_rows = 0;
+    phx_native_skip = phx_native_gain = 0;
     memset(phx_native_uuid, 0, sizeof(phx_native_uuid));
     memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));
 }

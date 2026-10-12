@@ -77,10 +77,12 @@ class VulkanBackend final : public Backend {
         auto attention_shader = shader_path("attention.spv");
         auto history_shader = shader_path("history.spv");
         auto matrix8 = shader_path("gemm_matrix8.spv"), matrix16 = shader_path("gemm_matrix16.spv");
+        auto fp8_matrix = shader_path("gemm_fp832.spv");
+        auto wide_matrix = shader_path("gemm_matrix16x4.spv");
         check(call<int>("phoenix_native_init_configured", device.substr(7).c_str(),
                         matrix_shader.c_str(), matrix8.c_str(), matrix16.c_str(),
                         elementwise_shader.c_str(), attention_shader.c_str(),
-                        history_shader.c_str(), options));
+                        history_shader.c_str(), options, fp8_matrix.c_str(), wide_matrix.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
         if (matrix_rows) {
             auto window = shader_path(matrix_rows == 8 ? "phoenix_window_attention8.spv"

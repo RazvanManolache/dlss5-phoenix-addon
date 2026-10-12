@@ -89,6 +89,22 @@ struct Runtime {
                 options |= DispatchProfiling;
             if (!config.value("tensor_attention", true))
                 options |= OrderedAttention;
+            if (config.value("vulkan_fp8_matrices", false))
+                options |= LosslessFp8Matrices;
+            const auto matrix_warps = config.value("vulkan_matrix_warps", 0u);
+            demand(matrix_warps == 0 || matrix_warps == 1 || matrix_warps == 4,
+                   "Vulkan matrix warps must be 0 (automatic), 1 or 4");
+            if (matrix_warps == 1)
+                options |= NarrowMatrixWorkgroups;
+            if (matrix_warps == 4)
+                options |= WideMatrixWorkgroups;
+            const auto matrix_columns = config.value("cuda_matrix_columns", 16u);
+            demand(matrix_columns == 16 || matrix_columns == 32 || matrix_columns == 64,
+                   "CUDA matrix columns must be 16, 32 or 64");
+            if (matrix_columns == 32)
+                options |= MatrixColumns32;
+            if (matrix_columns == 64)
+                options |= MatrixColumns64;
             backend =
                 configured_create
                     ? configured_create(device.c_str(), (root / "vulkan").c_str(), options, message,

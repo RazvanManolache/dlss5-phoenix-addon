@@ -43,6 +43,8 @@ def main():
         "client_contracts",
         "runtime_contracts",
         "backend_contracts",
+        "graph_profile",
+        "cuda_math_contracts",
         "opencl_cpu_proxy",
         "vulkan_adapter",
         "d3d12_transport",
@@ -299,6 +301,10 @@ def main():
         ROOT / "tests/portable_cpp/backend_operator_tests.cpp",
         "/Fo" + str(out / "backend_contracts.obj"),
         "/Fe" + str(out / "phoenix_cpp_backend_contracts.exe")], out / "phoenix_cpp_backend_contracts.exe")
+    build("graph_profile", ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
+        ROOT / "tests/portable_cpp/graph_profile.cpp", "/Fo" + str(out / "graph_profile.obj"),
+        "/Fe" + str(out / "phoenix_cpp_graph_profile.exe"), "/link", "bcrypt.lib"],
+        out / "phoenix_cpp_graph_profile.exe")
     build(
         "device_query",
         [
@@ -339,6 +345,11 @@ def main():
         out / "phoenix_d3d12_transport.dll",
     )
     source = (NATIVE / "backend_gpu.cpp").read_text(encoding="utf-8")
+    build("cuda_math_contracts", [cuda, "-allow-unsupported-compiler",
+        "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH", "-std=c++20", "-O2", "--fmad=false",
+        "-arch=" + args.cuda_arch, "-Xcompiler=/MD,/EHsc,/DNOMINMAX",
+        ROOT / "tests/portable_cpp/cuda_math_contracts.cu", "-o", out / "phoenix_cpp_cuda_math_contracts.exe"],
+        out / "phoenix_cpp_cuda_math_contracts.exe")
     for kind in ("cuda", "hip", "sycl"):
         text = (
             f'#define PHX_{kind.upper()}\n#define DEVICE_NAME "{kind}-cpp"\n#define DEVICE_PREFIX "{kind}:"\n'

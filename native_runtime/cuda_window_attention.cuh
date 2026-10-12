@@ -27,15 +27,11 @@ __global__ void window_attention(phx::Operation operation, uint64_t first_batch)
         wmma::store_matrix_sync(scores + first_row * 64 + column_tile * 16, sums[column_tile], 64,
                                 wmma::mem_row_major);
     __syncthreads();
-    if (threadIdx.x < 64) {
-        phx::Operation normalize{};
-        normalize.left_input = scores;
-        normalize.right_input = static_cast<float*>(operation.secondary_output) +
-                                (batch % operation.column_count) * 4096;
-        normalize.output = probabilities;
-        normalize.flags = phx::StoreHalf | phx::AddAttentionBias;
-        normalize.batch_count = operation.column_count;
-        phx::Kernel<GpuMath>{normalize}.softmax(threadIdx.x);
+    for (unsigned row = threadIdx.x / 8; row < 64; row += blockDim.x / 8) {
+        const auto* bias = static_cast<const float*>(operation.secondary_output) +
+                           ((batch % operation.column_count) * 64 + row) * 64;
+        normalize_window_row8(scores + row * 64, bias, probabilities + row * 64, threadIdx.x % 8,
+                              operation.column_count == 16);
     }
     __syncthreads();
     wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> value_fragment;

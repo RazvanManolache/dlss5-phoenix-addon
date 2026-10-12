@@ -23,7 +23,7 @@ def patch_runtime(source):
 
     replace(
         "#include <vulkan/vulkan.h>",
-        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;',
+        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;',
     )
     # Reading mapped NVIDIA VRAM through the CPU BAR was substantially slower
     # than a GPU copy into cached host storage. Keep the upstream environment
@@ -107,7 +107,7 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
         """if (g.ready) return 0;
     g.portable = phx_native_configured || (getenv("PHOENIX_VULKAN_GENERIC") && !strcmp(getenv("PHOENIX_VULKAN_GENERIC"),"1"));
     g.matrix_rows = phx_native_configured ? phx_native_matrix_rows : getenv("PHOENIX_VULKAN_MATRIX_ROWS") ? atoi(getenv("PHOENIX_VULKAN_MATRIX_ROWS")) : 0;
-    g.fp8_k = !phx_native_configured && getenv("PHOENIX_VULKAN_FP8_K") ? atoi(getenv("PHOENIX_VULKAN_FP8_K")) : 0;""",
+    g.fp8_k = phx_native_configured ? phx_native_fp8_k : getenv("PHOENIX_VULKAN_FP8_K") ? atoi(getenv("PHOENIX_VULKAN_FP8_K")) : 0;""",
     )
     replace(
         "g.pd = pds[0];\n\tfree(pds);",
@@ -196,7 +196,7 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     replace(
         "else       vkCmdDispatch(g.rcb, (N + 15) / 16, (M + 7) / 8, batch ? batch : 1);",
         """else {
-            unsigned rows=g.matrix_rows?g.matrix_rows:8;
+            unsigned rows=phx_native_workgroup_rows?phx_native_workgroup_rows:g.matrix_rows?g.matrix_rows:8;
             uint64_t tiles=((uint64_t)M+rows-1)/rows*(batch?batch:1);
             unsigned y=tiles<65535u?(unsigned)tiles:65535u;
             if(!y||tiles>UINT32_MAX)FAIL("Portable GEMM grid exceeds indexing range",0);
@@ -444,6 +444,7 @@ exit /b %ERRORLEVEL%
         phoenix_window_attention8=(gpu / "phoenix_window_attention.comp", ["-DPHX_ATTENTION_M=8"]),
         gemm_matrix8=(gpu / "gemm_matrix.comp", ["-DMATRIX_M=8"]),
         gemm_matrix16=(gpu / "gemm_matrix.comp", ["-DMATRIX_M=16"]),
+        gemm_matrix16x4=(gpu / "gemm_matrix.comp", ["-DMATRIX_M=16", "-DMATRIX_WARPS=4"]),
         gemm_staged32=(gpu / "gemm_staged.comp", ["-DSTAGED_BM=32"]),
         gemm_staged32_deep=(gpu / "gemm_staged.comp", ["-DSTAGED_BM=32", "-DSTAGED_BK=64"]),
         attention_rows=(gpu / "attention.comp", ["-DROW_LANES=256"]),

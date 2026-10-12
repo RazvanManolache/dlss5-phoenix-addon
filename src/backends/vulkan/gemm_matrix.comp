@@ -15,10 +15,13 @@
 #ifndef MATRIX_M
 #define MATRIX_M 16
 #endif
+#ifndef MATRIX_WARPS
+#define MATRIX_WARPS 1
+#endif
 #ifdef FP8_K
 #include "phoenix_fp8.glsl"
 #endif
-layout(local_size_x = 32) in;
+layout(local_size_x = 32 * MATRIX_WARPS) in;
 layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
     float16_t v[];
 };
@@ -41,10 +44,10 @@ layout(push_constant, scalar) uniform Push {
 pc;
 #include "specialize.glsl"
 #include "packed_weight.glsl"
-shared float16_t a_tile[MATRIX_M * 16];
+shared float16_t a_tile[MATRIX_M * MATRIX_WARPS * 16];
 shared float16_t b_tile[16 * 16];
-shared float output_tile[MATRIX_M * 16];
-shared float ordered_left[MATRIX_M * 32];
+shared float output_tile[MATRIX_M * MATRIX_WARPS * 16];
+shared float ordered_left[MATRIX_M * MATRIX_WARPS * 32];
 shared float ordered_right[32 * 16];
 // Each subgroup owns one output tile. Boundary loads contribute zeros;
 // the deterministic image-boundary projections retain ascending K/FMA order,
@@ -54,14 +57,18 @@ void main() {
     uint left_row_stride = pc.lda == 0u ? pc.k : pc.lda;
     uint right_row_stride = pc.ldb == 0u ? ((flags & 1u) != 0u ? pc.k : pc.n) : pc.ldb;
     uint output_row_stride = pc.ldc == 0u ? pc.n : pc.ldc;
-    uint row_tiles = (pc.m + MATRIX_M - 1u) / MATRIX_M;
+    const uint block_rows = MATRIX_M * MATRIX_WARPS;
+    uint row_tiles = (pc.m + block_rows - 1u) / block_rows;
     uint tile = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
     uint batch_index = tile / row_tiles;
     if (batch_index >= max(pc.batch, 1u))
         return;
     uint left_batch_offset = batch_index * pc.sa, right_batch_offset = batch_index * pc.sb,
          output_batch_offset = batch_index * pc.sc;
-    uint lane = gl_LocalInvocationID.x, rowbase = (tile % row_tiles) * MATRIX_M,
+    uint thread_index = gl_LocalInvocationID.x, lane = thread_index % 32u;
+    uint warp = thread_index / 32u, shared_offset = warp * MATRIX_M * 16u;
+    uint block_row = (tile % row_tiles) * block_rows;
+    uint rowbase = block_row + warp * MATRIX_M,
          colbase = gl_WorkGroupID.x * 16u;
     // The unquantized image lift publishes half values. Reordering its FP32
     // reduction can cross a half midpoint, which later FP8 layers amplify.
@@ -111,12 +118,12 @@ void main() {
         precise float accumulators[MATRIX_M / 2];
         for (uint slot = 0u; slot < MATRIX_M / 2; ++slot) accumulators[slot] = 0.0;
         for (uint reduction_base = 0u; reduction_base < pc.k; reduction_base += 32u) {
-            for (uint element = lane; element < MATRIX_M * 32u; element += 32u) {
-                uint source_row = rowbase + element / 32u, reduction = reduction_base + element % 32u;
+            for (uint element = thread_index; element < block_rows * 32u; element += 32u * MATRIX_WARPS) {
+                uint source_row = block_row + element / 32u, reduction = reduction_base + element % 32u;
                 ordered_left[element] = source_row < pc.m && reduction < pc.k
                     ? float(pc.a.v[left_batch_offset + source_row * left_row_stride + reduction]) : 0.0;
             }
-            for (uint element = lane; element < 512u; element += 32u) {
+            for (uint element = thread_index; element < 512u; element += 32u * MATRIX_WARPS) {
                 uint reduction = reduction_base + element / 16u, column = colbase + element % 16u;
                 ordered_right[element] = reduction < pc.k && column < pc.n
                     ? matrix_b(right_batch_offset + ((flags & 1u) != 0u
@@ -126,7 +133,7 @@ void main() {
             for (uint reduction = 0u; reduction < min(32u, pc.k - reduction_base); ++reduction)
                 for (uint slot = 0u; slot < MATRIX_M / 2; ++slot) {
                     uint element = lane + slot * 32u;
-                    accumulators[slot] = fma(ordered_left[(element / 16u) * 32u + reduction],
+                    accumulators[slot] = fma(ordered_left[warp * MATRIX_M * 32u + (element / 16u) * 32u + reduction],
                                               ordered_right[reduction * 16u + element % 16u], accumulators[slot]);
                 }
             barrier();
@@ -149,25 +156,6 @@ void main() {
     const uint step_k = 16u;
 #endif
     for (uint kb = 0u; kb < pc.k; kb += step_k) {
-#ifndef FP8_K
-        // Aligned interior tiles can load operands directly. The old path copied
-        // every tile through shared memory and fenced twice per K=16 step.
-        if ((flags & 0x2000000u) == 0u && rowbase + MATRIX_M <= pc.m && colbase + 16u <= pc.n &&
-            kb + 16u <= pc.k) {
-            coopmat<float16_t, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseA> a;
-            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
-            coopMatLoad(a, pc.a.v, left_batch_offset + rowbase * left_row_stride + kb,
-                        left_row_stride, gl_CooperativeMatrixLayoutRowMajor);
-            if ((flags & 1u) != 0u)
-                coopMatLoad(b, pc.b.v, right_batch_offset + colbase * right_row_stride + kb,
-                            right_row_stride, gl_CooperativeMatrixLayoutColumnMajor);
-            else
-                coopMatLoad(b, pc.b.v, right_batch_offset + kb * right_row_stride + colbase,
-                            right_row_stride, gl_CooperativeMatrixLayoutRowMajor);
-            sum = coopMatMulAdd(a, b, sum);
-            continue;
-        }
-#endif
 #ifdef FP8_K
         // Lossless narrowing only. Some boundary/transition operands are true
         // FP16, so a tile that cannot be represented exactly keeps FP16 math.
@@ -211,12 +199,14 @@ void main() {
             for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
                 uint row = rowbase + tile_element / 16u,
                      reduction_index = kb + sub_k + tile_element % 16u;
-                a_tile[tile_element] =
+                a_tile[shared_offset + tile_element] =
                     row < pc.m && reduction_index < pc.k
                         ? pc.a.v[left_batch_offset + row * left_row_stride + reduction_index]
                         : float16_t(half_round(0));
             }
-            for (uint tile_element = lane; tile_element < 256u; tile_element += 32u) {
+            // All warps reuse one decoded weight tile. With four row subgroups,
+            // each byte is decoded once instead of by four separate workgroups.
+            for (uint tile_element = thread_index; tile_element < 256u; tile_element += 32u * MATRIX_WARPS) {
                 uint reduction_index = kb + sub_k + tile_element / 16u,
                      column = colbase + tile_element % 16u;
                 b_tile[tile_element] =
@@ -234,20 +224,20 @@ void main() {
                 coopMatLoad(a, pc.a.v, left_batch_offset + rowbase * left_row_stride + kb + sub_k,
                             left_row_stride, gl_CooperativeMatrixLayoutRowMajor);
             else
-                coopMatLoad(a, a_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(a, a_tile, shared_offset, 16, gl_CooperativeMatrixLayoutRowMajor);
             coopMatLoad(b, b_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
             sum = coopMatMulAdd(a, b, sum);
             barrier();
         }
     }
-    coopMatStore(sum, output_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+    coopMatStore(sum, output_tile, shared_offset, 16, gl_CooperativeMatrixLayoutRowMajor);
     barrier();
     for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
         uint row = rowbase + tile_element / 16u, column = colbase + tile_element % 16u;
         if (row >= pc.m || column >= pc.n || ((flags & 0x10000u) != 0u && column >= 4u))
             continue;
         uint output_offset = output_batch_offset + row * output_row_stride + column;
-        precise float value = output_tile[tile_element];
+        precise float value = output_tile[shared_offset + tile_element];
         if ((flags & 0x4000000u) != 0u) {
             float skip = (flags & 0x8000000u) != 0u
                              ? float(HalfBuf(uint64_t(pc.d)).v[output_offset]) : pc.d.v[output_offset];

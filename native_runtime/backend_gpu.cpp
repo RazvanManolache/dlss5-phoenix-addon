@@ -21,7 +21,12 @@
 #include "backend_options.h"
 using namespace phoenix_cpp;
 #define PHX_CHECK(expression) check((expression), __LINE__)
+#if defined(PHX_CUDA)
+#include "cuda_narrow_math.cuh"
+struct GpuMath : CudaNarrowMath {
+#else
 struct GpuMath {
+#endif
     PHX_DEVICE static uint32_t bits(float value_or_bits) {
 #if defined(PHX_SYCL)
         return sycl::bit_cast<uint32_t>(value_or_bits);
@@ -198,17 +203,20 @@ __global__ void run_projection(phx::Operation operation, uint64_t start, uint64_
 #if defined(PHX_CUDA)
 #include <mma.h>
 #include <cuda_fp16.h>
+#include "cuda_rows.cuh"
 // Four warps compute a 64x16 output tile using 16x16x16 tensor-core fragments.
 // Packed FP8 weights decode to half in shared memory; accumulators stay FP32.
 // The fragment types and synchronization are part of the existing numerical path.
+template <unsigned ColumnTiles>
 __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile) {
     using namespace nvcuda;
     uint64_t tile_index = first_tile + blockIdx.x,
-             column_tile_count = (operation.column_count + 15) / 16,
+             column_tile_count =
+                 (operation.column_count + 16 * ColumnTiles - 1) / (16 * ColumnTiles),
              row_tile_count = (operation.row_count + 63) / 64,
              batch_index = tile_index / (column_tile_count * row_tile_count);
     unsigned first_row = unsigned(tile_index / column_tile_count % row_tile_count) * 64,
-             first_column = unsigned(tile_index % column_tile_count) * 16,
+             first_column = unsigned(tile_index % column_tile_count) * 16 * ColumnTiles,
              warp_index = threadIdx.x / 32;
     phx::Kernel<GpuMath> math{operation};
     // WMMA accepts aligned half operands directly. Interior tiles need no
@@ -219,12 +227,14 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
     const bool direct_left = first_row + 64 <= operation.row_count &&
                              operation.left_row_stride % 8 == 0 &&
                              (reinterpret_cast<uintptr_t>(left_data) & 31u) == 0;
-    __shared__ __align__(32) __half left_tiles[4][256], right_tile[256];
-    __shared__ __align__(32) float output_tiles[4][256];
+    __shared__ __align__(32) __half left_tiles[4][256], right_tile[ColumnTiles][256];
+    __shared__ __align__(32) float output_tiles[4][ColumnTiles][256];
     wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> left_fragment;
     wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> right_fragment;
-    wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulator;
-    wmma::fill_fragment(accumulator, 0.f);
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> accumulators[ColumnTiles];
+#pragma unroll
+    for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile)
+        wmma::fill_fragment(accumulators[column_tile], 0.f);
     for (unsigned first_reduction = 0; first_reduction < operation.reduction_count;
          first_reduction += 16) {
         if (!direct_left) {
@@ -239,10 +249,11 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
                         : 0);
             }
         }
-        for (unsigned tile_element = threadIdx.x; tile_element < 256; tile_element += 128) {
+        for (unsigned tile_element = threadIdx.x; tile_element < ColumnTiles * 256;
+             tile_element += 128) {
             unsigned column = first_column + tile_element / 16,
                      reduction_in_tile = tile_element % 16;
-            right_tile[tile_element] = __float2half_rn(
+            right_tile[tile_element / 256][tile_element % 256] = __float2half_rn(
                 column < operation.column_count
                     ? math.load_matrix_right(batch_index * operation.right_batch_stride +
                                              ((operation.flags & 1)
@@ -261,26 +272,99 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
                                    operation.left_row_stride);
         else
             wmma::load_matrix_sync(left_fragment, left_tiles[warp_index], 16);
-        wmma::load_matrix_sync(right_fragment, right_tile, 16);
-        wmma::mma_sync(accumulator, left_fragment, right_fragment, accumulator);
+#pragma unroll
+        for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile) {
+            wmma::load_matrix_sync(right_fragment, right_tile[column_tile], 16);
+            wmma::mma_sync(accumulators[column_tile], left_fragment, right_fragment,
+                           accumulators[column_tile]);
+        }
         __syncthreads();
     }
-    wmma::store_matrix_sync(output_tiles[warp_index], accumulator, 16, wmma::mem_row_major);
+#pragma unroll
+    for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile)
+        wmma::store_matrix_sync(output_tiles[warp_index][column_tile], accumulators[column_tile],
+                                16, wmma::mem_row_major);
     __syncthreads();
-    for (unsigned tile_element = threadIdx.x; tile_element < 1024; tile_element += 128) {
-        unsigned row = first_row + tile_element / 16, column = first_column + tile_element % 16;
+    for (unsigned tile_element = threadIdx.x; tile_element < ColumnTiles * 1024;
+         tile_element += 128) {
+        unsigned tile_warp = tile_element / (ColumnTiles * 256);
+        unsigned column_tile = (tile_element / 256) % ColumnTiles;
+        unsigned element = tile_element % 256;
+        unsigned row = first_row + tile_warp * 16 + element / 16;
+        unsigned column = first_column + column_tile * 16 + element % 16;
         if (row < operation.row_count && column < operation.column_count)
             math.store(batch_index * operation.output_batch_stride +
                            uint64_t(row) * operation.output_row_stride + column,
-                       output_tiles[tile_element / 256][tile_element % 256]);
+                       output_tiles[tile_warp][column_tile][element]);
     }
 }
 
 #include "cuda_window_attention.cuh"
+
+// Fix the operation before compilation. Simple copies/gathers no longer inherit
+// register and stack requirements from unrelated row reductions and softmax.
+template <unsigned Kind>
+__global__ void run_elementwise(phx::Operation operation, uint64_t count, uint64_t first) {
+    const uint64_t index = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (index < count) {
+        operation.family = phx::Elementwise;
+        operation.flags = (operation.flags & ~255u) | Kind;
+        phx::Kernel<GpuMath>{operation}.unary(first + index);
+    }
+}
+__global__ void run_frame_features(phx::Operation operation, uint64_t count, uint64_t first) {
+    const uint64_t index = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (index < count)
+        phx::Kernel<GpuMath>{operation}.frame_features(first + index);
+}
+static void launch_elementwise(phx::Operation operation, uint64_t count, uint64_t first,
+                               cudaStream_t stream) {
+    const unsigned groups = unsigned((count + 255) / 256);
+    // The named cases follow ElementwiseKind; unsupported future kinds retain
+    // the generic implementation rather than silently selecting another operation.
+#define PHX_POINTWISE_CASE(Kind)                                                                   \
+    case phx::Kind:                                                                                \
+        run_elementwise<phx::Kind><<<groups, 256, 0, stream>>>(operation, count, first);           \
+        break
+    switch (operation.flags & 255u) {
+        PHX_POINTWISE_CASE(QuantizeFp8);
+        PHX_POINTWISE_CASE(ActivationGate);
+        PHX_POINTWISE_CASE(RoundHalf);
+        PHX_POINTWISE_CASE(FloatToHalf);
+        PHX_POINTWISE_CASE(CopyValues);
+        PHX_POINTWISE_CASE(ScaledResidual);
+        PHX_POINTWISE_CASE(ScaleHalf);
+        PHX_POINTWISE_CASE(GatherWindows);
+        PHX_POINTWISE_CASE(ScatterWindows);
+        PHX_POINTWISE_CASE(AddPositionBias);
+        PHX_POINTWISE_CASE(SplitQkvHeads);
+        PHX_POINTWISE_CASE(MergeAttentionHeads);
+        PHX_POINTWISE_CASE(AveragePool);
+        PHX_POINTWISE_CASE(NearestUpsample);
+        PHX_POINTWISE_CASE(ChannelGain);
+        PHX_POINTWISE_CASE(AddInputs);
+        PHX_POINTWISE_CASE(SpatialPad);
+        PHX_POINTWISE_CASE(GateFp8ToHalf);
+        PHX_POINTWISE_CASE(Fp8ToHalf);
+        PHX_POINTWISE_CASE(GateToHalf);
+        PHX_POINTWISE_CASE(UpsampleBlendAndPublish);
+        PHX_POINTWISE_CASE(UpsampleResidual);
+        PHX_POINTWISE_CASE(PoolAndPublish);
+        PHX_POINTWISE_CASE(GatherWindowBatch);
+        PHX_POINTWISE_CASE(ScatterWindowBatch);
+        PHX_POINTWISE_CASE(ScatterWindowBatchAndPool);
+        PHX_POINTWISE_CASE(GatherUpsampleBlendBatch);
+    default:
+        run_kernel<<<groups, 256, 0, stream>>>(operation, count, first);
+        break;
+    }
+#undef PHX_POINTWISE_CASE
+}
 #endif
 class GpuBackend final : public Backend {
     bool tensor_attention = true;
     bool detailed_profile = false;
+    unsigned tensor_column_tiles = 1;
 #if defined(PHX_SYCL)
     std::unique_ptr<sycl::queue> queue_;
 #else
@@ -324,6 +408,7 @@ class GpuBackend final : public Backend {
     explicit GpuBackend(const std::string& device_id, uint32_t options = 0) {
         tensor_attention = !(options & OrderedAttention);
         detailed_profile = (options & DispatchProfiling) != 0;
+        tensor_column_tiles = (options & MatrixColumns64) ? 4 : (options & MatrixColumns32) ? 2 : 1;
 #if defined(PHX_SYCL)
         std::vector<sycl::device> matches;
         for (auto& candidate_device : sycl::device::get_devices()) {
@@ -460,8 +545,8 @@ class GpuBackend final : public Backend {
             const auto& command = commands.front();
             for (uint64_t first = 0; first < command.count; first += uint64_t(65535) * 256) {
                 auto count = std::min(uint64_t(65535) * 256, command.count - first);
-                run_kernel<<<unsigned((count + 255) / 256), 256, 0, stream>>>(command.operation,
-                                                                              count, first);
+                run_frame_features<<<unsigned((count + 255) / 256), 256, 0, stream>>>(
+                    command.operation, count, first);
             }
             PHX_CHECK(hipGetLastError());
             wait();
@@ -618,13 +703,27 @@ class GpuBackend final : public Backend {
                                  (command.operation.column_count == 32 ||
                                   command.operation.column_count == 64) &&
                                  command.operation.flags <= 1))) {
-                        uint64_t tiles = uint64_t((command.operation.row_count + 63) / 64) *
-                                         ((command.operation.column_count + 15) / 16) *
-                                         command.operation.batch_count;
+                        // Reuse each activation fragment across adjacent output tiles.
+                        // Keep 16/32-column alternatives for narrow and ragged shapes.
+                        unsigned columns =
+                            tensor_column_tiles >= 4 && command.operation.column_count % 64 == 0 ? 4
+                            : tensor_column_tiles >= 2 && command.operation.column_count >= 32   ? 2
+                                                                                               : 1;
+                        uint64_t tiles =
+                            uint64_t((command.operation.row_count + 63) / 64) *
+                            ((command.operation.column_count + columns * 16 - 1) / (columns * 16)) *
+                            command.operation.batch_count;
                         for (uint64_t first = 0; first < tiles; first += 65535) {
                             auto launch_count = std::min(uint64_t(65535), tiles - first);
-                            matrix_tensor_f16<<<unsigned(launch_count), 128, 0, stream>>>(
-                                command.operation, first);
+                            if (columns == 4)
+                                matrix_tensor_f16<4><<<unsigned(launch_count), 128, 0, stream>>>(
+                                    command.operation, first);
+                            else if (columns == 2)
+                                matrix_tensor_f16<2><<<unsigned(launch_count), 128, 0, stream>>>(
+                                    command.operation, first);
+                            else
+                                matrix_tensor_f16<1><<<unsigned(launch_count), 128, 0, stream>>>(
+                                    command.operation, first);
                         }
                     } else if (command.operation.family == phx::MatrixMultiply) {
                         uint64_t tiles = uint64_t((command.operation.row_count + 31) / 32) *
@@ -635,13 +734,34 @@ class GpuBackend final : public Backend {
                             run_gemm<<<unsigned(launch_count), 256, 0, stream>>>(
                                 command.operation, first, launch_count);
                         }
+                    } else if (command.operation.family == phx::RowReduction &&
+                               (command.operation.flags & 255u) == 0 &&
+                               command.operation.batch_count != 16 &&
+                               !(command.operation.flags & phx::GlobalAttention)) {
+                        for (uint64_t first = 0; first < command.count;
+                             first += uint64_t(65535) * 32) {
+                            auto count = std::min(uint64_t(65535) * 32, command.count - first);
+                            normalize_heads8<<<unsigned((count + 31) / 32), 256, 0, stream>>>(
+                                command.operation, count, first);
+                        }
+                    } else if (command.operation.family == phx::RowReduction &&
+                               (command.operation.flags & 255u) == 6) {
+                        for (uint64_t first = 0; first < command.count;
+                             first += uint64_t(65535) * 32) {
+                            auto count = std::min(uint64_t(65535) * 32, command.count - first);
+                            normalize_global_scores8<<<unsigned((count + 31) / 32), 256, 0,
+                                                       stream>>>(command.operation, count, first);
+                        }
                     } else
                         for (uint64_t first = 0; first < command.count;
                              first += uint64_t(65535) * 256) {
                             auto launch_count =
                                 std::min(uint64_t(65535) * 256, command.count - first);
-                            run_kernel<<<unsigned((launch_count + 255) / 256), 256, 0, stream>>>(
-                                command.operation, launch_count, first);
+                            if (command.operation.family == phx::Elementwise)
+                                launch_elementwise(command.operation, launch_count, first, stream);
+                            else
+                                run_kernel<<<unsigned((launch_count + 255) / 256), 256, 0,
+                                             stream>>>(command.operation, launch_count, first);
                         }
                     PHX_CHECK(hipGetLastError());
                     if (work_index + 1 == graph_spans[span].end) {

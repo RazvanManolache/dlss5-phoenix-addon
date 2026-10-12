@@ -101,6 +101,8 @@ template <class Math> struct Kernel {
     // Round to binary16 using ties-to-even, but return float32 storage. Explicit
     // rounding boundaries reproduce the device arithmetic even on scalar CPU paths.
     PHX_DEVICE float half(float value) const {
+        if constexpr (requires { Math::round_half(value); })
+            return Math::round_half(value);
         u32 bits = Math::bits(value), sign = bits & 0x80000000u,
             magnitude_bits = bits & 0x7fffffffu;
         if (magnitude_bits >= 0x7f800000u)
@@ -121,6 +123,8 @@ template <class Math> struct Kernel {
     }
     // Encode a rounded value as IEEE binary16, including subnormals and NaNs.
     PHX_DEVICE u32 half_bits(float value) const {
+        if constexpr (requires { Math::encode_half(value); })
+            return Math::encode_half(value);
         u32 bits = Math::bits(half(value)), sign = (bits >> 16u) & 0x8000u,
             magnitude_bits = bits & 0x7fffffffu;
         if (magnitude_bits >= 0x7f800000u)
@@ -134,6 +138,8 @@ template <class Math> struct Kernel {
     }
     // Decode IEEE binary16 bits without requiring a host/device half type.
     PHX_DEVICE float half_value(u32 bits) const {
+        if constexpr (requires { Math::decode_half(bits); })
+            return Math::decode_half(bits);
         u32 sign = (bits & 0x8000u) << 16u, exponent = (bits >> 10u) & 31u, mantissa = bits & 1023u;
         if (!exponent)
             return Math::value(sign | Math::bits(float(mantissa) * 5.9604644775390625e-8f));
@@ -172,6 +178,8 @@ template <class Math> struct Kernel {
     // Quantize to the finite E4M3 grid, saturating magnitude at 448. The returned
     // float carries the quantized value; it is not the encoded one-byte weight.
     PHX_DEVICE float quantize_e4m3(float value) const {
+        if constexpr (requires { Math::round_e4m3(value); })
+            return Math::round_e4m3(value);
         float magnitude = Math::min(Math::abs(value), 448.f);
         u32 exponent = (Math::bits(magnitude) >> 23) & 255u;
         exponent = (exponent > 121u ? exponent : 121u) - 3u;

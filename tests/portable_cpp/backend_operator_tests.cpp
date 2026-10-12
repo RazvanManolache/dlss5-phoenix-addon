@@ -11,7 +11,9 @@
 using namespace phoenix_cpp;
 int wmain(int argc, wchar_t** argv) {
     try {
-        demand(argc == 4, "Usage: backend_operator_tests RUNTIME BACKEND DEVICE");
+        demand(argc == 4 || argc == 5,
+               "Usage: backend_operator_tests RUNTIME BACKEND DEVICE [OPTION_BITS]");
+        const auto extra_options = argc == 5 ? uint32_t(std::stoul(argv[4])) : 0u;
         auto root = std::filesystem::absolute(argv[1]);
         std::string kind = std::filesystem::path(argv[2]).string();
         std::string device = std::filesystem::path(argv[3]).string();
@@ -27,8 +29,8 @@ int wmain(int argc, wchar_t** argv) {
         demand(create && destroy, "Configured backend ABI missing");
         char error[2048]{};
         auto backend = std::unique_ptr<Backend, DestroyBackend>(
-            create(device.c_str(), (root / "vulkan").c_str(), DispatchProfiling | OrderedAttention,
-                   error, sizeof(error)),
+            create(device.c_str(), (root / "vulkan").c_str(),
+                   DispatchProfiling | OrderedAttention | extra_options, error, sizeof(error)),
             destroy);
         demand(bool(backend), error);
         phx::Kernel<HostMath> math{};
@@ -196,6 +198,84 @@ int wmain(int argc, wchar_t** argv) {
                    "Fused window attention differs from ordered separate passes");
             std::cout << "Fused attention heads=" << heads << " exact\n";
         }
+        // Tail rows and both interleaved Q/K views must retain the reference
+        // cosine reduction tree, even when eight lanes now cooperate on a row.
+        for (unsigned heads : {1u, 2u, 4u, 8u})
+            for (unsigned part : {0u, 1u}) {
+                constexpr unsigned row_count = 129;
+                const unsigned windows = (row_count + heads * 64 - 1) / (heads * 64);
+                std::vector<float> projection(windows * heads * 64 * 96);
+                std::vector<float> gains(heads);
+                for (size_t index = 0; index < projection.size(); ++index)
+                    projection[index] = float(int(index * 17 % 311) - 155) * .001131f;
+                for (unsigned index = 0; index < heads; ++index)
+                    gains[index] = .72341f + index * .023411f;
+                auto input = allocate(projection.size() * 4), gain = allocate(gains.size() * 4);
+                auto output = allocate(row_count * 32 * 2);
+                backend->upload(input, projection.data(), projection.size() * 4);
+                backend->upload(gain, gains.data(), gains.size() * 4);
+                phx::Operation normalize{};
+                normalize.family = phx::RowReduction;
+                normalize.flags = phx::StoreHalf | phx::InterleavedQkv | (part << 18);
+                normalize.left_input = input.address;
+                normalize.auxiliary = gain.address;
+                normalize.output = output.address;
+                normalize.row_count = row_count;
+                normalize.column_count = 64;
+                normalize.batch_count = heads;
+                normalize.reduction_count = part == 0;
+                std::vector<Event> events;
+                backend->execute({{normalize, row_count, 0, 0}}, events);
+                std::vector<uint16_t> expected(row_count * 32), actual(expected.size());
+                backend->download(output, actual.data(), actual.size() * 2);
+                normalize.left_input = projection.data();
+                normalize.auxiliary = gains.data();
+                normalize.output = expected.data();
+                for (unsigned row = 0; row < row_count; ++row)
+                    phx::Kernel<HostMath>{normalize}.norm(row);
+                demand(actual == expected,
+                       "Cooperative cosine normalization differs from reference");
+            }
+        std::cout << "Cosine normalization exact for Q/K, head counts and partial rows\n";
+        // Global rows use a half-rounded reduction tree and publish the inverse
+        // sum separately. Check both partial 64-key tiles and padded row strides.
+        for (unsigned width : {1u, 63u, 64u, 65u, 640u})
+            for (unsigned padding : {0u, 7u, 72u}) {
+                constexpr unsigned row_count = 129;
+                const unsigned stride = width + padding;
+                std::vector<float> scores(row_count * stride);
+                for (size_t index = 0; index < scores.size(); ++index)
+                    scores[index] = float(int(index * 19 % 701) - 350) * .007123f;
+                auto input = allocate(scores.size() * 4), output = allocate(scores.size() * 2);
+                auto inverse = allocate(row_count * 4);
+                backend->upload(input, scores.data(), scores.size() * 4);
+                phx::Operation normalize{};
+                normalize.family = phx::RowReduction;
+                normalize.flags = 6u | phx::StoreHalf;
+                normalize.left_input = input.address;
+                normalize.output = output.address;
+                normalize.auxiliary = inverse.address;
+                normalize.row_count = row_count;
+                normalize.column_count = width;
+                normalize.left_batch_stride = stride;
+                std::vector<Event> events;
+                backend->execute({{normalize, row_count, 0, 0}}, events);
+                std::vector<uint16_t> actual(scores.size()), expected(scores.size());
+                std::vector<float> actual_inverse(row_count), expected_inverse(row_count);
+                backend->download(output, actual.data(), actual.size() * 2);
+                backend->download(inverse, actual_inverse.data(), actual_inverse.size() * 4);
+                normalize.left_input = scores.data();
+                normalize.output = expected.data();
+                normalize.auxiliary = expected_inverse.data();
+                for (unsigned row = 0; row < row_count; ++row)
+                    phx::Kernel<HostMath>{normalize}.global_attention_softmax(row);
+                demand(actual == expected &&
+                           std::memcmp(actual_inverse.data(), expected_inverse.data(),
+                                       row_count * 4) == 0,
+                       "Global row normalization differs from reference or overwrites padding");
+            }
+        std::cout
+            << "Global row normalization exact for tile boundaries, row tails and padded strides\n";
         FrameState frame(17, 11, 32, 20, 1);
         std::vector<float> color(17 * 11 * 3), prior(color.size());
         std::vector<uint8_t> validity(17 * 11);
@@ -246,6 +326,56 @@ int wmain(int argc, wchar_t** argv) {
                    "GPU feature packing differs from host half rounding/mirror padding");
         }
         std::cout << "Device feature packing exact, including odd extents, masks and controls\n";
+        // Conversion tests exercise every finite half value, rounding midpoints
+        // and arbitrary finite FP32 patterns. Compare bits, including signed zero.
+        std::vector<float> rounding_inputs;
+        for (unsigned code = 0; code < 65536; ++code) {
+            float value = math.half_value(code);
+            if (std::isfinite(value))
+                rounding_inputs.push_back(value);
+            if (code < 0x7bffu) {
+                float midpoint = (value + math.half_value(code + 1)) * .5f;
+                rounding_inputs.push_back(midpoint);
+                rounding_inputs.push_back(-midpoint);
+                rounding_inputs.push_back(std::nextafter(midpoint, 0.f));
+                rounding_inputs.push_back(std::nextafter(midpoint, 65536.f));
+            }
+        }
+        uint32_t random_bits = 1059;
+        for (unsigned index = 0; index < 262144; ++index) {
+            random_bits ^= random_bits << 13;
+            random_bits ^= random_bits >> 17;
+            random_bits ^= random_bits << 5;
+            float value = HostMath::value(random_bits);
+            if (std::isfinite(value))
+                rounding_inputs.push_back(value);
+        }
+        auto rounding_source = allocate(rounding_inputs.size() * 4);
+        auto rounding_output = allocate(rounding_inputs.size() * 4);
+        backend->upload(rounding_source, rounding_inputs.data(), rounding_inputs.size() * 4);
+        for (unsigned kind : {phx::RoundHalf, phx::FloatToHalf, phx::QuantizeFp8}) {
+            phx::Operation convert{};
+            convert.flags = kind;
+            convert.left_input = rounding_source.address;
+            convert.output = rounding_output.address;
+            convert.row_count = unsigned(rounding_inputs.size());
+            std::vector<Event> events;
+            backend->execute({{convert, rounding_inputs.size(), 0, 0}}, events);
+            const unsigned bytes = kind == phx::FloatToHalf ? 2 : 4;
+            std::vector<uint8_t> actual(rounding_inputs.size() * bytes);
+            backend->download(rounding_output, actual.data(), actual.size());
+            for (size_t index = 0; index < rounding_inputs.size(); ++index) {
+                const float value = rounding_inputs[index];
+                uint32_t expected =
+                    kind == phx::FloatToHalf
+                        ? math.half_bits(value)
+                        : HostMath::bits(kind == phx::RoundHalf ? math.half(value)
+                                                                : math.quantize_e4m3(value));
+                demand(std::memcmp(actual.data() + index * bytes, &expected, bytes) == 0,
+                       "Device conversion differs from portable rounding reference");
+            }
+        }
+        std::cout << rounding_inputs.size() * 3 << " finite conversion checks exact\n";
         for (auto allocation : owned)
             backend->release(allocation);
         backend.reset();

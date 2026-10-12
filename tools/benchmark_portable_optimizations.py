@@ -21,9 +21,15 @@ def main():
     parser.add_argument('--processes', type=int, default=3)
     parser.add_argument('--frames', type=int, default=10)
     parser.add_argument('--motion-mode', choices=('zero', 'fractional'), default='zero')
+    parser.add_argument('--routes', choices=('cuda', 'vulkan_nvidia'), nargs='+',
+                        default=['cuda', 'vulkan_nvidia'])
+    parser.add_argument('--candidate-options', type=json.loads, default={},
+                        help='JSON object of candidate runtime options for ablation')
     args = parser.parse_args()
     if args.frames < 5 or args.processes < 2 or any(n < 16 or n > 1024 for n in args.batches):
         parser.error('At least five frames, two processes and batches in 16..1024 required')
+    if not isinstance(args.candidate_options, dict):
+        parser.error('--candidate-options must be a JSON object')
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     # Generate motion/history planes once. Input RGB remains the saved fixture.
@@ -37,12 +43,13 @@ def main():
     valid = np.ones((1080, 1920), dtype='<f4')
     for name, plane in [('motion', motion), ('depth', depth), ('validity', valid)]:
         plane.tofile(out / (name + '.bin'))
-    routes = ['cuda', 'vulkan_nvidia']
+    routes = args.routes
     measurements, golden = [], {}
     receipt = {'schema': 'phoenix-portable-optimization-ab/1', 'passed': False,
                'hardware': {'gpu': 'RTX 5080', 'cpu': 'Ryzen 9 9950X3D'},
                'resolution': [1920, 1080], 'frames_per_process': args.frames,
                'motion_mode': args.motion_mode, 'golden_sha256': golden,
+               'candidate_options': args.candidate_options,
                'discarded_per_process': 2, 'measurements': measurements,
                'scope': 'Matched RGB32F host/broker boundary; initialization excluded. Owned GPU graph bytes exclude driver caches and host histories.'}
     def digest(path):
@@ -84,7 +91,9 @@ def main():
                     job = json.loads((args.jobs / ('hd_a_' + route + '.json')).read_text(encoding='utf-8'))
                     config = job['config']
                     config.update(runtime_root=str((args.baseline if batch is None else args.candidate).resolve()), execution='broker')
-                    if batch is not None: config['window_batch_limit'] = batch
+                    if batch is not None:
+                        config.update(args.candidate_options)
+                        config['window_batch_limit'] = batch
                     first = job['cases'][0]
                     first['save_output'] = False
                     job['cases'] = [first]
