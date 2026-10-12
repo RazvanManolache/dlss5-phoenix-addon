@@ -60,6 +60,7 @@ def prepare(runtime, native, output):
     excluded = {
         "phoenix_cpp_backend_contracts.exe",
         "phoenix_cpp_graph_profile.exe",
+        "phoenix_cpp_matrix_benchmark.exe",
         "phoenix_cpp_cuda_math_contracts.exe",
         "phoenix_cpp_client_contracts.exe",
         "phoenix_cpp_offload_probe.exe",
