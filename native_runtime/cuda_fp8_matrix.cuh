@@ -1,0 +1,75 @@
+// Direct E4M3 tensor instructions for inputs already published on the FP8 grid.
+// Fragment coordinates follow NVIDIA's documented mma.m16n8k32 lane mapping:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/#matrix-fragments-for-mma-m16n8k32
+// Packed model bytes enter registers directly; no expanded weight cache is kept.
+__device__ __forceinline__ uint32_t pack_half4_fp8(const __half* source) {
+    const auto* pairs = reinterpret_cast<const __half2*>(source);
+    const unsigned low =
+        __nv_cvt_halfraw2_to_fp8x2(static_cast<__half2_raw>(pairs[0]), __NV_SATFINITE, __NV_E4M3);
+    const unsigned high =
+        __nv_cvt_halfraw2_to_fp8x2(static_cast<__half2_raw>(pairs[1]), __NV_SATFINITE, __NV_E4M3);
+    return low | (high << 16);
+}
+
+template <unsigned ColumnTiles>
+__global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile) {
+    const uint64_t tile = first_tile + blockIdx.x;
+    const unsigned column_tiles =
+        (operation.column_count + ColumnTiles * 8 - 1) / (ColumnTiles * 8);
+    const unsigned row_tiles = (operation.row_count + 63) / 64;
+    const uint64_t batch = tile / (uint64_t(column_tiles) * row_tiles);
+    const unsigned first_row = unsigned(tile / column_tiles % row_tiles) * 64;
+    const unsigned first_column = unsigned(tile % column_tiles) * ColumnTiles * 8;
+    const unsigned lane = threadIdx.x % 32, warp = threadIdx.x / 32;
+    const unsigned row_group = lane / 4, reduction_group = lane % 4;
+    const auto* activations =
+        static_cast<const __half*>(operation.left_input) + batch * operation.left_batch_stride;
+    const auto* weights =
+        static_cast<const uint8_t*>(operation.right_input) + batch * operation.right_batch_stride;
+    float sums[ColumnTiles][4] = {};
+    for (unsigned reduction = 0; reduction < operation.reduction_count; reduction += 32) {
+        uint32_t left[4];
+#pragma unroll
+        for (unsigned fragment = 0; fragment < 4; ++fragment) {
+            const unsigned row = first_row + warp * 16 + row_group + (fragment % 2) * 8;
+            const unsigned offset = reduction + reduction_group * 4 + (fragment / 2) * 16;
+            left[fragment] =
+                row < operation.row_count
+                    ? pack_half4_fp8(activations + uint64_t(row) * operation.left_row_stride +
+                                     offset)
+                    : 0;
+        }
+#pragma unroll
+        for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile) {
+            const unsigned column = first_column + column_tile * 8 + row_group;
+            uint32_t right[2] = {};
+            if (column < operation.column_count) {
+                const auto* source = weights + uint64_t(column) * operation.right_row_stride +
+                                     reduction + reduction_group * 4;
+                right[0] = *reinterpret_cast<const uint32_t*>(source);
+                right[1] = *reinterpret_cast<const uint32_t*>(source + 16);
+            }
+#if __CUDA_ARCH__ >= 890
+            asm volatile("mma.sync.aligned.m16n8k32.row.col.f32.e4m3.e4m3.f32 "
+                         "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};"
+                         : "+f"(sums[column_tile][0]), "+f"(sums[column_tile][1]),
+                           "+f"(sums[column_tile][2]), "+f"(sums[column_tile][3])
+                         : "r"(left[0]), "r"(left[1]), "r"(left[2]), "r"(left[3]), "r"(right[0]),
+                           "r"(right[1]));
+#endif
+        }
+    }
+    phx::Kernel<GpuMath> math{operation};
+#pragma unroll
+    for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile)
+#pragma unroll
+        for (unsigned element = 0; element < 4; ++element) {
+            const unsigned row = first_row + warp * 16 + row_group + (element / 2) * 8;
+            const unsigned column =
+                first_column + column_tile * 8 + reduction_group * 2 + element % 2;
+            if (row < operation.row_count && column < operation.column_count)
+                math.store(batch * operation.output_batch_stride +
+                               uint64_t(row) * operation.output_row_stride + column,
+                           sums[column_tile][element]);
+        }
+}

@@ -11,6 +11,9 @@ enum BackendOption : uint32_t {
     WideMatrixWorkgroups = 1u << 5,
     MatrixColumns32 = 1u << 6,
     MatrixColumns64 = 1u << 7,
+    CudaDirectFp8 = 1u << 8,
+    Fp8Columns64 = 1u << 9,
+    Fp8Columns128 = 1u << 10,
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,

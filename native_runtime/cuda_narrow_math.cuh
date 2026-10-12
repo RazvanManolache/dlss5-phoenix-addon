@@ -4,6 +4,12 @@
 // Hardware conversions implement the same explicit rounding boundaries as the
 // portable integer reference. Preserve its NaN payload and signed-zero rules.
 struct CudaNarrowMath {
+    // Reduction operands are already half-grid values. Perform the add in
+    // half precision itself, with the same single round-to-nearest-even result.
+    __device__ static float add_half_grid(float left, float right) {
+        return __half2float(__hadd(__float2half_rn(left), __float2half_rn(right)));
+    }
+
     __device__ static float round_half(float value) {
         return isfinite(value) ? __half2float(__float2half_rn(value)) : value;
     }

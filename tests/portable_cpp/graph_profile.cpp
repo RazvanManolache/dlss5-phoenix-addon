@@ -29,6 +29,12 @@ int wmain(int argc, wchar_t** argv) {
         demand(create && destroy && features, "Configured backend ABI missing");
         char error[2048]{};
         uint32_t options = DispatchProfiling;
+        if (config.value("cuda_direct_fp8", true))
+            options |= CudaDirectFp8;
+        if (config.value("cuda_fp8_columns", 32u) == 64u)
+            options |= Fp8Columns64;
+        if (config.value("cuda_fp8_columns", 32u) == 128u)
+            options |= Fp8Columns128;
         if (config.value("vulkan_matrix_warps", 0u) == 1u)
             options |= NarrowMatrixWorkgroups;
         if (config.value("vulkan_matrix_warps", 0u) == 4u)

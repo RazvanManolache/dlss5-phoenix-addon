@@ -299,7 +299,9 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
     }
 }
 
+#include "cuda_fp8_matrix.cuh"
 #include "cuda_window_attention.cuh"
+#include "cuda_fp8_attention.cuh"
 
 // Fix the operation before compilation. Simple copies/gathers no longer inherit
 // register and stack requirements from unrelated row reductions and softmax.
@@ -365,6 +367,8 @@ class GpuBackend final : public Backend {
     bool tensor_attention = true;
     bool detailed_profile = false;
     unsigned tensor_column_tiles = 1;
+    bool direct_fp8 = false;
+    unsigned fp8_columns = 32;
 #if defined(PHX_SYCL)
     std::unique_ptr<sycl::queue> queue_;
 #else
@@ -408,6 +412,8 @@ class GpuBackend final : public Backend {
     explicit GpuBackend(const std::string& device_id, uint32_t options = 0) {
         tensor_attention = !(options & OrderedAttention);
         detailed_profile = (options & DispatchProfiling) != 0;
+        direct_fp8 = (options & CudaDirectFp8) != 0;
+        fp8_columns = (options & Fp8Columns128) ? 128 : (options & Fp8Columns64) ? 64 : 32;
         tensor_column_tiles = (options & MatrixColumns64) ? 4 : (options & MatrixColumns32) ? 2 : 1;
 #if defined(PHX_SYCL)
         std::vector<sycl::device> matches;
@@ -461,6 +467,17 @@ class GpuBackend final : public Backend {
         }
         demand(selected >= 0, "Requested GPU UUID not found");
         PHX_CHECK(hipSetDevice(selected));
+#if defined(PHX_CUDA)
+        cudaDeviceProp selected_properties{};
+        PHX_CHECK(cudaGetDeviceProperties(&selected_properties, selected));
+        // A build targeting an older virtual architecture may be JIT-loaded on
+        // a newer GPU. It still lacks the FP8 instruction body; gate both sides.
+        cudaFuncAttributes fp8_attributes{};
+        PHX_CHECK(cudaFuncGetAttributes(&fp8_attributes, matrix_direct_fp8<4>));
+        direct_fp8 = direct_fp8 &&
+                     selected_properties.major * 10 + selected_properties.minor >= 89 &&
+                     fp8_attributes.ptxVersion >= 89;
+#endif
         PHX_CHECK(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking));
 #endif
     }
@@ -681,11 +698,45 @@ class GpuBackend final : public Backend {
                             hipEventRecordWithFlags(timer.started, stream, hipEventRecordExternal));
                     if (command.operation.family == phx::WindowAttention) {
                         for (uint64_t first = 0; first < command.operation.batch_count;
-                             first += 65535)
-                            window_attention<<<
-                                unsigned(std::min(uint64_t(65535),
-                                                  uint64_t(command.operation.batch_count) - first)),
-                                128, 0, stream>>>(command.operation, first);
+                             first += 65535) {
+                            const auto blocks = unsigned(std::min(
+                                uint64_t(65535), uint64_t(command.operation.batch_count) - first));
+                            if (direct_fp8)
+                                window_attention_fp8<<<blocks, 128, 0, stream>>>(command.operation,
+                                                                                 first);
+                            else
+                                window_attention<<<blocks, 128, 0, stream>>>(command.operation,
+                                                                             first);
+                        }
+                        // Short reductions spend more time encoding activations than
+                        // multiplying them. Keep their measured FP16 tensor path.
+                    } else if (direct_fp8 && command.operation.family == phx::MatrixMultiply &&
+                               (command.operation.flags & phx::RightInputFp8) &&
+                               (command.operation.flags & phx::LeftInputFp8Grid) &&
+                               (command.operation.flags & 1) &&
+                               command.operation.reduction_count >= 128 &&
+                               command.operation.reduction_count % 32 == 0 &&
+                               command.operation.left_row_stride % 4 == 0) {
+                        const unsigned columns =
+                            fp8_columns >= 128 && command.operation.column_count >= 128 ? 128
+                            : fp8_columns >= 64 && command.operation.column_count >= 64 ? 64
+                                                                                        : 32;
+                        const uint64_t tiles =
+                            uint64_t((command.operation.row_count + 63) / 64) *
+                            ((command.operation.column_count + columns - 1) / columns) *
+                            command.operation.batch_count;
+                        for (uint64_t first = 0; first < tiles; first += 65535) {
+                            const auto blocks = unsigned(std::min(uint64_t(65535), tiles - first));
+                            if (columns == 128)
+                                matrix_direct_fp8<16>
+                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                            else if (columns == 64)
+                                matrix_direct_fp8<8>
+                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                            else
+                                matrix_direct_fp8<4>
+                                    <<<blocks, 128, 0, stream>>>(command.operation, first);
+                        }
                     } else if (command.operation.family == phx::MatrixMultiply &&
                                command.operation.column_count <= 4) {
                         uint64_t rows =

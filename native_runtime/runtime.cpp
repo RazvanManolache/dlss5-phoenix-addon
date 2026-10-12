@@ -83,6 +83,8 @@ struct Runtime {
             auto configured_create = reinterpret_cast<ConfiguredCreate>(
                 GetProcAddress(module, "phoenix_backend_create_configured"));
             uint32_t options = 0;
+            if (config.value("cuda_direct_fp8", true))
+                options |= CudaDirectFp8;
             if (config.value("scalar_matrices", false))
                 options |= ScalarMatrices;
             if (config.value("profiling", std::string("frame")) == "dispatches")
@@ -98,6 +100,13 @@ struct Runtime {
                 options |= NarrowMatrixWorkgroups;
             if (matrix_warps == 4)
                 options |= WideMatrixWorkgroups;
+            const auto fp8_columns = config.value("cuda_fp8_columns", 32u);
+            demand(fp8_columns == 32 || fp8_columns == 64 || fp8_columns == 128,
+                   "CUDA FP8 columns must be 32, 64 or 128");
+            if (fp8_columns == 64)
+                options |= Fp8Columns64;
+            if (fp8_columns == 128)
+                options |= Fp8Columns128;
             const auto matrix_columns = config.value("cuda_matrix_columns", 16u);
             demand(matrix_columns == 16 || matrix_columns == 32 || matrix_columns == 64,
                    "CUDA matrix columns must be 16, 32 or 64");
@@ -182,11 +191,24 @@ struct Runtime {
         auto start = Clock::now();
         size_t pixel_count = size_t(frame->width) * frame->height;
         demand(color && output, "Missing frame buffers");
-        for (size_t iteration_index = 0; iteration_index < pixel_count * 3; ++iteration_index)
-            demand(std::isfinite(color[iteration_index]), "Nonfinite frame input");
-        for (size_t iteration_index = 0; iteration_index < pixel_count * 3; ++iteration_index)
-            demand(color[iteration_index] >= 0 && color[iteration_index] <= 1,
-                   "Frame input requires model proxy range 0..1");
+        // Validate disjoint rows in the existing frame pool. Keep finite/range
+        // failures separate so rejection semantics do not depend on worker order.
+        std::atomic<unsigned> input_errors{0};
+        frame->rows.run(frame->height, [&](unsigned row) {
+            unsigned errors = 0;
+            const size_t first = size_t(row) * frame->width * 3;
+            for (size_t index = first; index < first + frame->width * 3; ++index) {
+                const float value = color[index];
+                if (!std::isfinite(value))
+                    errors |= 1;
+                if (!(value >= 0 && value <= 1))
+                    errors |= 2;
+            }
+            if (errors)
+                input_errors.fetch_or(errors, std::memory_order_relaxed);
+        });
+        demand(!(input_errors.load() & 1), "Nonfinite frame input");
+        demand(!(input_errors.load() & 2), "Frame input requires model proxy range 0..1");
         // Preflight every consumed metadata field and declared input before changing
         // temporal state or rebuilding the graph. Rejected requests must be invisible
         // to the next valid frame, including a reset paired with invalid metadata.
@@ -206,22 +228,32 @@ struct Runtime {
         demand(!has_motion || motion, "Missing declared motion");
         demand(!has_depth || depth, "Missing declared depth");
         demand(!has_history_validity || validity, "Missing declared validity");
-        bool stationary_motion = has_motion;
-        for (size_t iteration_index = 0; iteration_index < pixel_count; ++iteration_index) {
-            if (has_motion) {
-                stationary_motion = stationary_motion && motion[iteration_index * 2] == 0.f &&
-                                    motion[iteration_index * 2 + 1] == 0.f;
+        std::atomic<unsigned> plane_errors{0};
+        frame->rows.run(frame->height, [&](unsigned row) {
+            unsigned errors = 0;
+            const size_t first = size_t(row) * frame->width;
+            for (size_t pixel = first; pixel < first + frame->width; ++pixel) {
+                if (has_motion) {
+                    const float x = motion[pixel * 2], y = motion[pixel * 2 + 1];
+                    if (x != 0 || y != 0)
+                        errors |= 1;
+                    if (!std::isfinite(x) || !std::isfinite(y))
+                        errors |= 2;
+                }
+                if (has_depth && !std::isfinite(depth[pixel]))
+                    errors |= 4;
+                if (has_history_validity && validity[pixel] != 0 && validity[pixel] != 1)
+                    errors |= 8;
             }
-            if (has_motion)
-                demand(std::isfinite(motion[iteration_index * 2]) &&
-                           std::isfinite(motion[iteration_index * 2 + 1]),
-                       "Nonfinite motion");
-            if (has_depth)
-                demand(std::isfinite(depth[iteration_index]), "Nonfinite depth");
-            if (has_history_validity)
-                demand(validity[iteration_index] == 0 || validity[iteration_index] == 1,
-                       "Nonbinary validity");
-        }
+            if (errors)
+                plane_errors.fetch_or(errors, std::memory_order_relaxed);
+        });
+        const unsigned errors = plane_errors.load();
+        demand(!(errors & 2), "Nonfinite motion");
+        demand(!(errors & 4), "Nonfinite depth");
+        demand(!(errors & 8), "Nonbinary validity");
+        const bool stationary_motion = has_motion && !(errors & 1);
+        double validation_ms = elapsed(start);
         Json next_signature = {
             requested,          passes,        controls.style,     controls.tone,
             controls.structure, controls.skin, controls.auto_mask, reversed_depth};
@@ -329,10 +361,23 @@ struct Runtime {
                 frame->resolve(current_color, head, controls, *resolve_source, *resolve_mask, next);
             current_color = current.data();
             resolve_ms += elapsed(stage_started);
-            for (float value : current)
-                demand(std::isfinite(value), "Nonfinite network result");
-            for (float value : next)
-                demand(std::isfinite(value), "Nonfinite history result");
+            auto validation_started = Clock::now();
+            std::atomic<unsigned> result_errors{0};
+            frame->rows.run(frame->height, [&](unsigned row) {
+                unsigned errors = 0;
+                const size_t first = size_t(row) * frame->width * 3;
+                for (size_t index = first; index < first + frame->width * 3; ++index) {
+                    if (!std::isfinite(current[index]))
+                        errors |= 1;
+                    if (!std::isfinite(next[index]))
+                        errors |= 2;
+                }
+                if (errors)
+                    result_errors.fetch_or(errors, std::memory_order_relaxed);
+            });
+            demand(!(result_errors.load() & 1), "Nonfinite network result");
+            demand(!(result_errors.load() & 2), "Nonfinite history result");
+            validation_ms += elapsed(validation_started);
             next_histories[pass] = std::move(next);
             sample_temporary_capacity();
         }
@@ -362,6 +407,7 @@ struct Runtime {
              {"window_batch_limit", window_batch_limit},
              {"profiling_scope",
               events.empty() || events.front().block != UINT32_MAX ? "layers" : "submission spans"},
+             {"validation_ms", validation_ms},
              {"prepare_ms", prepare_ms},
              {"execute_with_transfers_ms", execute_ms},
              {"resolve_ms", resolve_ms},

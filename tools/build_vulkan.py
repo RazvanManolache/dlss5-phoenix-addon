@@ -183,7 +183,7 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     p.a += (uint64_t)oa * 2;""")
     replace(
         "int small = g.staged32",
-        """if(g.portable && (bt & ~0xe011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
+        """if(g.portable && (bt & ~0x1e011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
     int small = g.staged32""",
     )
     replace("if (g.rstaged32[0]) return 0;", "if (g.portable || g.rstaged32[0]) return 0;")

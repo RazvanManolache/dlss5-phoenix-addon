@@ -69,7 +69,8 @@ enum OperationFlag : u32 {
     GlobalAttention = 0x80000,
     RightInputFp8 = 0x2000000,
     MatrixResidual = 0x4000000,
-    MatrixSkipHalf = 0x8000000
+    MatrixSkipHalf = 0x8000000,
+    LeftInputFp8Grid = 0x10000000
 };
 struct Operation {
     void* left_input = nullptr;       // A: activations, scores or source image.
@@ -239,6 +240,8 @@ template <class Math> struct Kernel {
             static_cast<float*>(operation.output)[element_index] = value;
     }
     PHX_DEVICE float add_half(float left, float right) const {
+        if constexpr (requires { Math::add_half_grid(left, right); })
+            return Math::add_half_grid(left, right);
         return half(left + right);
     }
     PHX_DEVICE float multiply_half(float left, float right) const {

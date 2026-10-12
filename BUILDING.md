@@ -158,6 +158,20 @@ as the embedding paths. Check the final addon resources in a fresh explicit cach
 & ./build/validation_tools/embedded_runtime_tests.exe ./build/addon_embedded/phoenix.addon64 ./build/resource_cache ./build/resource_test.json
 ```
 
+Portable CUDA automatically selects direct FP8 matrix instructions for larger
+reductions whose activations are already proven to lie on the model's FP8 grid.
+Short reductions and unquantized boundaries retain FP16/ordered execution. The
+selected GPU and compiled virtual architecture must both support FP8; older
+architecture builds retain the previous implementation. This changes execution,
+not the model weights or requested network layers.
+
+For a controlled regression comparison, set `"cuda_direct_fp8": false` in the
+portable runner configuration. `"cuda_fp8_columns"` accepts `32` (the measured
+default), `64`, or `128`; wider tiles are experimental tuning overrides, not
+quality settings. The offline graph profiler reads these same options. Runtime
+status reports `validation_ms` separately from preparation, model/transfer, and
+resolve times; full frame calls also include transport and synchronization.
+
 `tools/embed_runtime.py` requires validation manifests and embeds runner libraries and kernels. The NVIDIA model DLL remains separate. No NVIDIA DLL or extracted model is included in the repository.
 
 The addon builder writes `report.json` with separate compilation, contract-test

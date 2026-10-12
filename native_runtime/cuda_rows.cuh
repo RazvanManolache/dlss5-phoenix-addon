@@ -91,8 +91,9 @@ __global__ void normalize_global_scores8(phx::Operation operation, uint64_t coun
 }
 
 // Used inside fused attention after its Q*K^T tile has reached shared memory.
+template <class Probability>
 __device__ __forceinline__ void normalize_window_row8(const float* scores, const float* bias,
-                                                      __half* probabilities, unsigned lane,
+                                                      Probability* probabilities, unsigned lane,
                                                       bool split_heads) {
     phx::Kernel<GpuMath> math{};
     float weights[8];
@@ -134,6 +135,10 @@ __device__ __forceinline__ void normalize_window_row8(const float* scores, const
     const float inverse = math.reciprocal(fmaxf(total, .00006103515625f));
 #pragma unroll
     for (unsigned index = 0; index < 8; ++index)
-        probabilities[lane + index * 8] =
-            __float2half_rn(math.quantize_e4m3(math.half(weights[index] * inverse)));
+        if constexpr (sizeof(Probability) == 1)
+            probabilities[lane + index * 8] = __nv_cvt_float_to_fp8(
+                math.half(weights[index] * inverse), __NV_SATFINITE, __NV_E4M3);
+        else
+            probabilities[lane + index * 8] =
+                __float2half_rn(math.quantize_e4m3(math.half(weights[index] * inverse)));
 }

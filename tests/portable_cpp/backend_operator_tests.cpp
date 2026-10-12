@@ -70,7 +70,10 @@ int wmain(int argc, wchar_t** argv) {
                     backend->upload(skip, skip_values.data(), skip_values.size() * 4);
                 phx::Operation matrix{};
                 matrix.family = phx::MatrixMultiply;
-                matrix.flags = 1 | phx::RightInputFp8;
+                matrix.flags =
+                    1 | phx::RightInputFp8 |
+                    ((extra_options & (CudaDirectFp8 | LosslessFp8Matrices)) ? phx::LeftInputFp8Grid
+                                                                             : 0);
                 matrix.left_input = left.address;
                 matrix.right_input = right.address;
                 matrix.output = projection.address;
@@ -113,7 +116,7 @@ int wmain(int argc, wchar_t** argv) {
                 demand(!differences, "Fused residual differs from separate execution");
             }
 
-        for (unsigned heads : {1u, 2u, 16u}) {
+        for (unsigned heads : {1u, 2u, 4u, 8u, 16u}) {
             unsigned batches = 2 * heads;
             auto query = allocate(batches * 2048 * 2), key = allocate(batches * 2048 * 2);
             auto value = allocate(batches * 2048 * 2), bias = allocate(heads * 4096 * 4);

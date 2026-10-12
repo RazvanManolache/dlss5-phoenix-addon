@@ -14,6 +14,7 @@ struct Tensor {
     std::shared_ptr<Allocation> memory;
     size_t byte_offset = 0;
     unsigned height = 1, width = 1, channels = 1, element_bytes = 2;
+    bool fp8_grid = false; // Proven publication, not a per-frame value scan.
 
     void* ptr() const {
         return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(memory->address) + byte_offset);
@@ -38,6 +39,11 @@ class Graph {
     bool device_features_ = false;
     bool fused_residual_ = false;
     std::array<Tensor, 4> frame_planes_;
+
+    static bool publishes_fp8(unsigned publication) {
+        return publication == 1 || publication == 3 || publication == 5 || publication == 6 ||
+               publication == 7;
+    }
 
     static unsigned align_extent(unsigned extent, unsigned alignment) {
         return (extent + alignment - 1) / alignment * alignment;
@@ -216,6 +222,13 @@ class Graph {
         operation.reduction_count = padding;
         operation.scale = scale;
         emit(operation, result.size());
+        const auto publication = (flags >> 8) & 15u;
+        const unsigned kind = flags & 255u;
+        const bool keeps_grid = kind == phx::CopyValues || kind == phx::SpatialPad ||
+                                kind == phx::GatherWindowBatch || kind == phx::GatherWindows ||
+                                kind == phx::ScatterWindowBatch;
+        result.fp8_grid =
+            publishes_fp8(publication) || (publication == 0 && keeps_grid && source.fp8_grid);
         return result;
     }
 
@@ -252,8 +265,10 @@ class Graph {
         // phx::RightInputFp8 selects byte-packed FP8 weights; the accumulation and
         // publication order is otherwise the same as in the original graph.
         operation.flags = 1 | (epilogue << 8) | (store_half ? phx::StoreHalf : 0) |
-                          (matrix.element_bytes == 1 ? phx::RightInputFp8 : 0);
+                          (matrix.element_bytes == 1 ? phx::RightInputFp8 : 0) |
+                          (source.fp8_grid ? phx::LeftInputFp8Grid : 0);
         emit(operation, uint64_t(operation.row_count) * operation.column_count * batch);
+        result.fp8_grid = publishes_fp8(epilogue);
         return result;
     }
 
@@ -272,6 +287,7 @@ class Graph {
                 previous.output = result.ptr();
                 previous.auxiliary = skip.ptr();
                 previous.secondary_output = gains.ptr();
+                result.fp8_grid = publishes_fp8(epilogue);
                 previous.flags |= phx::MatrixResidual | (epilogue << 8) |
                                   (store_half ? phx::StoreHalf : 0) |
                                   (skip.element_bytes == 2 ? phx::MatrixSkipHalf : 0);
@@ -390,6 +406,7 @@ class Graph {
             operation.batch_count = batch * head_count;
             operation.column_count = head_count;
             emit(operation, operation.batch_count);
+            merged.fp8_grid = true;
             return merged;
         }
         if (global_attention)
@@ -487,6 +504,7 @@ class Graph {
             operation.reduction_count = (top_padding << 16) | left_padding;
             emit(operation, merged.size());
         }
+        result.fp8_grid = true;
         return result;
     }
 
@@ -531,12 +549,14 @@ class Graph {
             if (head_count > 1) {
                 auto middle_matrix = model_weight(block, 0, "mlp_mid");
                 auto per_head_result = allocate_tensor(batch, 64, channels);
+                per_head_result.fp8_grid = true;
                 for (unsigned head = 0; head < head_count; ++head) {
                     auto head_input = tensor_view(hidden, head * 128, batch, 64, 128);
                     auto head_matrix = tensor_view(middle_matrix, head * 32 * 128, 1, 32, 128);
                     phx::Operation operation{};
                     operation.family = phx::MatrixMultiply;
-                    operation.flags = 1 | phx::StoreHalf | (5 << 8) | phx::RightInputFp8;
+                    operation.flags = 1 | phx::StoreHalf | (5 << 8) | phx::RightInputFp8 |
+                                      (head_input.fp8_grid ? phx::LeftInputFp8Grid : 0);
                     operation.left_input = head_input.ptr();
                     operation.right_input = head_matrix.ptr();
                     operation.output = tensor_view(per_head_result, head * 32, batch, 64, 32).ptr();
@@ -585,8 +605,11 @@ class Graph {
             }
             emit(operation, accumulator.size());
         }
-        if (pooled)
+        result.fp8_grid = pooled || !keep_half;
+        if (pooled) {
+            pooled_result.fp8_grid = true;
             *pooled = pooled_result;
+        }
         return result;
     }
 
@@ -601,6 +624,7 @@ class Graph {
                                      [&, index] { return projections[index]; });
 
         auto combined = allocate_tensor(source.height, source.width, 512);
+        combined.fp8_grid = true;
         for (unsigned group = 0; group < 8; ++group) {
             auto reduced = matrix_multiply(
                 source, tensor_view(matrices[0], group * 64 * 512, 1, 64, 512), 64, 5, true);
@@ -614,7 +638,8 @@ class Graph {
             operation.output =
                 tensor_view(combined, group * 64, source.height, source.width, 64).ptr();
             operation.flags = 1 | phx::StoreHalf | (5 << 8) |
-                              (contract_matrix.element_bytes == 1 ? phx::RightInputFp8 : 0);
+                              (contract_matrix.element_bytes == 1 ? phx::RightInputFp8 : 0) |
+                              (hidden.fp8_grid ? phx::LeftInputFp8Grid : 0);
             operation.row_count = source.height * source.width;
             operation.column_count = 64;
             operation.reduction_count = 256;
