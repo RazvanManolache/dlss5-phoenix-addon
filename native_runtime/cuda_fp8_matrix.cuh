@@ -11,6 +11,22 @@ __device__ __forceinline__ uint32_t pack_half4_fp8(const __half* source) {
     return low | (high << 16);
 }
 
+// Evaluate the reference matrix epilogue before a paired half write. Keep
+// residual multiply/add separate, exactly as Kernel::store does.
+__device__ __forceinline__ float fp8_matrix_published_value(const phx::Kernel<GpuMath>& math,
+                                                            const phx::Operation& operation,
+                                                            uint64_t output_index, float value) {
+    if (operation.flags & phx::MatrixResidual) {
+        const float skip = (operation.flags & phx::MatrixSkipHalf)
+                               ? math.load_half(operation.auxiliary, output_index)
+                               : math.load_float(operation.auxiliary, output_index);
+        const float product = skip * math.load_float(operation.secondary_output,
+                                                     output_index % operation.column_count);
+        value = value + product;
+    }
+    return math.publish((operation.flags >> 8u) & 15u, value);
+}
+
 template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX>
 __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile) {
     // Fix known matrix/output semantics before device compilation. The common
@@ -65,6 +81,43 @@ __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile)
         }
     }
     phx::Kernel<GpuMath> math{operation};
+    if constexpr (PublishMode == phx::PublishHalfThenFp8 ||
+                  PublishMode == phx::PublishGateThenHalfFp8) {
+        // Each lane owns two adjacent columns in each of two rows. Publish
+        // those values independently, then write their two halves as one word.
+        // Odd/tail layouts retain the scalar contract without an overrun.
+        const bool paired_output = (operation.flags & phx::StoreHalf) &&
+                                   operation.output_row_stride % 2 == 0 &&
+                                   operation.output_batch_stride % 2 == 0 &&
+                                   (reinterpret_cast<uintptr_t>(operation.output) & 3u) == 0;
+        if (paired_output) {
+#pragma unroll
+            for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile)
+#pragma unroll
+                for (unsigned row_in_lane = 0; row_in_lane < 2; ++row_in_lane) {
+                    const unsigned row = first_row + warp * 16 + row_group + row_in_lane * 8;
+                    const unsigned column = first_column + column_tile * 8 + reduction_group * 2;
+                    const uint64_t output_index = batch * operation.output_batch_stride +
+                                                  uint64_t(row) * operation.output_row_stride +
+                                                  column;
+                    if (row >= operation.row_count || column >= operation.column_count)
+                        continue;
+                    const unsigned first_element = row_in_lane * 2;
+                    if (column + 1 < operation.column_count) {
+                        const uint32_t low = math.half_bits(fp8_matrix_published_value(
+                            math, operation, output_index, sums[column_tile][first_element]));
+                        const uint32_t high = math.half_bits(
+                            fp8_matrix_published_value(math, operation, output_index + 1,
+                                                       sums[column_tile][first_element + 1]));
+                        auto* destination = static_cast<uint16_t*>(operation.output) + output_index;
+                        *reinterpret_cast<uint32_t*>(destination) = low | (high << 16u);
+                    } else {
+                        math.store(output_index, sums[column_tile][first_element]);
+                    }
+                }
+            return;
+        }
+    }
 #pragma unroll
     for (unsigned column_tile = 0; column_tile < ColumnTiles; ++column_tile)
 #pragma unroll

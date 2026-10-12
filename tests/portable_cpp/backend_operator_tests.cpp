@@ -75,64 +75,68 @@ int wmain(int argc, wchar_t** argv) {
         // checks masked paired-half gathers; odd K checks the CPU's safe fallback.
         for (bool transposed_weights : {false, true})
             for (unsigned matrix_reduction : {128u, 256u, 259u})
-                for (unsigned padding : {0u, 3u}) {
-                    constexpr unsigned matrix_rows = 33, matrix_columns = 129, batches = 2;
-                    const unsigned left_stride = matrix_reduction + padding,
-                                   right_stride =
-                                       (transposed_weights ? matrix_reduction : matrix_columns) +
-                                       padding,
-                                   output_stride = matrix_columns + 5;
-                    const size_t left_batch = size_t(matrix_rows) * left_stride,
-                                 right_batch = size_t(transposed_weights ? matrix_columns
-                                                                         : matrix_reduction) *
-                                               right_stride,
-                                 output_batch = size_t(matrix_rows) * output_stride;
-                    std::vector<uint16_t> left_values(batches * left_batch),
-                        expected(batches * output_batch, 0x3555), actual(expected.size());
-                    std::vector<uint8_t> right_values(batches * right_batch);
-                    for (size_t index = 0; index < left_values.size(); ++index)
-                        left_values[index] =
-                            uint16_t(math.half_bits(float(int(index * 13 % 23) - 11) * .0625f));
-                    for (size_t index = 0; index < right_values.size(); ++index)
-                        right_values[index] =
-                            uint8_t((32 + index * 17 % 57) | ((index & 1) ? 128 : 0));
-                    phx::Operation matrix{};
-                    matrix.family = phx::MatrixMultiply;
-                    matrix.flags =
-                        (transposed_weights ? 1u : 0u) | phx::RightInputFp8 | phx::StoreHalf;
-                    matrix.row_count = matrix_rows;
-                    matrix.column_count = matrix_columns;
-                    matrix.reduction_count = matrix_reduction;
-                    matrix.batch_count = batches;
-                    matrix.left_row_stride = left_stride;
-                    matrix.right_row_stride = right_stride;
-                    matrix.output_row_stride = output_stride;
-                    matrix.left_batch_stride = left_batch;
-                    matrix.right_batch_stride = right_batch;
-                    matrix.output_batch_stride = output_batch;
-                    matrix.left_input = left_values.data();
-                    matrix.right_input = right_values.data();
-                    matrix.output = expected.data();
-                    phx::Kernel<HostMath> reference_matrix{matrix};
-                    for (uint64_t index = 0;
-                         index < uint64_t(batches) * matrix_rows * matrix_columns; ++index)
-                        reference_matrix.gemm(index);
-                    auto a = allocate(left_values.size() * 2), b = allocate(right_values.size()),
-                         c = allocate(expected.size() * 2);
-                    std::vector<uint16_t> sentinel(expected.size(), 0x3555);
-                    backend->upload(a, left_values.data(), left_values.size() * 2);
-                    backend->upload(b, right_values.data(), right_values.size());
-                    backend->upload(c, sentinel.data(), sentinel.size() * 2);
-                    matrix.left_input = a.address;
-                    matrix.right_input = b.address;
-                    matrix.output = c.address;
-                    std::vector<Event> events;
-                    backend->execute(
-                        {{matrix, uint64_t(batches) * matrix_rows * matrix_columns, 0, 0}}, events);
-                    backend->download(c, actual.data(), actual.size() * 2);
-                    demand(actual == expected,
-                           "Matrix tile tails, batch strides or output padding differ");
-                }
+                for (unsigned publication :
+                     {phx::KeepFloat, phx::PublishHalfThenFp8, phx::PublishGateThenHalfFp8})
+                    for (unsigned padding : {0u, 3u}) {
+                        constexpr unsigned matrix_rows = 33, matrix_columns = 129, batches = 2;
+                        const unsigned left_stride = matrix_reduction + padding,
+                                       right_stride = (transposed_weights ? matrix_reduction
+                                                                          : matrix_columns) +
+                                                      padding,
+                                       output_stride =
+                                           matrix_columns + (matrix_reduction == 256 ? 4 : 5);
+                        const size_t left_batch = size_t(matrix_rows) * left_stride,
+                                     right_batch = size_t(transposed_weights ? matrix_columns
+                                                                             : matrix_reduction) *
+                                                   right_stride,
+                                     output_batch = size_t(matrix_rows) * output_stride;
+                        std::vector<uint16_t> left_values(batches * left_batch),
+                            expected(batches * output_batch, 0x3555), actual(expected.size());
+                        std::vector<uint8_t> right_values(batches * right_batch);
+                        for (size_t index = 0; index < left_values.size(); ++index)
+                            left_values[index] =
+                                uint16_t(math.half_bits(float(int(index * 13 % 23) - 11) * .0625f));
+                        for (size_t index = 0; index < right_values.size(); ++index)
+                            right_values[index] =
+                                uint8_t((32 + index * 17 % 57) | ((index & 1) ? 128 : 0));
+                        phx::Operation matrix{};
+                        matrix.family = phx::MatrixMultiply;
+                        matrix.flags = (transposed_weights ? 1u : 0u) | phx::RightInputFp8 |
+                                       phx::LeftInputFp8Grid | phx::StoreHalf | (publication << 8u);
+                        matrix.row_count = matrix_rows;
+                        matrix.column_count = matrix_columns;
+                        matrix.reduction_count = matrix_reduction;
+                        matrix.batch_count = batches;
+                        matrix.left_row_stride = left_stride;
+                        matrix.right_row_stride = right_stride;
+                        matrix.output_row_stride = output_stride;
+                        matrix.left_batch_stride = left_batch;
+                        matrix.right_batch_stride = right_batch;
+                        matrix.output_batch_stride = output_batch;
+                        matrix.left_input = left_values.data();
+                        matrix.right_input = right_values.data();
+                        matrix.output = expected.data();
+                        phx::Kernel<HostMath> reference_matrix{matrix};
+                        for (uint64_t index = 0;
+                             index < uint64_t(batches) * matrix_rows * matrix_columns; ++index)
+                            reference_matrix.gemm(index);
+                        auto a = allocate(left_values.size() * 2),
+                             b = allocate(right_values.size()), c = allocate(expected.size() * 2);
+                        std::vector<uint16_t> sentinel(expected.size(), 0x3555);
+                        backend->upload(a, left_values.data(), left_values.size() * 2);
+                        backend->upload(b, right_values.data(), right_values.size());
+                        backend->upload(c, sentinel.data(), sentinel.size() * 2);
+                        matrix.left_input = a.address;
+                        matrix.right_input = b.address;
+                        matrix.output = c.address;
+                        std::vector<Event> events;
+                        backend->execute(
+                            {{matrix, uint64_t(batches) * matrix_rows * matrix_columns, 0, 0}},
+                            events);
+                        backend->download(c, actual.data(), actual.size() * 2);
+                        demand(actual == expected,
+                               "Matrix tile tails, batch strides or output padding differ");
+                    }
         std::cout << "Matrix tile tails, both weight layouts and batch strides exact\n";
         constexpr unsigned rows = 96, channels = 32, reduction = 128;
         auto left = allocate(rows * reduction * 2), right = allocate(channels * reduction);
