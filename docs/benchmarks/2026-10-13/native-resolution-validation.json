@@ -1,0 +1,1068 @@
+{
+  "date": "2026-10-13",
+  "source_commit": "3d872d4147088c6a61a659b9773922d9f188c65d",
+  "hardware": {
+    "cpu": "Ryzen 9 9950X3D",
+    "threads": 32,
+    "ram_gib": 96,
+    "nvidia": "RTX 5080, 16 GiB, driver 616.64"
+  },
+  "scope": "Same synthetic RGBA16F color/RG16F motion fixture/controls/model. 128 frames/process; discard32; two processes/route/extent. GPU runner/Evaluate excludes upload/readback; debug enabled. Not game FPS.",
+  "native_kernel_binaries_unchanged": true,
+  "raw_receipt_sha256": "d7a0ab6d91b152c814331a89743c1ed3616e2c4cf12db4d09af103b938f3026b",
+  "cases": [
+    {
+      "width": 640,
+      "height": 360,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 1.927248,
+          "min_gpu_ms": 1.905664,
+          "max_gpu_ms": 2.392288,
+          "wall_ms": 2.2718,
+          "device_local_bytes": 309338112.0,
+          "host_private_bytes": 632344576.0,
+          "host_working_set_bytes": 307636224.0,
+          "output_final_exact": true,
+          "receipt": "native_640x360_0_phoenix",
+          "owned_bytes": 182452224,
+          "workspace_bytes": 27734016
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 2.010896,
+          "min_gpu_ms": 1.999808,
+          "max_gpu_ms": 2.47456,
+          "wall_ms": 2.45315,
+          "device_local_bytes": 459497472.0,
+          "host_private_bytes": 694775808.0,
+          "host_working_set_bytes": 367759360.0,
+          "output_final_exact": true,
+          "receipt": "native_640x360_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 2.0094719999999997,
+          "min_gpu_ms": 1.995648,
+          "max_gpu_ms": 2.477216,
+          "wall_ms": 2.3945,
+          "device_local_bytes": 459497472.0,
+          "host_private_bytes": 698642432.0,
+          "host_working_set_bytes": 368656384.0,
+          "output_final_exact": true,
+          "receipt": "native_640x360_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 1.9292,
+          "min_gpu_ms": 1.904832,
+          "max_gpu_ms": 2.469536,
+          "wall_ms": 2.2700500000000003,
+          "device_local_bytes": 309338112.0,
+          "host_private_bytes": 630378496.0,
+          "host_working_set_bytes": 307554304.0,
+          "output_final_exact": true,
+          "receipt": "native_640x360_3_phoenix",
+          "owned_bytes": 182452224,
+          "workspace_bytes": 27734016
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
+          "bytes": 1843200,
+          "expected": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
+          "bytes": 1843200,
+          "expected": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "9317944bf386e5fe3d4d0e6576ecea27e198c1ac0ad205cb3e28aeb756dacbb9",
+        "bytes": 1843200,
+        "expected": "9317944bf386e5fe3d4d0e6576ecea27e198c1ac0ad205cb3e28aeb756dacbb9",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "9317944bf386e5fe3d4d0e6576ecea27e198c1ac0ad205cb3e28aeb756dacbb9",
+        "127": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432"
+      }
+    },
+    {
+      "width": 854,
+      "height": 480,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 2.090112,
+          "min_gpu_ms": 2.068256,
+          "max_gpu_ms": 2.56624,
+          "wall_ms": 2.41695,
+          "device_local_bytes": 334176256.0,
+          "host_private_bytes": 664121344.0,
+          "host_working_set_bytes": 311298048.0,
+          "output_final_exact": true,
+          "receipt": "native_854x480_0_phoenix",
+          "owned_bytes": 203489280,
+          "workspace_bytes": 43258880
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 2.15136,
+          "min_gpu_ms": 2.136096,
+          "max_gpu_ms": 2.637856,
+          "wall_ms": 2.5391000000000004,
+          "device_local_bytes": 482762752.0,
+          "host_private_bytes": 727629824.0,
+          "host_working_set_bytes": 369438720.0,
+          "output_final_exact": true,
+          "receipt": "native_854x480_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 2.153824,
+          "min_gpu_ms": 2.140288,
+          "max_gpu_ms": 2.622208,
+          "wall_ms": 2.54505,
+          "device_local_bytes": 482762752.0,
+          "host_private_bytes": 725704704.0,
+          "host_working_set_bytes": 366936064.0,
+          "output_final_exact": true,
+          "receipt": "native_854x480_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 2.0914400000000004,
+          "min_gpu_ms": 2.076608,
+          "max_gpu_ms": 2.55296,
+          "wall_ms": 2.4217000000000004,
+          "device_local_bytes": 334176256.0,
+          "host_private_bytes": 665456640.0,
+          "host_working_set_bytes": 310626304.0,
+          "output_final_exact": true,
+          "receipt": "native_854x480_3_phoenix",
+          "owned_bytes": 203489280,
+          "workspace_bytes": 43258880
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
+          "bytes": 3279360,
+          "expected": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
+          "bytes": 3279360,
+          "expected": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "84772b05c59266cbcfb452d1b00c854a18f0a83ed8fa278a9e890a13f09352af",
+        "bytes": 3279360,
+        "expected": "84772b05c59266cbcfb452d1b00c854a18f0a83ed8fa278a9e890a13f09352af",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "84772b05c59266cbcfb452d1b00c854a18f0a83ed8fa278a9e890a13f09352af",
+        "127": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250"
+      }
+    },
+    {
+      "width": 960,
+      "height": 540,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 2.12688,
+          "min_gpu_ms": 2.108896,
+          "max_gpu_ms": 2.586592,
+          "wall_ms": 2.4588,
+          "device_local_bytes": 356392960.0,
+          "host_private_bytes": 687980544.0,
+          "host_working_set_bytes": 313491456.0,
+          "output_final_exact": true,
+          "receipt": "native_960x540_0_phoenix",
+          "owned_bytes": 223150080,
+          "workspace_bytes": 58847232
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 2.221472,
+          "min_gpu_ms": 2.203968,
+          "max_gpu_ms": 2.716736,
+          "wall_ms": 2.62135,
+          "device_local_bytes": 503472128.0,
+          "host_private_bytes": 746663936.0,
+          "host_working_set_bytes": 367484928.0,
+          "output_final_exact": true,
+          "receipt": "native_960x540_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 2.2232320000000003,
+          "min_gpu_ms": 2.210592,
+          "max_gpu_ms": 2.722976,
+          "wall_ms": 2.6304,
+          "device_local_bytes": 503472128.0,
+          "host_private_bytes": 748494848.0,
+          "host_working_set_bytes": 368615424.0,
+          "output_final_exact": true,
+          "receipt": "native_960x540_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 2.127776,
+          "min_gpu_ms": 2.108544,
+          "max_gpu_ms": 2.567712,
+          "wall_ms": 2.4541500000000003,
+          "device_local_bytes": 356392960.0,
+          "host_private_bytes": 687616000.0,
+          "host_working_set_bytes": 313567232.0,
+          "output_final_exact": true,
+          "receipt": "native_960x540_3_phoenix",
+          "owned_bytes": 223150080,
+          "workspace_bytes": 58847232
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
+          "bytes": 4147200,
+          "expected": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
+          "bytes": 4147200,
+          "expected": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "e9dd4bf5810c8333d3a6e34089a7c7922e9a21f2873642d31a3263430d160705",
+        "bytes": 4147200,
+        "expected": "e9dd4bf5810c8333d3a6e34089a7c7922e9a21f2873642d31a3263430d160705",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "e9dd4bf5810c8333d3a6e34089a7c7922e9a21f2873642d31a3263430d160705",
+        "127": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425"
+      }
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 2.5033440000000002,
+          "min_gpu_ms": 2.484448,
+          "max_gpu_ms": 2.992544,
+          "wall_ms": 2.84545,
+          "device_local_bytes": 414326784.0,
+          "host_private_bytes": 752603136.0,
+          "host_working_set_bytes": 320665600.0,
+          "output_final_exact": true,
+          "receipt": "native_1280x720_0_phoenix",
+          "owned_bytes": 273285120,
+          "workspace_bytes": 97926144
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 2.5838080000000003,
+          "min_gpu_ms": 2.56672,
+          "max_gpu_ms": 3.057696,
+          "wall_ms": 3.0593500000000002,
+          "device_local_bytes": 558063616.0,
+          "host_private_bytes": 799621120.0,
+          "host_working_set_bytes": 368709632.0,
+          "output_final_exact": true,
+          "receipt": "native_1280x720_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 2.590032,
+          "min_gpu_ms": 2.570432,
+          "max_gpu_ms": 3.074976,
+          "wall_ms": 2.97795,
+          "device_local_bytes": 558063616.0,
+          "host_private_bytes": 797233152.0,
+          "host_working_set_bytes": 367726592.0,
+          "output_final_exact": true,
+          "receipt": "native_1280x720_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 2.506672,
+          "min_gpu_ms": 2.487232,
+          "max_gpu_ms": 2.978048,
+          "wall_ms": 2.84235,
+          "device_local_bytes": 414326784.0,
+          "host_private_bytes": 750710784.0,
+          "host_working_set_bytes": 320636928.0,
+          "output_final_exact": true,
+          "receipt": "native_1280x720_3_phoenix",
+          "owned_bytes": 273285120,
+          "workspace_bytes": 97926144
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
+          "bytes": 7372800,
+          "expected": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
+          "bytes": 7372800,
+          "expected": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+        "bytes": 7372800,
+        "expected": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+        "127": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb"
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 3.845808,
+          "min_gpu_ms": 3.832416,
+          "max_gpu_ms": 4.408096,
+          "wall_ms": 4.1943,
+          "device_local_bytes": 585965568.0,
+          "host_private_bytes": 945659904.0,
+          "host_working_set_bytes": 344053760.0,
+          "output_final_exact": true,
+          "receipt": "native_1920x1080_0_phoenix",
+          "owned_bytes": 421265408,
+          "workspace_bytes": 212992000
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 3.861248,
+          "min_gpu_ms": 3.848224,
+          "max_gpu_ms": 4.665056,
+          "wall_ms": 4.366,
+          "device_local_bytes": 719872000.0,
+          "host_private_bytes": 962576384.0,
+          "host_working_set_bytes": 368570368.0,
+          "output_final_exact": true,
+          "receipt": "native_1920x1080_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 3.860384,
+          "min_gpu_ms": 3.844928,
+          "max_gpu_ms": 4.524384,
+          "wall_ms": 4.34435,
+          "device_local_bytes": 719872000.0,
+          "host_private_bytes": 960122880.0,
+          "host_working_set_bytes": 368955392.0,
+          "output_final_exact": true,
+          "receipt": "native_1920x1080_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 3.844848,
+          "min_gpu_ms": 3.831296,
+          "max_gpu_ms": 4.510688,
+          "wall_ms": 4.28455,
+          "device_local_bytes": 585965568.0,
+          "host_private_bytes": 944279552.0,
+          "host_working_set_bytes": 344549376.0,
+          "output_final_exact": true,
+          "receipt": "native_1920x1080_3_phoenix",
+          "owned_bytes": 421265408,
+          "workspace_bytes": 212992000
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
+          "bytes": 16588800,
+          "expected": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
+          "bytes": 16588800,
+          "expected": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+        "bytes": 16588800,
+        "expected": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+        "127": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc"
+      }
+    },
+    {
+      "width": 2560,
+      "height": 1440,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 5.922224,
+          "min_gpu_ms": 5.872256,
+          "max_gpu_ms": 6.63008,
+          "wall_ms": 6.3039,
+          "device_local_bytes": 795877376.0,
+          "host_private_bytes": 1185865728.0,
+          "host_working_set_bytes": 375832576.0,
+          "output_final_exact": true,
+          "receipt": "native_2560x1440_0_phoenix",
+          "owned_bytes": 598147072,
+          "workspace_bytes": 342184960
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 5.787488,
+          "min_gpu_ms": 5.756,
+          "max_gpu_ms": 6.477056,
+          "wall_ms": 6.243,
+          "device_local_bytes": 915038208.0,
+          "host_private_bytes": 1154170880.0,
+          "host_working_set_bytes": 367489024.0,
+          "output_final_exact": true,
+          "receipt": "native_2560x1440_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 5.787184,
+          "min_gpu_ms": 5.748672,
+          "max_gpu_ms": 6.698336,
+          "wall_ms": 6.21735,
+          "device_local_bytes": 915038208.0,
+          "host_private_bytes": 1154793472.0,
+          "host_working_set_bytes": 366911488.0,
+          "output_final_exact": true,
+          "receipt": "native_2560x1440_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 5.926784,
+          "min_gpu_ms": 5.882208,
+          "max_gpu_ms": 6.663616,
+          "wall_ms": 6.386950000000001,
+          "device_local_bytes": 795877376.0,
+          "host_private_bytes": 1186365440.0,
+          "host_working_set_bytes": 376612864.0,
+          "output_final_exact": true,
+          "receipt": "native_2560x1440_3_phoenix",
+          "owned_bytes": 598147072,
+          "workspace_bytes": 342184960
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
+          "bytes": 29491200,
+          "expected": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
+          "bytes": 29491200,
+          "expected": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "ebf3c91eff5a315deb315a48498d6451312aaba2c8ed4029e944216e3efc5bb9",
+        "bytes": 29491200,
+        "expected": "ebf3c91eff5a315deb315a48498d6451312aaba2c8ed4029e944216e3efc5bb9",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "ebf3c91eff5a315deb315a48498d6451312aaba2c8ed4029e944216e3efc5bb9",
+        "127": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b"
+      }
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 13.28248,
+          "min_gpu_ms": 12.997248,
+          "max_gpu_ms": 14.337824,
+          "wall_ms": 13.7463,
+          "device_local_bytes": 1433608192.0,
+          "host_private_bytes": 1918152704.0,
+          "host_working_set_bytes": 469280768.0,
+          "output_final_exact": true,
+          "receipt": "native_3840x2160_0_phoenix",
+          "owned_bytes": 1143930880,
+          "workspace_bytes": 762135552
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 12.912448000000001,
+          "min_gpu_ms": 12.631328,
+          "max_gpu_ms": 13.772512,
+          "wall_ms": 13.56655,
+          "device_local_bytes": 1518821376.0,
+          "host_private_bytes": 1757507584.0,
+          "host_working_set_bytes": 366809088.0,
+          "output_final_exact": true,
+          "receipt": "native_3840x2160_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 12.670272,
+          "min_gpu_ms": 12.31024,
+          "max_gpu_ms": 13.61856,
+          "wall_ms": 14.67805,
+          "device_local_bytes": 1518821376.0,
+          "host_private_bytes": 1759358976.0,
+          "host_working_set_bytes": 368607232.0,
+          "output_final_exact": true,
+          "receipt": "native_3840x2160_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 13.322976,
+          "min_gpu_ms": 13.021536,
+          "max_gpu_ms": 14.243904,
+          "wall_ms": 13.83025,
+          "device_local_bytes": 1433608192.0,
+          "host_private_bytes": 1916928000.0,
+          "host_working_set_bytes": 468211712.0,
+          "output_final_exact": true,
+          "receipt": "native_3840x2160_3_phoenix",
+          "owned_bytes": 1143930880,
+          "workspace_bytes": 762135552
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
+          "bytes": 66355200,
+          "expected": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
+          "bytes": 66355200,
+          "expected": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+        "bytes": 66355200,
+        "expected": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+        "127": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5"
+      }
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 31.334352000000003,
+          "min_gpu_ms": 30.711424,
+          "max_gpu_ms": 34.419072,
+          "wall_ms": 31.89275,
+          "device_local_bytes": 2899451904.0,
+          "host_private_bytes": 3594412032.0,
+          "host_working_set_bytes": 676325376.0,
+          "output_final_exact": true,
+          "receipt": "native_5760x3240_0_phoenix",
+          "owned_bytes": 2399272960,
+          "workspace_bytes": 1714722816
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 30.503232,
+          "min_gpu_ms": 29.838944,
+          "max_gpu_ms": 33.67056,
+          "wall_ms": 31.27835,
+          "device_local_bytes": 2900254720.0,
+          "host_private_bytes": 3141824512.0,
+          "host_working_set_bytes": 367120384.0,
+          "output_final_exact": true,
+          "receipt": "native_5760x3240_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 30.414384,
+          "min_gpu_ms": 30.034976,
+          "max_gpu_ms": 32.304896,
+          "wall_ms": 31.259,
+          "device_local_bytes": 2900254720.0,
+          "host_private_bytes": 3143831552.0,
+          "host_working_set_bytes": 367869952.0,
+          "output_final_exact": true,
+          "receipt": "native_5760x3240_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 31.429423999999997,
+          "min_gpu_ms": 31.078944,
+          "max_gpu_ms": 32.71824,
+          "wall_ms": 31.97455,
+          "device_local_bytes": 2899451904.0,
+          "host_private_bytes": 3595124736.0,
+          "host_working_set_bytes": 676149248.0,
+          "output_final_exact": true,
+          "receipt": "native_5760x3240_3_phoenix",
+          "owned_bytes": 2399272960,
+          "workspace_bytes": 1714722816
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
+          "bytes": 149299200,
+          "expected": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
+          "bytes": 149299200,
+          "expected": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+        "bytes": 149299200,
+        "expected": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+        "127": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501"
+      }
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "passed": true,
+      "runs": [
+        {
+          "route": "phoenix",
+          "process": 0,
+          "samples": 96,
+          "gpu_ms": 59.809535999999994,
+          "min_gpu_ms": 56.683648,
+          "max_gpu_ms": 65.815072,
+          "wall_ms": 60.41345,
+          "device_local_bytes": 4914159616.0,
+          "host_private_bytes": 5902770176.0,
+          "host_working_set_bytes": 965773312.0,
+          "output_final_exact": true,
+          "receipt": "native_7680x4320_0_phoenix",
+          "owned_bytes": 4124573696,
+          "workspace_bytes": 3040879616
+        },
+        {
+          "route": "nvidia",
+          "process": 1,
+          "samples": 96,
+          "gpu_ms": 57.769648000000004,
+          "min_gpu_ms": 55.579552,
+          "max_gpu_ms": 63.323584,
+          "wall_ms": 58.64055,
+          "device_local_bytes": 4784152576.0,
+          "host_private_bytes": 5032939520.0,
+          "host_working_set_bytes": 369717248.0,
+          "output_final_exact": true,
+          "receipt": "native_7680x4320_1_nvidia"
+        },
+        {
+          "route": "nvidia",
+          "process": 2,
+          "samples": 96,
+          "gpu_ms": 57.4548,
+          "min_gpu_ms": 56.134944,
+          "max_gpu_ms": 59.588704,
+          "wall_ms": 58.274249999999995,
+          "device_local_bytes": 4784152576.0,
+          "host_private_bytes": 5034336256.0,
+          "host_working_set_bytes": 369057792.0,
+          "output_final_exact": true,
+          "receipt": "native_7680x4320_2_nvidia"
+        },
+        {
+          "route": "phoenix",
+          "process": 3,
+          "samples": 96,
+          "gpu_ms": 59.2276,
+          "min_gpu_ms": 57.87696,
+          "max_gpu_ms": 63.762368,
+          "wall_ms": 59.77755,
+          "device_local_bytes": 4914159616.0,
+          "host_private_bytes": 5904887808.0,
+          "host_working_set_bytes": 966756352.0,
+          "output_final_exact": true,
+          "receipt": "native_7680x4320_3_phoenix",
+          "owned_bytes": 4124573696,
+          "workspace_bytes": 3040879616
+        }
+      ],
+      "reset_exact": true,
+      "final_exact": true,
+      "comparisons": [
+        {
+          "sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
+          "bytes": 265420800,
+          "expected": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        },
+        {
+          "sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
+          "bytes": 265420800,
+          "expected": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
+          "exact": true,
+          "numerical": {
+            "finite": true,
+            "max_absolute_error": 0.0,
+            "mean_absolute_error": 0.0,
+            "rmse": 0.0,
+            "different_fraction": 0.0,
+            "fraction_above_0_01": 0.0
+          }
+        }
+      ],
+      "reset_comparison": {
+        "sha256": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+        "bytes": 265420800,
+        "expected": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+        "exact": true,
+        "numerical": {
+          "finite": true,
+          "max_absolute_error": 0.0,
+          "mean_absolute_error": 0.0,
+          "rmse": 0.0,
+          "different_fraction": 0.0,
+          "fraction_above_0_01": 0.0
+        }
+      },
+      "output_hashes": {
+        "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+        "127": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55"
+      }
+    }
+  ]
+}

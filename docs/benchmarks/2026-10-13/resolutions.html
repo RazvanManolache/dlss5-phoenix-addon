@@ -1,0 +1,25 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DLSS5 Phoenix — resolution benchmarks</title>
+<style>body{background:#0e1420;color:#e9f0f9;font:18px Segoe UI,system-ui;margin:32px auto;padding:0 24px;max-width:1600px}
+a{color:#93bcff}h1{color:#79dbb4}img{max-width:100%;height:auto;border-radius:12px}table{width:100%;border-collapse:collapse}
+td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{background:#161f2d;color:#e9f0f9;padding:10px;font:inherit}
+.scroll{overflow:auto}.muted{color:#acbbce}section{margin:36px 0}</style>
+<h1>DLSS5 Phoenix: resolution benchmarks</h1>
+<p>13 October 2026 · RTX 5080 16 GiB · NVIDIA 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
+<p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
+Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
+GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
+<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
+<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody><tr><td>640 × 360</td><td>1.928</td><td>2.010</td><td>295.0</td><td>438.2</td><td>Exact reset + final</td></tr><tr><td>854 × 480</td><td>2.091</td><td>2.153</td><td>318.7</td><td>460.4</td><td>Exact reset + final</td></tr><tr><td>960 × 540</td><td>2.127</td><td>2.222</td><td>339.9</td><td>480.1</td><td>Exact reset + final</td></tr><tr><td>1280 × 720</td><td>2.505</td><td>2.587</td><td>395.1</td><td>532.2</td><td>Exact reset + final</td></tr><tr><td>1920 × 1080</td><td>3.845</td><td>3.861</td><td>558.8</td><td>686.5</td><td>Exact reset + final</td></tr><tr><td>2560 × 1440</td><td>5.925</td><td>5.787</td><td>759.0</td><td>872.6</td><td>Exact reset + final</td></tr><tr><td>3840 × 2160</td><td>13.303</td><td>12.791</td><td>1,367.2</td><td>1,448.5</td><td>Exact reset + final</td></tr><tr><td>5760 × 3240</td><td>31.382</td><td>30.459</td><td>2,765.1</td><td>2,765.9</td><td>Exact reset + final</td></tr><tr><td>7680 × 4320</td><td>59.519</td><td>57.612</td><td>4,686.5</td><td>4,562.5</td><td>Exact reset + final</td></tr></tbody></table></section>
+<p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
+Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
+<a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
+<section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 1080p through 8K"></section>
+<section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
+<section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
+Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
+<label for="extent">Resolution </label><select id="extent"><option value="640x360">640 × 360</option><option value="854x480">854 × 480</option><option value="960x540">960 × 540</option><option value="1280x720">1280 × 720</option><option value="1920x1080">1920 × 1080</option><option value="2560x1440">2560 × 1440</option><option value="3840x2160">3840 × 2160</option><option value="5760x3240">5760 × 3240</option><option value="7680x4320">7680 × 4320</option></select>
+<p><img id="comparison" alt="Phoenix, NVIDIA and amplified difference" src="output-640x360.png"></p></section>
+<script>document.getElementById('extent').addEventListener('change',event=>{
+document.getElementById('comparison').src='output-'+event.target.value+'.png';});</script></html>

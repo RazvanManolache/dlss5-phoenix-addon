@@ -1,32 +1,107 @@
 # Current benchmark snapshot — 13 October 2026
 
-Native RTX is the project's primary execution path. The alternate APIs are
-experimental portability work and are reported separately. This snapshot shows
-current measurements only; it does not imply a new native speedup.
+Native RTX is the primary execution path. Experimental alternate runners have a
+different fixture and timing boundary and are reported separately. Current
+measurements only; inference latency is not game FPS.
 
-The PNGs are static chart exports, not browser screenshots. The aggregate source
-is [measurements.json](measurements.json). No models, captures or vendor binaries
-are included. Snapshot date is 13 October; actual measurement dates are below.
+[Interactive resolution report and output comparisons](resolutions.html) ·
+[Measurements](measurements.json) · [Exact-output receipts](native-resolution-validation.json)
 
-## Native RTX and NVIDIA DLSS NR — measured 11 October
+## Native RTX and NVIDIA DLSS NR — measured 13 October
 
-RTX 5080, NVIDIA driver 616.64. Identical synthetic FP16 input/motion, controls
-and model. GPU timestamps cover the complete runner/Evaluate, excluding upload
-and readback; D3D12 debug is enabled for both. Each process runs 128 frames,
-discarding 32. Eight fresh processes per route at 1080p; two elsewhere.
-The native kernel bundle is unchanged in this release.
+RTX 5080 16 GiB, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 threads;
+96 GiB RAM. Same synthetic RGBA16F color / RG16F motion textures, model DLL
+310.8.0.0, controls, full eight blocks and one pass. D3D12 debug enabled on both.
+GPU timestamps cover runner/Evaluate, excluding uploads and readbacks. Each
+renderer uses two fresh processes per extent, 128 frames each, discarding 32.
+Headline values are arithmetic means of the two process medians; ranges are
+preserved in the JSON. Clocks and scheduling introduce variation.
 
-| Resolution | Phoenix GPU ms | NVIDIA DLSS NR GPU ms | Phoenix latency difference |
-| --- | ---: | ---: | ---: |
-| 640 × 384 | 1.9364 | 2.0153 | -3.92% |
-| 1280 × 720 | 2.5049 | 2.5912 | -3.33% |
-| 1920 × 1080 | 3.8351 | 3.8627 | -0.71% |
-| 2560 × 1080 | 4.8340 | 4.8096 | +0.51% |
+| Resolution | Phoenix GPU ms | NVIDIA GPU ms | Phoenix GPU MiB | NVIDIA GPU MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 640 × 360 | 1.9282 | 2.0102 | 295.01 | 438.21 |
+| 854 × 480 | 2.0908 | 2.1526 | 318.70 | 460.40 |
+| 960 × 540 | 2.1273 | 2.2224 | 339.88 | 480.15 |
+| 1280 × 720 | 2.5050 | 2.5869 | 395.13 | 532.21 |
+| 1920 × 1080 | 3.8453 | 3.8608 | 558.82 | 686.52 |
+| 2560 × 1440 | 5.9245 | 5.7873 | 759.01 | 872.65 |
+| 3840 × 2160 | 13.3027 | 12.7914 | 1367.20 | 1448.46 |
+| 5760 × 3240 | 31.3819 | 30.4588 | 2765.13 | 2765.90 |
+| 7680 × 4320 | 59.5186 | 57.6122 | 4686.51 | 4562.52 |
 
-Small differences mean near parity, not game-FPS gains. The matched 1080p probe
-observed **574.70 MiB** process GPU-local residency for Phoenix and **686.52 MiB**
-for NVIDIA: **16.29% lower**. Residency includes harness and driver allocations;
-NVIDIA's internal allocation breakdown is unknown.
+GPU memory is measured whole-process local residency, including harness and
+driver allocations. It is not the model size or NVIDIA internal buffer usage.
+The same texture formats are used on both routes. No universal VRAM saving is
+claimed: compare the measured rows, especially 6K and 8K.
+
+![Native resolution latency and GPU residency](native-resolution-scaling.png)
+
+![Lower-resolution latency and GPU residency](native-lower-resolutions.png)
+
+<details>
+<summary>Host memory observations, MiB</summary>
+
+These are averages of process-median observations, not startup peaks. Private
+commit, working set, owned allocations and GPU residency overlap; do not sum them.
+The Phoenix probe retains weight/fixture host caches through the run; NVIDIA
+uses transient host upload planes. These columns describe the probes, not a
+matched comparison of runner-only system RAM.
+
+| Resolution | Phoenix private commit | Phoenix working set | NVIDIA private commit | NVIDIA working set |
+| --- | ---: | ---: | ---: | ---: |
+| 640 × 360 | 602.1 | 293.3 | 664.4 | 351.2 |
+| 854 × 480 | 634.0 | 296.6 | 693.0 | 351.1 |
+| 960 × 540 | 655.9 | 299.0 | 712.9 | 351.0 |
+| 1280 × 720 | 716.8 | 305.8 | 761.4 | 351.2 |
+| 1920 × 1080 | 901.2 | 328.4 | 916.8 | 351.7 |
+| 2560 × 1440 | 1131.2 | 358.8 | 1101.0 | 350.2 |
+| 3840 × 2160 | 1828.7 | 447.0 | 1677.0 | 350.7 |
+| 5760 × 3240 | 3428.2 | 644.9 | 2997.2 | 350.5 |
+| 7680 × 4320 | 5630.3 | 921.5 | 4800.5 | 352.3 |
+
+</details>
+
+## Output validation and resolution fixes
+
+- All nine standard extents match NVIDIA exactly at reset and frame 127.
+  Both fresh Phoenix processes produce identical endpoint hashes. NVIDIA
+  final-frame comparisons are repeated in two fresh processes per extent.
+- Another **29 awkward extents** match at reset and frame 15, with two fresh
+  processes per renderer: small, odd, portrait and ultrawide
+  inputs. Examples include 63×65, 960×540, 1025×769, 1921×1081,
+  3841×2161, 721×1281 and 3441×1439.
+- Seven additional native-only sizes (1×1, 17×31, 1×1024, 4096×7, 7×4096,
+  16384×17 and 17×16384) pass finite-output, zero-debug-error, retirement
+  and two-process hash-repeatability checks. NVIDIA probes at 1×1 and 17×31
+  hung the GPU device; the other thin cases were not compared to NVIDIA.
+- [Edge-case receipts](resolution-edge-validation.json) retain numerical
+  comparisons and hashes. [Planner checks](planner-validation.json) cover
+  41 allocation extents, tensor lifetimes and token-tail capacity.
+- Frame padding follows the rounded grid after three reductions. Four tiled
+  dispatch grids use their actual tile count. Transformer allocations include
+  the complete 32-token write tail. Unwritten downsample border cells retain
+  zero initialization across frames and passes through a small reserved tensor.
+- The optimized CUDA kernel binaries are unchanged. The failures reproduced
+  with the pre-release kernel bundle; resolution planning and allocation were
+  responsible. No per-frame full-workspace clear was added.
+
+These are numerical checks of one synthetic input and fixed controls. They do
+not certify moving-scene quality, every possible resolution, optional guides,
+all control combinations or live-game frame time. Debug errors were zero and
+tracked owned allocations retired to zero in the probes.
+
+### Actual output images
+
+Final frame 127, fixed RGB range 0–1, no auto exposure or contrast. Left: Phoenix;
+middle: NVIDIA; right: absolute difference amplified ×8. These are synthetic
+fixtures, not gameplay screenshots.
+
+![1440p exact output comparison](output-2560x1440.png)
+
+![540p exact output comparison](output-960x540.png)
+
+Other comparisons: [640×360](output-640x360.png) · [854×480](output-854x480.png) · [960×540](output-960x540.png) · [1280×720](output-1280x720.png) · [1920×1080](output-1920x1080.png) · [2560×1440](output-2560x1440.png) · [3840×2160](output-3840x2160.png) · [5760×3240](output-5760x3240.png) · [7680×4320](output-7680x4320.png)
+
 
 ## Experimental alternate runners — measured 12 October
 
@@ -68,44 +143,56 @@ RAM; private commit is committed private virtual memory. Both are medians of
 final-frame observations across processes, not peak measurements. These scopes
 overlap and must not be summed. iGPU allocations use shared system memory.
 
+## Alternate RTX resolution limits — measured 13 October
+
+These use the alternate-runner RGB32F/fractional-motion broker fixture above.
+Two fresh processes × six frames, discard two; averages of process medians.
+Repeatability hashes match between processes. They are not native/NVIDIA parity
+checks, and the short runs are exploratory. Vulkan failures are reported as
+failures rather than assigning a time or hiding the row.
+
+| Resolution | CUDA model / full ms | Vulkan model / full ms | Requested buffers MiB |
+| --- | ---: | ---: | ---: |
+| 2560 × 1440 | 118.24 / 188.41 | 191.91 / 268.10 | 684.01 |
+| 3840 × 2160 | 282.61 / 443.46 | 481.83 / 649.86 | 1,805.33 |
+| 5760 × 3240 | 765.49 / 1,118.13 | Operand-offset failure | 6,152.52 |
+| 7680 × 4320 | 13,526.16 / 14,309.75 | Resident-allocation failure | 16,422.05 |
+
+The alternate CUDA 8K graph requests about 16 GiB before other GPU allocations;
+its very large slowdown is consistent with memory pressure, but residency/paging
+was not directly measured here. Vulkan 6K/8K support remains unresolved. CPU
+and iGPU runners were not extrapolated to these large sizes. See
+[alternate resolution receipts](portable-resolution-validation.json).
+
 ## Native adapter memory — measured 11 October
 
-The full game adapter owns **493.94 MiB** at one pass, **527.69 MiB** at two and
-**595.19 MiB** at four. Model and scratch workspace are shared across serial
-passes; each extra pass adds 33.75 MiB history. Returning to one restores
-493.94 MiB; driver residency may retain caches. Tracked owned allocations reached
-zero at shutdown and capture readbacks retired. This scope includes bridge and
-exposure resources; the native inner-network probe owns 409.69 MiB.
+The unchanged full game-adapter measurements are **493.94 MiB** owned at one
+pass, **527.69 MiB** at two and **595.19 MiB** at four. Serial passes share
+weights and workspace; each adds 33.75 MiB history. Returning to one restores
+493.94 MiB. These are earlier adapter measurements, not fresh game residency.
+The current RG16F inner-network probe owns 401.75 MiB at 1080p.
+The adapter includes extra bridge/exposure resources; these scopes differ.
 
-## Validation and release
+## Build and validation
 
-- Native: 2,688 timed frames, four reset checks and final native/NVIDIA comparisons
-  matching on the fixed fixture at all four extents, retained from 11 October.
-- Final portable assembly: **42 exact saved frames / 18 jobs / six routes**.
-- Each latest RTX paired trial: **120 exact temporal frame hashes**, 60 from the
-  selected candidate, including 54 candidate frames after warmup.
-- Six expanded operator suites cover matrix publication, tails, strides, rows
-  and feature packing; 1,354,743 finite conversion checks per backend passed.
-- Final addon: **11 CPU suites, two software D3D12 suites, 120 embedded files
-  verified**. No model or NVIDIA DLL embedded. This exact binary has not had
-  a new live-game test. No portable/native bit-equivalence claim is made.
-- Addon source checkpoint: `85b0b82488dc4d1a9cbad069e70c8682c9829791`.
+- Clean corrected addon: **11 CPU suites, two software D3D12 suites, 120 embedded
+  payload files verified**. No model or NVIDIA DLL embedded.
+- Portable code is unchanged: prior **42 exact regression frames / 18 jobs / six
+  routes**, paired CUDA/Vulkan temporal checks and six operator suites remain
+  applicable; high-resolution limits are shown above.
+- This exact addon has not had a new live-game test. No game FPS, discrete
+  AMD/Intel GPU, dual-GPU speedup or portable/native bit-equivalence is implied.
+- Addon source checkpoint: `3d872d4147088c6a61a659b9773922d9f188c65d`.
   Documentation may have later commits. Addon SHA256:
-  `938e80922a6f7bfa0824a7a6b7a3fb75635301f2174db6ebbc0bb147a167955e`.
-- No live-game FPS, discrete AMD/Intel GPU or dual-discrete-GPU speedup is implied.
+  `da9fa586474d6097a780d76e42f9aef36b7f7e878ec4ce177d89f85573cceab2`.
 
-## Regenerate the charts
-
-From the repository root:
+## Regenerate the charts and HTML
 
 ```powershell
 python -m pip install pillow
 python tools/render_readme_benchmarks.py --snapshot docs/benchmarks/2026-10-13
 ```
 
-This redraws this snapshot and needs no model. Pillow is documentation-only.
-Fonts use Segoe UI on Windows with DejaVu Sans as a Linux fallback.
-`tools/update_readme_portable_snapshot.py --help` describes refreshing aggregates
-from verified receipts; repeat `--measurements` for separate route trials.
-Public evidence digests retain no local paths or captures. Historical snapshots
-remain available; the main README displays this current snapshot only.
+Pillow is documentation-only. This redraws the checked-in measurements without
+a model or GPU. Segoe UI is used on Windows, with DejaVu Sans as a Linux fallback.
+Source inference probes and fixture generation are described in [BUILDING.md](../../../BUILDING.md).

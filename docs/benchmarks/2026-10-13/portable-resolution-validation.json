@@ -1,0 +1,160 @@
+{
+  "date": "2026-10-13",
+  "scope": "Warm RGB32F fractional-motion broker calls; one full pass, all eight repeats1. Different fixture/boundary from native. Two fresh processes per route/resolution; first process establishes hashes, second checks exact repeatability. No NVIDIA parity claim. Successful rows average two process medians; Vulkan failure rows are not timings. Native/NVIDIA fixture differs.",
+  "rows": [
+    {
+      "width": 2560,
+      "height": 1440,
+      "route": "cuda",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 118.23568759905174,
+      "full_call_ms": 188.4098,
+      "owned_bytes": 717232808,
+      "scratch_bytes": 565706752,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "2fb7019c62e460872f7dafd3ee188a08f1c79f2e62599b6c08bed053a53a7e0f",
+        "71f7e27196cb9493c90a09ef628748074a320206523196817e0fb66e0fdefebf",
+        "05f6b70f844a03f22b4741344c6f6b9b97123347fa1d6a666ef1ab09cc0e6706",
+        "fc3edf44ac7c06238e88a15c21d41f3cb8ffe05664d16eea493478969c59e2eb",
+        "519d86cdbf0fd653cdafbfa4fbd379e83b68ac95ace61d489fb294fd536f8db2",
+        "807f2f9605e623881618676761bc90a2f54d05f73277ba1da63101956e7e06ca"
+      ]
+    },
+    {
+      "width": 2560,
+      "height": 1440,
+      "route": "vulkan_nvidia",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 191.91210399999997,
+      "full_call_ms": 268.098525,
+      "owned_bytes": 717232808,
+      "scratch_bytes": 565706752,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "2fb7019c62e460872f7dafd3ee188a08f1c79f2e62599b6c08bed053a53a7e0f",
+        "71f7e27196cb9493c90a09ef628748074a320206523196817e0fb66e0fdefebf",
+        "05f6b70f844a03f22b4741344c6f6b9b97123347fa1d6a666ef1ab09cc0e6706",
+        "fc3edf44ac7c06238e88a15c21d41f3cb8ffe05664d16eea493478969c59e2eb",
+        "519d86cdbf0fd653cdafbfa4fbd379e83b68ac95ace61d489fb294fd536f8db2",
+        "807f2f9605e623881618676761bc90a2f54d05f73277ba1da63101956e7e06ca"
+      ]
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "route": "cuda",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 282.61249626614153,
+      "full_call_ms": 443.4578,
+      "owned_bytes": 1893030568,
+      "scratch_bytes": 1741504512,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "68792b41bcc724f8b54826ca00e639f914be8265e10a3d3ce18f6f8fcb1b2ec8",
+        "1e4f900c81cfa6a35fcc485255925709cdd5887354ac066257f611255b722dd2",
+        "4f4ad6cbb2c73dc7dc0dc6405dc2398dcebf269b8cb1f29cb88d2d3bc6082a35",
+        "927353bfc50ffeb39225d10c222601c4453a85db72db92b3c166792352542c9a",
+        "508985e5885709990a763364fa243027d63b91dcd72946ded7f7d8a6a84e1959",
+        "f812c1444231a26e5b9c2068f12393f9fcd61e6f11227edd228ed9645040848e"
+      ]
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "route": "vulkan_nvidia",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 481.825568,
+      "full_call_ms": 649.8641,
+      "owned_bytes": 1893030568,
+      "scratch_bytes": 1741504512,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "68792b41bcc724f8b54826ca00e639f914be8265e10a3d3ce18f6f8fcb1b2ec8",
+        "1e4f900c81cfa6a35fcc485255925709cdd5887354ac066257f611255b722dd2",
+        "4f4ad6cbb2c73dc7dc0dc6405dc2398dcebf269b8cb1f29cb88d2d3bc6082a35",
+        "927353bfc50ffeb39225d10c222601c4453a85db72db92b3c166792352542c9a",
+        "508985e5885709990a763364fa243027d63b91dcd72946ded7f7d8a6a84e1959",
+        "f812c1444231a26e5b9c2068f12393f9fcd61e6f11227edd228ed9645040848e"
+      ]
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "route": "cuda",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 765.4941447898746,
+      "full_call_ms": 1118.13465,
+      "owned_bytes": 6451387048,
+      "scratch_bytes": 6299860992,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "8889c34042c2107d1cc884169a7ea15e29a51706816bb1a8552102ea6b429cb4",
+        "cbd5960d84350cbce403ce13cf9841cd943ccc36b2e7cf000c4b98eb441468bf",
+        "115dd34b0639c71493f62f0080f5ed6f9922f10974db38ecda8dfed3cf08053d",
+        "92115d521559dc84f9506d121ac7348e062612029efbf8ae784af9a959904b69",
+        "61063390f6b6a81ae0ba864f9a3411819e6bafc694f531b8a71742316794d8ea",
+        "ae540bb95ea3fda2d8c628d6171a9a0ae720e25c202c324b3c6d282bc0a67b2e"
+      ]
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "route": "vulkan_nvidia",
+      "passed": false,
+      "error": "Vulkan operand offset",
+      "measurement_available": false
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "route": "cuda",
+      "processes": 2,
+      "samples_per_process": 4,
+      "frames_per_process": 6,
+      "discarded": 2,
+      "model_ms": 13526.15811797604,
+      "full_call_ms": 14309.750124999999,
+      "owned_bytes": 17219771048,
+      "scratch_bytes": 17068244992,
+      "weights_bytes": 151526056,
+      "repeatability_checked": true,
+      "output_hashes": [
+        "0a278aa46043ba584ecb6e0a66ec909181e66454fc029fea98191e1a9a16fc05",
+        "1185cfefcaa94b47aff3ca98de7be6815f1c4941615a59057a00a8f1c72b2de1",
+        "79734407b91be319588dc05cdfe1179ffce05d54fc6934718f0e88877f497744",
+        "c25c52e4352b53ca3fc177469ea07c1311f72595ec9f421e9c9e78490abd1dbd",
+        "8a77adeb1e6c1c50aaee6d7b7fc618e5af6180011c06a4fc3055c5850460290a",
+        "a91872e74f8a5c2bcbbd93ba0ed2167b448772f2aa51ea6a5b6562512b4feed4"
+      ]
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "route": "vulkan_nvidia",
+      "passed": false,
+      "error": "vkAllocateMemory resident (-2)",
+      "measurement_available": false
+    }
+  ]
+}

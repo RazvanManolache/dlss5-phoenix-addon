@@ -15,41 +15,41 @@
       "label": "DLSS5 Phoenix native RTX",
       "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
       "family": "native",
-      "processes": 8,
-      "samples": 768,
-      "core_ms": 3.83512,
-      "wall_ms": 4.3557500000000005,
-      "process_median_min_ms": 3.8279199999999998,
-      "process_median_max_ms": 3.84288,
-      "device_local_bytes": 602611712.0,
-      "host_private_bytes": 963758080.0,
-      "host_working_set_bytes": 346435584.0,
-      "owned_bytes": 429588480,
+      "processes": 2,
+      "samples": 192,
+      "core_ms": 3.845328,
+      "wall_ms": 4.239425000000001,
+      "process_median_min_ms": 3.844848,
+      "process_median_max_ms": 3.845808,
+      "device_local_bytes": 585965568.0,
+      "host_private_bytes": 944969728.0,
+      "host_working_set_bytes": 344301568.0,
+      "owned_bytes": 421265408,
       "memory_parts": {
         "Color": 16711680,
         "History": 35389440,
-        "Motion": 16711680,
+        "Motion": 8388608,
         "Weights": 147783680,
         "Workspace": 212992000
       },
-      "measured_date": "2026-10-11"
+      "measured_date": "2026-10-13"
     },
     {
       "id": "nvidia",
       "label": "NVIDIA DLSS NR",
       "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
       "family": "native",
-      "processes": 8,
-      "samples": 768,
-      "core_ms": 3.862712,
-      "wall_ms": 4.436999999999999,
-      "process_median_min_ms": 3.8580959999999997,
-      "process_median_max_ms": 3.86632,
+      "processes": 2,
+      "samples": 192,
+      "core_ms": 3.860816,
+      "wall_ms": 4.355175,
+      "process_median_min_ms": 3.860384,
+      "process_median_max_ms": 3.861248,
       "device_local_bytes": 719872000.0,
-      "host_private_bytes": 958810112.0,
-      "host_working_set_bytes": 368128000.0,
+      "host_private_bytes": 961349632.0,
+      "host_working_set_bytes": 368762880.0,
       "memory_parts": {},
-      "measured_date": "2026-10-11"
+      "measured_date": "2026-10-13"
     },
     {
       "id": "cuda",
@@ -213,71 +213,282 @@
   "resolution_matrix": [
     {
       "width": 640,
-      "height": 384,
+      "height": 360,
       "phoenix": {
-        "gpu_ms": 1.93636,
+        "gpu_ms": 1.9282240000000002,
         "processes": 2,
-        "minimum": 1.935568,
-        "maximum": 1.937152
+        "samples": 192,
+        "minimum": 1.927248,
+        "maximum": 1.9292,
+        "wall_ms": 2.270925,
+        "device_local_bytes": 309338112.0,
+        "host_private_bytes": 631361536.0,
+        "host_working_set_bytes": 307595264.0,
+        "owned_bytes": 182452224,
+        "workspace_bytes": 27734016
       },
       "nvidia": {
-        "gpu_ms": 2.0153359999999996,
+        "gpu_ms": 2.0101839999999997,
         "processes": 2,
-        "minimum": 2.014032,
-        "maximum": 2.0166399999999998
+        "samples": 192,
+        "minimum": 2.0094719999999997,
+        "maximum": 2.010896,
+        "wall_ms": 2.423825,
+        "device_local_bytes": 459497472.0,
+        "host_private_bytes": 696709120.0,
+        "host_working_set_bytes": 368207872.0
       },
-      "phoenix_latency_difference_percent": -3.918751017200084
+      "phoenix_latency_difference_percent": -4.077238700536845,
+      "reset_exact": true,
+      "final_exact": true
+    },
+    {
+      "width": 854,
+      "height": 480,
+      "phoenix": {
+        "gpu_ms": 2.090776,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 2.090112,
+        "maximum": 2.0914400000000004,
+        "wall_ms": 2.419325,
+        "device_local_bytes": 334176256.0,
+        "host_private_bytes": 664788992.0,
+        "host_working_set_bytes": 310962176.0,
+        "owned_bytes": 203489280,
+        "workspace_bytes": 43258880
+      },
+      "nvidia": {
+        "gpu_ms": 2.1525920000000003,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 2.15136,
+        "maximum": 2.153824,
+        "wall_ms": 2.542075,
+        "device_local_bytes": 482762752.0,
+        "host_private_bytes": 726667264.0,
+        "host_working_set_bytes": 368187392.0
+      },
+      "phoenix_latency_difference_percent": -2.8717007217345603,
+      "reset_exact": true,
+      "final_exact": true
+    },
+    {
+      "width": 960,
+      "height": 540,
+      "phoenix": {
+        "gpu_ms": 2.127328,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 2.12688,
+        "maximum": 2.127776,
+        "wall_ms": 2.456475,
+        "device_local_bytes": 356392960.0,
+        "host_private_bytes": 687798272.0,
+        "host_working_set_bytes": 313529344.0,
+        "owned_bytes": 223150080,
+        "workspace_bytes": 58847232
+      },
+      "nvidia": {
+        "gpu_ms": 2.222352,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 2.221472,
+        "maximum": 2.2232320000000003,
+        "wall_ms": 2.6258749999999997,
+        "device_local_bytes": 503472128.0,
+        "host_private_bytes": 747579392.0,
+        "host_working_set_bytes": 368050176.0
+      },
+      "phoenix_latency_difference_percent": -4.275830291510974,
+      "reset_exact": true,
+      "final_exact": true
     },
     {
       "width": 1280,
       "height": 720,
       "phoenix": {
-        "gpu_ms": 2.504912,
+        "gpu_ms": 2.505008,
         "processes": 2,
-        "minimum": 2.503616,
-        "maximum": 2.506208
+        "samples": 192,
+        "minimum": 2.5033440000000002,
+        "maximum": 2.506672,
+        "wall_ms": 2.8439,
+        "device_local_bytes": 414326784.0,
+        "host_private_bytes": 751656960.0,
+        "host_working_set_bytes": 320651264.0,
+        "owned_bytes": 273285120,
+        "workspace_bytes": 97926144
       },
       "nvidia": {
-        "gpu_ms": 2.59124,
+        "gpu_ms": 2.58692,
         "processes": 2,
-        "minimum": 2.589504,
-        "maximum": 2.592976
+        "samples": 192,
+        "minimum": 2.5838080000000003,
+        "maximum": 2.590032,
+        "wall_ms": 3.01865,
+        "device_local_bytes": 558063616.0,
+        "host_private_bytes": 798427136.0,
+        "host_working_set_bytes": 368218112.0
       },
-      "phoenix_latency_difference_percent": -3.3315323937574304
+      "phoenix_latency_difference_percent": -3.166390920476858,
+      "reset_exact": true,
+      "final_exact": true
     },
     {
       "width": 1920,
       "height": 1080,
       "phoenix": {
-        "gpu_ms": 3.83512,
-        "processes": 8,
-        "minimum": 3.8279199999999998,
-        "maximum": 3.84288
+        "gpu_ms": 3.845328,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 3.844848,
+        "maximum": 3.845808,
+        "wall_ms": 4.239425000000001,
+        "device_local_bytes": 585965568.0,
+        "host_private_bytes": 944969728.0,
+        "host_working_set_bytes": 344301568.0,
+        "owned_bytes": 421265408,
+        "workspace_bytes": 212992000
       },
       "nvidia": {
-        "gpu_ms": 3.862712,
-        "processes": 8,
-        "minimum": 3.8580959999999997,
-        "maximum": 3.86632
+        "gpu_ms": 3.860816,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 3.860384,
+        "maximum": 3.861248,
+        "wall_ms": 4.355175,
+        "device_local_bytes": 719872000.0,
+        "host_private_bytes": 961349632.0,
+        "host_working_set_bytes": 368762880.0
       },
-      "phoenix_latency_difference_percent": -0.7143167805417572
+      "phoenix_latency_difference_percent": -0.40115871877861586,
+      "reset_exact": true,
+      "final_exact": true
     },
     {
       "width": 2560,
-      "height": 1080,
+      "height": 1440,
       "phoenix": {
-        "gpu_ms": 4.834016,
+        "gpu_ms": 5.924504,
         "processes": 2,
-        "minimum": 4.833904,
-        "maximum": 4.834128
+        "samples": 192,
+        "minimum": 5.922224,
+        "maximum": 5.926784,
+        "wall_ms": 6.3454250000000005,
+        "device_local_bytes": 795877376.0,
+        "host_private_bytes": 1186115584.0,
+        "host_working_set_bytes": 376222720.0,
+        "owned_bytes": 598147072,
+        "workspace_bytes": 342184960
       },
       "nvidia": {
-        "gpu_ms": 4.809576,
+        "gpu_ms": 5.787336,
         "processes": 2,
-        "minimum": 4.809264000000001,
-        "maximum": 4.809888
+        "samples": 192,
+        "minimum": 5.787184,
+        "maximum": 5.787488,
+        "wall_ms": 6.230175,
+        "device_local_bytes": 915038208.0,
+        "host_private_bytes": 1154482176.0,
+        "host_working_set_bytes": 367200256.0
       },
-      "phoenix_latency_difference_percent": 0.508152901627934
+      "phoenix_latency_difference_percent": 2.3701405966406686,
+      "reset_exact": true,
+      "final_exact": true
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "phoenix": {
+        "gpu_ms": 13.302728,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 13.28248,
+        "maximum": 13.322976,
+        "wall_ms": 13.788274999999999,
+        "device_local_bytes": 1433608192.0,
+        "host_private_bytes": 1917540352.0,
+        "host_working_set_bytes": 468746240.0,
+        "owned_bytes": 1143930880,
+        "workspace_bytes": 762135552
+      },
+      "nvidia": {
+        "gpu_ms": 12.791360000000001,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 12.670272,
+        "maximum": 12.912448000000001,
+        "wall_ms": 14.1223,
+        "device_local_bytes": 1518821376.0,
+        "host_private_bytes": 1758433280.0,
+        "host_working_set_bytes": 367708160.0
+      },
+      "phoenix_latency_difference_percent": 3.9977609886673537,
+      "reset_exact": true,
+      "final_exact": true
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "phoenix": {
+        "gpu_ms": 31.381888,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 31.334352000000003,
+        "maximum": 31.429423999999997,
+        "wall_ms": 31.93365,
+        "device_local_bytes": 2899451904.0,
+        "host_private_bytes": 3594768384.0,
+        "host_working_set_bytes": 676237312.0,
+        "owned_bytes": 2399272960,
+        "workspace_bytes": 1714722816
+      },
+      "nvidia": {
+        "gpu_ms": 30.458807999999998,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 30.414384,
+        "maximum": 30.503232,
+        "wall_ms": 31.268675,
+        "device_local_bytes": 2900254720.0,
+        "host_private_bytes": 3142828032.0,
+        "host_working_set_bytes": 367495168.0
+      },
+      "phoenix_latency_difference_percent": 3.0305847819126708,
+      "reset_exact": true,
+      "final_exact": true
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "phoenix": {
+        "gpu_ms": 59.518568,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 59.2276,
+        "maximum": 59.809535999999994,
+        "wall_ms": 60.0955,
+        "device_local_bytes": 4914159616.0,
+        "host_private_bytes": 5903828992.0,
+        "host_working_set_bytes": 966264832.0,
+        "owned_bytes": 4124573696,
+        "workspace_bytes": 3040879616
+      },
+      "nvidia": {
+        "gpu_ms": 57.612224,
+        "processes": 2,
+        "samples": 192,
+        "minimum": 57.4548,
+        "maximum": 57.769648000000004,
+        "wall_ms": 58.45739999999999,
+        "device_local_bytes": 4784152576.0,
+        "host_private_bytes": 5033637888.0,
+        "host_working_set_bytes": 369387520.0
+      },
+      "phoenix_latency_difference_percent": 3.3089227730559445,
+      "reset_exact": true,
+      "final_exact": true
     }
   ],
   "direct_memory_1080": [
@@ -331,8 +542,8 @@
     }
   ],
   "validation": {
-    "native_reset_checks": 4,
-    "native_timed_frames": 2688,
+    "native_reset_checks": 9,
+    "native_timed_frames": 3456,
     "portable_regression_frames": 42,
     "portable_benchmark_frames": 144,
     "portable_measured_frames": 124,
@@ -341,13 +552,22 @@
     "portable_temporal_exact_frames_vulkan_nvidia": 120,
     "addon_cpu_suites": 11,
     "addon_warp_suites": 2,
-    "payload_files_verified": 120
+    "payload_files_verified": 120,
+    "native_exact_endpoint_comparisons": 27,
+    "native_extra_edge_reset_checks": 6,
+    "native_edge_extents": 29,
+    "native_edge_frames": 1856,
+    "native_edge_endpoint_comparisons": 87,
+    "native_only_thin_extents": 7,
+    "native_only_thin_frames": 224,
+    "planner_allocation_extents": 41
   },
   "scope": {
-    "native": "Identical synthetic FP16 input/motion; complete runner/Evaluate GPU interval; host recording and record/submit/wait measured separately; no upload/readback in timing; debug enabled.",
+    "native": "Same synthetic RGBA16F color/RG16F motion fixture/controls/model. 128 frames/process; discard32; two processes/route/extent. GPU runner/Evaluate excludes upload/readback; debug enabled. Not game FPS. Arithmetic mean of two process medians. RGBA16F color and RG16F motion textures on both routes.",
     "portable": "Per-route process/sample counts and measurement dates are recorded in each row. Medians of process medians, excluding warmup. Fractional motion (+0.375,-0.625), eight global blocks, one pass. Full call includes CPU preparation/history, transfers, inference, resolve and broker overhead; startup and file I/O excluded. GPU model time uses grouped GPU timing; CPU model time uses host timing. Native uses a different fixture/boundary. These are not in-game FPS results.",
     "memory": "Process host commitment, working set, and owned allocations are overlapping scopes, not quantities to add. Native DXGI residency includes the benchmark harness. Portable graph allocation bytes are provider-owned buffer requests, not whole-process GPU residency.",
-    "validation": "Saved Phoenix regression hashes plus direct NVIDIA reset/final comparison on native fixture. Portable output hashes checked on saved fixtures and repeated history sequences across processes. No claim of portable/native identical output or live-game FPS."
+    "validation": "Saved Phoenix regression hashes plus direct NVIDIA reset/final comparison on native fixture. Portable output hashes checked on saved fixtures and repeated history sequences across processes. No claim of portable/native identical output or live-game FPS.",
+    "host_memory": "Whole-probe observations, not matched runner-only RAM. Phoenix retains weight/fixture host caches through the loop; NVIDIA uses transient host upload planes. Private commit and working set overlap GPU/driver allocations."
   },
   "evidence_sha256": {
     "matched_measurements": [
@@ -359,8 +579,10 @@
       "86891848aa9c0477475e2bed47ccfac4aa24fb8172ba5bae137a6bd42eaec970"
     ],
     "regression_manifest": "c16ecb4578264ed69c9f7872a871c93051fb636ee1be67a856051f8b4b1fd1bd",
-    "amd_original_report": "731efb7a7159eb565a0d061f5eda02ba3c3c39e5f738a19a9c776dc44a2b3a1b"
+    "amd_original_report": "731efb7a7159eb565a0d061f5eda02ba3c3c39e5f738a19a9c776dc44a2b3a1b",
+    "native_resolution_matrix": "d7a0ab6d91b152c814331a89743c1ed3616e2c4cf12db4d09af103b938f3026b"
   },
   "direct_memory_date": "2026-10-11",
-  "source_commit": "85b0b82488dc4d1a9cbad069e70c8682c9829791"
+  "source_commit": "3d872d4147088c6a61a659b9773922d9f188c65d",
+  "addon_sha256": "da9fa586474d6097a780d76e42f9aef36b7f7e878ec4ce177d89f85573cceab2"
 }

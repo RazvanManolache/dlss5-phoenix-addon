@@ -6,6 +6,7 @@ Run from any working directory: python tools/render_readme_benchmarks.py
 
 import argparse
 import datetime
+import html
 import json
 import math
 from pathlib import Path
@@ -81,25 +82,25 @@ class Panel:
 
 def native():
     phoenix, nvidia = ROWS["phoenix"], ROWS["nvidia"]
-    p = Panel("Native RTX: effectively tied at 1080p", "RTX 5080 · driver 616.64 · GPU inference latency; lower is better", 980, measured_date(phoenix).strftime("%d %b %Y").upper())
+    p = Panel("Native RTX: near NVIDIA at 1080p", "RTX 5080 · driver 616.64 · GPU inference latency; lower is better", 1040, measured_date(phoenix).strftime("%d %b %Y").upper())
     for left, row, color in [(48, phoenix, GREEN), (815, nvidia, BLUE)]:
         p.box(left, 196, left + 735, 396)
         p.text(left + 28, 216, "Phoenix native RTX" if row["id"] == "phoenix" else "NVIDIA DLSS NR", 29, color, True)
         p.text(left + 28, 258, f"{row['core_ms']:.3f} ms", 66, INK, True)
         p.text(left + 28, 350, f"Process-median range: {row['process_median_min_ms']:.3f}–{row['process_median_max_ms']:.3f} ms", 23, MUTED)
-    p.box(48, 424, 810, 786)
+    p.box(48, 424, 810, 836)
     p.text(76, 447, "Matched benchmark extents", 28, INK, True)
     p.text(76, 499, "Resolution", 23, MUTED)
     p.right(480, 499, "Phoenix", 23, GREEN)
     p.right(625, 499, "NVIDIA", 23, BLUE)
     p.right(780, 499, "Δ latency", 23, MUTED)
-    for index, row in enumerate(DATA["resolution_matrix"]):
+    for index, row in enumerate(row for row in DATA["resolution_matrix"] if row["width"] >= 1920):
         y = 551 + index * 54
         p.text(76, y, f"{row['width']} × {row['height']}", 26)
         p.right(480, y, f"{row['phoenix']['gpu_ms']:.3f}", 26)
         p.right(625, y, f"{row['nvidia']['gpu_ms']:.3f}", 26)
         p.right(780, y, f"{row['phoenix_latency_difference_percent']:+.2f}%", 25)
-    p.box(835, 424, 1550, 786)
+    p.box(835, 424, 1550, 836)
     p.text(863, 447, "1080p process GPU-local residency", 28, INK, True)
     for index, (row, color) in enumerate([(phoenix, GREEN), (nvidia, BLUE)]):
         y = 509 + index * 91
@@ -110,9 +111,78 @@ def native():
         p.draw.rounded_rectangle((863, y + 40, 863 + 650 * value / 750, y + 64), radius=5, fill=color)
     saving = 100 * (1 - phoenix["device_local_bytes"] / nvidia["device_local_bytes"])
     p.text(863, 712, f"{saving:.1f}% less in this matched probe", 28, GREEN, True)
-    p.wrap(48, 815, "Eight fresh processes per route at 1080p, 96 measured frames each; other extents: two processes per route. Identical FP16 fixture, controls and model; D3D12 debug enabled for both. Upload/readback excluded. These are inference timings, not game FPS.", 1500, 24)
-    p.wrap(48, 919, "Residency includes the benchmark harness and driver. NVIDIA's internal memory breakdown is unknown.", 1500, 23)
+    p.wrap(48, 865, "Two fresh processes per renderer at every extent; 96 measured frames each. Average of process medians. Identical RGBA16F color / RG16F motion, controls and model; D3D12 debug enabled for both. Upload/readback excluded. Inference timings, not game FPS.", 1500, 24)
+    p.wrap(48, 979, "Residency includes the benchmark harness and driver. NVIDIA's internal memory breakdown is unknown.", 1500, 23)
     p.save("native-rtx.png")
+
+
+def resolution_scaling(rows, title, filename):
+    """Use shared linear axes so latency and memory scaling stay comparable."""
+    bottom = 325 + len(rows) * 153
+    p = Panel(title, "Phoenix / NVIDIA DLSS NR · same fixture and model · exact reset + final outputs", bottom + 180)
+    p.box(48, 190, 790, bottom)
+    p.box(815, 190, 1550, bottom)
+    p.text(76, 214, "GPU inference · ms", 30, INK, True)
+    p.text(843, 214, "Process GPU-local residency · MiB", 29, INK, True)
+    max_time = max(row[route]["gpu_ms"] for row in rows for route in ("phoenix", "nvidia")) * 1.22
+    max_memory = max(row[route]["device_local_bytes"] / MIB for row in rows for route in ("phoenix", "nvidia")) * 1.22
+    for index, row in enumerate(rows):
+        top = 282 + index * 153
+        for left in (76, 843):
+            p.text(left, top, f"{row['width']} × {row['height']}", 26, INK, True)
+        for offset, (route, label, color) in enumerate((("phoenix", "Phoenix", GREEN), ("nvidia", "NVIDIA", BLUE))):
+            y = top + 43 + offset * 39
+            for left, key, divisor, maximum in ((76, "gpu_ms", 1, max_time), (843, "device_local_bytes", MIB, max_memory)):
+                value = row[route][key] / divisor
+                p.text(left, y - 4, label, 21, color)
+                start = left + 100
+                end = start + 490 * value / maximum
+                p.draw.rectangle((start, y + 3, end, y + 24), fill=color)
+                p.text(end + 10, y - 4, f"{value:.2f}" if divisor == 1 else f"{value:,.1f}", 23)
+    p.wrap(48, bottom + 30, "RTX 5080 16 GiB · driver 616.64 · Ryzen 9950X3D · 96 GiB RAM. Two processes per renderer and extent; 128 frames each, discard 32. Means of process medians; clocks and scheduling introduce variation.", 1500, 24)
+    p.wrap(48, bottom + 110, "GPU inference excludes upload/readback. Residency includes harness/driver. Synthetic validation; not gameplay FPS or moving-scene quality.", 1500, 23)
+    p.save(filename)
+
+
+def resolution_report():
+    """A local, dependency-free HTML view of the same checked-in measurements."""
+    rows = DATA["resolution_matrix"]
+    table = ""
+    options = ""
+    for row in rows:
+        key = f"{row['width']}x{row['height']}"
+        options += f'<option value="{key}">{row["width"]} × {row["height"]}</option>'
+        values = [f'{row["width"]} × {row["height"]}',
+                  f'{row["phoenix"]["gpu_ms"]:.3f}', f'{row["nvidia"]["gpu_ms"]:.3f}',
+                  f'{row["phoenix"]["device_local_bytes"] / MIB:,.1f}',
+                  f'{row["nvidia"]["device_local_bytes"] / MIB:,.1f}', 'Exact reset + final']
+        table += '<tr>' + ''.join(f'<td>{html.escape(value)}</td>' for value in values) + '</tr>'
+    page = '''<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DLSS5 Phoenix — resolution benchmarks</title>
+<style>body{background:#0e1420;color:#e9f0f9;font:18px Segoe UI,system-ui;margin:32px auto;padding:0 24px;max-width:1600px}
+a{color:#93bcff}h1{color:#79dbb4}img{max-width:100%;height:auto;border-radius:12px}table{width:100%;border-collapse:collapse}
+td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{background:#161f2d;color:#e9f0f9;padding:10px;font:inherit}
+.scroll{overflow:auto}.muted{color:#acbbce}section{margin:36px 0}</style>
+<h1>DLSS5 Phoenix: resolution benchmarks</h1>
+<p>13 October 2026 · RTX 5080 16 GiB · NVIDIA 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
+<p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
+Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
+GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
+<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
+<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody>''' + table + '''</tbody></table></section>
+<p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
+Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
+<a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
+<section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 1080p through 8K"></section>
+<section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
+<section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
+Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
+<label for="extent">Resolution </label><select id="extent">''' + options + '''</select>
+<p><img id="comparison" alt="Phoenix, NVIDIA and amplified difference" src="output-''' + f'{rows[0]["width"]}x{rows[0]["height"]}' + '''.png"></p></section>
+<script>document.getElementById('extent').addEventListener('change',event=>{
+document.getElementById('comparison').src='output-'+event.target.value+'.png';});</script></html>'''
+    (OUT / "resolutions.html").write_text(page, encoding="utf-8")
 
 
 def portable():
@@ -181,13 +251,18 @@ def memory():
             left += width
     p.wrap(843, 709, "All tracked owned allocations reached zero after shutdown; capture readbacks retired too.", 670, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 854, f"The native inner-network probe owns 409.69 MiB; the full adapter adds bridge and exposure resources. Alternate-runner graphs request {gpu['owned_bytes'] / MIB:.2f} MiB on all six tested routes: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. These are different ownership scopes.", 1500, 24)
+    p.wrap(48, 854, f"The current native inner-network probe owns {ROWS['phoenix']['owned_bytes'] / MIB:.2f} MiB with RG16F motion; the adapter measurements above are from 11 October. Alternate-runner graphs request {gpu['owned_bytes'] / MIB:.2f} MiB on all six routes: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. These are different scopes.", 1500, 24)
     p.wrap(48, 958, "Owned resources, GPU residency and host working set overlap. Keep them separate; NVIDIA's internal component sizes remain unknown.", 1500, 23)
     p.save("memory-breakdown.png")
 
 
 if __name__ == "__main__":
     native()
+    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] >= 1920],
+                       "Native RTX: 1080p through 8K", "native-resolution-scaling.png")
+    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] < 1920],
+                       "Native RTX: lower resolutions", "native-lower-resolutions.png")
+    resolution_report()
     portable()
     memory()
-    print(f"Exported three benchmark images to {OUT.relative_to(ROOT)}")
+    print(f"Exported five benchmark images and the resolution report to {OUT.relative_to(ROOT)}")

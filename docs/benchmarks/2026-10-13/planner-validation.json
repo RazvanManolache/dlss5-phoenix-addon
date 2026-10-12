@@ -1,0 +1,258 @@
+{
+  "bounded_plan_cache_checked": true,
+  "cpu_only": true,
+  "frames": [
+    {
+      "counter_bytes": 110592,
+      "height": 384,
+      "width": 640,
+      "workspace_bytes": 27734016
+    },
+    {
+      "counter_bytes": 359424,
+      "height": 720,
+      "width": 1280,
+      "workspace_bytes": 97926144
+    },
+    {
+      "counter_bytes": 655360,
+      "height": 1080,
+      "width": 1920,
+      "workspace_bytes": 212992000
+    },
+    {
+      "counter_bytes": 896000,
+      "height": 1080,
+      "width": 2560,
+      "workspace_bytes": 273853440
+    },
+    {
+      "counter_bytes": 93184,
+      "height": 1,
+      "width": 1,
+      "workspace_bytes": 15731712
+    },
+    {
+      "counter_bytes": 93184,
+      "height": 129,
+      "width": 127,
+      "workspace_bytes": 15731712
+    },
+    {
+      "counter_bytes": 96256,
+      "height": 255,
+      "width": 257,
+      "workspace_bytes": 16685056
+    },
+    {
+      "counter_bytes": 116736,
+      "height": 511,
+      "width": 511,
+      "workspace_bytes": 30263296
+    },
+    {
+      "counter_bytes": 227328,
+      "height": 603,
+      "width": 801,
+      "workspace_bytes": 59602944
+    },
+    {
+      "counter_bytes": 655360,
+      "height": 1079,
+      "width": 1919,
+      "workspace_bytes": 212992000
+    },
+    {
+      "counter_bytes": 1070080,
+      "height": 1440,
+      "width": 2560,
+      "workspace_bytes": 342184960
+    },
+    {
+      "counter_bytes": 2311168,
+      "height": 2160,
+      "width": 3840,
+      "workspace_bytes": 762135552
+    },
+    {
+      "counter_bytes": 5216256,
+      "height": 3240,
+      "width": 5760,
+      "workspace_bytes": 1714722816
+    },
+    {
+      "counter_bytes": 9102336,
+      "height": 4320,
+      "width": 7680,
+      "workspace_bytes": 3040879616
+    },
+    {
+      "counter_bytes": 655360,
+      "height": 1920,
+      "width": 1080,
+      "workspace_bytes": 212992000
+    },
+    {
+      "counter_bytes": 1460224,
+      "height": 1440,
+      "width": 3440,
+      "workspace_bytes": 470861824
+    },
+    {
+      "counter_bytes": 93184,
+      "height": 31,
+      "width": 17,
+      "workspace_bytes": 15731712
+    },
+    {
+      "counter_bytes": 93184,
+      "height": 65,
+      "width": 63,
+      "workspace_bytes": 15731712
+    },
+    {
+      "counter_bytes": 96256,
+      "height": 321,
+      "width": 319,
+      "workspace_bytes": 16685056
+    },
+    {
+      "counter_bytes": 96256,
+      "height": 319,
+      "width": 321,
+      "workspace_bytes": 16685056
+    },
+    {
+      "counter_bytes": 119808,
+      "height": 513,
+      "width": 511,
+      "workspace_bytes": 31675392
+    },
+    {
+      "counter_bytes": 116736,
+      "height": 512,
+      "width": 512,
+      "workspace_bytes": 30263296
+    },
+    {
+      "counter_bytes": 119808,
+      "height": 511,
+      "width": 513,
+      "workspace_bytes": 31675392
+    },
+    {
+      "counter_bytes": 116736,
+      "height": 359,
+      "width": 641,
+      "workspace_bytes": 30001152
+    },
+    {
+      "counter_bytes": 136192,
+      "height": 479,
+      "width": 853,
+      "workspace_bytes": 43258880
+    },
+    {
+      "counter_bytes": 136192,
+      "height": 481,
+      "width": 854,
+      "workspace_bytes": 43258880
+    },
+    {
+      "counter_bytes": 225280,
+      "height": 539,
+      "width": 959,
+      "workspace_bytes": 58847232
+    },
+    {
+      "counter_bytes": 225280,
+      "height": 540,
+      "width": 960,
+      "workspace_bytes": 58847232
+    },
+    {
+      "counter_bytes": 228352,
+      "height": 541,
+      "width": 961,
+      "workspace_bytes": 60521472
+    },
+    {
+      "counter_bytes": 258048,
+      "height": 767,
+      "width": 1023,
+      "workspace_bytes": 82882560
+    },
+    {
+      "counter_bytes": 258048,
+      "height": 768,
+      "width": 1024,
+      "workspace_bytes": 82882560
+    },
+    {
+      "counter_bytes": 359424,
+      "height": 769,
+      "width": 1025,
+      "workspace_bytes": 102530048
+    },
+    {
+      "counter_bytes": 365568,
+      "height": 767,
+      "width": 1365,
+      "workspace_bytes": 99750912
+    },
+    {
+      "counter_bytes": 365568,
+      "height": 768,
+      "width": 1366,
+      "workspace_bytes": 99750912
+    },
+    {
+      "counter_bytes": 386048,
+      "height": 769,
+      "width": 1367,
+      "workspace_bytes": 124249088
+    },
+    {
+      "counter_bytes": 655360,
+      "height": 1081,
+      "width": 1921,
+      "workspace_bytes": 214695936
+    },
+    {
+      "counter_bytes": 663552,
+      "height": 1080,
+      "width": 1936,
+      "workspace_bytes": 216866816
+    },
+    {
+      "counter_bytes": 655360,
+      "height": 1072,
+      "width": 1921,
+      "workspace_bytes": 214695936
+    },
+    {
+      "counter_bytes": 365568,
+      "height": 1281,
+      "width": 721,
+      "workspace_bytes": 99750912
+    },
+    {
+      "counter_bytes": 1460224,
+      "height": 1439,
+      "width": 3441,
+      "workspace_bytes": 470861824
+    },
+    {
+      "counter_bytes": 2421760,
+      "height": 2161,
+      "width": 3841,
+      "workspace_bytes": 796324864
+    }
+  ],
+  "live_intervals_checked": true,
+  "model_files_used": false,
+  "padded_token_storage_checked": true,
+  "passed": true,
+  "persistent_spatial_padding_checked": true,
+  "unknown_tensor_rejected": true
+}

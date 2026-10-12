@@ -15,25 +15,41 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 ![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
-- **1080p inference: effectively tied.** Phoenix **3.835 ms**, NVIDIA DLSS NR
-  **3.863 ms** on RTX 5080. A 0.71% lower median is near parity, not a promised
-  game-FPS gain. NVIDIA was slightly faster at 2560×1080; Phoenix was faster at
-  the two smaller tested extents.
-- **Less measured GPU residency:** **574.7 MiB** for Phoenix versus **686.5 MiB**
-  for NVIDIA in the matched 1080p probe—about **16.3% less**. This includes the
+- **1080p inference: effectively tied.** Phoenix **3.845 ms**, NVIDIA DLSS NR
+  **3.861 ms** on RTX 5080. A 0.40% difference is near parity, not a promised
+  game-FPS gain. NVIDIA was about 2.4–4.0% faster at the larger tested extents.
+- **Less measured GPU residency at 1080p:** **558.8 MiB** for Phoenix versus **686.5 MiB**
+  for NVIDIA in the matched probe—about **18.6% less**. This includes the
   harness and driver; it is not a measurement of NVIDIA's internal buffers.
   Spare VRAM apparently needs a financing plan these days.
+- **Correct output from 360p through 8K:** reset and final history frames match NVIDIA
+  exactly on the synthetic fixture at all nine tested standard extents. Memory is
+  essentially tied at 6K; Phoenix uses about 2.7% more at 8K. No universal VRAM
+  saving or moving-scene quality claim is implied.
 - **The point is a fast, inspectable runner with controls.** Native RTX is the
   primary path. Getting the same architecture running through other APIs is
   extra engineering exploration. Yes, we may have taken the side quest too far.
 
-Measured **11 October 2026**, eight fresh processes per route at 1080p, same
-FP16 fixture, controls and model. GPU inference excludes upload/readback and is
-not game frame time. The native kernel bundle is unchanged in this release.
+Measured **13 October 2026**, two fresh processes per renderer at each extent,
+128 frames each, discarding the first 32. Figures average process medians.
+Same RGBA16F color/RG16F motion fixture, controls and model. GPU inference
+excludes upload/readback and is not game frame time. Resolution planning and
+padding are corrected; the optimized CUDA kernel binaries are unchanged.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
 
+![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 1080p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
+
+<details>
+<summary>Lower input resolutions: 360p, 480p, 540p and 720p</summary>
+
+![Native Phoenix and NVIDIA DLSS NR: lower-resolution latency and GPU residency](docs/benchmarks/2026-10-13/native-lower-resolutions.png)
+
+</details>
+
 [Download 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
-[Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md)
+[Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
+[Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
+[Resolution report (HTML)](docs/benchmarks/2026-10-13/resolutions.html)
 
 ## A quick look
 
