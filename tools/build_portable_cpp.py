@@ -107,7 +107,8 @@ def main():
         return hashlib.sha256(file_path.read_bytes()).hexdigest()
 
     def build(name, command, output=None):
-        if args.only and name not in args.only and not (name in ("cpu_avx2", "cpu_avx512") and "cpu" in args.only):
+        cpu_object = bool(args.only) and name in ("cpu_avx2", "cpu_avx512") and "cpu" in args.only
+        if args.only and name not in args.only and not cpu_object:
             return
         script = out / (name + ".cmd")
         script.write_bytes(
@@ -173,9 +174,13 @@ def main():
             out / "cpu_avx2.obj",
         )
     if not args.only or "cpu" in args.only:
-        build("cpu_avx512", ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
-                              "/arch:AVX512", "/c", NATIVE / "cpu_avx512.cpp",
-                              "/Fo" + str(out / "cpu_avx512.obj")], out / "cpu_avx512.obj")
+        build(
+            "cpu_avx512",
+            ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
+             "/arch:AVX512", "/c", NATIVE / "cpu_avx512.cpp",
+             "/Fo" + str(out / "cpu_avx512.obj")],
+            out / "cpu_avx512.obj",
+        )
     build(
         "cpu",
         common
@@ -311,11 +316,14 @@ def main():
         ROOT / "tests/portable_cpp/graph_profile.cpp", "/Fo" + str(out / "graph_profile.obj"),
         "/Fe" + str(out / "phoenix_cpp_graph_profile.exe"), "/link", "bcrypt.lib"],
         out / "phoenix_cpp_graph_profile.exe")
-    build("matrix_benchmark", ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
-                              ROOT / "tests/portable_cpp/matrix_benchmark.cpp",
-                              "/Fo" + str(out / "matrix_benchmark.obj"),
-                              "/Fe" + str(out / "phoenix_cpp_matrix_benchmark.exe"), "/link", "bcrypt.lib"],
-                              out / "phoenix_cpp_matrix_benchmark.exe")
+    build(
+        "matrix_benchmark",
+        ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
+         ROOT / "tests/portable_cpp/matrix_benchmark.cpp",
+         "/Fo" + str(out / "matrix_benchmark.obj"),
+         "/Fe" + str(out / "phoenix_cpp_matrix_benchmark.exe"), "/link", "bcrypt.lib"],
+        out / "phoenix_cpp_matrix_benchmark.exe",
+    )
     build(
         "device_query",
         [
