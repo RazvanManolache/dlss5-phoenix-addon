@@ -1,5 +1,5 @@
 #pragma once
-// Compact CPU tiles fit the SIMD compiler's private accumulators in registers.
+// Compact CPU tiles limit private accumulator storage and register pressure.
 // Keep each output's ascending FMA order, including partial rows and columns.
 template <unsigned Rows, unsigned Columns>
 sycl::event sycl_cpu_matrix(sycl::queue& queue, phx::Operation operation) {
@@ -11,7 +11,7 @@ sycl::event sycl_cpu_matrix(sycl::queue& queue, phx::Operation operation) {
             uint64_t tile = item[0], batch_index = tile / (column_tile_count * row_tile_count);
             unsigned first_row = unsigned(tile / column_tile_count % row_tile_count) * Rows,
                      first_column = unsigned(tile % column_tile_count) * Columns;
-            phx::Kernel<GpuMath> math{operation};
+            phx::Kernel<SyclCpuMath> math{operation};
             float accumulators[Rows][Columns]{};
             for (unsigned reduction_index = 0; reduction_index < operation.reduction_count;
                  ++reduction_index) {
@@ -29,8 +29,8 @@ sycl::event sycl_cpu_matrix(sycl::queue& queue, phx::Operation operation) {
                                              column))
                             : 0;
                 }
-                for (unsigned work_index = 0; work_index < Rows; ++work_index) {
-                    unsigned row = first_row + work_index;
+                for (unsigned row_in_tile = 0; row_in_tile < Rows; ++row_in_tile) {
+                    unsigned row = first_row + row_in_tile;
                     float left_value =
                         row < operation.row_count
                             ? math.load_half(operation.left_input,
@@ -39,20 +39,20 @@ sycl::event sycl_cpu_matrix(sycl::queue& queue, phx::Operation operation) {
                                                  reduction_index)
                             : 0;
                     for (unsigned column_in_tile = 0; column_in_tile < Columns; ++column_in_tile)
-                        accumulators[work_index][column_in_tile] =
+                        accumulators[row_in_tile][column_in_tile] =
                             sycl::fma(left_value, right_values[column_in_tile],
-                                      accumulators[work_index][column_in_tile]);
+                                      accumulators[row_in_tile][column_in_tile]);
                 }
             }
-            for (unsigned work_index = 0;
-                 work_index < Rows && first_row + work_index < operation.row_count; ++work_index)
+            for (unsigned row_in_tile = 0;
+                 row_in_tile < Rows && first_row + row_in_tile < operation.row_count; ++row_in_tile)
                 for (unsigned column_in_tile = 0;
                      column_in_tile < Columns &&
                      first_column + column_in_tile < operation.column_count;
                      ++column_in_tile)
                     math.store(batch_index * operation.output_batch_stride +
-                                   uint64_t(first_row + work_index) * operation.output_row_stride +
+                                   uint64_t(first_row + row_in_tile) * operation.output_row_stride +
                                    first_column + column_in_tile,
-                               accumulators[work_index][column_in_tile]);
+                               accumulators[row_in_tile][column_in_tile]);
         });
 }

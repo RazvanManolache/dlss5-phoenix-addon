@@ -40,6 +40,13 @@ class CpuBackend final : public Backend {
     size_t unfinished_workers_ = 0;
     std::atomic<uint64_t> next_work_item_{0};
     Command pending_command_{};
+    bool use_wide_matrix(const phx::Operation& operation) const {
+        // Wider tiles help the decoder MLPs, including their K=128 reductions.
+        // Keep small attention tiles and pointwise work on the AVX2 path.
+        return use_avx512_ && operation.family == phx::MatrixMultiply &&
+               operation.reduction_count >= 128 && operation.column_count >= 128 &&
+               operation.left_row_stride == operation.reduction_count;
+    }
     // Sleep between graph commands; workers claim contiguous ranges to amortize
     // scheduling and operation dispatch without assigning fixed rows to a thread.
     void worker() {
@@ -53,10 +60,7 @@ class CpuBackend final : public Backend {
             observed_generation = dispatch_generation_;
             auto command = pending_command_;
             lock.unlock();
-            const bool wide_matrix =
-                use_avx512_ && command.operation.family == phx::MatrixMultiply &&
-                command.operation.reduction_count >= 256 && command.operation.column_count >= 128 &&
-                command.operation.left_row_stride == command.operation.reduction_count;
+            const bool wide_matrix = use_wide_matrix(command.operation);
             const uint64_t maximum_chunk = command.operation.family == phx::Elementwise ? 2048 : 32;
             const uint64_t minimum_chunk = command.operation.family == phx::MatrixMultiply ? 1 : 32;
             const uint64_t chunk = std::clamp<uint64_t>(
@@ -136,10 +140,7 @@ class CpuBackend final : public Backend {
                 std::unique_lock lock(dispatch_mutex_);
                 pending_command_ = command;
                 if (use_avx2_ && command.operation.family == phx::MatrixMultiply) {
-                    const bool wide_matrix =
-                        use_avx512_ && command.operation.reduction_count >= 256 &&
-                        command.operation.column_count >= 128 &&
-                        command.operation.left_row_stride == command.operation.reduction_count;
+                    const bool wide_matrix = use_wide_matrix(command.operation);
                     const unsigned rows_per_tile = wide_matrix ? 16 : 8;
                     pending_command_.count =
                         uint64_t((command.operation.row_count + rows_per_tile - 1) /

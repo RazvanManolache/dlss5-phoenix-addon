@@ -19,6 +19,9 @@
 #include "backend.h"
 #include "command_cache.h"
 #include "backend_options.h"
+#if defined(PHX_SYCL)
+#include "fp8_rounding.h"
+#endif
 using namespace phoenix_cpp;
 #define PHX_CHECK(expression) check((expression), __LINE__)
 #if defined(PHX_CUDA)
@@ -101,6 +104,14 @@ struct GpuMath {
     }
 #endif
 };
+#if defined(PHX_SYCL)
+// Select the measured CPU quantizer without changing untested GPU defaults.
+struct SyclCpuMath : GpuMath {
+    static float round_e4m3(float input) {
+        return phoenix_cpp::round_e4m3_bits<SyclCpuMath>(input);
+    }
+};
+#endif
 #if !defined(PHX_SYCL)
 __global__ void run_kernel(phx::Operation operation, uint64_t count, uint64_t offset) {
     uint64_t element_index = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -386,6 +397,7 @@ static void launch_elementwise(phx::Operation operation, uint64_t count, uint64_
 #endif
 #if defined(PHX_SYCL)
 #include "sycl_elementwise.h"
+#include "sycl_rows.h"
 #include "sycl_matrix.h"
 #endif
 class GpuBackend final : public Backend {
@@ -615,6 +627,7 @@ class GpuBackend final : public Backend {
         if (commands.empty())
             return;
 #if defined(PHX_SYCL)
+        const bool cpu_device = queue_->get_device().is_cpu();
         auto spans = command_spans(commands);
         if (detailed_profile) {
             spans.clear();
@@ -631,22 +644,15 @@ class GpuBackend final : public Backend {
             auto operation = command.operation;
             auto count = command.count;
             sycl::event event;
-            if (queue_->get_device().is_cpu() && operation.family == phx::MatrixMultiply) {
+            if (cpu_device && operation.family == phx::MatrixMultiply) {
                 event = sycl_cpu_matrix<4, 4>(*queue_, operation);
             } else if (operation.family == phx::Elementwise)
-                event = sycl_elementwise(*queue_, operation, count);
-            else if (operation.family == phx::RowReduction && (operation.flags & 255u) == 1)
-                event = queue_->parallel_for(sycl::range<1>(count), [=](sycl::id<1> index) {
-                    phx::Kernel<GpuMath>{operation}.softmax(unsigned(index[0]));
-                });
-            else if (operation.family == phx::RowReduction && (operation.flags & 255u) == 0)
-                event = queue_->parallel_for(sycl::range<1>(count), [=](sycl::id<1> index) {
-                    phx::Kernel<GpuMath>{operation}.norm(unsigned(index[0]));
-                });
-            else if (operation.family == phx::RowReduction && (operation.flags & 255u) == 6)
-                event = queue_->parallel_for(sycl::range<1>(count), [=](sycl::id<1> index) {
-                    phx::Kernel<GpuMath>{operation}.global_attention_softmax(unsigned(index[0]));
-                });
+                event = cpu_device ? sycl_elementwise<SyclCpuMath>(*queue_, operation, count)
+                                   : sycl_elementwise<GpuMath>(*queue_, operation, count);
+            else if (operation.family == phx::RowReduction &&
+                     ((operation.flags & 255u) <= 1 || (operation.flags & 255u) == 6))
+                event = cpu_device ? sycl_row<SyclCpuMath>(*queue_, operation, count)
+                                   : sycl_row<GpuMath>(*queue_, operation, count);
             else
                 event = queue_->parallel_for(sycl::range<1>(count), [=](sycl::id<1> work_index) {
                     phx::Kernel<GpuMath>{operation}(uint64_t(work_index[0]));

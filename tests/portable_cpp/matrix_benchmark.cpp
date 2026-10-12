@@ -69,9 +69,9 @@ int wmain(int argc, wchar_t** argv) {
         struct Shape {
             unsigned rows, columns, reduction;
         };
-        for (const auto shape :
-             {Shape{8192, 128, 32}, Shape{8192, 32, 128}, Shape{2048, 1024, 256},
-              Shape{640, 1536, 512}, Shape{640, 4096, 1024}, Shape{640, 1024, 4096}}) {
+        for (const auto shape : {Shape{8192, 128, 32}, Shape{8192, 32, 128}, Shape{32768, 512, 128},
+                                 Shape{2048, 1024, 256}, Shape{640, 1536, 512},
+                                 Shape{640, 4096, 1024}, Shape{640, 1024, 4096}}) {
             std::vector<uint16_t> left(size_t(shape.rows) * shape.reduction);
             std::vector<uint8_t> right(size_t(shape.columns) * shape.reduction);
             std::vector<uint16_t> output(size_t(shape.rows) * shape.columns);
@@ -80,17 +80,18 @@ int wmain(int argc, wchar_t** argv) {
                     uint16_t(converter.half_bits(float(int(index * 13 % 23) - 11) * .0625f));
             for (size_t index = 0; index < right.size(); ++index)
                 right[index] = uint8_t((32 + index * 17 % 57) | ((index & 1) ? 128 : 0));
-            const auto a = backend->allocate(left.size() * 2), b = backend->allocate(right.size()),
-                       c = backend->allocate(output.size() * 2);
-            backend->upload(a, left.data(), left.size() * 2);
-            backend->upload(b, right.data(), right.size());
+            const auto left_buffer = backend->allocate(left.size() * 2),
+                       right_buffer = backend->allocate(right.size()),
+                       output_buffer = backend->allocate(output.size() * 2);
+            backend->upload(left_buffer, left.data(), left.size() * 2);
+            backend->upload(right_buffer, right.data(), right.size());
             phx::Operation operation{};
             operation.family = phx::MatrixMultiply;
             operation.flags =
-                1 | phx::RightInputFp8 | phx::LeftInputFp8Grid | phx::StoreHalf | (5u << 8);
-            operation.left_input = a.address;
-            operation.right_input = b.address;
-            operation.output = c.address;
+                1 | phx::RightInputFp8 | phx::LeftInputFp8Grid | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
+            operation.left_input = left_buffer.address;
+            operation.right_input = right_buffer.address;
+            operation.output = output_buffer.address;
             operation.row_count = shape.rows;
             operation.column_count = shape.columns;
             operation.reduction_count = shape.reduction;
@@ -109,25 +110,26 @@ int wmain(int argc, wchar_t** argv) {
                 if (iteration >= 2)
                     samples.push_back(milliseconds);
             }
-            backend->download(c, output.data(), output.size() * 2);
+            backend->download(output_buffer, output.data(), output.size() * 2);
             const auto checksum = phoenix_model::weight_digest(
                 reinterpret_cast<const uint8_t*>(output.data()), output.size() * 2);
             auto sorted = samples;
             std::sort(sorted.begin(), sorted.end());
-            report["rows"].push_back({{"m", shape.rows},
-                                      {"n", shape.columns},
-                                      {"k", shape.reduction},
-                                      {"samples_ms", samples},
-                                      {"median_ms", sorted[1]},
-                                      {"owned_bytes", a.bytes + b.bytes + c.bytes},
-                                      {"output_sha256", checksum}});
+            report["rows"].push_back(
+                {{"m", shape.rows},
+                 {"n", shape.columns},
+                 {"k", shape.reduction},
+                 {"samples_ms", samples},
+                 {"median_ms", sorted[1]},
+                 {"owned_bytes", left_buffer.bytes + right_buffer.bytes + output_buffer.bytes},
+                 {"output_sha256", checksum}});
             std::ofstream(argv[4]) << report.dump(2) << '\n';
             std::cout << shape.rows << 'x' << shape.columns << 'x' << shape.reduction << ": "
                       << sorted[1] << " ms\n"
                       << std::flush;
-            backend->release(c);
-            backend->release(b);
-            backend->release(a);
+            backend->release(output_buffer);
+            backend->release(right_buffer);
+            backend->release(left_buffer);
         }
         report["passed"] = true;
         std::ofstream(argv[4]) << report.dump(2) << '\n';

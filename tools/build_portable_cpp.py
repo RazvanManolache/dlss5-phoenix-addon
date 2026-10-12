@@ -411,7 +411,9 @@ def main():
                 dll,
             ]
             if kind == "sycl":
-                command += ["-fsycl", "-fsycl-targets=spir64"]
+                # Compile only the selected CPU/GPU kernels at runtime instead
+                # of retaining a JIT program for the entire operator library.
+                command += ["-fsycl", "-fsycl-targets=spir64", "-fsycl-device-code-split=per_kernel"]
             else:
                 command[1:1] = ["-x", "hip"]
                 command += [
