@@ -1,0 +1,320 @@
+{
+  "date": "2026-10-12",
+  "hardware": {
+    "cpu": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
+    "cores": 16,
+    "threads": 32,
+    "installed_ram_bytes": 103079215104,
+    "nvidia": "NVIDIA GeForce RTX 5080, 616.64, 16303 MiB",
+    "cuda_toolkit": "13.1",
+    "nvidia_model_dll_file_version": "310.8.0.0"
+  },
+  "records": [
+    {
+      "id": "phoenix",
+      "label": "DLSS5 Phoenix native RTX",
+      "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
+      "family": "native",
+      "processes": 8,
+      "samples": 768,
+      "core_ms": 3.83512,
+      "wall_ms": 4.3557500000000005,
+      "process_median_min_ms": 3.8279199999999998,
+      "process_median_max_ms": 3.84288,
+      "device_local_bytes": 602611712.0,
+      "host_private_bytes": 963758080.0,
+      "host_working_set_bytes": 346435584.0,
+      "owned_bytes": 429588480,
+      "memory_parts": {
+        "Color": 16711680,
+        "History": 35389440,
+        "Motion": 16711680,
+        "Weights": 147783680,
+        "Workspace": 212992000
+      },
+      "measured_date": "2026-10-11"
+    },
+    {
+      "id": "nvidia",
+      "label": "NVIDIA DLSS NR",
+      "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
+      "family": "native",
+      "processes": 8,
+      "samples": 768,
+      "core_ms": 3.862712,
+      "wall_ms": 4.436999999999999,
+      "process_median_min_ms": 3.8580959999999997,
+      "process_median_max_ms": 3.86632,
+      "device_local_bytes": 719872000.0,
+      "host_private_bytes": 958810112.0,
+      "host_working_set_bytes": 368128000.0,
+      "memory_parts": {},
+      "measured_date": "2026-10-11"
+    },
+    {
+      "id": "cuda",
+      "label": "CUDA C++ \u00b7 RTX 5080",
+      "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
+      "family": "portable",
+      "processes": 3,
+      "samples": 24,
+      "core_ms": 90.67465586587787,
+      "wall_ms": 162.53285,
+      "process_median_min_ms": 161.54014999999998,
+      "process_median_max_ms": 173.83974999999998,
+      "host_private_bytes": 987725824,
+      "host_working_set_bytes": 320970752,
+      "owned_bytes": 498342568,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 346816512
+      },
+      "measured_date": "2026-10-12",
+      "memory_sampling": "Worker working set/private bytes: median of final-frame observations across processes; not a peak",
+      "motion_mode": "fractional",
+      "source_commit": "5c0bca527b073b425f1285c724db7b328f5bbc74"
+    },
+    {
+      "id": "vulkan_nvidia",
+      "label": "Vulkan C++ \u00b7 RTX 5080",
+      "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
+      "family": "portable",
+      "processes": 3,
+      "samples": 24,
+      "core_ms": 114.58536,
+      "wall_ms": 194.82785,
+      "process_median_min_ms": 189.8467,
+      "process_median_max_ms": 200.41475,
+      "host_private_bytes": 741822464,
+      "host_working_set_bytes": 279568384,
+      "owned_bytes": 498342568,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 346816512
+      },
+      "measured_date": "2026-10-12",
+      "memory_sampling": "Worker working set/private bytes: median of final-frame observations across processes; not a peak",
+      "motion_mode": "fractional",
+      "source_commit": "5c0bca527b073b425f1285c724db7b328f5bbc74"
+    },
+    {
+      "id": "cpu",
+      "label": "CPU C++",
+      "hardware": "Ryzen 9 9950X3D \u00b7 32 automatic workers",
+      "family": "portable",
+      "processes": 2,
+      "samples": 6,
+      "core_ms": 27027.74824999999,
+      "wall_ms": 27115.24675,
+      "process_median_min_ms": 26656.709,
+      "process_median_max_ms": 27573.7845,
+      "host_private_bytes": 543610880.0,
+      "host_working_set_bytes": 619018240.0,
+      "owned_bytes": 489691816,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 338165760
+      },
+      "measured_date": "2026-10-11"
+    },
+    {
+      "id": "hip_amd",
+      "label": "HIP C++ \u00b7 AMD iGPU",
+      "hardware": "AMD Radeon gfx1036 \u00b7 32.0.21045.5002",
+      "family": "portable",
+      "processes": 2,
+      "samples": 6,
+      "core_ms": 25038.237235343928,
+      "wall_ms": 31032.76315,
+      "process_median_min_ms": 31011.5768,
+      "process_median_max_ms": 31053.9495,
+      "host_private_bytes": 101877760.0,
+      "host_working_set_bytes": 170061824.0,
+      "owned_bytes": 489691816,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 338165760
+      },
+      "measured_date": "2026-10-11"
+    },
+    {
+      "id": "vulkan_amd",
+      "label": "Vulkan C++ \u00b7 AMD iGPU",
+      "hardware": "AMD Radeon gfx1036 \u00b7 32.0.21045.5002",
+      "family": "portable",
+      "processes": 2,
+      "samples": 6,
+      "core_ms": 29391.181815000004,
+      "wall_ms": 29613.0609,
+      "process_median_min_ms": 29575.7701,
+      "process_median_max_ms": 29650.3517,
+      "host_private_bytes": 603244544.0,
+      "host_working_set_bytes": 693762048.0,
+      "owned_bytes": 489691816,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 338165760
+      },
+      "measured_date": "2026-10-11"
+    },
+    {
+      "id": "sycl_cpu",
+      "label": "SYCL C++ \u00b7 CPU",
+      "hardware": "Ryzen 9 9950X3D \u00b7 Intel OpenCL CPU runtime \u00b7 32 automatic workers",
+      "family": "portable",
+      "processes": 2,
+      "samples": 6,
+      "core_ms": 37980.612449999986,
+      "wall_ms": 38078.87805,
+      "process_median_min_ms": 37545.3929,
+      "process_median_max_ms": 38612.3632,
+      "host_private_bytes": 1081229312.0,
+      "host_working_set_bytes": 903995392.0,
+      "owned_bytes": 489691816,
+      "memory_parts": {
+        "Packed weights": 151526056,
+        "Scratch / activations": 338165760
+      },
+      "measured_date": "2026-10-11"
+    }
+  ],
+  "resolution_matrix": [
+    {
+      "width": 640,
+      "height": 384,
+      "phoenix": {
+        "gpu_ms": 1.93636,
+        "processes": 2,
+        "minimum": 1.935568,
+        "maximum": 1.937152
+      },
+      "nvidia": {
+        "gpu_ms": 2.0153359999999996,
+        "processes": 2,
+        "minimum": 2.014032,
+        "maximum": 2.0166399999999998
+      },
+      "phoenix_latency_difference_percent": -3.918751017200084
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "phoenix": {
+        "gpu_ms": 2.504912,
+        "processes": 2,
+        "minimum": 2.503616,
+        "maximum": 2.506208
+      },
+      "nvidia": {
+        "gpu_ms": 2.59124,
+        "processes": 2,
+        "minimum": 2.589504,
+        "maximum": 2.592976
+      },
+      "phoenix_latency_difference_percent": -3.3315323937574304
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "phoenix": {
+        "gpu_ms": 3.83512,
+        "processes": 8,
+        "minimum": 3.8279199999999998,
+        "maximum": 3.84288
+      },
+      "nvidia": {
+        "gpu_ms": 3.862712,
+        "processes": 8,
+        "minimum": 3.8580959999999997,
+        "maximum": 3.86632
+      },
+      "phoenix_latency_difference_percent": -0.7143167805417572
+    },
+    {
+      "width": 2560,
+      "height": 1080,
+      "phoenix": {
+        "gpu_ms": 4.834016,
+        "processes": 2,
+        "minimum": 4.833904,
+        "maximum": 4.834128
+      },
+      "nvidia": {
+        "gpu_ms": 4.809576,
+        "processes": 2,
+        "minimum": 4.809264000000001,
+        "maximum": 4.809888
+      },
+      "phoenix_latency_difference_percent": 0.508152901627934
+    }
+  ],
+  "direct_memory_1080": [
+    {
+      "width": 1920,
+      "height": 1080,
+      "passes": 1,
+      "owned_bytes": 517931008,
+      "local_bytes": 708902912,
+      "nonlocal_bytes": 58073088,
+      "host_private_bytes": 1110052864,
+      "host_working_set_bytes": 389730304,
+      "owned_after_shutdown": 0,
+      "capture_bytes_after_retirement": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "passes": 2,
+      "owned_bytes": 553320448,
+      "local_bytes": 746782720,
+      "nonlocal_bytes": 61087744,
+      "host_private_bytes": 1235247104,
+      "host_working_set_bytes": 412880896,
+      "owned_after_shutdown": 0,
+      "capture_bytes_after_retirement": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "passes": 4,
+      "owned_bytes": 624099328,
+      "local_bytes": 823459840,
+      "nonlocal_bytes": 64233472,
+      "host_private_bytes": 1269207040,
+      "host_working_set_bytes": 403783680,
+      "owned_after_shutdown": 0,
+      "capture_bytes_after_retirement": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "passes": 1,
+      "owned_bytes": 517931008,
+      "local_bytes": 717291520,
+      "nonlocal_bytes": 64233472,
+      "host_private_bytes": 1167556608,
+      "host_working_set_bytes": 399650816,
+      "owned_after_shutdown": 0,
+      "capture_bytes_after_retirement": 0
+    }
+  ],
+  "validation": {
+    "native_reset_checks": 4,
+    "native_timed_frames": 2688,
+    "portable_regression_frames": 42,
+    "portable_benchmark_frames": 60,
+    "portable_measured_frames": 48,
+    "portable_regression_routes": 6,
+    "portable_temporal_exact_frames_20261012": 120
+  },
+  "scope": {
+    "native": "Identical synthetic FP16 input/motion; complete runner/Evaluate GPU interval; host recording and record/submit/wait measured separately; no upload/readback in timing; debug enabled.",
+    "portable": "CUDA/Vulkan RTX refreshed 12 October: three fresh broker processes per route, 10 frames each; discard the first two. Medians of process medians. Fractional motion (+0.375,-0.625), eight global blocks, one pass. Full call includes CPU preparation/history, transfers, inference, resolve and broker overhead; startup and file I/O excluded. Default grouped GPU timing. Other portable rows retain 11 October measurements, two processes with three measured history frames each. Native uses a different fixture/boundary. These are not in-game FPS results.",
+    "memory": "Process host commitment, working set, and owned allocations are overlapping scopes, not quantities to add. Native DXGI residency includes the benchmark harness. Portable graph allocation bytes are provider-owned buffer requests, not whole-process GPU residency.",
+    "validation": "Saved Phoenix regression hashes plus direct NVIDIA reset/final comparison on native fixture. Portable output hashes checked on saved fixtures and repeated history sequences across processes. No claim of portable/native identical output or live-game FPS."
+  },
+  "evidence_sha256": {
+    "matched_measurements": "a4d72e2fb43fe21f1d7559bf598a0048c4a756b3ffd22578f86be9350f749b41",
+    "regression_manifest": "a1d366132f542e7c8169d6a1a514239f2e1f9d834c07057903a34146a80bce3e"
+  }
+}

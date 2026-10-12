@@ -73,7 +73,7 @@ benchmark results.
 
 ## Benchmarks: the good, the slow, and the VRAM
 
-![Native Phoenix and NVIDIA DLSS NR: inference latency across four resolutions and 1080p GPU-local memory residency](docs/benchmarks/2026-10-11/native-rtx.png)
+![Native Phoenix and NVIDIA DLSS NR: inference latency across four resolutions and 1080p GPU-local memory residency](docs/benchmarks/2026-10-12/native-rtx.png)
 
 - **Native RTX is doing well:** at 1920×1080, Phoenix measured **3.835 ms** versus
   **3.863 ms** for NVIDIA DLSS NR. That's effectively parity, with a 0.71% lower
@@ -84,24 +84,29 @@ benchmark results.
   about **16.3% less**. This includes harness/driver resources; NVIDIA's internal
   allocation breakdown is unknown. Saving VRAM matters when apparently even
   spare megabytes need a financing plan.
-- **Portable speed needs work:** CUDA and Vulkan on the RTX 5080 take about
-  **418 ms** and **537 ms** per complete portable frame. CPU, SYCL CPU and the
-  AMD iGPU routes take tens of seconds. They are useful development/reference
-  paths today, rather than practical real-time replacements. Their fixtures and
-  timing boundaries differ from the native test, so a direct speedup ratio would
-  be misleading.
+- **Portable speed still needs work:** on the RTX 5080, CUDA measures **90.67 ms**
+  for the model and **162.53 ms** for the complete frame; Vulkan measures
+  **114.59 ms** and **194.83 ms**. Both graphs allocate **475.26 MiB**, with
+  worker resident RAM of **306.10 MiB** and **266.62 MiB**, respectively.
+  CPU, SYCL CPU and AMD iGPU routes still take tens of seconds. These are
+  development/reference paths today. Native and portable fixtures and timing
+  boundaries differ, so a direct speedup ratio would be misleading.
 
-![Portable CUDA, Vulkan, CPU, HIP and SYCL results with tested hardware, inference and complete-frame latency, graph allocations and worker resident RAM](docs/benchmarks/2026-10-11/portable-runners.png)
+![Portable CUDA, Vulkan, CPU, HIP and SYCL results with tested hardware, inference and complete-frame latency, graph allocations and worker resident RAM](docs/benchmarks/2026-10-12/portable-runners.png)
 
-![Native adapter memory components and shared allocations across one, two and four refinement passes](docs/benchmarks/2026-10-11/memory-breakdown.png)
+![Native adapter memory components and shared allocations across one, two and four refinement passes](docs/benchmarks/2026-10-12/memory-breakdown.png)
 
 - **Test machine:** RTX 5080, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores /
   32 threads; 96 GiB installed RAM; AMD Radeon gfx1036 integrated graphics.
-- **Coverage:** synthetic inference tests dated 11 October 2026. The native
-  comparison uses matching inputs, controls and model; 1080p has eight fresh
-  processes per route. Portable history tests use two processes per route.
-  Saved regressions passed; native reset/final outputs also matched NVIDIA.
-- [Measurement definitions, results and reproduction notes](docs/benchmarks/2026-10-11/README.md)
+- **Coverage:** native/NVIDIA and unchanged portable timings are dated
+  **11 October 2026**. CUDA/Vulkan RTX timings are dated **12 October**:
+  three fresh processes per route, ten frames each, discarding the first two;
+  fractional-motion history, eight global blocks and one pass. Results are
+  medians of process medians. The native 1080p comparison uses eight fresh
+  processes per route. All six current routes passed **42 saved regression
+  frames**; the new GPU paths also matched **120 temporal frame hashes**.
+  These are standalone inference/broker measurements, not in-game FPS.
+- [Measurement definitions, results and reproduction notes](docs/benchmarks/2026-10-12/README.md)
   · [Memory ownership details](MEMORY_USAGE.md)
 
 ## What you can play with

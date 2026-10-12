@@ -4,6 +4,8 @@ These are static chart exports of measured data, not browser screenshots.
 Run from any working directory: python tools/render_readme_benchmarks.py
 """
 
+import argparse
+import datetime
 import json
 import math
 from pathlib import Path
@@ -12,13 +14,19 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "benchmarks" / "2026-10-11"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--snapshot", type=Path, default=ROOT / "docs/benchmarks/2026-10-12")
+OUT = parser.parse_args().snapshot.resolve()
 DATA = json.loads((OUT / "measurements.json").read_text(encoding="utf-8"))
 ROWS = {row["id"]: row for row in DATA["records"]}
 MIB = 1024**2
 BG, PANEL, LINE = "#0e1420", "#161f2d", "#2b3a50"
 INK, MUTED, GREEN, BLUE, GOLD = "#e9f0f9", "#acbbce", "#79dbb4", "#93bcff", "#f5c879"
 COLORS = [GREEN, BLUE, GOLD, "#c29aff", "#ef9bb0", "#68c9e1"]
+
+
+def measured_date(row):
+    return datetime.date.fromisoformat(row.get("measured_date", DATA["date"]))
 
 
 def font(size, bold=False):
@@ -35,10 +43,11 @@ def font(size, bold=False):
 
 
 class Panel:
-    def __init__(self, title, subtitle, height):
+    def __init__(self, title, subtitle, height, date=None):
         self.image = Image.new("RGB", (1600, height), BG)
         self.draw = ImageDraw.Draw(self.image)
-        self.text(48, 28, "DLSS5 PHOENIX  /  LOCAL BENCHMARK  /  11 OCT 2026", 21, GREEN, True)
+        date = date or datetime.date.fromisoformat(DATA["date"]).strftime("%d %b %Y").upper()
+        self.text(48, 28, f"DLSS5 PHOENIX  /  LOCAL BENCHMARK  /  {date}", 21, GREEN, True)
         self.text(48, 67, title, 44, INK, True)
         self.text(48, 130, subtitle, 25, MUTED)
 
@@ -72,7 +81,7 @@ class Panel:
 
 def native():
     phoenix, nvidia = ROWS["phoenix"], ROWS["nvidia"]
-    p = Panel("Native RTX: effectively tied at 1080p", "RTX 5080 · driver 616.64 · GPU inference latency; lower is better", 980)
+    p = Panel("Native RTX: effectively tied at 1080p", "RTX 5080 · driver 616.64 · GPU inference latency; lower is better", 980, measured_date(phoenix).strftime("%d %b %Y").upper())
     for left, row, color in [(48, phoenix, GREEN), (815, nvidia, BLUE)]:
         p.box(left, 196, left + 735, 396)
         p.text(left + 28, 216, "Phoenix native RTX" if row["id"] == "phoenix" else "NVIDIA DLSS NR", 29, color, True)
@@ -107,7 +116,7 @@ def native():
 
 
 def portable():
-    p = Panel("Portable runners: working, with plenty to optimize", "1920 × 1080 · six measured history frames per route · lower is better", 1040)
+    p = Panel("Portable runners: working, with plenty to optimize", "1920 × 1080 · current measured results · lower is better", 1040)
     p.box(48, 190, 1550, 837)
     for x, label in [(76, "Runner / tested device"), (750, "Model ms"), (1005, "Full frame ms"), (1260, "Graph MiB"), (1520, "Host RAM MiB")]:
         if x == 76:
@@ -125,19 +134,22 @@ def portable():
     for index, (identifier, name, hardware) in enumerate(names):
         row, y, color = ROWS[identifier], 275 + index * 91, COLORS[index]
         p.text(76, y, name, 28, color, True)
-        p.text(76, y + 37, hardware, 22, MUTED)
+        p.text(76, y + 37, hardware + " · " + measured_date(row).strftime("%d %b"), 22, MUTED)
         for x, value in [(750, row["core_ms"]), (1005, row["wall_ms"]), (1260, row["owned_bytes"] / MIB), (1520, row["host_working_set_bytes"] / MIB)]:
             p.right(x, y + 5, f"{value:,.2f}", 27)
         # A common logarithmic axis keeps both the sub-second and 30-second routes visible.
         length = 650 * (math.log10(row["wall_ms"]) - 2) / (math.log10(40000) - 2)
         p.draw.rectangle((620, y + 49, 620 + length, y + 58), fill=color)
     p.wrap(48, 866, "Thin bars show complete-frame latency on a shared logarithmic scale. Full frame includes preparation, transfers, inference, resolve and broker round trip. Host RAM is worker resident working set; graph allocations and host RAM overlap and must not be added.", 1500, 24)
-    p.wrap(48, 971, "Portable inputs and timing boundaries differ from the native comparison. AMD iGPU is not a discrete Radeon benchmark; SYCL CPU is not an Intel GPU benchmark.", 1500, 23)
+    gpu, cpu = ROWS["cuda"], ROWS["cpu"]
+    p.wrap(48, 971, f"CUDA/Vulkan RTX: {measured_date(gpu):%d %b}, {gpu['processes']} processes × {gpu['samples'] // gpu['processes']} measured frames. Other routes: {measured_date(cpu):%d %b}, {cpu['processes']} × {cpu['samples'] // cpu['processes']}. Native uses a different fixture. AMD iGPU and SYCL CPU do not certify discrete AMD/Intel GPUs.", 1500, 23)
     p.save("portable-runners.png")
 
 
 def memory():
-    p = Panel("Memory: shared work, less duplication", "Native full adapter · 1920 × 1080 · owned resources, separate from process residency", 1030)
+    dates = sorted({measured_date(row) for row in DATA["records"]})
+    date_range = dates[0].strftime("%d %b %Y") if len(dates) == 1 else dates[0].strftime("%d %b") + " – " + dates[-1].strftime("%d %b %Y")
+    p = Panel("Memory: shared work, less duplication", "Native full adapter · 1920 × 1080 · owned resources, separate from process residency", 1030, date_range.upper())
     p.box(48, 190, 790, 820)
     p.text(76, 214, "One-pass adapter: 493.94 MiB owned", 30, INK, True)
     parts = [("Weights", 140.9375), ("Workspace", 203.125), ("Temporal history", 33.75), ("Bridge images", 115.8125), ("Exposure / readback", 0.3125)]
@@ -168,7 +180,8 @@ def memory():
             p.draw.rectangle((left, y + 48, left + width, y + 78), fill=color)
             left += width
     p.wrap(843, 709, "All tracked owned allocations reached zero after shutdown; capture readbacks retired too.", 670, 24)
-    p.wrap(48, 854, "The inner-network probe owns 409.69 MiB; the full adapter adds bridge and exposure resources. Portable graphs request 467.01 MiB: 144.51 MiB weights + 322.50 MiB scratch/activations. These are different ownership scopes.", 1500, 24)
+    gpu, cpu = ROWS["cuda"], ROWS["cpu"]
+    p.wrap(48, 854, f"The inner-network probe owns 409.69 MiB; the full adapter adds bridge and exposure resources. CUDA/Vulkan RTX graphs request {gpu['owned_bytes'] / MIB:.2f} MiB: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. Other portable routes retain the {cpu['owned_bytes'] / MIB:.2f} MiB result. These are different ownership scopes.", 1500, 24)
     p.wrap(48, 958, "Owned resources, GPU residency and host working set overlap. Keep them separate; NVIDIA's internal component sizes remain unknown.", 1500, 23)
     p.save("memory-breakdown.png")
 

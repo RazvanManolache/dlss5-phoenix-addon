@@ -60,7 +60,7 @@ From the repository root, with Python and the optional Pillow documentation tool
 
 ```powershell
 python -m pip install pillow
-python tools/render_readme_benchmarks.py
+python tools/render_readme_benchmarks.py --snapshot docs/benchmarks/2026-10-11
 ```
 
 This redraws the checked-in snapshot; it does not rerun inference or need a model.
