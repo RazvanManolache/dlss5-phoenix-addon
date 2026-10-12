@@ -18,6 +18,7 @@
 #endif
 #include "backend.h"
 #include "command_cache.h"
+#include "backend_options.h"
 using namespace phoenix_cpp;
 #define PHX_CHECK(expression) check((expression), __LINE__)
 struct GpuMath {
@@ -210,6 +211,14 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
              first_column = unsigned(tile_index % column_tile_count) * 16,
              warp_index = threadIdx.x / 32;
     phx::Kernel<GpuMath> math{operation};
+    // WMMA accepts aligned half operands directly. Interior tiles need no
+    // float decode/re-encode or shared-memory copy of the activation matrix.
+    const auto* left_data = static_cast<const __half*>(operation.left_input) +
+                            batch_index * operation.left_batch_stride +
+                            uint64_t(first_row) * operation.left_row_stride;
+    const bool direct_left = first_row + 64 <= operation.row_count &&
+                             operation.left_row_stride % 8 == 0 &&
+                             (reinterpret_cast<uintptr_t>(left_data) & 31u) == 0;
     __shared__ __align__(32) __half left_tiles[4][256], right_tile[256];
     __shared__ __align__(32) float output_tiles[4][256];
     wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> left_fragment;
@@ -218,15 +227,17 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
     wmma::fill_fragment(accumulator, 0.f);
     for (unsigned first_reduction = 0; first_reduction < operation.reduction_count;
          first_reduction += 16) {
-        for (unsigned tile_element = threadIdx.x; tile_element < 1024; tile_element += 128) {
-            unsigned row = first_row + tile_element / 16, reduction_in_tile = tile_element % 16;
-            left_tiles[tile_element / 256][tile_element % 256] =
-                __float2half_rn(row < operation.row_count
-                                    ? math.load_half(operation.left_input,
-                                                     batch_index * operation.left_batch_stride +
-                                                         uint64_t(row) * operation.left_row_stride +
-                                                         first_reduction + reduction_in_tile)
-                                    : 0);
+        if (!direct_left) {
+            for (unsigned tile_element = threadIdx.x; tile_element < 1024; tile_element += 128) {
+                unsigned row = first_row + tile_element / 16, reduction_in_tile = tile_element % 16;
+                left_tiles[tile_element / 256][tile_element % 256] = __float2half_rn(
+                    row < operation.row_count
+                        ? math.load_half(operation.left_input,
+                                         batch_index * operation.left_batch_stride +
+                                             uint64_t(row) * operation.left_row_stride +
+                                             first_reduction + reduction_in_tile)
+                        : 0);
+            }
         }
         for (unsigned tile_element = threadIdx.x; tile_element < 256; tile_element += 128) {
             unsigned column = first_column + tile_element / 16,
@@ -243,7 +254,13 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
                     : 0);
         }
         __syncthreads();
-        wmma::load_matrix_sync(left_fragment, left_tiles[warp_index], 16);
+        if (direct_left)
+            wmma::load_matrix_sync(left_fragment,
+                                   left_data + warp_index * 16 * operation.left_row_stride +
+                                       first_reduction,
+                                   operation.left_row_stride);
+        else
+            wmma::load_matrix_sync(left_fragment, left_tiles[warp_index], 16);
         wmma::load_matrix_sync(right_fragment, right_tile, 16);
         wmma::mma_sync(accumulator, left_fragment, right_fragment, accumulator);
         __syncthreads();
@@ -259,8 +276,11 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
     }
 }
 
+#include "cuda_window_attention.cuh"
 #endif
 class GpuBackend final : public Backend {
+    bool tensor_attention = true;
+    bool detailed_profile = false;
 #if defined(PHX_SYCL)
     std::unique_ptr<sycl::queue> queue_;
 #else
@@ -301,7 +321,9 @@ class GpuBackend final : public Backend {
     }
 #endif
   public:
-    explicit GpuBackend(const std::string& device_id) {
+    explicit GpuBackend(const std::string& device_id, uint32_t options = 0) {
+        tensor_attention = !(options & OrderedAttention);
+        detailed_profile = (options & DispatchProfiling) != 0;
 #if defined(PHX_SYCL)
         std::vector<sycl::device> matches;
         for (auto& candidate_device : sycl::device::get_devices()) {
@@ -431,6 +453,22 @@ class GpuBackend final : public Backend {
 #endif
     }
     void execute(const std::vector<Command>& commands, std::vector<Event>& events) override {
+#if defined(PHX_CUDA)
+        // Dynamic frame packing is outside the immutable neural graph. Recording
+        // it through the graph cache would evict/rebuild the network every frame.
+        if (commands.size() == 1 && commands.front().operation.family == phx::FrameFeatures) {
+            const auto& command = commands.front();
+            for (uint64_t first = 0; first < command.count; first += uint64_t(65535) * 256) {
+                auto count = std::min(uint64_t(65535) * 256, command.count - first);
+                run_kernel<<<unsigned((count + 255) / 256), 256, 0, stream>>>(command.operation,
+                                                                              count, first);
+            }
+            PHX_CHECK(hipGetLastError());
+            wait();
+            return;
+        }
+#endif
+
         if (commands.empty())
             return;
 #if defined(PHX_SYCL)
@@ -534,6 +572,12 @@ class GpuBackend final : public Backend {
             wait();
             clear_graph();
             graph_spans = command_spans(commands);
+            if (detailed_profile) {
+                graph_spans.clear();
+                for (size_t index = 0; index < commands.size(); ++index)
+                    graph_spans.push_back(
+                        {index, index + 1, commands[index].block, commands[index].layer});
+            }
             graph_timers.resize(graph_spans.size());
             bool capturing = false;
             try {
@@ -550,8 +594,15 @@ class GpuBackend final : public Backend {
                     if (work_index == graph_spans[span].begin)
                         PHX_CHECK(
                             hipEventRecordWithFlags(timer.started, stream, hipEventRecordExternal));
-                    if (command.operation.family == phx::MatrixMultiply &&
-                        command.operation.column_count <= 4) {
+                    if (command.operation.family == phx::WindowAttention) {
+                        for (uint64_t first = 0; first < command.operation.batch_count;
+                             first += 65535)
+                            window_attention<<<
+                                unsigned(std::min(uint64_t(65535),
+                                                  uint64_t(command.operation.batch_count) - first)),
+                                128, 0, stream>>>(command.operation, first);
+                    } else if (command.operation.family == phx::MatrixMultiply &&
+                               command.operation.column_count <= 4) {
                         uint64_t rows =
                             uint64_t(command.operation.row_count) * command.operation.batch_count;
                         for (uint64_t first = 0; first < rows; first += uint64_t(65535) * 256) {
@@ -561,7 +612,12 @@ class GpuBackend final : public Backend {
                         }
                     } else if (command.operation.family == phx::MatrixMultiply &&
                                command.operation.reduction_count % 16 == 0 &&
-                               (command.operation.flags & 0x2000000)) {
+                               ((command.operation.flags & phx::RightInputFp8) ||
+                                (tensor_attention && command.operation.batch_count > 1 &&
+                                 command.operation.row_count == 64 &&
+                                 (command.operation.column_count == 32 ||
+                                  command.operation.column_count == 64) &&
+                                 command.operation.flags <= 1))) {
                         uint64_t tiles = uint64_t((command.operation.row_count + 63) / 64) *
                                          ((command.operation.column_count + 15) / 16) *
                                          command.operation.batch_count;
@@ -763,3 +819,19 @@ extern "C" __declspec(dllexport) int phoenix_backend_devices(void (*emit)(const 
         return -1;
     }
 }
+
+#if defined(PHX_CUDA)
+extern "C" __declspec(dllexport) Backend*
+phoenix_backend_create_configured(const char* device_id, const wchar_t*, uint32_t options,
+                                  char* error, size_t size) {
+    try {
+        return new GpuBackend(device_id ? device_id : "", options);
+    } catch (const std::exception& exception) {
+        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        return nullptr;
+    }
+}
+extern "C" __declspec(dllexport) uint32_t phoenix_backend_features(Backend*) {
+    return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual;
+}
+#endif

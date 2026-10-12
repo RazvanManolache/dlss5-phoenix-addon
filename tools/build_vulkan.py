@@ -23,7 +23,7 @@ def patch_runtime(source):
 
     replace(
         "#include <vulkan/vulkan.h>",
-        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];',
+        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;',
     )
     # Reading mapped NVIDIA VRAM through the CPU BAR was substantially slower
     # than a GPU copy into cached host storage. Keep the upstream environment
@@ -56,6 +56,15 @@ def patch_runtime(source):
     # Streamed graphs have more bounded passes. Refuse timestamp truncation by
     # provisioning enough query slots for full-resolution per-layer attribution.
     replace("#define MAX_STAMPS 8192", "#define MAX_STAMPS 65536")
+    # Mode 2 records only the start/end of a bounded submission. Detailed
+    # operation queries remain explicitly available for offline profiling.
+    replace("if (!g.prof || !g.qpool || g.prof_n >= MAX_STAMPS)",
+            "if (!g.prof || !g.qpool || g.prof_n >= MAX_STAMPS || (g.prof == 2 && family != PK_START))")
+    replace("g.prof = 1;", "g.prof = on == 2 ? 2 : 1;")
+    replace("vkCmdResetQueryPool(g.rcb, g.qpool, 0, MAX_STAMPS);",
+            "vkCmdResetQueryPool(g.rcb, g.qpool, 0, g.prof == 2 ? 2 : MAX_STAMPS);")
+    replace("r = vkEndCommandBuffer(g.rcb);\n\tif (r) {", "if (g.prof == 2) stamp(PK_START, 0);\n    r = vkEndCommandBuffer(g.rcb);\n    if (r) {")
+
     replace(
         "VkDeviceSize size; int live, mapped;", "VkDeviceSize size, allocated; int live, mapped;"
     )
@@ -97,7 +106,7 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
         "if (g.ready) return 0;",
         """if (g.ready) return 0;
     g.portable = phx_native_configured || (getenv("PHOENIX_VULKAN_GENERIC") && !strcmp(getenv("PHOENIX_VULKAN_GENERIC"),"1"));
-    g.matrix_rows = !phx_native_configured && getenv("PHOENIX_VULKAN_MATRIX_ROWS") ? atoi(getenv("PHOENIX_VULKAN_MATRIX_ROWS")) : 0;
+    g.matrix_rows = phx_native_configured ? phx_native_matrix_rows : getenv("PHOENIX_VULKAN_MATRIX_ROWS") ? atoi(getenv("PHOENIX_VULKAN_MATRIX_ROWS")) : 0;
     g.fp8_k = !phx_native_configured && getenv("PHOENIX_VULKAN_FP8_K") ? atoi(getenv("PHOENIX_VULKAN_FP8_K")) : 0;""",
     )
     replace(
@@ -169,9 +178,12 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
         "p.a += (uint64_t)oa * 2; p.b += (uint64_t)ob * 2;",
         "p.a += (uint64_t)oa * 2; p.b += (uint64_t)ob * ((bt&0x2000000u)?1:2);",
     )
+    replace("p.a += (uint64_t)oa * 2;", """if (bt & 0x4000000u) {p.d=phx_native_skip; p.residual_cos=phx_native_gain;}
+    phx_native_skip=phx_native_gain=0;
+    p.a += (uint64_t)oa * 2;""")
     replace(
         "int small = g.staged32",
-        """if(g.portable && (bt & ~0x2011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
+        """if(g.portable && (bt & ~0xe011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
     int small = g.staged32""",
     )
     replace("if (g.rstaged32[0]) return 0;", "if (g.portable || g.rstaged32[0]) return 0;")
@@ -271,6 +283,12 @@ def main():
         "phoenix_matrix_shapes",
         "phoenix_fp8_capabilities",
         "phoenix_native_init",
+        "phoenix_native_init_configured",
+        "phoenix_native_matrix",
+        "phoenix_native_features_init",
+        "phoenix_native_features",
+        "phoenix_native_matrix_residual",
+        "phoenix_native_window_attention",
         "phoenix_native_operand_offsets",
         "phoenix_native_vendor",
     ]

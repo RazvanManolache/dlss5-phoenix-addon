@@ -11,7 +11,13 @@ using u64 = uint64_t;
 // Matrix operations use C = A * B (or A * transpose(B)); strides count elements,
 // not bytes. Elementwise/row operations reuse the dimension slots as documented
 // in docs/OPERATOR_ABI.md. Do not interpret their fields as GEMM dimensions.
-enum OperationFamily : u32 { Elementwise = 0, MatrixMultiply = 1, RowReduction = 2 };
+enum OperationFamily : u32 {
+    Elementwise = 0,
+    MatrixMultiply = 1,
+    RowReduction = 2,
+    WindowAttention = 3,
+    FrameFeatures = 4
+};
 // The low byte is interpreted within its family. For example, the value 1
 // means an activation gate in Elementwise, but transposes B in MatrixMultiply.
 enum ElementwiseKind : u32 {
@@ -61,7 +67,9 @@ enum OperationFlag : u32 {
     RightInputHalf = 0x10000,
     InterleavedQkv = 0x20000,
     GlobalAttention = 0x80000,
-    RightInputFp8 = 0x2000000
+    RightInputFp8 = 0x2000000,
+    MatrixResidual = 0x4000000,
+    MatrixSkipHalf = 0x8000000
 };
 struct Operation {
     void* left_input = nullptr;       // A: activations, scores or source image.
@@ -206,6 +214,16 @@ template <class Math> struct Kernel {
         return value;
     }
     PHX_DEVICE void store(u64 element_index, float value) const {
+        // Preserve the separate multiply/add of the original residual pass.
+        // Only GEMM owns these flags; auxiliary is skip, secondary_output is gain.
+        if (operation.family == MatrixMultiply && (operation.flags & MatrixResidual)) {
+            float skip = (operation.flags & MatrixSkipHalf)
+                             ? load_half(operation.auxiliary, element_index)
+                             : load_float(operation.auxiliary, element_index);
+            float product = skip * load_float(operation.secondary_output,
+                                              element_index % operation.column_count);
+            value = value + product;
+        }
         value = publish((operation.flags >> 8u) & 15u, value);
         if (operation.flags & StoreHalf)
             static_cast<uint16_t*>(operation.output)[element_index] = uint16_t(half_bits(value));
@@ -757,8 +775,47 @@ template <class Math> struct Kernel {
         for (u32 token_index = 0; token_index < 64; token_index++)
             store(base + token_index, quantize_e4m3(half(weights[token_index] * inverse_sum)));
     }
+    // Pack the model's 16 input features directly into its device input tensor.
+    // Color/history are active RGB32F planes; noise is cached half data. Controls
+    // travel as exact float bit patterns, and every rounding matches FrameState.
+    PHX_DEVICE void frame_features(u64 pixel) const {
+        u32 x = pixel % operation.reduction_count, y = pixel / operation.reduction_count;
+        auto mirror = [](u32 value, u32 extent) {
+            int coordinate = value < extent ? int(value) : 2 * int(extent) - int(value) - 2;
+            return coordinate < 0 ? 0u : coordinate >= int(extent) ? extent - 1 : u32(coordinate);
+        };
+        u64 source = u64(mirror(y, operation.row_count)) * operation.column_count +
+                     mirror(x, operation.column_count);
+        auto* output = static_cast<uint16_t*>(operation.output) + pixel * 16;
+        auto* noise = static_cast<const uint16_t*>(operation.auxiliary) + pixel * 3;
+        bool valid = static_cast<const uint8_t*>(operation.secondary_output)[source] != 0;
+        for (u32 channel = 0; channel < 3; ++channel) {
+            output[channel] = noise[channel];
+            float current = half(
+                half(half(load_float(operation.left_input, source * 3 + channel)) - .5f) * .125f);
+            float prior =
+                valid ? half(half(half(load_float(operation.right_input, source * 3 + channel)) -
+                                  .5f) *
+                             .125f)
+                      : current;
+            output[4 + channel] = uint16_t(half_bits(current));
+            output[7 + channel] = uint16_t(half_bits(prior));
+        }
+        float structure = Math::value(operation.output_batch_stride),
+              skin = Math::value(operation.left_row_stride);
+        bool auto_mask = operation.flags != 0;
+        output[3] = uint16_t(half_bits(1));
+        output[10] = uint16_t(half_bits(float(operation.left_batch_stride) / 128.f));
+        output[11] = uint16_t(half_bits(Math::value(operation.right_batch_stride)));
+        output[12] = uint16_t(half_bits(auto_mask ? 1.f : structure));
+        output[13] = uint16_t(half_bits(auto_mask ? (skin < 0 ? structure : skin) : -1.f));
+        output[14] = uint16_t(half_bits(auto_mask ? structure : -1.f));
+        output[15] = 0;
+    }
     PHX_DEVICE void operator()(u64 iteration_index) const {
-        if (operation.family == phx::Elementwise)
+        if (operation.family == phx::FrameFeatures)
+            frame_features(iteration_index);
+        else if (operation.family == phx::Elementwise)
             unary(iteration_index);
         else if (operation.family == phx::MatrixMultiply)
             gemm(iteration_index);

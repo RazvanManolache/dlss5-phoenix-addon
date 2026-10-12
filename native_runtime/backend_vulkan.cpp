@@ -3,6 +3,7 @@
 
 #include "backend.h"
 #include "command_cache.h"
+#include "backend_options.h"
 #include <windows.h>
 #include <filesystem>
 #include <cstring>
@@ -15,6 +16,8 @@ class VulkanBackend final : public Backend {
     std::vector<int> graphs;
     std::vector<Command> cached_commands;
     size_t submission_size = 256;
+    bool detailed_profile = false;
+    unsigned matrix_rows = 0;
     static std::mutex& global() {
         static std::mutex m;
         return m;
@@ -45,7 +48,8 @@ class VulkanBackend final : public Backend {
     }
 
   public:
-    VulkanBackend(const std::string& device, const std::filesystem::path& folder)
+    VulkanBackend(const std::string& device, const std::filesystem::path& folder,
+                  uint32_t options = 0)
         : ownership(global(), std::try_to_lock) {
         demand(ownership.owns_lock(), "Vulkan provider is single-session until context migration");
         demand(device.starts_with("vulkan:") && device.size() == 39, "Vulkan UUID required");
@@ -72,10 +76,21 @@ class VulkanBackend final : public Backend {
         auto elementwise_shader = shader_path("resident.spv");
         auto attention_shader = shader_path("attention.spv");
         auto history_shader = shader_path("history.spv");
-        check(call<int>("phoenix_native_init", device.substr(7).c_str(), matrix_shader.c_str(),
+        auto matrix8 = shader_path("gemm_matrix8.spv"), matrix16 = shader_path("gemm_matrix16.spv");
+        check(call<int>("phoenix_native_init_configured", device.substr(7).c_str(),
+                        matrix_shader.c_str(), matrix8.c_str(), matrix16.c_str(),
                         elementwise_shader.c_str(), attention_shader.c_str(),
-                        history_shader.c_str()));
-        check(call<int>("xmx_profile", 1));
+                        history_shader.c_str(), options));
+        matrix_rows = call<unsigned>("phoenix_native_matrix");
+        if (matrix_rows) {
+            auto window = shader_path(matrix_rows == 8 ? "phoenix_window_attention8.spv"
+                                                       : "phoenix_window_attention.spv");
+            check(call<int>("xmx_window_init", window.c_str(), 1u));
+        }
+        auto features_shader = shader_path("frame_features.spv");
+        check(call<int>("phoenix_native_features_init", features_shader.c_str()));
+        detailed_profile = (options & DispatchProfiling) != 0;
+        check(call<int>("xmx_profile", detailed_profile ? 1 : 2));
         if (call<unsigned>("phoenix_native_vendor") == 0x10de)
             submission_size = 1024;
         rollback.done = true;
@@ -91,6 +106,10 @@ class VulkanBackend final : public Backend {
                 stop();
             FreeLibrary(module);
         }
+    }
+    uint32_t features() const {
+        return DeviceFeaturePacking |
+               (matrix_rows ? FusedWindowAttention | FusedMatrixResidual : 0);
     }
     const char* name() const override {
         return "vulkan-cpp";
@@ -121,6 +140,30 @@ class VulkanBackend final : public Backend {
     void execute(const std::vector<Command>& commands, std::vector<Event>& events) override {
         if (commands.empty())
             return;
+        if (commands.size() == 1 && commands.front().operation.family == phx::FrameFeatures) {
+            const auto& operation = commands.front().operation;
+            check(call<int>("xmx_begin"));
+            try {
+                call<void>(
+                    "phoenix_native_operand_offsets", uint64_t(offset(operation.left_input, 1)),
+                    uint64_t(offset(operation.right_input, 1)),
+                    uint64_t(offset(operation.output, 1)), uint64_t(offset(operation.auxiliary, 1)),
+                    uint64_t(offset(operation.secondary_output, 1)));
+                check(call<int>("phoenix_native_features", buffer_id(operation.left_input),
+                                buffer_id(operation.right_input), buffer_id(operation.auxiliary),
+                                buffer_id(operation.secondary_output), buffer_id(operation.output),
+                                operation.row_count, operation.column_count,
+                                operation.reduction_count, operation.batch_count,
+                                operation.left_batch_stride, operation.right_batch_stride,
+                                operation.output_batch_stride, operation.left_row_stride,
+                                operation.flags));
+                check(call<int>("xmx_submit"));
+            } catch (...) {
+                call<int>("xmx_abort");
+                throw;
+            }
+            return;
+        }
         call<void>("xmx_profile_reset");
         try {
             if (!same_commands(commands, cached_commands)) {
@@ -131,6 +174,12 @@ class VulkanBackend final : public Backend {
                 for (auto& command : commands) {
                     auto operation = command.operation;
                     if (operation.family == phx::MatrixMultiply) {
+                        if (operation.flags & phx::MatrixResidual)
+                            call<void>("phoenix_native_matrix_residual",
+                                       buffer_id(operation.auxiliary),
+                                       buffer_id(operation.secondary_output),
+                                       uint64_t(offset(operation.auxiliary, 1)),
+                                       uint64_t(offset(operation.secondary_output, 1)));
                         check(call<int>(
                             "xmx_rec_gemm", buffer_id(operation.left_input),
                             buffer_id(operation.right_input), buffer_id(operation.output),
@@ -148,7 +197,13 @@ class VulkanBackend final : public Backend {
                                    uint64_t(offset(operation.output, 1)),
                                    uint64_t(offset(operation.auxiliary, 1)),
                                    uint64_t(offset(operation.secondary_output, 1)));
-                        if (operation.family == phx::RowReduction)
+                        if (operation.family == phx::WindowAttention)
+                            check(call<int>(
+                                "phoenix_native_window_attention", buffer_id(operation.left_input),
+                                buffer_id(operation.right_input), buffer_id(operation.auxiliary),
+                                buffer_id(operation.secondary_output), buffer_id(operation.output),
+                                operation.batch_count, operation.column_count));
+                        else if (operation.family == phx::RowReduction)
                             check(call<int>(
                                 "xmx_rec_row", operation.flags, buffer_id(operation.left_input),
                                 buffer_id(operation.right_input), buffer_id(operation.output),
@@ -189,15 +244,17 @@ class VulkanBackend final : public Backend {
             for (int graph : graphs)
                 check(call<int>("xmx_graph_run", graph));
             auto event_count = call<unsigned>("xmx_profile_each_count");
-            demand(event_count == commands.size(), "Incomplete Vulkan profiling");
+            demand(event_count == (detailed_profile ? commands.size() : graphs.size()),
+                   "Incomplete Vulkan profiling");
             auto kind = reinterpret_cast<unsigned (*)(unsigned)>(
                 GetProcAddress(module, "xmx_profile_each_kind"));
             auto milliseconds = reinterpret_cast<double (*)(unsigned)>(
                 GetProcAddress(module, "xmx_profile_each_ms"));
             demand(kind && milliseconds, "Vulkan profiling ABI");
             for (unsigned event_index = 0; event_index < event_count; ++event_index)
-                events.push_back({commands[event_index].block, kind(event_index),
-                                  milliseconds(event_index), true, commands[event_index].layer});
+                events.push_back({detailed_profile ? commands[event_index].block : UINT32_MAX,
+                                  kind(event_index), milliseconds(event_index), true,
+                                  detailed_profile ? commands[event_index].layer : UINT32_MAX});
         } catch (...) {
             call<int>("xmx_abort");
             clear_graphs();
@@ -216,4 +273,18 @@ phoenix_backend_create(const char* device_id, const wchar_t* root, char* error, 
 }
 extern "C" __declspec(dllexport) void phoenix_backend_destroy(Backend* backend) {
     delete backend;
+}
+
+extern "C" __declspec(dllexport) Backend*
+phoenix_backend_create_configured(const char* device_id, const wchar_t* root, uint32_t options,
+                                  char* error, size_t size) {
+    try {
+        return new VulkanBackend(device_id ? device_id : "", root, options);
+    } catch (const std::exception& exception) {
+        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        return nullptr;
+    }
+}
+extern "C" __declspec(dllexport) uint32_t phoenix_backend_features(Backend* backend) {
+    return static_cast<VulkanBackend*>(backend)->features();
 }

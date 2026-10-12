@@ -44,6 +44,8 @@ pc;
 shared float16_t a_tile[MATRIX_M * 16];
 shared float16_t b_tile[16 * 16];
 shared float output_tile[MATRIX_M * 16];
+shared float ordered_left[MATRIX_M * 32];
+shared float ordered_right[32 * 16];
 // Each subgroup owns one output tile. Boundary loads contribute zeros;
 // the deterministic image-boundary projections retain ascending K/FMA order,
 // while inner layers use cooperative matrix multiplication and publication.
@@ -66,7 +68,8 @@ void main() {
     // The small unquantized 32->16 output head also feeds FP16 history. Keep
     // both boundary projections deterministic while matrix ops run inside.
     uint epilogue = (flags >> 8u) & 15u;
-    if (epilogue == 4u || (epilogue == 0u && pc.k == 32u && pc.n == 16u)) {
+    if ((flags & 0x2000000u) == 0u &&
+        (epilogue == 4u || (epilogue == 0u && pc.k == 32u && pc.n == 16u))) {
         // Four columns share each ordered input load in registers. Compact
         // image heads use all lanes on their four live output columns.
         for (uint tile_element = lane; tile_element < MATRIX_M * 4u; tile_element += 32u) {
@@ -101,6 +104,40 @@ void main() {
                 else
                     pc.c.v[output_offset] = value;
             }
+        }
+        return;
+    }
+    if ((flags & 0x2000000u) == 0u) {
+        precise float accumulators[MATRIX_M / 2];
+        for (uint slot = 0u; slot < MATRIX_M / 2; ++slot) accumulators[slot] = 0.0;
+        for (uint reduction_base = 0u; reduction_base < pc.k; reduction_base += 32u) {
+            for (uint element = lane; element < MATRIX_M * 32u; element += 32u) {
+                uint source_row = rowbase + element / 32u, reduction = reduction_base + element % 32u;
+                ordered_left[element] = source_row < pc.m && reduction < pc.k
+                    ? float(pc.a.v[left_batch_offset + source_row * left_row_stride + reduction]) : 0.0;
+            }
+            for (uint element = lane; element < 512u; element += 32u) {
+                uint reduction = reduction_base + element / 16u, column = colbase + element % 16u;
+                ordered_right[element] = reduction < pc.k && column < pc.n
+                    ? matrix_b(right_batch_offset + ((flags & 1u) != 0u
+                        ? column * right_row_stride + reduction : reduction * right_row_stride + column)) : 0.0;
+            }
+            barrier();
+            for (uint reduction = 0u; reduction < min(32u, pc.k - reduction_base); ++reduction)
+                for (uint slot = 0u; slot < MATRIX_M / 2; ++slot) {
+                    uint element = lane + slot * 32u;
+                    accumulators[slot] = fma(ordered_left[(element / 16u) * 32u + reduction],
+                                              ordered_right[reduction * 16u + element % 16u], accumulators[slot]);
+                }
+            barrier();
+        }
+        for (uint slot = 0u; slot < MATRIX_M / 2; ++slot) {
+            uint element = lane + slot * 32u, row = rowbase + element / 16u, column = colbase + element % 16u;
+            if (row >= pc.m || column >= pc.n) continue;
+            uint target = output_batch_offset + row * output_row_stride + column;
+            float value = publish(epilogue, accumulators[slot]);
+            if ((flags & 0x1000u) != 0u) HalfBuf(uint64_t(pc.c)).v[target] = float16_t(half_round(value));
+            else pc.c.v[target] = value;
         }
         return;
     }
@@ -168,6 +205,9 @@ void main() {
         }
 #endif
         for (uint sub_k = 0u; sub_k < step_k; sub_k += 16u) {
+            bool direct_left = rowbase + MATRIX_M <= pc.m && kb + sub_k + 16u <= pc.k &&
+                               left_row_stride % 8u == 0u;
+            if (!direct_left)
             for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
                 uint row = rowbase + tile_element / 16u,
                      reduction_index = kb + sub_k + tile_element % 16u;
@@ -190,7 +230,11 @@ void main() {
             barrier();
             coopmat<float16_t, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseA> a;
             coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
-            coopMatLoad(a, a_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+            if (direct_left)
+                coopMatLoad(a, pc.a.v, left_batch_offset + rowbase * left_row_stride + kb + sub_k,
+                            left_row_stride, gl_CooperativeMatrixLayoutRowMajor);
+            else
+                coopMatLoad(a, a_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
             coopMatLoad(b, b_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
             sum = coopMatMulAdd(a, b, sum);
             barrier();
@@ -202,8 +246,15 @@ void main() {
         uint row = rowbase + tile_element / 16u, column = colbase + tile_element % 16u;
         if (row >= pc.m || column >= pc.n || ((flags & 0x10000u) != 0u && column >= 4u))
             continue;
-        float value = publish((flags >> 8u) & 15u, output_tile[tile_element]);
         uint output_offset = output_batch_offset + row * output_row_stride + column;
+        precise float value = output_tile[tile_element];
+        if ((flags & 0x4000000u) != 0u) {
+            float skip = (flags & 0x8000000u) != 0u
+                             ? float(HalfBuf(uint64_t(pc.d)).v[output_offset]) : pc.d.v[output_offset];
+            precise float product = skip * FloatBuf(pc.residual_cos).v[column];
+            value = value + product;
+        }
+        value = publish((flags >> 8u) & 15u, value);
         if ((flags & 0x1000u) != 0u)
             HalfBuf(uint64_t(pc.c)).v[output_offset] = float16_t(half_round(value));
         else

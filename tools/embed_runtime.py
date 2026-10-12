@@ -58,6 +58,7 @@ def prepare(runtime, native, output):
         raise ValueError("Native kernels must be validated before packaging")
     files = {}
     excluded = {
+        "phoenix_cpp_backend_contracts.exe",
         "phoenix_cpp_client_contracts.exe",
         "phoenix_cpp_offload_probe.exe",
         "phoenix_cpp_runtime_contracts.exe",

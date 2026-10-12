@@ -42,6 +42,7 @@ def main():
         "offload_probe",
         "client_contracts",
         "runtime_contracts",
+        "backend_contracts",
         "opencl_cpu_proxy",
         "vulkan_adapter",
         "d3d12_transport",
@@ -294,6 +295,10 @@ def main():
         ],
         out / "phoenix_cpp_runtime_contracts.exe",
     )
+    build("backend_contracts", ["cl", "/nologo", "/std:c++20", "/O2", "/EHsc", "/MD", "/DNOMINMAX",
+        ROOT / "tests/portable_cpp/backend_operator_tests.cpp",
+        "/Fo" + str(out / "backend_contracts.obj"),
+        "/Fe" + str(out / "phoenix_cpp_backend_contracts.exe")], out / "phoenix_cpp_backend_contracts.exe")
     build(
         "device_query",
         [

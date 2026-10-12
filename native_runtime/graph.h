@@ -33,6 +33,11 @@ class Graph {
     ScratchPlan scratch_;
     std::map<std::string, Tensor> weight_cache_;
     unsigned current_block_ = 0, current_layer_ = 0;
+    bool fused_attention_ = false;
+    unsigned window_batch_limit_ = 128;
+    bool device_features_ = false;
+    bool fused_residual_ = false;
+    std::array<Tensor, 4> frame_planes_;
 
     static unsigned align_extent(unsigned extent, unsigned alignment) {
         return (extent + alignment - 1) / alignment * alignment;
@@ -61,15 +66,18 @@ class Graph {
             auto& operation = commands[index].operation;
             for (void* address : {operation.left_input, operation.right_input, operation.output,
                                   operation.auxiliary, operation.secondary_output})
-                scratch_.touch(address, index);
+                scratch_.touch(address, index + 1);
         }
         scratch_.touch(input.ptr(), 0);
-        scratch_.touch(output.ptr(), commands.size());
+        scratch_.touch(output.ptr(), commands.size() + 1);
         for (const auto& point : checkpoints)
             scratch_.touch(
                 reinterpret_cast<void*>(uintptr_t(point.allocation.address) + point.offset),
-                point.after);
+                point.after + 1);
 
+        for (const auto& plane : frame_planes_)
+            if (plane.memory)
+                scratch_.touch(plane.ptr(), 0);
         auto arena = backend_.allocate(scratch_.layout());
         owned_allocations_.push_back(arena);
 
@@ -96,6 +104,9 @@ class Graph {
         };
         bind_to_arena(input);
         bind_to_arena(output);
+        for (auto& plane : frame_planes_)
+            if (plane.memory)
+                bind_to_arena(plane);
     }
 
     static Allocation tensor_allocation(const Tensor& tensor) {
@@ -248,6 +259,25 @@ class Graph {
 
     Tensor residual(Tensor source, Tensor skip, Tensor gains, unsigned epilogue = 5,
                     bool store_half = true) {
+        // A packed-weight GEMM can publish its scaled residual directly. Keep
+        // the same FP32 multiply/add and half/FP8 boundaries, without materializing
+        // the unconsumed projection as a separate tensor in global memory.
+        if (fused_residual_ && source.element_bytes == 4 && !commands.empty()) {
+            auto& previous = commands.back().operation;
+            if (previous.family == phx::MatrixMultiply && previous.output == source.ptr() &&
+                (previous.flags & phx::RightInputFp8) && ((previous.flags >> 8) & 15) == 0 &&
+                previous.output_row_stride == source.channels) {
+                auto result = allocate_tensor(source.height, source.width, source.channels,
+                                              store_half ? 2 : 4);
+                previous.output = result.ptr();
+                previous.auxiliary = skip.ptr();
+                previous.secondary_output = gains.ptr();
+                previous.flags |= phx::MatrixResidual | (epilogue << 8) |
+                                  (store_half ? phx::StoreHalf : 0) |
+                                  (skip.element_bytes == 2 ? phx::MatrixSkipHalf : 0);
+                return result;
+            }
+        }
         // Operator 5 computes source + skip * gains, then publishes it.
         return pointwise(source,
                          phx::ScaledResidual | (epilogue << 8) | (store_half ? phx::StoreHalf : 0),
@@ -345,6 +375,23 @@ class Graph {
             }
         }
 
+        // A fused local-attention dispatch keeps the 64x64 score/probability
+        // tiles in shared memory and publishes directly in token-major order.
+        // Global attention retains its different normalization contract below.
+        if (fused_attention_ && !global_attention && tokens == 64) {
+            auto merged = allocate_tensor(batch, tokens, channels);
+            phx::Operation operation{};
+            operation.family = phx::WindowAttention;
+            operation.left_input = qkv[0].ptr();
+            operation.right_input = qkv[1].ptr();
+            operation.auxiliary = qkv[2].ptr();
+            operation.secondary_output = position_bias.ptr(); // Read-only relative-position bias.
+            operation.output = merged.ptr();
+            operation.batch_count = batch * head_count;
+            operation.column_count = head_count;
+            emit(operation, operation.batch_count);
+            return merged;
+        }
         if (global_attention)
             current_layer_ = 3;
         // Q * transpose(K) produces one tokens-by-tokens score matrix per head.
@@ -419,9 +466,10 @@ class Graph {
         unsigned window_count = align_extent(source.height + top_padding, 8) / 8 * windows_across;
         auto result = allocate_tensor(source.height, source.width, channels);
 
-        // Process at most 128 windows at once to bound temporary activations.
-        for (unsigned first_window = 0; first_window < window_count; first_window += 128) {
-            unsigned batch = std::min(128u, window_count - first_window);
+        // Stream bounded window batches; the configured limit controls temporary activations.
+        for (unsigned first_window = 0; first_window < window_count;
+             first_window += window_batch_limit_) {
+            unsigned batch = std::min(window_batch_limit_, window_count - first_window);
             auto gathered =
                 pointwise(source, phx::GatherWindowBatch | phx::StoreHalf, batch, 64, channels,
                           nullptr, nullptr, first_window, source.height, source.width,
@@ -458,8 +506,9 @@ class Graph {
         if (pooled)
             pooled_result = allocate_tensor(height / 2, width / 2, channels);
 
-        for (unsigned first_window = 0; first_window < window_count; first_window += 128) {
-            unsigned batch = std::min(128u, window_count - first_window);
+        for (unsigned first_window = 0; first_window < window_count;
+             first_window += window_batch_limit_) {
+            unsigned batch = std::min(window_batch_limit_, window_count - first_window);
             Tensor gathered;
             if (skip) {
                 demand(blend_gains, "Post blend gain missing");
@@ -654,7 +703,15 @@ class Graph {
     Tensor input, output;
     unsigned width = 0, height = 0;
 
-    Graph(Backend& backend, Model& model) : backend_(backend), model_(model) {}
+    Graph(Backend& backend, Model& model, bool fused_attention = false,
+          unsigned window_batch_limit = 128, bool device_features = false,
+          bool fused_residual = false)
+        : backend_(backend), model_(model), fused_attention_(fused_attention),
+          window_batch_limit_(window_batch_limit), device_features_(device_features),
+          fused_residual_(fused_residual) {
+        demand(window_batch_limit >= 16 && window_batch_limit <= 1024,
+               "Window batch limit must be 16..1024");
+    }
 
     ~Graph() {
         commands.clear();
@@ -788,7 +845,52 @@ class Graph {
                                                }),
                                  4);
         checkpoint("head", output);
+        if (device_features_) {
+            // These upload views live only before the first neural command and
+            // share its existing scratch arena rather than adding resident buffers.
+            frame_planes_[0] = allocate_tensor(height, width, 3, 4);
+            frame_planes_[1] = allocate_tensor(height, width, 3, 4);
+            frame_planes_[2] = allocate_tensor(height, width, 3, 2);
+            frame_planes_[3] = allocate_tensor(height, width, 1, 1);
+        }
         commit_scratch();
+    }
+
+    void run_from_planes(const float* color, size_t color_count, const std::vector<float>& prior,
+                         const std::vector<uint8_t>& validity, const std::vector<uint16_t>& noise,
+                         unsigned active_width, unsigned active_height, unsigned style, float tone,
+                         float structure, float skin, bool auto_mask, std::vector<float>& head,
+                         std::vector<Event>& events) {
+        demand(device_features_ && color_count == size_t(active_width) * active_height * 3 &&
+                   prior.size() == color_count && validity.size() * 3 == color_count &&
+                   noise.size() == size_t(width) * height * 3,
+               "Device feature plane extent");
+        const void* sources[] = {color, prior.data(), noise.data(), validity.data()};
+        const uint64_t bytes[] = {color_count * 4, prior.size() * 4, noise.size() * 2,
+                                  validity.size()};
+        for (unsigned plane = 0; plane < 4; ++plane)
+            backend_.upload(tensor_allocation(frame_planes_[plane]), sources[plane], bytes[plane]);
+        phx::Operation pack{};
+        pack.family = phx::FrameFeatures;
+        pack.left_input = frame_planes_[0].ptr();
+        pack.right_input = frame_planes_[1].ptr();
+        pack.auxiliary = frame_planes_[2].ptr();
+        pack.secondary_output = frame_planes_[3].ptr();
+        pack.output = input.ptr();
+        pack.row_count = active_height;
+        pack.column_count = active_width;
+        pack.reduction_count = width;
+        pack.batch_count = height;
+        pack.left_batch_stride = style;
+        pack.right_batch_stride = std::bit_cast<uint32_t>(tone);
+        pack.output_batch_stride = std::bit_cast<uint32_t>(structure);
+        pack.left_row_stride = std::bit_cast<uint32_t>(skin);
+        pack.flags = auto_mask;
+        std::vector<Event> ignored;
+        backend_.execute({{pack, size_t(width) * height, UINT32_MAX, 0}}, ignored);
+        backend_.execute(commands, events);
+        head.resize(output.size());
+        backend_.download(tensor_allocation(output), head.data(), head.size() * 4);
     }
 
     void run(std::vector<uint16_t>& features, std::vector<float>& head,

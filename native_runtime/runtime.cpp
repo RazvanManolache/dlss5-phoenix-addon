@@ -4,6 +4,7 @@
 #include "graph.h"
 #include "frame.h"
 #include "thread_config.h"
+#include "backend_options.h"
 #include <chrono>
 #include <mutex>
 using namespace phoenix_cpp;
@@ -20,6 +21,10 @@ struct Runtime {
     std::unique_ptr<Graph> graph;
     std::unique_ptr<FrameState> frame;
     std::array<unsigned, 8> repeats{};
+    bool fused_attention = false;
+    bool device_features = false;
+    bool fused_residual = false;
+    unsigned window_batch_limit = 128;
     std::vector<std::vector<float>> histories;
     Json status, signature;
     phoenix_model::WeightSource weight_source;
@@ -72,9 +77,37 @@ struct Runtime {
             demand(create_threads != nullptr,
                    "CPU thread control requires the matching CPU backend build");
             backend = create_threads(device.c_str(), cpu_threads, message, sizeof(message));
-        } else
-            backend = create(device.c_str(), (root / "vulkan").c_str(), message, sizeof(message));
+        } else {
+            using ConfiguredCreate =
+                Backend* (*)(const char*, const wchar_t*, uint32_t, char*, size_t);
+            auto configured_create = reinterpret_cast<ConfiguredCreate>(
+                GetProcAddress(module, "phoenix_backend_create_configured"));
+            uint32_t options = 0;
+            if (config.value("scalar_matrices", false))
+                options |= ScalarMatrices;
+            if (config.value("profiling", std::string("frame")) == "dispatches")
+                options |= DispatchProfiling;
+            if (!config.value("tensor_attention", true))
+                options |= OrderedAttention;
+            backend =
+                configured_create
+                    ? configured_create(device.c_str(), (root / "vulkan").c_str(), options, message,
+                                        sizeof(message))
+                    : create(device.c_str(), (root / "vulkan").c_str(), message, sizeof(message));
+        }
         demand(backend != nullptr, message);
+        using Features = uint32_t (*)(Backend*);
+        auto features =
+            reinterpret_cast<Features>(GetProcAddress(module, "phoenix_backend_features"));
+        fused_residual = config.value("fused_residual", true) && features &&
+                         (features(backend) & FusedMatrixResidual);
+        device_features = config.value("device_features", true) && features &&
+                          (features(backend) & DeviceFeaturePacking);
+        fused_attention = config.value("fused_attention", true) && features &&
+                          (features(backend) & FusedWindowAttention);
+        window_batch_limit = config.value("window_batch_limit", fused_attention ? 512u : 128u);
+        demand(window_batch_limit >= 16 && window_batch_limit <= 1024,
+               "Window batch limit must be 16..1024");
         weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
         model = std::make_unique<Model>(weight_source);
         // Six spatial reductions. Preserve the portable plan's minimum/padding policy.
@@ -157,7 +190,12 @@ struct Runtime {
         demand(!has_motion || motion, "Missing declared motion");
         demand(!has_depth || depth, "Missing declared depth");
         demand(!has_history_validity || validity, "Missing declared validity");
+        bool stationary_motion = has_motion;
         for (size_t iteration_index = 0; iteration_index < pixel_count; ++iteration_index) {
+            if (has_motion) {
+                stationary_motion = stationary_motion && motion[iteration_index * 2] == 0.f &&
+                                    motion[iteration_index * 2 + 1] == 0.f;
+            }
             if (has_motion)
                 demand(std::isfinite(motion[iteration_index * 2]) &&
                            std::isfinite(motion[iteration_index * 2 + 1]),
@@ -184,7 +222,8 @@ struct Runtime {
             repeats.fill(UINT32_MAX);
             if (!model->decoded())
                 model = std::make_unique<Model>(weight_source);
-            graph = std::make_unique<Graph>(*backend, *model);
+            graph = std::make_unique<Graph>(*backend, *model, fused_attention, window_batch_limit,
+                                            device_features, fused_residual);
             graph->build(frame->padded_width, frame->padded_height, requested);
             model->discard_decoded();
             repeats = requested;
@@ -201,7 +240,10 @@ struct Runtime {
         std::vector<std::vector<float>> next_histories(passes);
         std::vector<float> conditioning_history, resolve_history;
         std::vector<uint8_t> conditioning_valid, resolve_valid;
-        std::vector<float> current(color, color + pixel_count * 3), next, head;
+        // Borrow the caller's first-pass color until resolve publishes a new image.
+        // No input is written, including when caller input/output pointers alias.
+        std::vector<float> current, next, head;
+        const float* current_color = color;
         std::vector<Event> events;
         double prepare_ms = 0, execute_ms = 0, resolve_ms = 0;
         bool history_used = false;
@@ -225,24 +267,51 @@ struct Runtime {
         for (unsigned pass = 0; pass < passes; ++pass) {
             auto stage_started = Clock::now();
             frame->history_view = &histories[pass];
-            frame->warp(has_motion ? motion : nullptr, has_depth ? depth : nullptr,
-                        has_history_validity ? validity : nullptr, reversed_depth,
-                        conditioning_history, resolve_history, conditioning_valid, resolve_valid);
+            const std::vector<float>* conditioning_source = &conditioning_history;
+            const std::vector<float>* resolve_source = &resolve_history;
+            const std::vector<uint8_t>* resolve_mask = &resolve_valid;
+            if (stationary_motion && !histories[pass].empty()) {
+                // Zero motion samples the original pixel exactly. Depth dilation
+                // cannot change those coordinates, so both views borrow the
+                // existing history and share one validity mask without filtering
+                // or copying two full RGB images.
+                conditioning_source = resolve_source = &histories[pass];
+                conditioning_valid.resize(pixel_count);
+                for (size_t pixel = 0; pixel < pixel_count; ++pixel)
+                    conditioning_valid[pixel] = !has_history_validity || validity[pixel] > .9999f;
+                resolve_mask = &conditioning_valid;
+            } else {
+                frame->warp(has_motion ? motion : nullptr, has_depth ? depth : nullptr,
+                            has_history_validity ? validity : nullptr, reversed_depth,
+                            conditioning_history, resolve_history, conditioning_valid,
+                            resolve_valid);
+            }
             pre_pixels =
                 std::count(conditioning_valid.begin(), conditioning_valid.end(), uint8_t(1));
-            post_pixels = std::count(resolve_valid.begin(), resolve_valid.end(), uint8_t(1));
+            post_pixels = std::count(resolve_mask->begin(), resolve_mask->end(), uint8_t(1));
             history_used = history_used || pre_pixels || post_pixels;
-            auto features =
-                frame->features(current.data(), controls, conditioning_history, conditioning_valid);
+            std::vector<uint16_t> features;
+            if (device_features)
+                frame->prepare_noise(controls.seed);
+            else
+                features = frame->features(current_color, controls, *conditioning_source,
+                                           conditioning_valid);
             sample_temporary_capacity(features.capacity() * sizeof(uint16_t));
             prepare_ms += elapsed(stage_started);
             stage_started = Clock::now();
-            graph->run(features, head, events);
+            if (device_features)
+                graph->run_from_planes(
+                    current_color, pixel_count * 3, *conditioning_source, conditioning_valid,
+                    frame->noise, frame->width, frame->height, controls.style, controls.tone,
+                    controls.structure, controls.skin, controls.auto_mask, head, events);
+            else
+                graph->run(features, head, events);
             sample_temporary_capacity();
             execute_ms += elapsed(stage_started);
             stage_started = Clock::now();
-            current = frame->resolve(current.data(), head, controls, resolve_history, resolve_valid,
-                                     next);
+            current =
+                frame->resolve(current_color, head, controls, *resolve_source, *resolve_mask, next);
+            current_color = current.data();
             resolve_ms += elapsed(stage_started);
             for (float value : current)
                 demand(std::isfinite(value), "Nonfinite network result");
@@ -261,13 +330,22 @@ struct Runtime {
         double total = 0;
         for (auto [layer_key, milliseconds] : sums)
             total += milliseconds;
-        for (auto [layer_key, milliseconds] : sums)
+        for (auto [layer_key, milliseconds] : sums) {
+            if (layer_key.first == UINT32_MAX && layer_key.second == UINT32_MAX)
+                continue;
             layers.push_back({{"block", layer_key.first == UINT32_MAX ? -1 : int(layer_key.first)},
                               {"layer", layer_key.second},
                               {"ms", milliseconds},
                               {"percent", total ? 100 * milliseconds / total : 0}});
+        }
         status.update(
             {{"state", "completed"},
+             {"fused_attention", fused_attention},
+             {"device_features", device_features},
+             {"fused_residual", fused_residual},
+             {"window_batch_limit", window_batch_limit},
+             {"profiling_scope",
+              events.empty() || events.front().block != UINT32_MAX ? "layers" : "submission spans"},
              {"prepare_ms", prepare_ms},
              {"execute_with_transfers_ms", execute_ms},
              {"resolve_ms", resolve_ms},
@@ -297,7 +375,10 @@ struct Runtime {
              {"history_pre_valid_pixels", pre_pixels},
              {"history_post_valid_pixels", post_pixels},
              {"motion_from_frame", motion_from_frame},
-             {"host_boundary", "C++ host preparation and resolve; no zero-copy claim"}});
+             {"host_boundary",
+              device_features
+                  ? "GPU feature packing; C++ history warp and resolve; host-plane transfers"
+                  : "C++ host preparation and resolve; host-plane transfers"}});
     }
 };
 thread_local std::string last_error;
