@@ -14,6 +14,12 @@ namespace ngx_shim {
 // game creates this itself (observed: "feature=13 (DLSSD/RR)"), so it is
 // the template a self-driven feature mirrors.
 inline constexpr unsigned kRayReconstruction = 13;
+inline constexpr unsigned kSuperSampling = 1;
+// NGX IDs only. Streamline has a separate feature-ID namespace.
+inline constexpr bool is_direct_game_feature(unsigned feature_id) {
+    return feature_id == 0 || feature_id == kSuperSampling ||
+           feature_id == kRayReconstruction;
+}
 struct Observation {
     uint64_t key = 0;
     unsigned feature_id = 0;

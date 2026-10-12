@@ -241,6 +241,14 @@ static void controls_tests() {
 }
 static void ngx_shim_tests() {
     using namespace ngx_shim;
+    for (const unsigned id : {0u, 1u, 13u}) {
+        check(is_direct_game_feature(id), "direct game accepts legacy, SDK SR, and RR NGX IDs");
+        ++cases;
+    }
+    for (const unsigned id : {2u, 11u, 18u, 1001u, ~0u}) {
+        check(!is_direct_game_feature(id), "direct game rejects unrelated NGX and Streamline IDs");
+        ++cases;
+    }
     Observer observer;
     check(observer.size() == 0 && observer.find(1) == nullptr &&
               observer.drive_template() == nullptr,

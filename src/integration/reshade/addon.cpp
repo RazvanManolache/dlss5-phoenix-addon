@@ -57,6 +57,8 @@ extern "C" __declspec(dllexport) const char* DESCRIPTION =
 
 namespace {
 using namespace phoenix_addon;
+static_assert(ngx_shim::kSuperSampling == static_cast<unsigned>(NVSDK_NGX_Feature_SuperSampling),
+              "Direct-game SR routing must match the NGX SDK feature ID");
 thread_local unsigned phoenix_ngx_depth = 0;
 using Evaluate = NVSDK_NGX_Result (*)(void*, ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
                                       const NVSDK_NGX_Parameter*, PFN_NVSDK_NGX_ProgressCallback);
@@ -1659,7 +1661,7 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
             std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
             const auto* obs = addon_state.ngx_observed.find(native_feature_key(feature));
             if (addon_state.direct_game && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
-                obs && (obs->feature_id == 0 || obs->feature_id == 13)) {
+                obs && ngx_shim::is_direct_game_feature(obs->feature_id)) {
                 direct_game_frame(cmd, feature, params);
                 if (addon_state.panel.mode == phoenix::nvidia)
                     phoenix_crumb("nr-frame: evaluate returned to game");
