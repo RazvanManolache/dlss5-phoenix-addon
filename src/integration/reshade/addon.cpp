@@ -3157,30 +3157,10 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
             phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
         addon_state.weights = addon_state.bundle->load_weights();
     }
-    const Json* selected = nullptr;
-    std::vector<const Json*> captures{&addon_state.bundle->small_plan,
-                                      &addon_state.bundle->full_plan,
-                                      &addon_state.bundle->resize_plan};
-    if (addon_state.bundle->has_hd)
-        captures.push_back(&addon_state.bundle->hd_plan);
-    for (const auto* capture : captures) {
-        for (const auto& frame : capture->at("frames")) {
-            if (frame.at("width") == desc.Width && frame.at("height") == desc.Height &&
-                phoenix_bundle::has_barrier_policy(frame)) {
-                try {
-                    phoenix_native::preflight(frame, addon_state.candidates);
-                    selected = &frame;
-                    break;
-                } catch (
-                    const std::
-                        exception&) { /* A captured-reset plan lacks the required recurrence bindings. */
-                }
-            }
-        }
-        if (selected)
-            break;
-    }
-    check(selected, "phoenix no preflighted geometry plan for game resource");
+    const Json* selected = &addon_state.bundle->select_frame(
+        unsigned(desc.Width), desc.Height, [&](const Json& frame) {
+            phoenix_native::preflight(frame, addon_state.candidates);
+        });
     progress("plan_selected");
     // Choose the allocation device by evidence: its objects must come back
     // unwrapped, and its allocations must be owned by the same device the
@@ -3423,7 +3403,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         addon_state.bridge_input_tick = GetTickCount64();
         check(!native_network ||
                   phoenix::direct::extent_supported(resolution.width, resolution.height),
-              "Direct output has no captured geometry plan");
+              "Native resolution must be between 1 and 16384 pixels per axis");
         check(motion_description.Width == color_description.Width &&
                   motion_description.Height == color_description.Height,
               "Direct mode currently requires DLAA/native-size motion guides");
@@ -3528,25 +3508,10 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             Json portable_plan = {{"width", resolution.width}, {"height", resolution.height}};
             const Json* selected = &portable_plan;
             if (native_network) {
-                selected = nullptr;
-                std::vector<const Json*> plans{&addon_state.bundle->small_plan,
-                                               &addon_state.bundle->full_plan,
-                                               &addon_state.bundle->resize_plan};
-                if (addon_state.bundle->has_hd)
-                    plans.push_back(&addon_state.bundle->hd_plan);
-                for (auto* plan : plans)
-                    for (const auto& frame : plan->at("frames")) {
-                        if (selected || frame.at("width") != resolution.width ||
-                            frame.at("height") != resolution.height ||
-                            !phoenix_bundle::has_barrier_policy(frame))
-                            continue;
-                        try {
-                            phoenix_native::preflight(frame, addon_state.candidates);
-                            selected = &frame;
-                        } catch (const std::exception&) {
-                        }
-                    }
-                check(selected, "Direct recurrent plan unavailable");
+                selected = &addon_state.bundle->select_frame(
+                    resolution.width, resolution.height, [&](const Json& frame) {
+                        phoenix_native::preflight(frame, addon_state.candidates);
+                    });
             }
             auto choice = resolve_allocation_device(queue, color);
             check(choice.resolved, "Direct allocation device unresolved");
@@ -5153,7 +5118,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
                 }
             }
             ImGui::TextWrapped(
-                "Runs neural rendering at a smaller resolution, then uses the selected upscaler. Padding preserves the game's image aspect. Native Phoenix uses the nearest supported canvas within the pixel budget.");
+                "Runs neural rendering at a smaller resolution, then uses the selected upscaler. Padding preserves the game's image aspect. Native Phoenix generates a plan for the requested resolution and pads its internal tiles.");
         }
         if (addon_state.direct_runner) {
             const auto& geometry = addon_state.direct_runner->resolution();

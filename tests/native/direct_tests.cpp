@@ -19,12 +19,25 @@ int main() {
             auto quality = choose_resolution(1920, 1080, 1, 0, 0, 16, 9, true);
             test(quality.width == 1280 && quality.height == 720 && !quality.fallback);
             auto performance = choose_resolution(1920, 1080, 1, 1, 0, 16, 9, true);
-            test(performance.width == 640 && performance.image_height == 360 &&
-                 performance.top == 12);
-            test(std::abs(performance.motion_x() - 1.f / 3.f) < 1e-6f);
-            test(std::abs(performance.motion_y() - 1.f / 3.f) < 1e-6f);
+            test(performance.width == 960 && performance.height == 540 &&
+                 performance.image_height == 540 && performance.top == 0);
+            test(std::abs(performance.motion_x() - 0.5f) < 1e-6f);
+            test(std::abs(performance.motion_y() - 0.5f) < 1e-6f);
             auto small_resolution = choose_resolution(640, 384, 1, 0, 0, 16, 9, true);
-            test(small_resolution.fallback && !small_resolution.scaled());
+            test(!small_resolution.fallback && small_resolution.scaled());
+            auto odd = choose_resolution(1919, 1079, 0, 0, 0, 16, 9, true);
+            test(odd.width == 1919 && odd.height == 1079 && !odd.scaled());
+            auto tiny = choose_resolution(1, 1, 1, 0, 0, 16, 9, true);
+            test(tiny.fallback && !tiny.scaled());
+            for (const auto extent : {std::array<unsigned, 2>{2560, 1440},
+                                      {3840, 2160}, {1080, 1920}, {3440, 1440}, {801, 603}})
+                for (int quality_index = 0; quality_index < 3; ++quality_index) {
+                    auto scaled = choose_resolution(extent[0], extent[1], 1, quality_index,
+                                                     0, 16, 9, true);
+                    test(scaled.scaled() && !scaled.fallback && scaled.width && scaled.height);
+                    test(scaled.left + scaled.image_width <= scaled.width &&
+                         scaled.top + scaled.image_height <= scaled.height);
+                }
             auto portrait = choose_resolution(1920, 1080, 1, 0, 5, 9, 16, false);
             test(portrait.width < portrait.height && portrait.top > 0);
             for (int aspect = 0; aspect < 6; ++aspect)
@@ -262,7 +275,10 @@ int main() {
         using namespace phoenix::direct;
         test(extent_supported(1920, 1080));
         test(extent_supported(640, 384));
-        test(!extent_supported(1920, 1079));
+        test(extent_supported(1920, 1079));
+        test(extent_supported(1, 1));
+        test(extent_supported(16384, 16384));
+        test(!extent_supported(16385, 1080));
         test(!extent_supported(0, 0));
         test(source_format(DXGI_FORMAT_R11G11B10_FLOAT));
         test(!source_format(DXGI_FORMAT_R8G8B8A8_UNORM));

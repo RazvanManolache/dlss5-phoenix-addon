@@ -115,12 +115,35 @@ Pass a local JSON mapping names (`cpu`, `cuda`, `hip_amd`, `sycl_cpu`, `vulkan_a
 in `tests/fixtures/runner_regressions.json`; another GPU/toolchain may need its own
 reviewed numerical reference. A mismatch must be investigated, not bypassed.
 
-`validate_native.py` generates inputs for all four production extents, runs 128
+`validate_native.py` generates inputs for the four saved regression extents, runs 128
 frames per extent and compares reset and history readbacks with saved Phoenix
 native output hashes. It checks debug errors, GPU execution and kernel retirement
 before marking the bundle validated. This is Phoenix regression equivalence,
 not equivalence to NVIDIA's renderer. `--cpu-only` on the standalone native probe
 checks geometry only and cannot satisfy inference validation.
+
+Source-built native bundles generate launch plans on demand for the requested
+resolution, including odd dimensions, portrait and ultrawide images. Feature
+tensors are padded internally; the displayed image keeps its active dimensions.
+The runner caches the four most recently used CPU plans and retires GPU history
+and workspace when the resolution changes. The per-axis limit is 16384 pixels;
+practical limits also depend on available device memory. Legacy captured bundles
+remain limited to their saved resolutions.
+
+Super Resolution selects its native inference size from the quality and aspect
+controls rather than snapping to a preset canvas. To test an additional size:
+
+```powershell
+python tools/prepare_native_fixture.py ./build/custom_input --width 1366 --height 768
+& ./build/validation_tools/native_inference_probe.exe ./build/native_release ./build/custom_input ./build/custom_result ./build/weight_source.json
+& ./build/validation_tools/direct_memory_probe.exe ./build/native_release ./build/custom_input ./build/weight_source.json ./build/resize_result --resize-sweep
+```
+
+The resize sweep exercises the addon adapter on one device/queue, checks resource
+retirement and verifies that returning to the first resolution reproduces its
+output sequence. Add `--super-resolution` to exercise downscaling and upscaling
+during resizing. Extra-size smoke tests check finite output and D3D12 errors;
+only the saved regression extents have checked-in output hashes.
 
 After both validations pass, embed the packages:
 

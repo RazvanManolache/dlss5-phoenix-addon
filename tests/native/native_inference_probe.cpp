@@ -229,24 +229,10 @@ int wmain(int argc, wchar_t** argv) {
         check(phoenix::direct::capture_meta_parse(std::string(meta_bytes.begin(), meta_bytes.end()),
                                                   meta),
               "capture metadata");
-        const Json* selected = nullptr;
-        for (auto* plan :
-             {&bundle.small_plan, &bundle.full_plan, &bundle.hd_plan, &bundle.resize_plan}) {
-            if (!plan->contains("frames"))
-                continue;
-            for (const auto& f : plan->at("frames"))
-                try {
-                    if (f.at("width") != meta.width || f.at("height") != meta.height)
-                        continue;
-                    phoenix_native::preflight(f, candidate);
-                    selected = &f;
-                    break;
-                } catch (const std::exception&) {
-                } // Early captured plans can be incomplete.
-            if (selected)
-                break;
-        }
-        check(selected && meta.motion_bpp == 4, "supported capture plan");
+        const Json* selected = &bundle.select_frame(meta.width, meta.height, [&](const Json& frame) {
+            phoenix_native::preflight(frame, candidate);
+        });
+        check(meta.motion_bpp == 4, "supported motion format");
         const auto& frame = *selected;
         report["generated_workspace_bytes"] = frame.at("arenas").at("workspace").at("bytes");
         report["generated_graph_sha256"] = bundle.manifest.at("native_graph_sha256");

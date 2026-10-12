@@ -40,8 +40,10 @@ int main(int argc, char** argv) {
             offset += 512;
         }
         Json sizes = Json::array();
-        for (const auto dimensions : std::array<std::array<unsigned, 2>, 4>{
-                 {{640, 384}, {1280, 720}, {1920, 1080}, {2560, 1080}}}) {
+        for (const auto dimensions : std::vector<std::array<unsigned, 2>>{
+                 {640, 384}, {1280, 720}, {1920, 1080}, {2560, 1080},
+                 {1, 1}, {127, 129}, {257, 255}, {511, 511}, {801, 603},
+                 {1919, 1079}, {2560, 1440}, {3840, 2160}, {1080, 1920}, {3440, 1440}}) {
             auto frame =
                 phoenix_generated::frame(graph, kernels, weights, dimensions[0], dimensions[1]);
             const auto info = phoenix_native::preflight(frame, specs);
@@ -78,11 +80,57 @@ int main(int argc, char** argv) {
             rejected = true;
         }
         check(rejected);
+        // Cache hits avoid generation/preflight; resizing cannot grow CPU
+        // metadata indefinitely. Failed preflight must not evict a good plan.
+        phoenix_generated::PlanCache cache;
+        unsigned validations = 0;
+        auto validate = [&](const Json& plan) {
+            phoenix_native::preflight(plan, specs);
+            ++validations;
+        };
+        auto select = [&](unsigned width, unsigned height) -> const Json& {
+            return cache.select(graph, kernels, weights, width, height, validate);
+        };
+        const auto* original = &select(1920, 1080);
+        check(&select(1920, 1080) == original && validations == 1);
+        select(801, 603);
+        select(2560, 1440);
+        select(1080, 1920);
+        select(1920, 1080); // Most recently used: retain it when the fifth size arrives.
+        select(3840, 2160);
+        check(cache.size() == 4 && validations == 5);
+        check(&select(1920, 1080) == original && validations == 5);
+        rejected = false;
+        try {
+            cache.select(graph, kernels, weights, 333, 777, [](const Json&) {
+                throw std::runtime_error("Rejected plan");
+            });
+        } catch (const std::exception&) { rejected = true; }
+        check(rejected && cache.size() == 4 && &select(1920, 1080) == original);
+        select(801, 603); // Previously evicted: regenerate.
+        check(validations == 6 && cache.size() == 4);
+        for (auto dimensions : {std::array<unsigned, 2>{0, 720}, {1920, 0},
+                                {16385, 1080}, {1920, 16385}}) {
+            rejected = false;
+            try { select(dimensions[0], dimensions[1]); }
+            catch (const std::exception&) { rejected = true; }
+            check(rejected && cache.size() == 4);
+        }
+        // Changing an active extent without updating its tile geometry is rejected.
+        auto corrupted = phoenix_generated::frame(graph, kernels, weights, 801, 603);
+        auto raw = phoenix_bundle::hex(corrupted["launches"][1]["template_hex"]);
+        raw[244] ^= 64;
+        corrupted["launches"][1]["template_hex"] = phoenix_generated::hex_bytes(raw.data(), raw.size());
+        rejected = false;
+        try { phoenix_native::preflight(corrupted, specs); }
+        catch (const std::exception&) { rejected = true; }
+        check(rejected);
         std::cout << Json({{"passed", true},
                            {"cpu_only", true},
                            {"model_files_used", false},
                            {"frames", sizes},
                            {"live_intervals_checked", true},
+                           {"bounded_plan_cache_checked", true},
                            {"unknown_tensor_rejected", true}})
                          .dump()
                   << '\n';

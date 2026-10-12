@@ -75,12 +75,38 @@ inline phoenix_launch_plan::Launch launch(const Json& source,
 struct Bundle {
     fs::path folder;
     Json weights, kernels, small_plan, full_plan, resize_plan, hd_plan, manifest;
+    Json graph;
+    phoenix_generated::PlanCache generated_plans;
     // 1920x1080. Optional: bundles exported before it existed (plan_a4 and
     // everything staged from it) must keep loading byte-for-byte as before.
     bool has_hd = false;
     bool generated = false;
     phoenix_model::WeightSource weight_source;
     std::vector<uint8_t> embedded_weights;
+    // Production bundles generate geometry on demand. Legacy validation
+    // bundles retain their captured frames, including recurrence preflight.
+    const Json& select_frame(unsigned width, unsigned height,
+                             const std::function<void(const Json&)>& validate) {
+        if (generated)
+            return generated_plans.select(graph, kernels, weights, width, height, validate);
+        for (const auto* plan : {&small_plan, &full_plan, &resize_plan, &hd_plan}) {
+            if (!plan->contains("frames"))
+                continue;
+            for (const auto& candidate : plan->at("frames")) {
+                if (candidate.at("width") != width || candidate.at("height") != height ||
+                    !has_barrier_policy(candidate))
+                    continue;
+                try {
+                    validate(candidate);
+                    return candidate;
+                } catch (const std::exception&) {
+                    // Older reset-only frames can lack recurrence bindings.
+                }
+            }
+        }
+        throw std::runtime_error(
+            "Legacy bundle has no recurrent plan for this resolution; use a source-built native bundle");
+    }
     std::vector<uint8_t> load_weights() {
         if (weight_source.external()) {
             require(!embedded_weights.empty(), "External model weights already consumed");
@@ -105,7 +131,7 @@ struct Bundle {
                     "Native source-build manifest");
             require(digest(folder / "native_graph.json") == manifest.at("native_graph_sha256"),
                     "Native graph digest");
-            const auto graph = json_file(folder / "native_graph.json");
+            graph = json_file(folder / "native_graph.json");
             const auto supported_dll = graph.at("supported_dll_sha256").get<std::string>();
             require(
                 weight_source.disk_model() || weight_source.dll_sha256 == supported_dll ||
@@ -130,16 +156,6 @@ struct Bundle {
                 kernels[name] = std::move(kernel_record);
             }
             require(kernels.size() == 41, "Generated kernel count");
-            auto plan = [&](unsigned width, unsigned height) {
-                return Json{{"schema", "phoenix-native-generated-plan/1"},
-                            {"frames", Json::array({phoenix_generated::frame(
-                                           graph, kernels, weights, width, height)})}};
-            };
-            small_plan = plan(640, 384);
-            full_plan = plan(2560, 1080);
-            resize_plan = plan(1280, 720);
-            hd_plan = plan(1920, 1080);
-            has_hd = true;
             generated = true;
             return;
         }

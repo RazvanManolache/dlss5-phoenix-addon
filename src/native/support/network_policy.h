@@ -418,15 +418,22 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
             for (unsigned offset : index == 1 ? std::array<unsigned, 3>{40, 64, 136}
                                               : std::array<unsigned, 3>{64, 116, 140})
                 rectangle(raw, offset, width, height);
-            // Padding is captured, not simply round-to-128: 1280x720 uses
-            // 1344x768. Require coherent active/padded extents and launch grids.
+            // Source-built plans use the tiled geometry rules, including the
+            // minimum canvas and shifted-window margin. Captured legacy plans
+            // keep their original, narrower padding contract.
             const auto stem_raw =
                 phoenix_bundle::hex(launches[1].at("template_hex").get<std::string>());
             const unsigned padded_width = word(stem_raw, 244), padded_height = word(stem_raw, 240);
-            check(padded_width >= width && padded_width - width < 128 && padded_height >= height &&
-                      padded_height - height < 128 && padded_width % 64 == 0 &&
-                      padded_height % 64 == 0,
-                  "policy padded extent");
+            if (frame.value("barrier_policy", std::string()) == "phoenix-native-graph/1") {
+                const phoenix_generated::Geometry geometry(width, height);
+                check(padded_width == geometry.values.at("W0") &&
+                          padded_height == geometry.values.at("H0"),
+                      "policy generated padded extent");
+            } else
+                check(padded_width >= width && padded_width - width < 128 &&
+                          padded_height >= height && padded_height - height < 128 &&
+                          padded_width % 64 == 0 && padded_height % 64 == 0,
+                      "policy padded extent");
             check(source.at("grid") ==
                       (index == 1 ? Json::array({padded_width / 8, padded_height / 8, 1u})
                                   : Json::array({padded_width / 8 + 1, padded_height / 8 + 1, 1u})),

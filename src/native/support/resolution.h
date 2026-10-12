@@ -6,7 +6,7 @@
 
 namespace phoenix_addon::phoenix {
 // Inference canvases and the image they contain are separate: padding allows
-// a validated native launch plan to process other aspect ratios without stretch.
+// the chosen inference canvas to process other aspect ratios without stretch.
 struct Resolution {
     unsigned output_width = 0, output_height = 0;
     unsigned width = 0, height = 0;
@@ -49,34 +49,16 @@ inline Resolution choose_resolution(unsigned output_width, unsigned output_heigh
     const double ratio = ratios[std::clamp(aspect, 0, 5)];
     const double area = double(output_width) * output_height * scale[std::clamp(quality, 0, 2)] *
                         scale[std::clamp(quality, 0, 2)];
-    unsigned width = 0, height = 0;
-    if (native_plans) {
-        // Prefer the requested canvas shape, then the largest canvas within
-        // the pixel budget. These are real plans, never invented launch sizes.
-        const std::array<std::array<unsigned, 2>, 4> plans{
-            {{{640, 384}}, {{1280, 720}}, {{1920, 1080}}, {{2560, 1080}}}};
-        double best = -1e30;
-        for (const auto& plan : plans) {
-            const double pixels = double(plan[0]) * plan[1];
-            if (pixels > area * 1.001 || pixels >= double(output_width) * output_height)
-                continue;
-            const double score = std::log(pixels / area) -
-                                 4 * std::abs(std::log((double(plan[0]) / plan[1]) / ratio));
-            if (score > best) {
-                best = score;
-                width = plan[0];
-                height = plan[1];
-            }
-        }
-    } else {
-        // Portable runners and the DLL accept aligned canvases; the output
-        // retains the game's size and aspect regardless of canvas selection.
-        width = std::max(16u, unsigned(std::sqrt(area * ratio)) / 16 * 16);
-        height = std::max(16u, unsigned(std::sqrt(area / ratio)) / 16 * 16);
-        if (width > 8192 || height > 8192 ||
-            uint64_t(width) * height >= uint64_t(output_width) * output_height)
-            width = height = 0;
-    }
+    // Native plans pad feature tensors internally, so the active image can
+    // use exact pixel dimensions. Portable/vendor routes retain their current
+    // 16-pixel canvas alignment. Neither route chooses from fixed presets.
+    const unsigned alignment = native_plans ? 1u : 16u;
+    const unsigned maximum = native_plans ? 16384u : 8192u;
+    unsigned width = std::max(alignment, unsigned(std::sqrt(area * ratio)) / alignment * alignment);
+    unsigned height = std::max(alignment, unsigned(std::sqrt(area / ratio)) / alignment * alignment);
+    if (width > maximum || height > maximum ||
+        uint64_t(width) * height >= uint64_t(output_width) * output_height)
+        width = height = 0;
     if (!width) {
         auto result = fit_resolution(output_width, output_height, output_width, output_height);
         result.fallback = true;

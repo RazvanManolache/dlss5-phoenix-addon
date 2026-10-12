@@ -14,8 +14,7 @@
 
 namespace phoenix_addon::phoenix::direct {
 inline bool extent_supported(unsigned width, unsigned height) {
-    return (width == 640 && height == 384) || (width == 1280 && height == 720) ||
-           (width == 1920 && height == 1080) || (width == 2560 && height == 1080);
+    return phoenix_generated::Geometry::supported(width, height);
 }
 inline bool source_format(DXGI_FORMAT format) {
     return format == DXGI_FORMAT_R16G16B16A16_FLOAT || format == DXGI_FORMAT_R11G11B10_FLOAT;

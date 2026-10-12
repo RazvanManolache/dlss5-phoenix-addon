@@ -1,4 +1,4 @@
-// Static native launch metadata emitted from the validated model graph.
+// Resolution-specific native launch metadata generated from the model graph.
 // Numbers describe binding offsets and geometry, not embedded model weights.
 
 #pragma once
@@ -8,6 +8,8 @@
 #include <regex>
 #include <algorithm>
 #include <vector>
+#include <list>
+#include <functional>
 
 namespace phoenix_generated {
 using Json = nlohmann::json;
@@ -29,8 +31,11 @@ inline std::string hex_bytes(const uint8_t* data, size_t count) {
 }
 struct Geometry {
     std::map<std::string, uint32_t> values;
+    static bool supported(unsigned width, unsigned height) noexcept {
+        return width && height && width <= 16384 && height <= 16384;
+    }
     Geometry(unsigned width, unsigned height) {
-        check(width && height && width <= 16384 && height <= 16384, "Generated frame extent");
+        check(supported(width, height), "Generated frame extent must be between 1 and 16384");
         // Native tiled ABI: six reductions, with a shifted-window margin when
         // both padded axes land on a complete 256-pixel cell.
         unsigned padded_width = unsigned(std::max<uint64_t>(384, align(width, 128)));
@@ -267,4 +272,35 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
                                         {"last_group", tensor.end}});
     return result;
 }
+
+// CPU metadata only. Resize reuses recent plans without retaining old GPU
+// workspaces or history. The bundle owns one cache for its graph/weight layout;
+// callers serialize access and copy the selected plan into their executor.
+class PlanCache {
+    struct Entry {
+        unsigned width, height;
+        Json plan;
+    };
+    std::list<Entry> recent_;
+
+  public:
+    static constexpr size_t capacity = 4;
+    size_t size() const noexcept { return recent_.size(); }
+    const Json& select(const Json& graph, const Json& kernels, const Json& weights,
+                       unsigned width, unsigned height,
+                       const std::function<void(const Json&)>& validate) {
+        for (auto entry = recent_.begin(); entry != recent_.end(); ++entry)
+            if (entry->width == width && entry->height == height) {
+                recent_.splice(recent_.begin(), recent_, entry);
+                return recent_.front().plan;
+            }
+        // A failed generation/preflight leaves all cached plans intact.
+        auto plan = frame(graph, kernels, weights, width, height);
+        validate(plan);
+        recent_.push_front({width, height, std::move(plan)});
+        if (recent_.size() > capacity)
+            recent_.pop_back();
+        return recent_.front().plan;
+    }
+};
 } // namespace phoenix_generated

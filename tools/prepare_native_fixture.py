@@ -9,8 +9,8 @@ from pathlib import Path
 def prepare(prefix, width, height):
     import numpy as np
 
-    if (width, height) not in {(640, 384), (1280, 720), (1920, 1080), (2560, 1080)}:
-        raise ValueError("Select a production native plan extent")
+    if not (1 <= width <= 16384 and 1 <= height <= 16384):
+        raise ValueError("Native dimensions must be between 1 and 16384")
     prefix = prefix.resolve()
     prefix.parent.mkdir(parents=True, exist_ok=True)
     files = [Path(str(prefix) + suffix) for suffix in (".proxy.bin", ".motion.bin", ".meta")]

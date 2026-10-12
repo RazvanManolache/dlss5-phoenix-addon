@@ -84,8 +84,8 @@ int wmain(int argc, wchar_t** argv) {
     try {
         check(
             argc >= 5 && argc <= 10,
-            "direct_memory_probe BUNDLE CAPTURE_PREFIX WEIGHT_CONFIG NEW_OUTPUT [--staged] [--super-resolution] [--xess|--dlss-sr --upscaler-runtime DIRECTORY]");
-        bool mapped_weights = true, super_resolution = false;
+            "direct_memory_probe BUNDLE CAPTURE_PREFIX WEIGHT_CONFIG NEW_OUTPUT [--staged] [--super-resolution] [--resize-sweep] [--xess|--dlss-sr --upscaler-runtime DIRECTORY]");
+        bool mapped_weights = true, super_resolution = false, resize_sweep = false;
         int upscaler_method = 0;
         fs::path upscaler_directory;
         for (int index = 5; index < argc; ++index) {
@@ -94,6 +94,8 @@ int wmain(int argc, wchar_t** argv) {
                 mapped_weights = false;
             else if (flag == L"--super-resolution")
                 super_resolution = true;
+            else if (flag == L"--resize-sweep")
+                resize_sweep = true;
             else if (flag == L"--xess" || flag == L"--dlss-sr") {
                 upscaler_method = flag == L"--xess" ? 2 : 1;
                 super_resolution = true;
@@ -123,28 +125,36 @@ int wmain(int argc, wchar_t** argv) {
         check(phoenix::direct::capture_meta_parse(std::string(metadata.begin(), metadata.end()),
                                                   capture),
               "Capture metadata failed");
-        const auto geometry = phoenix::choose_resolution(
+        auto geometry = phoenix::choose_resolution(
             capture.width, capture.height, super_resolution ? 1 : 0, 0, 0, 16, 9, true);
         result["resolution"] = {{"width", geometry.width},
                                 {"height", geometry.height},
                                 {"output_width", capture.width},
                                 {"output_height", capture.height},
                                 {"fallback", geometry.fallback}};
-        const Json* selected = nullptr;
-        for (auto* plan :
-             {&bundle.small_plan, &bundle.full_plan, &bundle.hd_plan, &bundle.resize_plan})
-            if (plan->contains("frames"))
-                for (const auto& frame : plan->at("frames"))
-                    if (frame.at("width") == geometry.width &&
-                        frame.at("height") == geometry.height &&
-                        phoenix_bundle::has_barrier_policy(frame))
-                        selected = &frame;
-        check(selected != nullptr, "No production plan for capture extent");
+        const Json* selected = &bundle.select_frame(geometry.width, geometry.height,
+                                                    [&](const Json& frame) {
+            phoenix_native::preflight(frame, kernels);
+        });
         auto rgb = read(prefix.string() + ".proxy.bin");
         auto vectors = read(prefix.string() + ".motion.bin");
         check(rgb.size() == size_t(capture.width) * capture.height * 8 &&
                   vectors.size() == size_t(capture.width) * capture.height * 4,
               "Fixture sizes");
+        const auto original_extent = std::array<unsigned, 2>{capture.width, capture.height};
+        auto set_resize_input = [&](unsigned width, unsigned height) {
+            capture.width = width;
+            capture.height = height;
+            rgb.resize(size_t(width) * height * 8);
+            vectors.assign(size_t(width) * height * 4, 0);
+            // A constant binary-exact FP16 input makes returning to the first
+            // size reproducible, independently of the intermediate sizes.
+            const uint16_t pixel[]{0x3800, 0x3800, 0x3800, 0x3c00};
+            for (size_t offset = 0; offset < rgb.size(); offset += sizeof(pixel))
+                std::memcpy(rgb.data() + offset, pixel, sizeof(pixel));
+        };
+        if (resize_sweep)
+            set_resize_input(capture.width, capture.height);
         ComPtr<ID3D12Debug> debug;
         phoenix_native::hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
         debug->EnableDebugLayer();
@@ -184,11 +194,31 @@ int wmain(int argc, wchar_t** argv) {
             check(false, "Build offline DLSS probe with --ngx-library nvsdk_ngx_d.lib");
 #endif
         }
-        auto* inputs = static_cast<Inputs*>(owner.payload());
         phoenix_native::memory::Ledger ledger;
-        for (unsigned passes :
-             super_resolution ? std::vector<unsigned>{1u} : std::vector<unsigned>{1u, 2u, 4u, 1u}) {
+        const auto resize_extents = std::vector<std::array<unsigned, 2>>{
+            original_extent, {1366, 768}, {603, 801}, {2560, 1440}, {3840, 2160}, original_extent};
+        const auto pass_counts = resize_sweep ? std::vector<unsigned>(resize_extents.size(), 1u)
+                                : super_resolution ? std::vector<unsigned>{1u}
+                                                   : std::vector<unsigned>{1u, 2u, 4u, 1u};
+        for (size_t case_index = 0; case_index < pass_counts.size(); ++case_index) {
+            const unsigned passes = pass_counts[case_index];
+            if (resize_sweep) {
+                set_resize_input(resize_extents[case_index][0], resize_extents[case_index][1]);
+                geometry = phoenix::choose_resolution(capture.width, capture.height,
+                                                       super_resolution ? 1 : 0, 0, 0, 16, 9, true);
+                selected = &bundle.select_frame(geometry.width, geometry.height,
+                                                [&](const Json& frame) {
+                    phoenix_native::preflight(frame, kernels);
+                });
+                // Same D3D12 device and queue: retire the previous payload,
+                // resize its inputs, and rebuild the real addon adapter below.
+                check(owner.resize({capture.width, capture.height}, 30000) ==
+                          phoenix_device::Status::complete, "Resize input generation");
+            }
+            auto* inputs = static_cast<Inputs*>(owner.payload());
             Json row{{"passes", passes},
+                     {"width", capture.width}, {"height", capture.height},
+                     {"inference_width", geometry.width}, {"inference_height", geometry.height},
                      {"output_hashes", Json::array()},
                      {"before", process_memory(measured.Get())}};
             auto generation = ledger.begin(capture.width, capture.height);
@@ -294,6 +324,8 @@ int wmain(int argc, wchar_t** argv) {
                     row["output_hashes"].push_back(hash_bytes(image));
                 }
                 row["upscaler_status"] = runner->upscale_status();
+                check(row["output_hashes"][0] != hash_bytes(rgb),
+                      "Neural adapter left the input image unchanged");
                 if (upscaler_method)
                     check(runner->upscale_status().find("active") != std::string::npos,
                           runner->upscale_status().c_str());
@@ -312,6 +344,15 @@ int wmain(int argc, wchar_t** argv) {
                   "Adapter leaked owned allocation bytes");
             check(generation->reclaimable(), "Adapter generation did not retire completely");
             result["cases"].push_back(std::move(row));
+        }
+        if (resize_sweep) {
+            check(result["cases"].front()["output_hashes"] ==
+                      result["cases"].back()["output_hashes"],
+                  "Resize round trip retained stale history or geometry");
+            check(bundle.generated_plans.size() <= phoenix_generated::PlanCache::capacity,
+                  "Resize retained too many CPU plans");
+            result["resize_round_trip_exact"] = true;
+            result["cached_plans"] = bundle.generated_plans.size();
         }
         // A rejected constructor must release even the bridge allocations
         // created before its refinement-count preflight fails.
