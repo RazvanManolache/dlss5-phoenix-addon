@@ -36,10 +36,14 @@ struct Geometry {
     }
     Geometry(unsigned width, unsigned height) {
         check(supported(width, height), "Generated frame extent must be between 1 and 16384");
-        // Native tiled ABI: six reductions, with a shifted-window margin when
-        // both padded axes land on a complete 256-pixel cell.
-        unsigned padded_width = unsigned(std::max<uint64_t>(384, align(width, 128)));
-        unsigned padded_height = unsigned(std::max<uint64_t>(384, align(height, 128)));
+        // The frame boundary has a 16-pixel aligned path and a partial-lane
+        // path. Their spatial padding is respectively 64 and 128 pixels.
+        // Preserve the shifted-window margin for complete 256-pixel cells.
+        auto padded_axis = [](unsigned extent) {
+            return unsigned(std::max<uint64_t>(320, align(extent, extent % 16 ? 128 : 64)));
+        };
+        unsigned padded_width = padded_axis(width);
+        unsigned padded_height = padded_axis(height);
         if (padded_width % 256 == 0 && padded_height % 256 == 0)
             padded_width += 64;
         values = {{"width", width},
@@ -53,6 +57,9 @@ struct Geometry {
         values["H5"] = unsigned(align(padded_height / 32, 4));
         values["W5"] = unsigned(align(padded_width / 32, 4));
         values["T"] = values.at("LH") * values.at("LW");
+        // The transformer layout writes whole 32-token tiles, including zeros
+        // beyond the spatial cell count. These bytes must belong to its tensor.
+        values["T32"] = unsigned(align(values.at("T"), 32));
     }
     uint32_t evaluate(const Json& value) const {
         if (value.is_number_unsigned() || value.is_number_integer())
@@ -133,8 +140,24 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         uint64_t bytes = 1;
         for (const auto& dim : spec.at("shape"))
             bytes *= geometry.evaluate(dim);
-        tensors.push_back({item.key(), group_begin(spec.at("producer")),
-                           group_end(spec.at("last_use")), align(bytes, 512)});
+        unsigned begin = group_begin(spec.at("producer"));
+        unsigned end = group_end(spec.at("last_use"));
+        if (spec.contains("zero_padding")) {
+            const auto& padding = spec.at("zero_padding");
+            bool has_padding = false;
+            for (unsigned axis = 0; axis < 2; ++axis)
+                has_padding |= geometry.evaluate(padding.at("output")[axis]) >
+                               (geometry.evaluate(padding.at("source")[axis]) + 1) / 2;
+            if (has_padding) {
+                // This downsample writes valid cells only. Its rounded border
+                // must retain the committed workspace's initial zeros across
+                // every frame and refinement pass. Reserving this small tensor
+                // prevents stale feature data without a per-frame full clear.
+                begin = 1;
+                end = unsigned(layers.size());
+            }
+        }
+        tensors.push_back({item.key(), begin, end, align(bytes, 512)});
     }
     std::sort(
         tensors.begin(), tensors.end(), [](const Tensor& left_tensor, const Tensor& right_tensor) {

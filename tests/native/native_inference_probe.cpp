@@ -75,7 +75,7 @@ struct Payload final : phoenix_device::Payload {
         check(input.size() == size_t(w) * h * 8 && vectors.size() == size_t(w) * h * 4,
               "captured FP16 input sizes");
         color = texture(device, w, h, 16, false);
-        motion = texture(device, w, h, 16, false);
+        motion = texture(device, w, h, 16, false, 2);
         allocation = memory.begin(w, h);
         harness_allocation = harness_memory.begin(w, h);
         phoenix_native::memory::resource(device, color.resource.Get(), allocation,
@@ -96,8 +96,7 @@ struct Payload final : phoenix_device::Payload {
                 if (!kind)
                     memcpy(row, input.data() + size_t(y) * w * 8, size_t(w) * 8);
                 else
-                    for (unsigned x = 0; x < w; ++x)
-                        memcpy(row + size_t(x) * 8, vectors.data() + (size_t(y) * w + x) * 4, 4);
+                    memcpy(row, vectors.data() + size_t(y) * w * 4, size_t(w) * 4);
             }
             t.transfer->Unmap(0, nullptr);
             if (kind)

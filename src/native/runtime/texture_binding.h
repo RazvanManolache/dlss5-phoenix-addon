@@ -44,14 +44,18 @@ static void barrier(ID3D12GraphicsCommandList* command_list, ID3D12Resource* res
     command_list->ResourceBarrier(1, &transition);
 }
 static Texture texture(ID3D12Device* device, unsigned width, unsigned height, unsigned bits,
-                       bool output) {
-    if (!width || !height || width > 4096 || height > 4096 || (bits != 16 && bits != 32))
+                       bool output, unsigned channels = 4) {
+    if (!width || !height || width > 16384 || height > 16384 || (bits != 16 && bits != 32) ||
+        (channels != 4 && !(channels == 2 && bits == 16)))
         throw std::invalid_argument("Fixture geometry or format");
     Texture value;
     value.width = width;
     value.height = height;
     value.bits = bits;
-    value.format = bits == 16 ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R32G32B32A32_FLOAT;
+    // Motion fixtures use RG16F, matching the NVIDIA comparison harness.
+    value.format = channels == 2 ? DXGI_FORMAT_R16G16_FLOAT
+                   : bits == 16 ? DXGI_FORMAT_R16G16B16A16_FLOAT
+                                : DXGI_FORMAT_R32G32B32A32_FLOAT;
     D3D12_RESOURCE_DESC description{};
     description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     description.Width = width;

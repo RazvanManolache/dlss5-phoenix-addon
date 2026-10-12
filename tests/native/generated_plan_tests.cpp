@@ -34,6 +34,19 @@ int main(int argc, char** argv) {
                     names.insert(target.substr(7));
             }
         check(names.size() == 153);
+        // Geometry independently checked against the vendor runner. Include
+        // partial frame-boundary lanes and an aligned extent that needs a
+        // shifted-window margin; rounding every axis to 128 is not equivalent.
+        for (const auto expected : std::vector<std::array<unsigned, 4>>{
+                 {320, 320, 320, 320}, {640, 360, 640, 384},
+                 {801, 603, 896, 640}, {1920, 1080, 1920, 1152},
+                 {1936, 1072, 1984, 1088}, {1937, 1073, 2048, 1152},
+                 {2560, 1440, 2560, 1472}, {3840, 2160, 3840, 2176},
+                 {5760, 3240, 5760, 3328}, {7680, 4320, 7744, 4352}}) {
+            phoenix_generated::Geometry geometry(expected[0], expected[1]);
+            check(geometry.values.at("W0") == expected[2] &&
+                  geometry.values.at("H0") == expected[3]);
+        }
         unsigned offset = 0;
         for (const auto& name : names) {
             weights["records"].push_back({{"name", name}, {"offset", offset}, {"bytes", 1}});
@@ -43,14 +56,31 @@ int main(int argc, char** argv) {
         for (const auto dimensions : std::vector<std::array<unsigned, 2>>{
                  {640, 384}, {1280, 720}, {1920, 1080}, {2560, 1080},
                  {1, 1}, {127, 129}, {257, 255}, {511, 511}, {801, 603},
-                 {1919, 1079}, {2560, 1440}, {3840, 2160}, {1080, 1920}, {3440, 1440}}) {
+                 {1919, 1079}, {2560, 1440}, {3840, 2160}, {5760, 3240},
+                 {7680, 4320}, {1080, 1920}, {3440, 1440}}) {
             auto frame =
                 phoenix_generated::frame(graph, kernels, weights, dimensions[0], dimensions[1]);
             const auto info = phoenix_native::preflight(frame, specs);
             check(info.neural_launches == 154 && info.group_ends.size() == 15);
             const auto extent = frame.at("arenas").at("workspace").at("bytes").get<uint64_t>();
             const auto& allocation = frame.at("allocation");
+            const phoenix_generated::Geometry geometry(dimensions[0], dimensions[1]);
+            const auto cells = geometry.values.at("T");
+            const auto padded_cells = (uint64_t(cells) + 31) / 32 * 32;
             for (const auto& allocation_entry : allocation) {
+                const auto& tensor = graph.at("tensors").at(
+                    allocation_entry.at("tensor").get<std::string>());
+                // Include the repacker's zero-filled token tail, even when
+                // its logical spatial extent is only 16-token aligned.
+                if (tensor.at("producer").get<unsigned>() >= 57 &&
+                    tensor.at("producer").get<unsigned>() <= 97)
+                    check(allocation_entry.at("bytes").get<uint64_t>() >=
+                          padded_cells * tensor.at("shape").back().get<unsigned>());
+                if (tensor.contains("zero_padding") &&
+                    (geometry.values.at("H5") > geometry.values.at("H4") / 2 ||
+                     geometry.values.at("W5") > geometry.values.at("W4") / 2))
+                    check(allocation_entry.at("first_group") == 1 &&
+                          allocation_entry.at("last_group") == 154);
                 const auto begin = allocation_entry.at("offset").get<uint64_t>(),
                            end = begin + allocation_entry.at("bytes").get<uint64_t>();
                 check(begin >= info.counter_bytes && end <= extent && begin % 512 == 0);
@@ -130,6 +160,8 @@ int main(int argc, char** argv) {
                            {"model_files_used", false},
                            {"frames", sizes},
                            {"live_intervals_checked", true},
+                           {"padded_token_storage_checked", true},
+                           {"persistent_spatial_padding_checked", true},
                            {"bounded_plan_cache_checked", true},
                            {"unknown_tensor_rejected", true}})
                          .dump()

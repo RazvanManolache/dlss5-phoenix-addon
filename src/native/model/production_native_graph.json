@@ -289,7 +289,7 @@
       "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
       "grid": [
         "ceil8(W2+0)*1",
-        "H5",
+        "ceil8(H2+0)*1",
         1
       ],
       "scalars": {
@@ -389,7 +389,7 @@
       "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
       "grid": [
         "ceil8(W2+4)*1",
-        "H5",
+        "ceil8(H2+0)*1",
         1
       ],
       "scalars": {
@@ -2536,7 +2536,7 @@
       "index": 57,
       "kernel": "cc_vit_1d_repack_2d_to_1d_fp8",
       "grid": [
-        "T",
+        "T32",
         1,
         1
       ],
@@ -6567,7 +6567,7 @@
       "kernel": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
       "grid": [
         "ceil8(W2+0)*1",
-        "H5",
+        "ceil8(H2+0)*1",
         1
       ],
       "scalars": {
@@ -6667,7 +6667,7 @@
       "kernel": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
       "grid": [
         "ceil8(W2+4)*1",
-        "H5",
+        "ceil8(H2+0)*1",
         1
       ],
       "scalars": {
@@ -7278,7 +7278,17 @@
         512
       ],
       "producer": 23,
-      "last_use": 25
+      "last_use": 25,
+      "zero_padding": {
+        "source": [
+          "H4",
+          "W4"
+        ],
+        "output": [
+          "H5",
+          "W5"
+        ]
+      }
     },
     "tensor:024.output": {
       "shape": [
@@ -7588,8 +7598,7 @@
     },
     "tensor:057.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 57,
@@ -7597,8 +7606,7 @@
     },
     "tensor:058.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 58,
@@ -7606,8 +7614,7 @@
     },
     "tensor:059.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 59,
@@ -7615,8 +7622,7 @@
     },
     "tensor:059.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 59,
@@ -7624,8 +7630,7 @@
     },
     "tensor:060.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 60,
@@ -7633,8 +7638,7 @@
     },
     "tensor:060.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 60,
@@ -7642,8 +7646,7 @@
     },
     "tensor:060.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 60,
@@ -7651,8 +7654,7 @@
     },
     "tensor:060.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 60,
@@ -7660,8 +7662,7 @@
     },
     "tensor:061.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 61,
@@ -7669,8 +7670,7 @@
     },
     "tensor:062.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 62,
@@ -7678,8 +7678,7 @@
     },
     "tensor:062.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 62,
@@ -7687,8 +7686,7 @@
     },
     "tensor:063.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 63,
@@ -7696,8 +7694,7 @@
     },
     "tensor:064.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 64,
@@ -7705,8 +7702,7 @@
     },
     "tensor:064.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 64,
@@ -7714,8 +7710,7 @@
     },
     "tensor:065.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 65,
@@ -7723,8 +7718,7 @@
     },
     "tensor:065.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 65,
@@ -7732,8 +7726,7 @@
     },
     "tensor:065.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 65,
@@ -7741,8 +7734,7 @@
     },
     "tensor:065.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 65,
@@ -7750,8 +7742,7 @@
     },
     "tensor:066.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 66,
@@ -7759,8 +7750,7 @@
     },
     "tensor:067.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 67,
@@ -7768,8 +7758,7 @@
     },
     "tensor:067.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 67,
@@ -7777,8 +7766,7 @@
     },
     "tensor:068.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 68,
@@ -7786,8 +7774,7 @@
     },
     "tensor:069.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 69,
@@ -7795,8 +7782,7 @@
     },
     "tensor:069.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 69,
@@ -7804,8 +7790,7 @@
     },
     "tensor:070.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 70,
@@ -7813,8 +7798,7 @@
     },
     "tensor:070.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 70,
@@ -7822,8 +7806,7 @@
     },
     "tensor:070.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 70,
@@ -7831,8 +7814,7 @@
     },
     "tensor:070.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 70,
@@ -7840,8 +7822,7 @@
     },
     "tensor:071.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 71,
@@ -7849,8 +7830,7 @@
     },
     "tensor:072.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 72,
@@ -7858,8 +7838,7 @@
     },
     "tensor:072.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 72,
@@ -7867,8 +7846,7 @@
     },
     "tensor:073.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 73,
@@ -7876,8 +7854,7 @@
     },
     "tensor:074.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 74,
@@ -7885,8 +7862,7 @@
     },
     "tensor:074.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 74,
@@ -7894,8 +7870,7 @@
     },
     "tensor:075.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 75,
@@ -7903,8 +7878,7 @@
     },
     "tensor:075.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 75,
@@ -7912,8 +7886,7 @@
     },
     "tensor:075.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 75,
@@ -7921,8 +7894,7 @@
     },
     "tensor:075.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 75,
@@ -7930,8 +7902,7 @@
     },
     "tensor:076.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 76,
@@ -7939,8 +7910,7 @@
     },
     "tensor:077.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 77,
@@ -7948,8 +7918,7 @@
     },
     "tensor:077.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 77,
@@ -7957,8 +7926,7 @@
     },
     "tensor:078.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 78,
@@ -7966,8 +7934,7 @@
     },
     "tensor:079.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 79,
@@ -7975,8 +7942,7 @@
     },
     "tensor:079.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 79,
@@ -7984,8 +7950,7 @@
     },
     "tensor:080.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 80,
@@ -7993,8 +7958,7 @@
     },
     "tensor:080.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 80,
@@ -8002,8 +7966,7 @@
     },
     "tensor:080.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 80,
@@ -8011,8 +7974,7 @@
     },
     "tensor:080.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 80,
@@ -8020,8 +7982,7 @@
     },
     "tensor:081.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 81,
@@ -8029,8 +7990,7 @@
     },
     "tensor:082.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 82,
@@ -8038,8 +7998,7 @@
     },
     "tensor:082.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 82,
@@ -8047,8 +8006,7 @@
     },
     "tensor:083.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 83,
@@ -8056,8 +8014,7 @@
     },
     "tensor:084.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 84,
@@ -8065,8 +8022,7 @@
     },
     "tensor:084.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 84,
@@ -8074,8 +8030,7 @@
     },
     "tensor:085.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 85,
@@ -8083,8 +8038,7 @@
     },
     "tensor:085.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 85,
@@ -8092,8 +8046,7 @@
     },
     "tensor:085.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 85,
@@ -8101,8 +8054,7 @@
     },
     "tensor:085.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 85,
@@ -8110,8 +8062,7 @@
     },
     "tensor:086.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 86,
@@ -8119,8 +8070,7 @@
     },
     "tensor:087.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 87,
@@ -8128,8 +8078,7 @@
     },
     "tensor:087.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 87,
@@ -8137,8 +8086,7 @@
     },
     "tensor:088.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 88,
@@ -8146,8 +8094,7 @@
     },
     "tensor:089.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 89,
@@ -8155,8 +8102,7 @@
     },
     "tensor:089.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 89,
@@ -8164,8 +8110,7 @@
     },
     "tensor:090.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 90,
@@ -8173,8 +8118,7 @@
     },
     "tensor:090.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 90,
@@ -8182,8 +8126,7 @@
     },
     "tensor:090.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 90,
@@ -8191,8 +8134,7 @@
     },
     "tensor:090.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 90,
@@ -8200,8 +8142,7 @@
     },
     "tensor:091.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 91,
@@ -8209,8 +8150,7 @@
     },
     "tensor:092.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 92,
@@ -8218,8 +8158,7 @@
     },
     "tensor:092.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 92,
@@ -8227,8 +8166,7 @@
     },
     "tensor:093.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         4096
       ],
       "producer": 93,
@@ -8236,8 +8174,7 @@
     },
     "tensor:094.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 94,
@@ -8245,8 +8182,7 @@
     },
     "tensor:094.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 94,
@@ -8254,8 +8190,7 @@
     },
     "tensor:095.output_q": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 95,
@@ -8263,8 +8198,7 @@
     },
     "tensor:095.output_k": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 95,
@@ -8272,8 +8206,7 @@
     },
     "tensor:095.output_v": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 95,
@@ -8281,8 +8214,7 @@
     },
     "tensor:095.reduction_scratch": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         6144
       ],
       "producer": 95,
@@ -8290,8 +8222,7 @@
     },
     "tensor:096.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 96,
@@ -8299,8 +8230,7 @@
     },
     "tensor:097.output": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         1024
       ],
       "producer": 97,
@@ -8308,8 +8238,7 @@
     },
     "tensor:097.reduction_scratch_optional": {
       "shape": [
-        "LH",
-        "LW",
+        "T32",
         2048
       ],
       "producer": 97,
