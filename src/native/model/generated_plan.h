@@ -36,11 +36,13 @@ struct Geometry {
     }
     Geometry(unsigned width, unsigned height) {
         check(supported(width, height), "Generated frame extent must be between 1 and 16384");
-        // The frame boundary has a 16-pixel aligned path and a partial-lane
-        // path. Their spatial padding is respectively 64 and 128 pixels.
+        // After three reductions, an even number of cells uses 64-pixel
+        // spatial alignment; an odd tail needs a 128-pixel tile. Round the
+        // logical extent up before testing parity (540 -> 68 cells, not 67).
         // Preserve the shifted-window margin for complete 256-pixel cells.
         auto padded_axis = [](unsigned extent) {
-            return unsigned(std::max<uint64_t>(320, align(extent, extent % 16 ? 128 : 64)));
+            const unsigned reduced_cells = (extent + 7) / 8;
+            return unsigned(std::max<uint64_t>(320, align(extent, reduced_cells % 2 ? 128 : 64)));
         };
         unsigned padded_width = padded_axis(width);
         unsigned padded_height = padded_axis(height);
