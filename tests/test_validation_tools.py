@@ -80,6 +80,28 @@ class ValidationGateTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_native.check_report(reference, {**copy.deepcopy(report), **change})
 
+    def test_native_resolution_selection_requires_correct_entries_and_both_modes(self):
+        manifest = {"kernels": [{"name": "attention", "entry": "small", "large_input_entry": "large",
+                                 "large_input_min_pixels": 18662400}]}
+        small = {"width": 1920, "height": 1080,
+                 "kernel_selections": [{"name": "attention", "entry": "small"}]}
+        large = {"width": 5760, "height": 3240,
+                 "kernel_selections": [{"name": "attention", "entry": "large"}]}
+        coverage = validate_native.check_kernel_selections(manifest, small)
+        with self.assertRaisesRegex(ValueError, "both default and large"):
+            validate_native.require_variant_coverage(manifest, coverage)
+        coverage.update(validate_native.check_kernel_selections(manifest, large))
+        validate_native.require_variant_coverage(manifest, coverage)
+        for changed in ({"kernel_selections": []},
+                        {"kernel_selections": small["kernel_selections"] * 2},
+                        {"kernel_selections": large["kernel_selections"]}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                validate_native.check_kernel_selections(manifest, {**small, **changed})
+        modified = copy.deepcopy(manifest)
+        modified["kernels"][0]["large_input_min_pixels"] += 1
+        self.assertNotEqual(validate_native.kernel_selection_digest(manifest),
+                            validate_native.kernel_selection_digest(modified))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,7 +69,9 @@ inline std::vector<phoenix_kernel::Spec> catalog(const phoenix_bundle::Bundle& b
         auto block_extent = record.at("block").get<std::array<unsigned, 3>>();
         specs.push_back({item.key(), record.at("binary"), record.at("binary_sha256"),
                          record.at("entry"), record.at("parameter_bytes"), block_extent[0],
-                         block_extent[1], block_extent[2]});
+                         block_extent[1], block_extent[2],
+                         record.value("large_input_entry", std::string()),
+                         record.value("large_input_min_pixels", uint64_t(0))});
     }
     return specs;
 }
@@ -346,7 +348,13 @@ class Network {
             nv(api.modules.create_module(device, binary.bytes.data(), NvU32(binary.bytes.size()),
                                          &module->module));
             ++counters->modules_created;
-            nv(api.modules.create_function(device, module->module, binary.spec.entry.c_str(),
+            // Larger inputs can benefit from more resident blocks, while the
+            // same register limit loses on small inputs. Keep both compiled
+            // choices in one module; only the selected function gets a handle.
+            const auto& entry = phoenix_kernel::entry_for_resolution(
+                binary.spec.entry, binary.spec.large_input_entry,
+                binary.spec.large_input_min_pixels, width, height);
+            nv(api.modules.create_function(device, module->module, entry.c_str(),
                                            &module->function));
             ++counters->functions_created;
             require(functions.emplace(binary.spec.name, module->function).second,

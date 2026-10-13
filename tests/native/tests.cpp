@@ -6,6 +6,7 @@
 #include "../../src/native/support/routing.h"
 #include "../../src/native/support/panel_visibility.h"
 #include "../../src/native/support/overrides.h"
+#include "../../src/native/support/kernel_resolution.h"
 #include <map>
 #include "../../src/native/support/ledger.h"
 #include "../../src/native/support/trace_manifest.h"
@@ -16,6 +17,41 @@
 #include <limits>
 using namespace phoenix_addon;
 static unsigned cases = 0;
+static void kernel_resolution_tests() {
+    const std::string small = "small", large = "large";
+    constexpr uint64_t threshold = uint64_t(5760) * 3240;
+    const auto select = [&](unsigned width, unsigned height) {
+        return phoenix_kernel::entry_for_resolution(small, large, threshold, width, height);
+    };
+    for (const auto extent : {std::pair<unsigned, unsigned>{1280, 720}, {1920, 1080},
+                              {3840, 2160}, {5760, 3239}}) {
+        check(select(extent.first, extent.second) == small, "small-input kernel preserved");
+        ++cases;
+    }
+    for (const auto extent : {std::pair<unsigned, unsigned>{5760, 3240}, {3240, 5760},
+                              {5761, 3241}, {7680, 4320}, {16384, 16384}}) {
+        check(select(extent.first, extent.second) == large, "large-input kernel selected");
+        ++cases;
+    }
+    check(phoenix_kernel::entry_for_resolution(small, "", 0, 7680, 4320) == small,
+          "legacy kernel uses its original entry");
+    ++cases;
+    check(phoenix_kernel::entry_for_resolution(small, large, uint64_t(16384) * 16384,
+                                              65536, 65536) == large,
+          "pixel multiplication uses 64 bits");
+    ++cases;
+    for (const auto invalid : {std::pair<std::string, uint64_t>{large, 0},
+                                {"", threshold}, {small, threshold},
+                                {large, uint64_t(16384) * 16384 + 1}}) {
+        check(!phoenix_kernel::valid_resolution_variant(small, invalid.first, invalid.second),
+              "incomplete/invalid resolution variant rejected");
+        ++cases;
+    }
+    check(phoenix_kernel::valid_resolution_variant(small, large, threshold) &&
+              phoenix_kernel::valid_resolution_variant(small, "", 0),
+          "valid tuned and legacy kernel policies");
+    ++cases;
+}
 static void rejected(const std::function<void()>& action) {
     bool caught = false;
     try {
@@ -1760,6 +1796,7 @@ int main() {
         check(!reset_policy.valid(), "reset cadence bound");
         ++cases;
         controls_tests();
+        kernel_resolution_tests();
         ngx_shim_tests();
         sl_shim_tests();
         dispatch_log_tests();

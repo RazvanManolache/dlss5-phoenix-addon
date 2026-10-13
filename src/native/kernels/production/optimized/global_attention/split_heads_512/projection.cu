@@ -2472,3 +2472,9 @@ extern "C" __global__ __maxnreg__(142) void phoenix_global_attention_split_heads
     KernelArguments parameters) {
     run_global_attention_split_heads_512_projection<false>(parameters.words, nullptr, nullptr);
 }
+// The large-input entry doubles theoretical block residency on RTX 5080
+// without spilling. Small inputs retain the original instruction schedule.
+extern "C" __global__ __maxnreg__(128) void
+phoenix_global_attention_split_heads_512_projection_large_input(KernelArguments parameters) {
+    run_global_attention_split_heads_512_projection<false>(parameters.words, nullptr, nullptr);
+}

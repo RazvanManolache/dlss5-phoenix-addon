@@ -9,7 +9,7 @@
 #include "../../../common/texture_sampling.cuh"
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 5120
-#include "../../../common/device_memory_scalar.cuh"
+#include "../../../common/device_memory_aligned.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
     parameter_input_low_0 = 0,
@@ -11419,6 +11419,8 @@ __device__ __forceinline__ void run_window_attention_channels_64_downsample(
     return;
 }
 extern "C" __global__
-__maxnreg__(123) void phoenix_window_attention_channels_64_downsample(KernelArguments parameters) {
+// Keep the vectorized operand loads spill-free; the smaller scalar-load budget
+// introduced extra local-memory traffic after vectorization.
+__maxnreg__(160) void phoenix_window_attention_channels_64_downsample(KernelArguments parameters) {
     run_window_attention_channels_64_downsample<false>(parameters.words, nullptr, nullptr);
 }

@@ -9,7 +9,7 @@
 #include "../../../common/texture_sampling.cuh"
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 5120
-#include "../../../common/device_memory_scalar.cuh"
+#include "../../../common/device_memory_aligned.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
     parameter_input_low_0 = 0,

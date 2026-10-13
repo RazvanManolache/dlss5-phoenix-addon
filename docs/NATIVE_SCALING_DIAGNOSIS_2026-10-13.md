@@ -6,6 +6,10 @@ Phoenix wins some small projections and retains several large-image wins, while
 other projections, spatial transitions and global attention favor NVIDIA at
 larger extents. Observed GPU boost differences also affect the margin.
 
+[Follow-up: controlled memory tests and implemented automatic kernel selection](NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
+recover about 1.5–1.9% in the fresh 6K/8K automatic-path comparison while preserving
+the original small-input register choices.
+
 ![Fresh interleaved whole-frame comparison](benchmarks/2026-10-13/native-scaling-crossover.png)
 
 ## Whole-frame results

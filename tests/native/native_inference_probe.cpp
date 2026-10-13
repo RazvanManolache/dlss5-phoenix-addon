@@ -255,6 +255,14 @@ int wmain(int argc, wchar_t** argv) {
         });
         check(meta.motion_bpp == 4, "supported motion format");
         const auto& frame = *selected;
+        report["kernel_selections"] = Json::array();
+        for (const auto& binary : candidate) {
+            const auto& spec = binary.spec;
+            const auto& entry = phoenix_kernel::entry_for_resolution(
+                spec.entry, spec.large_input_entry, spec.large_input_min_pixels,
+                meta.width, meta.height);
+            report["kernel_selections"].push_back({{"name", spec.name}, {"entry", entry}});
+        }
         report["generated_workspace_bytes"] = frame.at("arenas").at("workspace").at("bytes");
         report["generated_graph_sha256"] = bundle.manifest.at("native_graph_sha256");
         if (cpu_only) {

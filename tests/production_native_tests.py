@@ -74,6 +74,20 @@ class ProductionInputsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "assembler optimization"):
                     self.validate(catalogue=catalogue)
 
+    def test_large_input_entry_and_threshold_must_be_complete_and_valid(self):
+        for entry, minimum in (("large", 0), ("large", True), ("large", 16384 * 16384 + 1),
+                               ("invalid entry", 100), (None, 100), ("large", None)):
+            with self.subTest(entry=entry, minimum=minimum):
+                catalogue = copy.deepcopy(self.catalogue)
+                catalogue["kernels"][0].update(large_input_entry=entry, large_input_min_pixels=minimum)
+                with self.assertRaisesRegex(ValueError, "large-input"):
+                    self.validate(catalogue=catalogue)
+        catalogue = copy.deepcopy(self.catalogue)
+        catalogue["kernels"][0].update(large_input_entry=catalogue["kernels"][0]["entry"],
+                                       large_input_min_pixels=100)
+        with self.assertRaisesRegex(ValueError, "large-input"):
+            self.validate(catalogue=catalogue)
+
     def test_ptx_build_inputs_and_unsupported_options_are_rejected(self):
         catalogue = copy.deepcopy(self.catalogue)
         catalogue["kernels"][0]["source"] = catalogue["kernels"][0]["source"][:-3] + ".ptx"
@@ -148,6 +162,13 @@ class ProductionInputsTests(unittest.TestCase):
             manifest = json.loads((root / "build/test/native_manifest.json").read_text())
             self.assertTrue(manifest["passed"])
             self.assertEqual(len(manifest["kernels"]), 41)
+            for row in self.catalogue["kernels"]:
+                built = next(kernel for kernel in manifest["kernels"] if kernel["name"] == row["name"])
+                if "large_input_entry" in row:
+                    self.assertEqual(built["large_input_entry"], row["large_input_entry"])
+                    self.assertEqual(built["large_input_min_pixels"], row["large_input_min_pixels"])
+                    self.assertTrue(any("--entries " + row["entry"] + "," + row["large_input_entry"] in command
+                                        for command in commands))
             self.assertEqual(len(commands), 43)
             self.assertTrue(all("-O3" in command for command in commands))
             lower_optimization = sum(row.get("assembler_optimization", 3) == 1

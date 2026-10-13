@@ -3,6 +3,7 @@
 
 #pragma once
 #include "device_recovery.h"
+#include "../support/kernel_resolution.h"
 #include "../../../third_party/nvapi/nvapi.h"
 #include <bcrypt.h>
 #include <filesystem>
@@ -17,6 +18,10 @@ namespace phoenix_kernel {
 struct Spec {
     std::string name, path, sha, entry;
     unsigned bytes, x, y, z;
+    // Both entries live in one module and share the same arguments and geometry.
+    // Older bundles omit these fields and keep their original entry point.
+    std::string large_input_entry;
+    uint64_t large_input_min_pixels = 0;
 };
 struct Api {
     decltype(&NvAPI_D3D12_CreateCuModule) create_module = nullptr;
@@ -48,7 +53,9 @@ inline std::vector<Binary> load_catalog(const std::vector<Spec>& specs) {
     for (const auto& specification : specs) {
         if (!names.emplace(specification.name, true).second || specification.sha.size() != 64 ||
             specification.entry.empty() || !specification.bytes || !specification.x ||
-            !specification.y || !specification.z)
+            !specification.y || !specification.z ||
+            !valid_resolution_variant(specification.entry, specification.large_input_entry,
+                                      specification.large_input_min_pixels))
             throw std::invalid_argument("Lifecycle37 invalid or duplicate kernel contract");
         std::ifstream file(specification.path, std::ios::binary | std::ios::ate);
         if (!file)

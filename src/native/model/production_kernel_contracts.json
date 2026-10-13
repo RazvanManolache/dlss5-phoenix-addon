@@ -72,6 +72,8 @@
       "source": "src/native/kernels/production/optimized/global_attention/split_heads_512/projection.cu",
       "name": "cc_split_swin_16h_proj_512_chained_fp8",
       "entry": "phoenix_global_attention_split_heads_512_projection",
+      "large_input_entry": "phoenix_global_attention_split_heads_512_projection_large_input",
+      "large_input_min_pixels": 18662400,
       "parameter_bytes": 72,
       "block": [
         32,
@@ -370,6 +372,8 @@
       "source": "src/native/kernels/production/optimized/global_attention/transformer/attention.cu",
       "name": "cc_vit_1d_attention_chained_fp8",
       "entry": "phoenix_global_attention_transformer_attention",
+      "large_input_entry": "phoenix_global_attention_transformer_attention_large_input",
+      "large_input_min_pixels": 18662400,
       "parameter_bytes": 64,
       "block": [
         32,

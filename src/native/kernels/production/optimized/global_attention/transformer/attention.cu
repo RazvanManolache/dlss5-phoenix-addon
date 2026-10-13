@@ -4646,3 +4646,9 @@ extern "C" __global__
 __maxnreg__(181) void phoenix_global_attention_transformer_attention(KernelArguments parameters) {
     run_global_attention_transformer_attention<false>(parameters.words, nullptr, nullptr);
 }
+// Large inputs have enough blocks to benefit from higher residency. Keep this
+// separately compiled: forcing its register budget on small inputs loses speed.
+extern "C" __global__ __maxnreg__(128) void
+phoenix_global_attention_transformer_attention_large_input(KernelArguments parameters) {
+    run_global_attention_transformer_attention<false>(parameters.words, nullptr, nullptr);
+}

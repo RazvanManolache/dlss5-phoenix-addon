@@ -43,6 +43,18 @@ def production_inputs(root, *, check_sources=True):
         names.add(row["name"])
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", row["entry"]):
             raise ValueError("Invalid production entry point")
+        large_entry = row.get("large_input_entry")
+        large_minimum = row.get("large_input_min_pixels")
+        if large_entry is not None or large_minimum is not None:
+            if (
+                not isinstance(large_entry, str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", large_entry)
+                or large_entry == row["entry"]
+                or type(large_minimum) is not int
+                or not 0 < large_minimum <= 16384 * 16384
+                or row.get("ptx_options") is not None
+            ):
+                raise ValueError("Invalid large-input kernel entry/threshold")
         block = row["block"]
         if (
             len(block) != 3
@@ -149,7 +161,7 @@ def main():
         command = [
             str(compiler),
             "--entries",
-            row["entry"],
+            ",".join([row["entry"]] + ([row["large_input_entry"]] if "large_input_entry" in row else [])),
             "-allow-unsupported-compiler",
             "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
             "-diag-suppress",
@@ -201,6 +213,7 @@ def main():
         print("Compiled: " + row["name"], flush=True)
         return {
             **{key: row[key] for key in ("name", "entry", "parameter_bytes", "block")},
+            **{key: row[key] for key in ("large_input_entry", "large_input_min_pixels") if key in row},
             "binary": binary.relative_to(out).as_posix(),
             "binary_sha256": digest(binary),
         }

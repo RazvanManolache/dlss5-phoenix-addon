@@ -9,7 +9,7 @@
 #include "../../../common/texture_sampling.cuh"
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 5120
-#include "../../../common/device_memory_scalar.cuh"
+#include "../../../common/device_memory_aligned.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
     parameter_input_low_0 = 0,
@@ -9218,7 +9218,9 @@ __device__ __forceinline__ void run_window_attention_channels_64_input_view(
                                 memory_ranges, error_counts);
     return;
 }
-extern "C" __global__ __launch_bounds__(64, 7) void phoenix_window_attention_channels_64_input_view(
+// Vector accesses shorten the memory-request sequence. This budget removes
+// the spills created by a tighter limit while retaining six blocks per SM on RTX 5080.
+extern "C" __global__ __maxnreg__(160) void phoenix_window_attention_channels_64_input_view(
     KernelArguments parameters) {
     run_window_attention_channels_64_input_view<false>(parameters.words, nullptr, nullptr);
 }

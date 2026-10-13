@@ -31,6 +31,41 @@ def bundle_hashes(bundle, manifest):
     return hashes
 
 
+def kernel_selection_digest(manifest):
+    """Bind validation to the entries and thresholds, as well as module bytes."""
+    fields = ("name", "entry", "parameter_bytes", "block", "large_input_entry", "large_input_min_pixels")
+    policies = [{key: kernel[key] for key in fields if key in kernel}
+                for kernel in sorted(manifest["kernels"], key=lambda kernel: kernel["name"])]
+    return hashlib.sha256(json.dumps(policies, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def check_kernel_selections(manifest, report):
+    variants = [kernel for kernel in manifest["kernels"] if "large_input_entry" in kernel]
+    if not variants:
+        return set()
+    selections = report.get("kernel_selections", [])
+    actual = {selection["name"]: selection["entry"] for selection in selections}
+    if len(actual) != len(manifest["kernels"]) or len(actual) != len(selections):
+        raise ValueError("Missing or duplicate native kernel selection evidence")
+    pixels = report["width"] * report["height"]
+    coverage = set()
+    for kernel in manifest["kernels"]:
+        large = "large_input_entry" in kernel and pixels >= kernel["large_input_min_pixels"]
+        expected = kernel["large_input_entry"] if large else kernel["entry"]
+        if actual.get(kernel["name"]) != expected:
+            raise ValueError("Native probe selected the wrong resolution kernel")
+        if "large_input_entry" in kernel:
+            coverage.add((kernel["name"], "large" if large else "default"))
+    return coverage
+
+
+def require_variant_coverage(manifest, coverage):
+    for kernel in manifest["kernels"]:
+        if "large_input_entry" in kernel and not all((kernel["name"], mode) in coverage
+                                                    for mode in ("default", "large")):
+            raise ValueError("Validate both default and large-input kernel entries before packaging")
+
+
 def check_report(reference, report):
     if (
         report.get("passed") is not True
@@ -66,6 +101,8 @@ def validate(bundle, probe, weight_source, output, baseline):
     if not manifest.get("passed") or manifest.get("selection_status") != "compiled":
         raise ValueError("Validate a fresh, successfully compiled native bundle")
     before = bundle_hashes(bundle, manifest)
+    selection_digest = kernel_selection_digest(manifest)
+    variant_coverage = set()
     probe_hash = digest(probe)
     output.mkdir(parents=True, exist_ok=False)
     receipt = {
@@ -93,6 +130,7 @@ def validate(bundle, probe, weight_source, output, baseline):
             report_path = destination / "result.json"
             report = json.loads(report_path.read_text(encoding="utf-8"))
             check_report(case, report)
+            variant_coverage.update(check_kernel_selections(manifest, report))
             receipt["cases"].append(
                 {
                     "width": case["width"],
@@ -102,7 +140,9 @@ def validate(bundle, probe, weight_source, output, baseline):
                     "report_sha256": digest(report_path),
                 }
             )
-        if bundle_hashes(bundle, manifest) != before or digest(probe) != probe_hash:
+        require_variant_coverage(manifest, variant_coverage)
+        if (bundle_hashes(bundle, manifest) != before or digest(probe) != probe_hash
+                or kernel_selection_digest(json.loads(manifest_path.read_text(encoding="utf-8"))) != selection_digest):
             raise ValueError("Native bundle or probe changed during validation")
         receipt.update(
             passed=True,
@@ -110,6 +150,9 @@ def validate(bundle, probe, weight_source, output, baseline):
             binaries=before,
             baseline_sha256=digest(baseline),
             probe_sha256=probe_hash,
+            kernel_selection_sha256=selection_digest,
+            resolution_variant_coverage=[{"name": name, "mode": mode}
+                                         for name, mode in sorted(variant_coverage)],
         )
         evidence = output / "native_validation.json"
         evidence.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")

@@ -1,0 +1,3809 @@
+{
+  "schema": "phoenix-native-memory-investigation/1",
+  "passed": true,
+  "date": "2026-10-13",
+  "hardware": {
+    "gpu": "RTX5080 16GiB",
+    "driver": "616.64",
+    "cpu": "Ryzen9950X3D,32 threads",
+    "ram_gib": 96,
+    "cuda": "13.1"
+  },
+  "input": "Same synthetic RGBA16F color /RG16F zero-motion, full8 blocks,1 pass; external model DLL310.8.0.0. GPU interval excludes uploads/readbacks.",
+  "model_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "frames_executed": 19488,
+  "compiled_modules_including_controls": 37,
+  "distinct_alternatives": 31,
+  "automatic_method": "Actual production auto-selection; ABBA fresh processes;256 frames discard128 for standard sizes,128 discard32 at odd threshold boundaries. GPU whole-frame intervals; no per-launch timing.",
+  "automatic_cases": [
+    {
+      "width": 1280,
+      "height": 720,
+      "runs": [
+        {
+          "id": "auto_1280x720_0_original",
+          "width": 1280,
+          "height": 720,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+            "255": "861290837076d4ab7b5bbe1b5fc4a8e5cabc173d3f3296ab0bd523b71027307d"
+          },
+          "input_sha256": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18",
+          "motion_sha256": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
+          "whole_ms": 2.507408,
+          "owned_memory": {
+            "allocation_info_bytes_created": 273285120,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 273285120,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 273285120
+          },
+          "family_ms": {},
+          "receipt_sha256": "b218fab543d0cd029ed934a5ce4a17c174a62955891671a57252798bacd4ebb6",
+          "telemetry": {
+            "samples": 3,
+            "clocks.current.sm": {
+              "median": 2827.0,
+              "min": 480.0,
+              "max": 2827.0
+            },
+            "temperature.gpu": {
+              "median": 50.0,
+              "min": 33.0,
+              "max": 50.0
+            },
+            "power.draw": {
+              "median": 107.18,
+              "min": 15.58,
+              "max": 107.18
+            },
+            "utilization.gpu": {
+              "median": 87.0,
+              "min": 5.0,
+              "max": 87.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_1280x720_1_automatic",
+          "width": 1280,
+          "height": 720,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
+            "255": "861290837076d4ab7b5bbe1b5fc4a8e5cabc173d3f3296ab0bd523b71027307d"
+          },
+          "input_sha256": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18",
+          "motion_sha256": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
+          "whole_ms": 2.506816,
+          "owned_memory": {
+            "allocation_info_bytes_created": 273285120,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 273285120,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 273285120
+          },
+          "family_ms": {},
+          "receipt_sha256": "70ea1f0ed3f4c1389bd3ff61bf01b766f671fd0d2d54d087d7cc4af085340050",
+          "telemetry": {
+            "samples": 3,
+            "clocks.current.sm": {
+              "median": 2812.0,
+              "min": 2812.0,
+              "max": 2812.0
+            },
+            "temperature.gpu": {
+              "median": 50.0,
+              "min": 50.0,
+              "max": 50.0
+            },
+            "power.draw": {
+              "median": 92.93,
+              "min": 92.93,
+              "max": 92.93
+            },
+            "utilization.gpu": {
+              "median": 87.0,
+              "min": 87.0,
+              "max": 87.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        }
+      ],
+      "means_ms": {
+        "original": 2.507408,
+        "automatic": 2.506816
+      },
+      "improvement_percent": 0.023610038733212768,
+      "passed": true
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "runs": [
+        {
+          "id": "auto_1920x1080_0_original",
+          "width": 1920,
+          "height": 1080,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+            "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+          "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+          "whole_ms": 3.840768,
+          "owned_memory": {
+            "allocation_info_bytes_created": 421265408,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 421265408,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 421265408
+          },
+          "family_ms": {},
+          "receipt_sha256": "c762bd6a07e20d0ffeca573e2c9e9e97af9f7d214f975af1d7b43ba3625f13f0",
+          "telemetry": {
+            "samples": 5,
+            "clocks.current.sm": {
+              "median": 2767.0,
+              "min": 2760.0,
+              "max": 2767.0
+            },
+            "temperature.gpu": {
+              "median": 55.0,
+              "min": 55.0,
+              "max": 58.0
+            },
+            "power.draw": {
+              "median": 98.86,
+              "min": 98.86,
+              "max": 253.67
+            },
+            "utilization.gpu": {
+              "median": 90.0,
+              "min": 90.0,
+              "max": 90.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_1920x1080_1_automatic",
+          "width": 1920,
+          "height": 1080,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+            "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+          "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+          "whole_ms": 3.816832,
+          "owned_memory": {
+            "allocation_info_bytes_created": 421265408,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 421265408,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 421265408
+          },
+          "family_ms": {},
+          "receipt_sha256": "d636215686f992afd059adc2c80f458f3d0cbc4535f6dd31d2bd4ce7a40cfbb4",
+          "telemetry": {
+            "samples": 5,
+            "clocks.current.sm": {
+              "median": 2775.0,
+              "min": 2760.0,
+              "max": 2775.0
+            },
+            "temperature.gpu": {
+              "median": 57.0,
+              "min": 57.0,
+              "max": 60.0
+            },
+            "power.draw": {
+              "median": 130.86,
+              "min": 130.86,
+              "max": 284.9
+            },
+            "utilization.gpu": {
+              "median": 90.0,
+              "min": 90.0,
+              "max": 90.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        },
+        {
+          "id": "auto_1920x1080_2_automatic",
+          "width": 1920,
+          "height": 1080,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+            "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+          "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+          "whole_ms": 3.819088,
+          "owned_memory": {
+            "allocation_info_bytes_created": 421265408,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 421265408,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 421265408
+          },
+          "family_ms": {},
+          "receipt_sha256": "1490189f9d3467e8e53c19b658c38fca08b5224ed7de611a141037d44784f214",
+          "telemetry": {
+            "samples": 5,
+            "clocks.current.sm": {
+              "median": 2760.0,
+              "min": 2760.0,
+              "max": 2760.0
+            },
+            "temperature.gpu": {
+              "median": 58.0,
+              "min": 58.0,
+              "max": 60.0
+            },
+            "power.draw": {
+              "median": 145.52,
+              "min": 145.52,
+              "max": 301.14
+            },
+            "utilization.gpu": {
+              "median": 90.0,
+              "min": 90.0,
+              "max": 90.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        },
+        {
+          "id": "auto_1920x1080_3_original",
+          "width": 1920,
+          "height": 1080,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+            "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+          "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+          "whole_ms": 3.8466240000000003,
+          "owned_memory": {
+            "allocation_info_bytes_created": 421265408,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 421265408,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 421265408
+          },
+          "family_ms": {},
+          "receipt_sha256": "13877bed27808e9c055892b93363514bbaf47fce40496612d1be2e20ceea16d4",
+          "telemetry": {
+            "samples": 5,
+            "clocks.current.sm": {
+              "median": 2760.0,
+              "min": 2760.0,
+              "max": 2760.0
+            },
+            "temperature.gpu": {
+              "median": 59.0,
+              "min": 59.0,
+              "max": 61.0
+            },
+            "power.draw": {
+              "median": 168.56,
+              "min": 168.56,
+              "max": 322.51
+            },
+            "utilization.gpu": {
+              "median": 90.0,
+              "min": 90.0,
+              "max": 90.0
+            }
+          },
+          "route": "original"
+        }
+      ],
+      "means_ms": {
+        "original": 3.8436960000000004,
+        "automatic": 3.81796
+      },
+      "improvement_percent": 0.6695638781006763,
+      "passed": true
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "runs": [
+        {
+          "id": "auto_3840x2160_0_original",
+          "width": 3840,
+          "height": 2160,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+            "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+          "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+          "whole_ms": 13.135264,
+          "owned_memory": {
+            "allocation_info_bytes_created": 1143930880,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 1143930880,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 1143930880
+          },
+          "family_ms": {},
+          "receipt_sha256": "83f103eda92b9f66370ab9e53d062559e213d8995f7f770a0f008885ba79f6f2",
+          "telemetry": {
+            "samples": 16,
+            "clocks.current.sm": {
+              "median": 2647.0,
+              "min": 2625.0,
+              "max": 2647.0
+            },
+            "temperature.gpu": {
+              "median": 64.0,
+              "min": 63.0,
+              "max": 65.0
+            },
+            "power.draw": {
+              "median": 359.63,
+              "min": 359.43,
+              "max": 362.58
+            },
+            "utilization.gpu": {
+              "median": 95.0,
+              "min": 94.0,
+              "max": 96.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_3840x2160_1_automatic",
+          "width": 3840,
+          "height": 2160,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+            "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+          "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+          "whole_ms": 13.072944,
+          "owned_memory": {
+            "allocation_info_bytes_created": 1143930880,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 1143930880,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 1143930880
+          },
+          "family_ms": {},
+          "receipt_sha256": "38d2d4a8a12f7772a0fa16676f096869cd6d81b4d2862a8698e9865fcf0323d0",
+          "telemetry": {
+            "samples": 16,
+            "clocks.current.sm": {
+              "median": 2625.0,
+              "min": 2625.0,
+              "max": 2632.0
+            },
+            "temperature.gpu": {
+              "median": 65.0,
+              "min": 64.0,
+              "max": 66.0
+            },
+            "power.draw": {
+              "median": 359.83,
+              "min": 359.69,
+              "max": 365.24
+            },
+            "utilization.gpu": {
+              "median": 96.0,
+              "min": 95.0,
+              "max": 96.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        },
+        {
+          "id": "auto_3840x2160_2_automatic",
+          "width": 3840,
+          "height": 2160,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+            "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+          "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+          "whole_ms": 13.10688,
+          "owned_memory": {
+            "allocation_info_bytes_created": 1143930880,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 1143930880,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 1143930880
+          },
+          "family_ms": {},
+          "receipt_sha256": "63eb83dc36790c2764fb295a70faa7cbe5b83d487338f1aea8c43c2ee5d946d0",
+          "telemetry": {
+            "samples": 17,
+            "clocks.current.sm": {
+              "median": 2617.0,
+              "min": 2617.0,
+              "max": 2632.0
+            },
+            "temperature.gpu": {
+              "median": 67.0,
+              "min": 66.0,
+              "max": 67.0
+            },
+            "power.draw": {
+              "median": 360.32,
+              "min": 359.66,
+              "max": 360.56
+            },
+            "utilization.gpu": {
+              "median": 95.0,
+              "min": 95.0,
+              "max": 96.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        },
+        {
+          "id": "auto_3840x2160_3_original",
+          "width": 3840,
+          "height": 2160,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+            "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+          "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+          "whole_ms": 13.226528,
+          "owned_memory": {
+            "allocation_info_bytes_created": 1143930880,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 1143930880,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 1143930880
+          },
+          "family_ms": {},
+          "receipt_sha256": "7768a8cb3cbcce8b10be6b887194e414c40f7b3b6180319e2ca95dd59ec77d45",
+          "telemetry": {
+            "samples": 16,
+            "clocks.current.sm": {
+              "median": 2617.0,
+              "min": 2610.0,
+              "max": 2625.0
+            },
+            "temperature.gpu": {
+              "median": 68.0,
+              "min": 68.0,
+              "max": 69.0
+            },
+            "power.draw": {
+              "median": 360.05,
+              "min": 359.89,
+              "max": 360.26
+            },
+            "utilization.gpu": {
+              "median": 95.5,
+              "min": 95.0,
+              "max": 96.0
+            }
+          },
+          "route": "original"
+        }
+      ],
+      "means_ms": {
+        "original": 13.180896,
+        "automatic": 13.089912
+      },
+      "improvement_percent": 0.6902717387346047,
+      "passed": true
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "runs": [
+        {
+          "id": "auto_5760x3240_0_original",
+          "width": 5760,
+          "height": 3240,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+            "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+          },
+          "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+          "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+          "whole_ms": 31.308128,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "7de417522f18e51d4be4c0e8b4fce05ab1a40528cd19ecd6696a1af776bc83c9",
+          "telemetry": {
+            "samples": 38,
+            "clocks.current.sm": {
+              "median": 2587.0,
+              "min": 2580.0,
+              "max": 2602.0
+            },
+            "temperature.gpu": {
+              "median": 71.0,
+              "min": 69.0,
+              "max": 72.0
+            },
+            "power.draw": {
+              "median": 359.89,
+              "min": 359.58,
+              "max": 360.23
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_5760x3240_1_automatic",
+          "width": 5760,
+          "height": 3240,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+            "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+          },
+          "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+          "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+          "whole_ms": 30.785392,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "5c67543b7c9e14fe0e9bb9810348b97032611bf556d41075f9a15272d84482ad",
+          "telemetry": {
+            "samples": 37,
+            "clocks.current.sm": {
+              "median": 2565.0,
+              "min": 2557.0,
+              "max": 2572.0
+            },
+            "temperature.gpu": {
+              "median": 73.0,
+              "min": 72.0,
+              "max": 73.0
+            },
+            "power.draw": {
+              "median": 360.04,
+              "min": 359.8,
+              "max": 360.16
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": [
+            "cc_split_swin_16h_proj_512_chained_fp8",
+            "cc_vit_1d_attention_chained_fp8"
+          ]
+        },
+        {
+          "id": "auto_5760x3240_2_automatic",
+          "width": 5760,
+          "height": 3240,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+            "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+          },
+          "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+          "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+          "whole_ms": 31.133024,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "21a70e86bba970c7af21ac82e775e1d608da608ae8c3edbccef3f0b86ccb9c55",
+          "telemetry": {
+            "samples": 37,
+            "clocks.current.sm": {
+              "median": 2572.0,
+              "min": 2557.0,
+              "max": 2587.0
+            },
+            "temperature.gpu": {
+              "median": 74.0,
+              "min": 72.0,
+              "max": 75.0
+            },
+            "power.draw": {
+              "median": 360.47,
+              "min": 359.11,
+              "max": 361.2
+            },
+            "utilization.gpu": {
+              "median": 97.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": [
+            "cc_split_swin_16h_proj_512_chained_fp8",
+            "cc_vit_1d_attention_chained_fp8"
+          ]
+        },
+        {
+          "id": "auto_5760x3240_3_original",
+          "width": 5760,
+          "height": 3240,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+            "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+          },
+          "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+          "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+          "whole_ms": 31.56328,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "94ab04e83c17f76b5846fb9d5e40ba31dc5cf9b61934185f2759d7663ca6c066",
+          "telemetry": {
+            "samples": 38,
+            "clocks.current.sm": {
+              "median": 2565.0,
+              "min": 2550.0,
+              "max": 2580.0
+            },
+            "temperature.gpu": {
+              "median": 75.0,
+              "min": 73.0,
+              "max": 76.0
+            },
+            "power.draw": {
+              "median": 359.94,
+              "min": 358.99,
+              "max": 361.28
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "original"
+        }
+      ],
+      "means_ms": {
+        "original": 31.435704,
+        "automatic": 30.959208
+      },
+      "improvement_percent": 1.515779637064918,
+      "passed": true
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "runs": [
+        {
+          "id": "auto_7680x4320_0_original",
+          "width": 7680,
+          "height": 4320,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+            "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+          "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+          "whole_ms": 58.39584,
+          "owned_memory": {
+            "allocation_info_bytes_created": 4124573696,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 4124573696,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 4124573696
+          },
+          "family_ms": {},
+          "receipt_sha256": "da2658888bf58e847778b8d75c59f88647c7e2c677de7a4d30cd334ea56e40c4",
+          "telemetry": {
+            "samples": 70,
+            "clocks.current.sm": {
+              "median": 2572.0,
+              "min": 2550.0,
+              "max": 2602.0
+            },
+            "temperature.gpu": {
+              "median": 77.0,
+              "min": 76.0,
+              "max": 78.0
+            },
+            "power.draw": {
+              "median": 359.935,
+              "min": 358.87,
+              "max": 361.91
+            },
+            "utilization.gpu": {
+              "median": 98.5,
+              "min": 98.0,
+              "max": 99.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_7680x4320_1_automatic",
+          "width": 7680,
+          "height": 4320,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+            "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+          "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+          "whole_ms": 57.42864,
+          "owned_memory": {
+            "allocation_info_bytes_created": 4124573696,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 4124573696,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 4124573696
+          },
+          "family_ms": {},
+          "receipt_sha256": "355b5e381a0e6fe3b1a551667ca2f69614ca5fee6902e0d19b395391ece5ed77",
+          "telemetry": {
+            "samples": 69,
+            "clocks.current.sm": {
+              "median": 2550.0,
+              "min": 2527.0,
+              "max": 2557.0
+            },
+            "temperature.gpu": {
+              "median": 78.0,
+              "min": 77.0,
+              "max": 79.0
+            },
+            "power.draw": {
+              "median": 359.94,
+              "min": 359.11,
+              "max": 360.77
+            },
+            "utilization.gpu": {
+              "median": 99.0,
+              "min": 98.0,
+              "max": 99.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": [
+            "cc_split_swin_16h_proj_512_chained_fp8",
+            "cc_vit_1d_attention_chained_fp8"
+          ]
+        },
+        {
+          "id": "auto_7680x4320_2_automatic",
+          "width": 7680,
+          "height": 4320,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+            "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+          "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+          "whole_ms": 57.41576,
+          "owned_memory": {
+            "allocation_info_bytes_created": 4124573696,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 4124573696,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 4124573696
+          },
+          "family_ms": {},
+          "receipt_sha256": "a2ebbd9aff4f66af96213e7979af7c9ee7dd8d9b94ac103ea93df33e8727e66f",
+          "telemetry": {
+            "samples": 69,
+            "clocks.current.sm": {
+              "median": 2535.0,
+              "min": 2520.0,
+              "max": 2625.0
+            },
+            "temperature.gpu": {
+              "median": 80.0,
+              "min": 79.0,
+              "max": 80.0
+            },
+            "power.draw": {
+              "median": 360.03,
+              "min": 358.77,
+              "max": 361.11
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 98.0,
+              "max": 99.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": [
+            "cc_split_swin_16h_proj_512_chained_fp8",
+            "cc_vit_1d_attention_chained_fp8"
+          ]
+        },
+        {
+          "id": "auto_7680x4320_3_original",
+          "width": 7680,
+          "height": 4320,
+          "frames": 256,
+          "warmup": 128,
+          "profile": false,
+          "hashes": {
+            "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+            "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+          "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+          "whole_ms": 58.72176,
+          "owned_memory": {
+            "allocation_info_bytes_created": 4124573696,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 4124573696,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 4124573696
+          },
+          "family_ms": {},
+          "receipt_sha256": "2f38f4a42033d59801c471aa1293609c67d1dc8a7642a0beec3d3833790ee830",
+          "telemetry": {
+            "samples": 70,
+            "clocks.current.sm": {
+              "median": 2542.0,
+              "min": 2535.0,
+              "max": 2572.0
+            },
+            "temperature.gpu": {
+              "median": 81.0,
+              "min": 79.0,
+              "max": 81.0
+            },
+            "power.draw": {
+              "median": 359.8,
+              "min": 358.84,
+              "max": 360.83
+            },
+            "utilization.gpu": {
+              "median": 99.0,
+              "min": 98.0,
+              "max": 99.0
+            }
+          },
+          "route": "original"
+        }
+      ],
+      "means_ms": {
+        "original": 58.558800000000005,
+        "automatic": 57.422200000000004
+      },
+      "improvement_percent": 1.9409550742159998,
+      "passed": true
+    },
+    {
+      "width": 5760,
+      "height": 3239,
+      "runs": [
+        {
+          "id": "auto_5760x3239_0_original",
+          "width": 5760,
+          "height": 3239,
+          "frames": 128,
+          "warmup": 32,
+          "profile": false,
+          "hashes": {
+            "0": "6afb70b6b721bd6ea8b07a9abbe75f42ae2ccade4b7403bd0f317f9e38ef3ce2",
+            "127": "6263a86cfd6b85063f20ae3e064a9f6d61048618e8d0855f6b7d6e7e078e1013"
+          },
+          "input_sha256": "94cd8617bb2945a3d763291ad26088a15472514d2e623490f6eafa7930215024",
+          "motion_sha256": "51c204cb4588dba4dae2d538d5653a22ee3155a67ee615867b98d6088ecb3f06",
+          "whole_ms": 31.821296,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "017a06f5cd1407b987d8f3c80e634d0d343b38b422cdc2103772f7961fb29a95",
+          "telemetry": {
+            "samples": 29,
+            "clocks.current.sm": {
+              "median": 2542.0,
+              "min": 2527.0,
+              "max": 2580.0
+            },
+            "temperature.gpu": {
+              "median": 79.0,
+              "min": 77.0,
+              "max": 80.0
+            },
+            "power.draw": {
+              "median": 359.9,
+              "min": 228.22,
+              "max": 369.48
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_5760x3239_1_automatic",
+          "width": 5760,
+          "height": 3239,
+          "frames": 128,
+          "warmup": 32,
+          "profile": false,
+          "hashes": {
+            "0": "6afb70b6b721bd6ea8b07a9abbe75f42ae2ccade4b7403bd0f317f9e38ef3ce2",
+            "127": "6263a86cfd6b85063f20ae3e064a9f6d61048618e8d0855f6b7d6e7e078e1013"
+          },
+          "input_sha256": "94cd8617bb2945a3d763291ad26088a15472514d2e623490f6eafa7930215024",
+          "motion_sha256": "51c204cb4588dba4dae2d538d5653a22ee3155a67ee615867b98d6088ecb3f06",
+          "whole_ms": 31.523184,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2399272960,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2399272960,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2399272960
+          },
+          "family_ms": {},
+          "receipt_sha256": "75e658713c56e83965c7429ede984196a5f9823bfbac22f2456dde7920a9912d",
+          "telemetry": {
+            "samples": 29,
+            "clocks.current.sm": {
+              "median": 2542.0,
+              "min": 2535.0,
+              "max": 2557.0
+            },
+            "temperature.gpu": {
+              "median": 79.0,
+              "min": 77.0,
+              "max": 80.0
+            },
+            "power.draw": {
+              "median": 359.98,
+              "min": 303.37,
+              "max": 361.58
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 98.0,
+              "max": 98.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": []
+        }
+      ],
+      "means_ms": {
+        "original": 31.821296,
+        "automatic": 31.523184
+      },
+      "improvement_percent": 0.9368317368343537,
+      "passed": true
+    },
+    {
+      "width": 5761,
+      "height": 3241,
+      "runs": [
+        {
+          "id": "auto_5761x3241_0_original",
+          "width": 5761,
+          "height": 3241,
+          "frames": 128,
+          "warmup": 32,
+          "profile": false,
+          "hashes": {
+            "0": "c767ee2574bd5acf7edbb6aa9a8503d3b7564815a1970be2c86e2cc17f833682",
+            "127": "00aae7b7f46d322116dcf9a027194bb3e1ea5f478ed4c9107aca4233dd1c379c"
+          },
+          "input_sha256": "56841b55ee0b053fdaad6b2843d2ba296dbb9903d1177d87846bc96aaef4fdcf",
+          "motion_sha256": "22d0b7bd92a546aeb937ef5602bdb33c196bfded2cdff83b8e7b09bac86ff83f",
+          "whole_ms": 31.844768,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2418606080,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2418606080,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2418606080
+          },
+          "family_ms": {},
+          "receipt_sha256": "beac42eef7187abc3535bb57689b36b1c1f37da5dc7e3640537ee5f693abffb5",
+          "telemetry": {
+            "samples": 29,
+            "clocks.current.sm": {
+              "median": 2542.0,
+              "min": 2535.0,
+              "max": 2572.0
+            },
+            "temperature.gpu": {
+              "median": 78.0,
+              "min": 76.0,
+              "max": 80.0
+            },
+            "power.draw": {
+              "median": 359.91,
+              "min": 238.06,
+              "max": 360.3
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "original"
+        },
+        {
+          "id": "auto_5761x3241_1_automatic",
+          "width": 5761,
+          "height": 3241,
+          "frames": 128,
+          "warmup": 32,
+          "profile": false,
+          "hashes": {
+            "0": "c767ee2574bd5acf7edbb6aa9a8503d3b7564815a1970be2c86e2cc17f833682",
+            "127": "00aae7b7f46d322116dcf9a027194bb3e1ea5f478ed4c9107aca4233dd1c379c"
+          },
+          "input_sha256": "56841b55ee0b053fdaad6b2843d2ba296dbb9903d1177d87846bc96aaef4fdcf",
+          "motion_sha256": "22d0b7bd92a546aeb937ef5602bdb33c196bfded2cdff83b8e7b09bac86ff83f",
+          "whole_ms": 31.207584,
+          "owned_memory": {
+            "allocation_info_bytes_created": 2418606080,
+            "allocation_info_bytes_released": 0,
+            "live_allocation_info_bytes": 2418606080,
+            "live_objects": 9,
+            "object_release_callbacks": 0,
+            "objects_created": 9,
+            "peak_allocation_info_bytes": 2418606080
+          },
+          "family_ms": {},
+          "receipt_sha256": "ee83fab3ae26b43ae60fff76fec7963f4d7ae4aec1946d6f21e7a3c2206b92d2",
+          "telemetry": {
+            "samples": 28,
+            "clocks.current.sm": {
+              "median": 2535.0,
+              "min": 2520.0,
+              "max": 2535.0
+            },
+            "temperature.gpu": {
+              "median": 78.0,
+              "min": 76.0,
+              "max": 79.0
+            },
+            "power.draw": {
+              "median": 360.01,
+              "min": 329.1,
+              "max": 360.87
+            },
+            "utilization.gpu": {
+              "median": 98.0,
+              "min": 97.0,
+              "max": 98.0
+            }
+          },
+          "route": "automatic",
+          "large_input_kernels": [
+            "cc_split_swin_16h_proj_512_chained_fp8",
+            "cc_vit_1d_attention_chained_fp8"
+          ]
+        }
+      ],
+      "means_ms": {
+        "original": 31.844768,
+        "automatic": 31.207584
+      },
+      "improvement_percent": 2.000906396931512,
+      "passed": true
+    }
+  ],
+  "resolution_policy": {
+    "large_input_min_pixels": 18662400,
+    "uses_actual_neural_input": true,
+    "compiled_modules": 41,
+    "created_function_handles": 41,
+    "additional_kernel_code_bytes": 82024,
+    "scope": "Empirical RTX5080 policy; no optimality claim for unmeasured shapes/devices."
+  },
+  "resources": [
+    {
+      "target": "attention_global",
+      "candidate": "attention_global_reg_128",
+      "original": {
+        "resources": {
+          "REG": 176,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 2,
+        "active_warps_per_sm": 8,
+        "static_instruction_counts": {
+          "LDG": 16,
+          "STG": 16,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 8,
+          "STS": 4,
+          "BAR": 6,
+          "MEMBAR": 7,
+          "QMMA": 64
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 4,
+        "active_warps_per_sm": 16,
+        "static_instruction_counts": {
+          "LDG": 16,
+          "STG": 16,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 8,
+          "STS": 4,
+          "BAR": 6,
+          "MEMBAR": 7,
+          "QMMA": 64
+        }
+      }
+    },
+    {
+      "target": "projection_512",
+      "candidate": "projection_512_reg_128",
+      "original": {
+        "resources": {
+          "REG": 142,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 1,
+        "active_warps_per_sm": 8,
+        "static_instruction_counts": {
+          "LDG": 76,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 32,
+          "STS": 8,
+          "BAR": 6,
+          "MEMBAR": 6,
+          "QMMA": 256
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 2,
+        "active_warps_per_sm": 16,
+        "static_instruction_counts": {
+          "LDG": 76,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 32,
+          "STS": 8,
+          "BAR": 6,
+          "MEMBAR": 6,
+          "QMMA": 256
+        }
+      }
+    },
+    {
+      "target": "qkv_512",
+      "candidate": "qkv_512_control",
+      "original": {
+        "resources": {
+          "REG": 210,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 2,
+        "active_warps_per_sm": 8,
+        "static_instruction_counts": {
+          "LDG": 42,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 16,
+          "STS": 4,
+          "BAR": 4,
+          "MEMBAR": 4,
+          "QMMA": 256
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 210,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 2,
+        "active_warps_per_sm": 8,
+        "static_instruction_counts": {
+          "LDG": 42,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 16,
+          "STS": 4,
+          "BAR": 4,
+          "MEMBAR": 4,
+          "QMMA": 256
+        }
+      }
+    },
+    {
+      "target": "input_64",
+      "candidate": "input_64_vector_reg_160",
+      "original": {
+        "resources": {
+          "REG": 128,
+          "STACK": 24,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 8,
+        "active_warps_per_sm": 16,
+        "static_instruction_counts": {
+          "LDG": 401,
+          "STG": 16,
+          "LDL": 8,
+          "STL": 5,
+          "LDS": 20,
+          "STS": 8,
+          "BAR": 7,
+          "MEMBAR": 1,
+          "QMMA": 416
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 6,
+        "active_warps_per_sm": 12,
+        "static_instruction_counts": {
+          "LDG": 125,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 20,
+          "STS": 8,
+          "BAR": 7,
+          "MEMBAR": 1,
+          "QMMA": 416
+        }
+      }
+    },
+    {
+      "target": "output_64",
+      "candidate": "output_64_vector_data",
+      "original": {
+        "resources": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 6,
+        "active_warps_per_sm": 12,
+        "static_instruction_counts": {
+          "LDG": 401,
+          "STG": 0,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 20,
+          "STS": 8,
+          "BAR": 7,
+          "MEMBAR": 0,
+          "QMMA": 416
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 6,
+        "active_warps_per_sm": 12,
+        "static_instruction_counts": {
+          "LDG": 113,
+          "STG": 0,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 20,
+          "STS": 8,
+          "BAR": 7,
+          "MEMBAR": 0,
+          "QMMA": 416
+        }
+      }
+    },
+    {
+      "target": "downsample_64",
+      "candidate": "downsample_64_vector_reg_160",
+      "original": {
+        "resources": {
+          "REG": 123,
+          "STACK": 8,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 8,
+        "active_warps_per_sm": 16,
+        "static_instruction_counts": {
+          "LDG": 433,
+          "STG": 16,
+          "LDL": 2,
+          "STL": 2,
+          "LDS": 22,
+          "STS": 9,
+          "BAR": 10,
+          "MEMBAR": 0,
+          "QMMA": 432
+        }
+      },
+      "selected": {
+        "resources": {
+          "REG": 158,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        },
+        "active_blocks_per_sm": 6,
+        "active_warps_per_sm": 12,
+        "static_instruction_counts": {
+          "LDG": 121,
+          "STG": 4,
+          "LDL": 0,
+          "STL": 0,
+          "LDS": 22,
+          "STS": 9,
+          "BAR": 10,
+          "MEMBAR": 0,
+          "QMMA": 432
+        }
+      }
+    }
+  ],
+  "screening_method": "96 full-network frames, discard32, one changed kernel. Per-launch timing screening at8K; baseline brackets every4 candidates. Neither whole intervals nor summed family medians from instrumented screening are shipping speed claims.",
+  "screening_comparisons": [
+    {
+      "candidate": "attention_global_l2_loads",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_00",
+      "baseline_after": "8k_baseline_01",
+      "baseline_ms": 7.533104,
+      "candidate_ms": 7.56656,
+      "difference_ms": 0.03345600000000015,
+      "difference_percent": 0.444119714794855,
+      "resources": {
+        "REG": 176,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "attention_global_cached_stores",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_00",
+      "baseline_after": "8k_baseline_01",
+      "baseline_ms": 7.533104,
+      "candidate_ms": 7.607488,
+      "difference_ms": 0.07438400000000023,
+      "difference_percent": 0.9874282898523656,
+      "resources": {
+        "REG": 176,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "attention_global_vector_data",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_00",
+      "baseline_after": "8k_baseline_01",
+      "baseline_ms": 7.533104,
+      "candidate_ms": 7.620528,
+      "difference_ms": 0.08742400000000039,
+      "difference_percent": 1.1605309046576417,
+      "resources": {
+        "REG": 176,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "projection_512_l2_loads",
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "baseline_before": "8k_baseline_00",
+      "baseline_after": "8k_baseline_01",
+      "baseline_ms": 1.130176,
+      "candidate_ms": 1.3519999999999999,
+      "difference_ms": 0.2218239999999998,
+      "difference_percent": 19.627385469165848,
+      "resources": {
+        "REG": 142,
+        "STACK": 0,
+        "SHARED": 14360,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "projection_512_cached_stores",
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "baseline_before": "8k_baseline_01",
+      "baseline_after": "8k_baseline_02",
+      "baseline_ms": 1.136968,
+      "candidate_ms": 1.139328,
+      "difference_ms": 0.0023599999999999177,
+      "difference_percent": 0.20756960618064646,
+      "resources": {
+        "REG": 142,
+        "STACK": 0,
+        "SHARED": 14360,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "qkv_512_l2_loads",
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "baseline_before": "8k_baseline_01",
+      "baseline_after": "8k_baseline_02",
+      "baseline_ms": 2.944656,
+      "candidate_ms": 2.9838240000000003,
+      "difference_ms": 0.03916800000000009,
+      "difference_percent": 1.330138393075453,
+      "resources": {
+        "REG": 210,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "qkv_512_cached_stores",
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "baseline_before": "8k_baseline_01",
+      "baseline_after": "8k_baseline_02",
+      "baseline_ms": 2.944656,
+      "candidate_ms": 2.955552,
+      "difference_ms": 0.010895999999999795,
+      "difference_percent": 0.3700262441521218,
+      "resources": {
+        "REG": 210,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "input_64_l2_loads",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "baseline_before": "8k_baseline_01",
+      "baseline_after": "8k_baseline_02",
+      "baseline_ms": 0.776024,
+      "candidate_ms": 3.4460319999999998,
+      "difference_ms": 2.6700079999999997,
+      "difference_percent": 344.0625547663474,
+      "resources": {
+        "REG": 128,
+        "STACK": 24,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "input_64_cached_stores",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "baseline_before": "8k_baseline_02",
+      "baseline_after": "8k_baseline_03",
+      "baseline_ms": 0.7803599999999999,
+      "candidate_ms": 0.779056,
+      "difference_ms": -0.0013039999999999718,
+      "difference_percent": -0.16710236301193948,
+      "resources": {
+        "REG": 128,
+        "STACK": 24,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "input_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "baseline_before": "8k_baseline_02",
+      "baseline_after": "8k_baseline_03",
+      "baseline_ms": 0.7803599999999999,
+      "candidate_ms": 0.676304,
+      "difference_ms": -0.10405599999999993,
+      "difference_percent": -13.33435850120457,
+      "resources": {
+        "REG": 128,
+        "STACK": 40,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "output_64_l2_loads",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "baseline_before": "8k_baseline_02",
+      "baseline_after": "8k_baseline_03",
+      "baseline_ms": 0.774224,
+      "candidate_ms": 3.364944,
+      "difference_ms": 2.59072,
+      "difference_percent": 334.62150488747443,
+      "resources": {
+        "REG": 160,
+        "STACK": 0,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "output_64_cached_stores",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "baseline_before": "8k_baseline_02",
+      "baseline_after": "8k_baseline_03",
+      "baseline_ms": 0.774224,
+      "candidate_ms": 0.775328,
+      "difference_ms": 0.0011039999999999939,
+      "difference_percent": 0.14259439128727625,
+      "resources": {
+        "REG": 160,
+        "STACK": 0,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "output_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "baseline_before": "8k_baseline_03",
+      "baseline_after": "8k_baseline_04",
+      "baseline_ms": 0.773232,
+      "candidate_ms": 0.653424,
+      "difference_ms": -0.11980800000000003,
+      "difference_percent": -15.49444409957167,
+      "resources": {
+        "REG": 160,
+        "STACK": 0,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "downsample_64_l2_loads",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "baseline_before": "8k_baseline_03",
+      "baseline_after": "8k_baseline_04",
+      "baseline_ms": 0.857216,
+      "candidate_ms": 3.849088,
+      "difference_ms": 2.991872,
+      "difference_percent": 349.0219501269225,
+      "resources": {
+        "REG": 123,
+        "STACK": 8,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "downsample_64_cached_stores",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "baseline_before": "8k_baseline_03",
+      "baseline_after": "8k_baseline_04",
+      "baseline_ms": 0.857216,
+      "candidate_ms": 0.860736,
+      "difference_ms": 0.0035199999999999676,
+      "difference_percent": 0.41063162610124326,
+      "resources": {
+        "REG": 123,
+        "STACK": 8,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "downsample_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "baseline_before": "8k_baseline_03",
+      "baseline_after": "8k_baseline_04",
+      "baseline_ms": 0.857216,
+      "candidate_ms": 0.71152,
+      "difference_ms": -0.14569599999999994,
+      "difference_percent": -16.99641630580856,
+      "resources": {
+        "REG": 123,
+        "STACK": 48,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "attention_global_reg_128",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_04",
+      "baseline_after": "8k_baseline_05",
+      "baseline_ms": 7.729736,
+      "candidate_ms": 6.749040000000001,
+      "difference_ms": -0.9806959999999991,
+      "difference_percent": -12.687315582317416,
+      "resources": {
+        "REG": 128,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "attention_global_reg_160",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_04",
+      "baseline_after": "8k_baseline_05",
+      "baseline_ms": 7.729736,
+      "candidate_ms": 7.260688,
+      "difference_ms": -0.4690479999999999,
+      "difference_percent": -6.068098574129833,
+      "resources": {
+        "REG": 160,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "attention_global_reg_192",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "baseline_before": "8k_baseline_04",
+      "baseline_after": "8k_baseline_05",
+      "baseline_ms": 7.729736,
+      "candidate_ms": 7.978432,
+      "difference_ms": 0.2486959999999998,
+      "difference_percent": 3.2173931942824474,
+      "resources": {
+        "REG": 176,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "projection_512_reg_128",
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "baseline_before": "8k_baseline_04",
+      "baseline_after": "8k_baseline_05",
+      "baseline_ms": 1.147144,
+      "candidate_ms": 0.770416,
+      "difference_ms": -0.37672799999999995,
+      "difference_percent": -32.840515227382085,
+      "resources": {
+        "REG": 128,
+        "STACK": 0,
+        "SHARED": 14360,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "projection_512_reg_160",
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "baseline_before": "8k_baseline_05",
+      "baseline_after": "8k_baseline_06",
+      "baseline_ms": 1.149136,
+      "candidate_ms": 1.210544,
+      "difference_ms": 0.06140800000000013,
+      "difference_percent": 5.3438409378872676,
+      "resources": {
+        "REG": 150,
+        "STACK": 0,
+        "SHARED": 14360,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "qkv_512_reg_168",
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "baseline_before": "8k_baseline_05",
+      "baseline_after": "8k_baseline_06",
+      "baseline_ms": 2.9759200000000003,
+      "candidate_ms": 3.174944,
+      "difference_ms": 0.19902399999999965,
+      "difference_percent": 6.687814188553443,
+      "resources": {
+        "REG": 168,
+        "STACK": 128,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "qkv_512_reg_192",
+      "kernel": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "baseline_before": "8k_baseline_05",
+      "baseline_after": "8k_baseline_06",
+      "baseline_ms": 2.9759200000000003,
+      "candidate_ms": 3.2533760000000003,
+      "difference_ms": 0.2774559999999999,
+      "difference_percent": 9.323368907766326,
+      "resources": {
+        "REG": 183,
+        "STACK": 0,
+        "SHARED": 10256,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "input_64_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "baseline_before": "8k_baseline_05",
+      "baseline_after": "8k_baseline_06",
+      "baseline_ms": 0.782016,
+      "candidate_ms": 0.773328,
+      "difference_ms": -0.008688000000000029,
+      "difference_percent": -1.110974711514856,
+      "resources": {
+        "REG": 159,
+        "STACK": 0,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "downsample_64_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "baseline_before": "8k_baseline_06",
+      "baseline_after": "8k_baseline_07",
+      "baseline_ms": 0.85904,
+      "candidate_ms": 0.870512,
+      "difference_ms": 0.011471999999999927,
+      "difference_percent": 1.3354442168001412,
+      "resources": {
+        "REG": 160,
+        "STACK": 0,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    },
+    {
+      "candidate": "output_64_reg_128",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "baseline_before": "8k_baseline_06",
+      "baseline_after": "8k_baseline_07",
+      "baseline_ms": 0.7732479999999999,
+      "candidate_ms": 0.8009919999999999,
+      "difference_ms": 0.02774399999999999,
+      "difference_percent": 3.587982122165201,
+      "resources": {
+        "REG": 128,
+        "STACK": 80,
+        "SHARED": 6144,
+        "LOCAL": 0
+      }
+    }
+  ],
+  "followup_comparisons": [
+    {
+      "label": "8k_vector_nospill",
+      "candidate": "attention_global_vector_reg_128",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "width": 7680,
+      "height": 4320,
+      "baseline_ms": 7.613008,
+      "candidate_ms": 6.699567999999999,
+      "difference_percent": -11.99841114051109
+    },
+    {
+      "label": "8k_vector_nospill",
+      "candidate": "input_64_vector_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "width": 7680,
+      "height": 4320,
+      "baseline_ms": 0.7697039999999999,
+      "candidate_ms": 0.659984,
+      "difference_percent": -14.254830428320487
+    },
+    {
+      "label": "8k_vector_nospill",
+      "candidate": "input_64_vector_reg_192",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "width": 7680,
+      "height": 4320,
+      "baseline_ms": 0.7697039999999999,
+      "candidate_ms": 0.7372639999999999,
+      "difference_percent": -4.214607173666762
+    },
+    {
+      "label": "8k_vector_nospill",
+      "candidate": "downsample_64_vector_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "width": 7680,
+      "height": 4320,
+      "baseline_ms": 0.8479920000000001,
+      "candidate_ms": 0.6908639999999999,
+      "difference_percent": -18.529420088868775
+    },
+    {
+      "label": "8k_vector_nospill",
+      "candidate": "downsample_64_vector_reg_192",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "width": 7680,
+      "height": 4320,
+      "baseline_ms": 0.8479920000000001,
+      "candidate_ms": 0.7940959999999999,
+      "difference_percent": -6.355720336984327
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "attention_global_reg_128",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.096968,
+      "candidate_ms": 0.16168,
+      "difference_percent": 66.73541786981272
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "attention_global_vector_reg_128",
+      "kernel": "cc_vit_1d_attention_chained_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.096968,
+      "candidate_ms": 0.161472,
+      "difference_percent": 66.52091411599703
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "projection_512_reg_128",
+      "kernel": "cc_split_swin_16h_proj_512_chained_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.073488,
+      "candidate_ms": 0.101968,
+      "difference_percent": 38.754626605704345
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "input_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.058616,
+      "candidate_ms": 0.049423999999999996,
+      "difference_percent": -15.681725126245405
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "input_64_vector_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.058616,
+      "candidate_ms": 0.047664,
+      "difference_percent": -18.684318274873757
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "downsample_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.054096,
+      "candidate_ms": 0.043567999999999996,
+      "difference_percent": -19.461697722567294
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "downsample_64_vector_reg_160",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.054096,
+      "candidate_ms": 0.04608,
+      "difference_percent": -14.81810115350487
+    },
+    {
+      "label": "1080_candidates",
+      "candidate": "output_64_vector_data",
+      "kernel": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "width": 1920,
+      "height": 1080,
+      "baseline_ms": 0.049936,
+      "candidate_ms": 0.041408,
+      "difference_percent": -17.07785966036527
+    }
+  ],
+  "whole_combination_trial": {
+    "passed": true,
+    "selection": [
+      "attention_global_reg_128",
+      "projection_512_reg_128",
+      "input_64_vector_reg_160",
+      "output_64_vector_data",
+      "downsample_64_vector_reg_160"
+    ],
+    "memory_selection": [
+      "input_64_vector_reg_160",
+      "output_64_vector_data",
+      "downsample_64_vector_reg_160"
+    ],
+    "method": "256 full-network frames, discard128. Stock clocks observed, no per-launch timing. Balanced original/memory/candidate/NVIDIA/NVIDIA/candidate/memory/original process order at each extent. GPU interval excludes uploads/readbacks. Means of process medians.",
+    "cases": [
+      {
+        "width": 1920,
+        "height": 1080,
+        "runs": [
+          {
+            "id": "confirm_1920x1080_0_original",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.8508959999999997,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "126f874d2f2edda9f367e1f3238622cd4a1236f6c061b2c65ceefc04bb5e3ee4",
+            "telemetry": {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2760.0,
+                "min": 2745.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 60.0,
+                "min": 55.0,
+                "max": 60.0
+              },
+              "power.draw": {
+                "median": 214.6,
+                "min": 71.57,
+                "max": 214.6
+              },
+              "utilization.gpu": {
+                "median": 88.0,
+                "min": 88.0,
+                "max": 89.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          {
+            "id": "confirm_1920x1080_1_memory",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.832528,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "b8855958b503cb78b533a76607f5ae246e5a5c9d59a63f6125b46faf8857b141",
+            "telemetry": {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2760.0,
+                "min": 2655.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 61.0,
+                "min": 54.0,
+                "max": 61.0
+              },
+              "power.draw": {
+                "median": 231.86,
+                "min": 92.69,
+                "max": 231.86
+              },
+              "utilization.gpu": {
+                "median": 87.0,
+                "min": 77.0,
+                "max": 87.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          {
+            "id": "confirm_1920x1080_2_candidate",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.860496,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "ce8786307b429db950584d2fca2da2c9570a701976189c5e2e0ea589863819e0",
+            "telemetry": {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2760.0,
+                "min": 1657.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 62.0,
+                "min": 52.0,
+                "max": 62.0
+              },
+              "power.draw": {
+                "median": 216.64,
+                "min": 69.01,
+                "max": 216.64
+              },
+              "utilization.gpu": {
+                "median": 87.0,
+                "min": 49.0,
+                "max": 87.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          {
+            "id": "confirm_1920x1080_3_nvidia",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050",
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.879328,
+            "receipt_sha256": "b5a562a3f8e9a2a1fade83b2d89bd057fd1ba78077a38ad6b665a92b9d89d446",
+            "telemetry": {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2805.0,
+                "min": 2775.0,
+                "max": 2805.0
+              },
+              "temperature.gpu": {
+                "median": 61.0,
+                "min": 61.0,
+                "max": 62.0
+              },
+              "power.draw": {
+                "median": 166.55,
+                "min": 166.55,
+                "max": 299.79
+              },
+              "utilization.gpu": {
+                "median": 88.0,
+                "min": 86.0,
+                "max": 88.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_1920x1080_4_nvidia",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050",
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.877712,
+            "receipt_sha256": "f1d7264c7d21688045d650845aa8ba09029fbd02551c604c282ce01d89e1a21f",
+            "telemetry": {
+              "samples": 5,
+              "clocks.current.sm": {
+                "median": 2797.0,
+                "min": 2797.0,
+                "max": 2797.0
+              },
+              "temperature.gpu": {
+                "median": 62.0,
+                "min": 62.0,
+                "max": 62.0
+              },
+              "power.draw": {
+                "median": 199.54,
+                "min": 199.54,
+                "max": 199.54
+              },
+              "utilization.gpu": {
+                "median": 88.0,
+                "min": 88.0,
+                "max": 88.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_1920x1080_5_candidate",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.8599360000000003,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "43fead0d3302ba0bcb2c7cf7eeb3ddc1f468396af788d3836ecf7fdf562b2bd4",
+            "telemetry": {
+              "samples": 5,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2745.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 63.0,
+                "min": 60.0,
+                "max": 63.0
+              },
+              "power.draw": {
+                "median": 274.71,
+                "min": 123.19,
+                "max": 274.71
+              },
+              "utilization.gpu": {
+                "median": 90.0,
+                "min": 89.0,
+                "max": 90.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          {
+            "id": "confirm_1920x1080_6_memory",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.83568,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "8662ba78b1d86dfcc1b990d25747b9b05b38d40b3cad4651f29d871fd191893f",
+            "telemetry": {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2752.0,
+                "min": 2752.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 63.0,
+                "min": 62.0,
+                "max": 63.0
+              },
+              "power.draw": {
+                "median": 243.89,
+                "min": 107.14,
+                "max": 243.89
+              },
+              "utilization.gpu": {
+                "median": 89.0,
+                "min": 89.0,
+                "max": 89.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          },
+          {
+            "id": "confirm_1920x1080_7_original",
+            "width": 1920,
+            "height": 1080,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+              "255": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+            },
+            "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
+            "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
+            "whole_ms": 3.861504,
+            "owned_memory": {
+              "allocation_info_bytes_created": 421265408,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 421265408,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 421265408
+            },
+            "family_ms": {},
+            "receipt_sha256": "a0a3115c82d0b26017c3360e416f12215e1368c86d89d393d1481444769cce40",
+            "telemetry": {
+              "samples": 5,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2527.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 64.0,
+                "min": 62.0,
+                "max": 64.0
+              },
+              "power.draw": {
+                "median": 243.9,
+                "min": 109.37,
+                "max": 243.9
+              },
+              "utilization.gpu": {
+                "median": 90.0,
+                "min": 89.0,
+                "max": 90.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "7c1975d84cbf3d0612dbc3e2b875264b337b03a8a71abab9d02c07b78492d050"
+          }
+        ],
+        "means_ms": {
+          "original": 3.8562,
+          "memory": 3.834104,
+          "candidate": 3.8602160000000003,
+          "nvidia": 3.87852
+        },
+        "memory_improvement_percent": 0.5729993257611143,
+        "improvement_percent": -0.10414397593487834,
+        "candidate_vs_nvidia_percent": -0.4719325928446816,
+        "passed": true
+      },
+      {
+        "width": 3840,
+        "height": 2160,
+        "runs": [
+          {
+            "id": "confirm_3840x2160_0_original",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.13768,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "d05157b29fb8e915a0feb1f79f86697bebd60b16965ca111b13047423ce82373",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2640.0,
+                "min": 2632.0,
+                "max": 2647.0
+              },
+              "temperature.gpu": {
+                "median": 69.0,
+                "min": 67.0,
+                "max": 69.0
+              },
+              "power.draw": {
+                "median": 359.93,
+                "min": 359.08,
+                "max": 362.27
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 94.0,
+                "max": 96.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          {
+            "id": "confirm_3840x2160_1_memory",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.106,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "9e990917882235a9feef5cf39b031a94f052f447560f2987f86e014c5ae1b35f",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2625.0,
+                "min": 2625.0,
+                "max": 2632.0
+              },
+              "temperature.gpu": {
+                "median": 70.0,
+                "min": 68.0,
+                "max": 70.0
+              },
+              "power.draw": {
+                "median": 359.99,
+                "min": 358.65,
+                "max": 362.3
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 94.0,
+                "max": 96.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          {
+            "id": "confirm_3840x2160_2_candidate",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.268656,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "3c3d4a6ee5dc2f1090dbd95f99e248979fc99ab1d116764451eb7da96b831be1",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2632.0,
+                "min": 2632.0,
+                "max": 2655.0
+              },
+              "temperature.gpu": {
+                "median": 70.0,
+                "min": 70.0,
+                "max": 72.0
+              },
+              "power.draw": {
+                "median": 359.69,
+                "min": 359.02,
+                "max": 360.21
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 94.0,
+                "max": 96.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          {
+            "id": "confirm_3840x2160_3_nvidia",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b",
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 12.849104,
+            "receipt_sha256": "7cdb8b0abfe1aebfe98542eae03a06c0cfbbb0a2dacfd878a03b51266c3c7bbf",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2655.0,
+                "min": 2655.0,
+                "max": 2655.0
+              },
+              "temperature.gpu": {
+                "median": 71.0,
+                "min": 71.0,
+                "max": 72.0
+              },
+              "power.draw": {
+                "median": 359.68,
+                "min": 359.67,
+                "max": 361.61
+              },
+              "utilization.gpu": {
+                "median": 94.0,
+                "min": 93.0,
+                "max": 96.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_3840x2160_4_nvidia",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b",
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 12.870512,
+            "receipt_sha256": "811da8e982a14cef17a0767fff56ec9dc22be6397c890e25105685198169ead2",
+            "telemetry": {
+              "samples": 16,
+              "clocks.current.sm": {
+                "median": 2655.0,
+                "min": 2655.0,
+                "max": 2670.0
+              },
+              "temperature.gpu": {
+                "median": 72.0,
+                "min": 72.0,
+                "max": 73.0
+              },
+              "power.draw": {
+                "median": 360.24,
+                "min": 359.72,
+                "max": 360.4
+              },
+              "utilization.gpu": {
+                "median": 94.0,
+                "min": 93.0,
+                "max": 95.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_3840x2160_5_candidate",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.500399999999999,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "dd9c48c1f5c736873c66f23b0dd753afcf4f33d929aebcad44ea0caca6ae7d90",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2632.0,
+                "min": 2625.0,
+                "max": 2647.0
+              },
+              "temperature.gpu": {
+                "median": 73.0,
+                "min": 71.0,
+                "max": 74.0
+              },
+              "power.draw": {
+                "median": 359.53,
+                "min": 359.1,
+                "max": 359.94
+              },
+              "utilization.gpu": {
+                "median": 96.0,
+                "min": 94.0,
+                "max": 96.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          {
+            "id": "confirm_3840x2160_6_memory",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.5608,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "4909a85f5d74b60602be0240fd134156de132d32e4b060560f39b69b29edb5b4",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2647.0,
+                "min": 2640.0,
+                "max": 2662.0
+              },
+              "temperature.gpu": {
+                "median": 73.0,
+                "min": 71.0,
+                "max": 73.0
+              },
+              "power.draw": {
+                "median": 359.53,
+                "min": 359.19,
+                "max": 360.41
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 94.0,
+                "max": 96.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          },
+          {
+            "id": "confirm_3840x2160_7_original",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.261136,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "8bb82d2e0c830130ab476dba039702b9bd2aad47c42700444fd8342551cbcf39",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2632.0,
+                "min": 2625.0,
+                "max": 2632.0
+              },
+              "temperature.gpu": {
+                "median": 73.0,
+                "min": 72.0,
+                "max": 73.0
+              },
+              "power.draw": {
+                "median": 359.85,
+                "min": 359.77,
+                "max": 361.25
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 94.0,
+                "max": 95.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+          }
+        ],
+        "means_ms": {
+          "original": 13.199408,
+          "memory": 13.333400000000001,
+          "candidate": 13.384528,
+          "nvidia": 12.859808000000001
+        },
+        "memory_improvement_percent": -1.015136436422015,
+        "improvement_percent": -1.4024871418475637,
+        "candidate_vs_nvidia_percent": 4.080309752680589,
+        "passed": true
+      },
+      {
+        "width": 7680,
+        "height": 4320,
+        "runs": [
+          {
+            "id": "confirm_7680x4320_0_original",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 58.737584,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "93a508fe5980ee7102619d0dff58a8dcdfd1348a9d6797094033c5be8ca139d5",
+            "telemetry": {
+              "samples": 71,
+              "clocks.current.sm": {
+                "median": 2595.0,
+                "min": 2572.0,
+                "max": 2625.0
+              },
+              "temperature.gpu": {
+                "median": 77.0,
+                "min": 75.0,
+                "max": 77.0
+              },
+              "power.draw": {
+                "median": 359.96,
+                "min": 358.84,
+                "max": 360.96
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          {
+            "id": "confirm_7680x4320_1_memory",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 58.806464,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "9529c0d4e5b37f29e239b8518acc580cb9d154f20c7a6d0278830d53d29fabd0",
+            "telemetry": {
+              "samples": 70,
+              "clocks.current.sm": {
+                "median": 2587.0,
+                "min": 2572.0,
+                "max": 2602.0
+              },
+              "temperature.gpu": {
+                "median": 79.0,
+                "min": 78.0,
+                "max": 79.0
+              },
+              "power.draw": {
+                "median": 359.83,
+                "min": 358.7,
+                "max": 360.75
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          {
+            "id": "confirm_7680x4320_2_candidate",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 57.613904000000005,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "69b0b6a9f3c447ccdb60db3cfc993bec6d8daa5c128abaa74609c02e9c25924c",
+            "telemetry": {
+              "samples": 70,
+              "clocks.current.sm": {
+                "median": 2550.0,
+                "min": 2535.0,
+                "max": 2610.0
+              },
+              "temperature.gpu": {
+                "median": 79.0,
+                "min": 77.0,
+                "max": 80.0
+              },
+              "power.draw": {
+                "median": 359.86,
+                "min": 358.45,
+                "max": 361.27
+              },
+              "utilization.gpu": {
+                "median": 99.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          {
+            "id": "confirm_7680x4320_3_nvidia",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f",
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 56.938832000000005,
+            "receipt_sha256": "dd292ca0ad656086805f81d83e2df70b83a862c00314a41329a6b2002fd958f6",
+            "telemetry": {
+              "samples": 69,
+              "clocks.current.sm": {
+                "median": 2595.0,
+                "min": 2587.0,
+                "max": 2662.0
+              },
+              "temperature.gpu": {
+                "median": 81.0,
+                "min": 78.0,
+                "max": 82.0
+              },
+              "power.draw": {
+                "median": 359.99,
+                "min": 359.1,
+                "max": 360.54
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_7680x4320_4_nvidia",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f",
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 56.928576,
+            "receipt_sha256": "befcea805d0a8d1fdd14553e2641550c239adbdfc97a6bfc17bf7aef03218b5f",
+            "telemetry": {
+              "samples": 69,
+              "clocks.current.sm": {
+                "median": 2595.0,
+                "min": 2595.0,
+                "max": 2640.0
+              },
+              "temperature.gpu": {
+                "median": 80.0,
+                "min": 78.0,
+                "max": 81.0
+              },
+              "power.draw": {
+                "median": 359.91,
+                "min": 359.6,
+                "max": 360.67
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "nvidia"
+          },
+          {
+            "id": "confirm_7680x4320_5_candidate",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 57.497904000000005,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "cd6c3e964df22d5f35637fb1e869efadbd2306ba2bd177a2d2913cd35966a7f2",
+            "telemetry": {
+              "samples": 69,
+              "clocks.current.sm": {
+                "median": 2535.0,
+                "min": 2520.0,
+                "max": 2557.0
+              },
+              "temperature.gpu": {
+                "median": 80.0,
+                "min": 78.0,
+                "max": 81.0
+              },
+              "power.draw": {
+                "median": 359.87,
+                "min": 359.25,
+                "max": 360.54
+              },
+              "utilization.gpu": {
+                "median": 99.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "candidate",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          {
+            "id": "confirm_7680x4320_6_memory",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 58.510432,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "690b917e5bee6b34bd773e4e90fc55780beab4328714bd19fed5b47c09336443",
+            "telemetry": {
+              "samples": 70,
+              "clocks.current.sm": {
+                "median": 2557.0,
+                "min": 2535.0,
+                "max": 2595.0
+              },
+              "temperature.gpu": {
+                "median": 82.0,
+                "min": 80.0,
+                "max": 82.0
+              },
+              "power.draw": {
+                "median": 360.01,
+                "min": 359.08,
+                "max": 361.54
+              },
+              "utilization.gpu": {
+                "median": 99.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "memory",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          },
+          {
+            "id": "confirm_7680x4320_7_original",
+            "width": 7680,
+            "height": 4320,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
+              "255": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+            },
+            "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
+            "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
+            "whole_ms": 58.914128000000005,
+            "owned_memory": {
+              "allocation_info_bytes_created": 4124573696,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 4124573696,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 4124573696
+            },
+            "family_ms": {},
+            "receipt_sha256": "3b26d7c5ec7ebd6eceee81087c5eac26e86f62c567d85acf6c27a9734097034b",
+            "telemetry": {
+              "samples": 72,
+              "clocks.current.sm": {
+                "median": 2553.5,
+                "min": 2535.0,
+                "max": 2565.0
+              },
+              "temperature.gpu": {
+                "median": 82.0,
+                "min": 80.0,
+                "max": 83.0
+              },
+              "power.draw": {
+                "median": 359.85,
+                "min": 359.25,
+                "max": 360.99
+              },
+              "utilization.gpu": {
+                "median": 99.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            "route": "original",
+            "final_sha256": "a6391741d823a29f4b24303da9dced0b1426a1f248cd38973e442a4b712bd99f"
+          }
+        ],
+        "means_ms": {
+          "original": 58.825856,
+          "memory": 58.658448,
+          "candidate": 57.555904000000005,
+          "nvidia": 56.933704000000006
+        },
+        "memory_improvement_percent": 0.28458234419912465,
+        "improvement_percent": 2.158833013836625,
+        "candidate_vs_nvidia_percent": 1.0928500278148068,
+        "passed": true
+      }
+    ]
+  },
+  "threshold_trial": {
+    "passed": true,
+    "cases": [
+      {
+        "width": 3840,
+        "height": 2160,
+        "bundle": "E:\\Games\\Reshade\\dlss5-phoenix-addon\\build\\native_memory_investigation_20261013\\memory_bundle",
+        "runs": [
+          {
+            "id": "threshold_3840x2160_0_original",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.240432,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "54a0a613763df37a5470ade5eec3e6dd0adce11b01700c99a6be0b73f7877727",
+            "telemetry": {
+              "samples": 17,
+              "clocks.current.sm": {
+                "median": 2625.0,
+                "min": 2610.0,
+                "max": 2632.0
+              },
+              "temperature.gpu": {
+                "median": 71.0,
+                "min": 70.0,
+                "max": 71.0
+              },
+              "power.draw": {
+                "median": 360.12,
+                "min": 360.09,
+                "max": 360.56
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            "route": "original"
+          },
+          {
+            "id": "threshold_3840x2160_1_candidate",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.171008,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "5bb52e5aa10a109c071df104f2baf95903988affc9eb51abd72ca74f45e13e51",
+            "telemetry": {
+              "samples": 16,
+              "clocks.current.sm": {
+                "median": 2610.0,
+                "min": 2602.0,
+                "max": 2625.0
+              },
+              "temperature.gpu": {
+                "median": 71.0,
+                "min": 70.0,
+                "max": 71.0
+              },
+              "power.draw": {
+                "median": 359.91499999999996,
+                "min": 359.71,
+                "max": 361.59
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            "route": "candidate"
+          },
+          {
+            "id": "threshold_3840x2160_2_candidate",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.186224,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "d6a72c1b875042bda65455bfe94505712cc682e19a309bdb42599a46612733a6",
+            "telemetry": {
+              "samples": 16,
+              "clocks.current.sm": {
+                "median": 2610.0,
+                "min": 2610.0,
+                "max": 2655.0
+              },
+              "temperature.gpu": {
+                "median": 72.0,
+                "min": 72.0,
+                "max": 73.0
+              },
+              "power.draw": {
+                "median": 359.83,
+                "min": 358.33,
+                "max": 360.17
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            "route": "candidate"
+          },
+          {
+            "id": "threshold_3840x2160_3_original",
+            "width": 3840,
+            "height": 2160,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
+              "255": "7e61ecfc34891e29e3d011169a30056a07c1ae286fedd386f367bf019ef1b63b"
+            },
+            "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
+            "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
+            "whole_ms": 13.32496,
+            "owned_memory": {
+              "allocation_info_bytes_created": 1143930880,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 1143930880,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 1143930880
+            },
+            "family_ms": {},
+            "receipt_sha256": "218307431364bfc658df9c72a39ce72f29b156ee4ae6914258d4953625d04e67",
+            "telemetry": {
+              "samples": 16,
+              "clocks.current.sm": {
+                "median": 2602.0,
+                "min": 2602.0,
+                "max": 2610.0
+              },
+              "temperature.gpu": {
+                "median": 73.0,
+                "min": 73.0,
+                "max": 74.0
+              },
+              "power.draw": {
+                "median": 359.98,
+                "min": 359.69,
+                "max": 361.12
+              },
+              "utilization.gpu": {
+                "median": 95.5,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            "route": "original"
+          }
+        ],
+        "means_ms": {
+          "original": 13.282696000000001,
+          "candidate": 13.178616
+        },
+        "improvement_percent": 0.7835758644178958,
+        "passed": true
+      },
+      {
+        "width": 5760,
+        "height": 3240,
+        "bundle": "E:\\Games\\Reshade\\dlss5-phoenix-addon\\build\\native_memory_investigation_20261013\\combined_bundle",
+        "runs": [
+          {
+            "id": "threshold_5760x3240_0_original",
+            "width": 5760,
+            "height": 3240,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+              "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+            },
+            "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+            "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+            "whole_ms": 31.609456,
+            "owned_memory": {
+              "allocation_info_bytes_created": 2399272960,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 2399272960,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 2399272960
+            },
+            "family_ms": {},
+            "receipt_sha256": "6bde610f56f2f549fd1ef06bc8d857730c7e549c8d5abf00be14d1205b717fc7",
+            "telemetry": {
+              "samples": 39,
+              "clocks.current.sm": {
+                "median": 2580.0,
+                "min": 2565.0,
+                "max": 2617.0
+              },
+              "temperature.gpu": {
+                "median": 75.0,
+                "min": 74.0,
+                "max": 76.0
+              },
+              "power.draw": {
+                "median": 359.95,
+                "min": 359.39,
+                "max": 360.38
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            "route": "original"
+          },
+          {
+            "id": "threshold_5760x3240_1_candidate",
+            "width": 5760,
+            "height": 3240,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+              "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+            },
+            "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+            "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+            "whole_ms": 30.983824,
+            "owned_memory": {
+              "allocation_info_bytes_created": 2399272960,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 2399272960,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 2399272960
+            },
+            "family_ms": {},
+            "receipt_sha256": "7659fb29546941bc4102a68aa2993720baf6c03e7267560af831992ef891251e",
+            "telemetry": {
+              "samples": 38,
+              "clocks.current.sm": {
+                "median": 2557.0,
+                "min": 2542.0,
+                "max": 2632.0
+              },
+              "temperature.gpu": {
+                "median": 76.0,
+                "min": 75.0,
+                "max": 77.0
+              },
+              "power.draw": {
+                "median": 359.8,
+                "min": 359.09,
+                "max": 361.27
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            "route": "candidate"
+          },
+          {
+            "id": "threshold_5760x3240_2_candidate",
+            "width": 5760,
+            "height": 3240,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+              "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+            },
+            "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+            "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+            "whole_ms": 31.049408,
+            "owned_memory": {
+              "allocation_info_bytes_created": 2399272960,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 2399272960,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 2399272960
+            },
+            "family_ms": {},
+            "receipt_sha256": "d8490086aff1ccf7a3c8329b03f87a40d56a671b4e70a875220e076ae3c21b72",
+            "telemetry": {
+              "samples": 38,
+              "clocks.current.sm": {
+                "median": 2535.0,
+                "min": 2527.0,
+                "max": 2542.0
+              },
+              "temperature.gpu": {
+                "median": 77.0,
+                "min": 75.0,
+                "max": 78.0
+              },
+              "power.draw": {
+                "median": 360.065,
+                "min": 359.81,
+                "max": 360.15
+              },
+              "utilization.gpu": {
+                "median": 97.5,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            "route": "candidate"
+          },
+          {
+            "id": "threshold_5760x3240_3_original",
+            "width": 5760,
+            "height": 3240,
+            "frames": 256,
+            "warmup": 128,
+            "profile": false,
+            "hashes": {
+              "0": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
+              "255": "d6e3cb8f9ad36d8c6717cf8da82d4e3fb01b3418aee68063e3fdf6b7a617d754"
+            },
+            "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
+            "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
+            "whole_ms": 31.718528,
+            "owned_memory": {
+              "allocation_info_bytes_created": 2399272960,
+              "allocation_info_bytes_released": 0,
+              "live_allocation_info_bytes": 2399272960,
+              "live_objects": 9,
+              "object_release_callbacks": 0,
+              "objects_created": 9,
+              "peak_allocation_info_bytes": 2399272960
+            },
+            "family_ms": {},
+            "receipt_sha256": "d615ed373663ba0ac3f60bc257574f0891023c867c096358edf6e59f857bc5ab",
+            "telemetry": {
+              "samples": 38,
+              "clocks.current.sm": {
+                "median": 2546.0,
+                "min": 2535.0,
+                "max": 2557.0
+              },
+              "temperature.gpu": {
+                "median": 78.0,
+                "min": 76.0,
+                "max": 79.0
+              },
+              "power.draw": {
+                "median": 359.94,
+                "min": 359.89,
+                "max": 360.29
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            "route": "original"
+          }
+        ],
+        "means_ms": {
+          "original": 31.663992,
+          "candidate": 31.016616
+        },
+        "improvement_percent": 2.0445179496002996,
+        "passed": true
+      }
+    ],
+    "method": "256 frames, discard128; original/candidate/candidate/original fresh process order, no per-launch timing. 4K checks memory-only;6K checks combined selection."
+  },
+  "validation": {
+    "passed": true,
+    "cases": [
+      {
+        "width": 640,
+        "height": 384,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "adb19a9bd1dd22fe530ce10694fb39ea619a028ce2a560113281799c491f54fd"
+      },
+      {
+        "width": 1280,
+        "height": 720,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "5decbc9e70b45a364f84459d9eb9fc8064b61aa82c099ad06b5a185b3bd43ad4"
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "db2a414b24d5c0c8f1c766e1ee09e860dc6831c31c1829016ea3fd71cf991c48"
+      },
+      {
+        "width": 2560,
+        "height": 1080,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "d437949d3c05b1cb5e8b9c3b248301990adbeb16155d4fac2931397ea988833f"
+      },
+      {
+        "width": 5760,
+        "height": 3240,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "96eab16fc006efe6d779ccec4dd93af244516375c396bf570314c88c72bf5240"
+      },
+      {
+        "width": 7680,
+        "height": 4320,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "13b73d35a0ee2aa434d7e0f2214f825ca04f023176b8dc5f73ec19040f5aa581"
+      },
+      {
+        "width": 5760,
+        "height": 3239,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "73b67675fa42a693a39ffd196775e1286e9c0dcde562b06cbd196f46d85f0a36"
+      },
+      {
+        "width": 5761,
+        "height": 3241,
+        "exact": true,
+        "frames": 128,
+        "report_sha256": "c55ea8d60bce87f4e0271f804570f37b7c3545e8a0dbd89f60bfe2dbc43650c4"
+      }
+    ],
+    "resolution_variant_coverage": [
+      {
+        "name": "cc_split_swin_16h_proj_512_chained_fp8",
+        "mode": "default"
+      },
+      {
+        "name": "cc_split_swin_16h_proj_512_chained_fp8",
+        "mode": "large"
+      },
+      {
+        "name": "cc_vit_1d_attention_chained_fp8",
+        "mode": "default"
+      },
+      {
+        "name": "cc_vit_1d_attention_chained_fp8",
+        "mode": "large"
+      }
+    ],
+    "kernel_selection_sha256": "4587d94c78c1856b66f855bfb672ed500cea768bfce421dc549c3e87f635c969",
+    "scope": "Candidate reset/final hashes match original Phoenix; matched NVIDIA trial checks final hashes. Not every frame was read back; not moving-scene certification."
+  },
+  "limitations": [
+    "Stock GPU clocks observed, not locked.",
+    "Per-launch queries are diagnostic; use whole-frame trials for speed claims.",
+    "No hardware cache-miss, bandwidth, instruction throughput or dynamic spill-traffic counters available.",
+    "Owned model/frame allocations unchanged; driver/code residency is outside that allocation ledger."
+  ],
+  "addon": {
+    "sha256": "25576abc62674293d0f28e87ec5ad385bbc9e5a27c17d6c2f73ba6ec26a04316",
+    "bytes": 195043840,
+    "cpu_suites": 11,
+    "software_d3d12_suites": 2,
+    "model_and_nvidia_dll_included": false
+  },
+  "raw_receipt_sha256": {
+    "automatic.json": "923375f5edc3a3f8195bbe8b2baf4f7b681062ed74f8f92e611f393a3e17ccb1",
+    "screening.json": "a12face5653b3ff71bbffe53b503cfcdfeb89a90bc417246587169382092945b",
+    "followup.json": "b9030f531eb79de0c63ac950964bb841b970b1b599a5d249ecfee34e173e591f",
+    "confirmation.json": "aceb34f8e7435891a2d9ee6b969db2d05c75fd0a7e499d1925d47bce1123992a",
+    "threshold.json": "3a02a907fb86a2e49a29141d405ef1014cd302076ddb4180e80d8190bb556820",
+    "resource_survey.json": "53a82307012a8e4841b9ec0782141a2c58d1f722cf886a8fad0c670318788a8b",
+    "instruction_verification.json": "ce35a19067a062975e83be81f3ee64d7ae17f6f3adf2b76d1c122e154fc1bf5a",
+    "release_validation/native_validation.json": "4742ed80121d47625b955947c4ebb988ca7eb6e84798e642f0092cbb84cb20c2"
+  }
+}

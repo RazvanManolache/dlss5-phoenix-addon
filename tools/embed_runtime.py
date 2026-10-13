@@ -56,6 +56,15 @@ def prepare(runtime, native, output):
         raise ValueError("Runtime must pass inference validation before packaging")
     if not native_manifest.get("passed") or native_manifest.get("selection_status") != "validated":
         raise ValueError("Native kernels must be validated before packaging")
+    if any("large_input_entry" in kernel for kernel in native_manifest["kernels"]):
+        from validate_native import kernel_selection_digest, require_variant_coverage
+
+        evidence = native_manifest.get("validation", {})
+        if evidence.get("kernel_selection_sha256") != kernel_selection_digest(native_manifest):
+            raise ValueError("Native resolution selection changed since validation")
+        coverage = {(item["name"], item["mode"])
+                    for item in evidence.get("resolution_variant_coverage", [])}
+        require_variant_coverage(native_manifest, coverage)
     files = {}
     excluded = {
         "phoenix_cpp_backend_contracts.exe",

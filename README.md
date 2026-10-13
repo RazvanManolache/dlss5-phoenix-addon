@@ -75,6 +75,9 @@ are necessary even if execution is batched together.
 ## A quick look
 
 - **Run native RTX:** the optimized path and the focus of this project.
+- **Let source builds choose tuned kernels:** automatic selection by neural input
+  resolution preserves the small-input register choices and improves measured
+  6K/8K inference time by about 1.5–1.9%. [Tests and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md).
 - **Explore the portability lab:** experimental CUDA, Vulkan, HIP, CPU and SYCL runners.
 - **Bring a compatible model:** browse to a DLL or model folder and validate it.
 - **Choose resolution and upscaling:** Normal or Super resolution, aspect controls,
