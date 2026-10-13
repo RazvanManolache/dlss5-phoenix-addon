@@ -195,10 +195,13 @@ int wmain(int argc, wchar_t** argv) {
                             uint64_t(operation.row_count - 1) * operation.output_row_stride +
                             operation.column_count;
                     } else if (operation.family == phx::RowReduction) {
-                        elements *= global_scores
-                                        ? (operation.left_batch_stride ? operation.left_batch_stride
-                                                                       : operation.column_count)
-                                        : 32;
+                        const unsigned kind = operation.flags & 255u;
+                        demand(kind == 0 || kind == 1 || kind == 6,
+                               "Piece snapshot does not support this row operation");
+                        const unsigned width = kind == 0 ? 32 : operation.column_count;
+                        elements *= global_scores && operation.left_batch_stride
+                                        ? operation.left_batch_stride
+                                        : width;
                     } else if (operation.family == phx::WindowAttention) {
                         elements *= 64 * 32;
                     } else {
