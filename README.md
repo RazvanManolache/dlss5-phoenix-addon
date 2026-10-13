@@ -51,6 +51,25 @@ Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
 [Resolution report (HTML)](docs/benchmarks/2026-10-13/resolutions.html)
 
+<details>
+<summary>What might VR cost? PSVR2 and Steam Frame estimates</summary>
+
+**Estimates on RTX 5080, not VR benchmarks or verified headset support.** These
+assume two independent views, full network and one pass. A proper stereo batch
+could share scheduling and weights; no batching speedup has been measured.
+
+![Estimated Phoenix and NVIDIA neural cost for both eyes, at panel size and half width/height](docs/benchmarks/2026-10-13/vr-estimated-cost.png)
+
+![Estimated Phoenix frame-budget headroom for PSVR2 and Steam Frame at 90 and 120 Hz](docs/benchmarks/2026-10-13/vr-estimated-budget.png)
+
+Game rendering, upscaling and compositor/streaming costs are additional. Actual
+per-eye render targets can differ from panel resolution. Separate eye histories
+are necessary even if execution is batched together.
+
+[Assumptions, calculations and stereo batching explained](docs/benchmarks/2026-10-13/VR_ESTIMATES.md)
+
+</details>
+
 ## A quick look
 
 - **Run native RTX:** the optimized path and the focus of this project.

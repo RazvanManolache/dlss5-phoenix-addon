@@ -176,6 +176,12 @@ Timing ranges, host memory and numerical receipts: <a href="measurements.json">m
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
 <section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 720p through 8K"></section>
 <section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
+<section><h2>Hypothetical VR costs — not measured in VR</h2>
+<p>RTX 5080 estimates for two independent views, full network and one pass. No stereo-batch speedup assumed.
+Game rendering, upscaling, compositor and streaming costs are additional. Actual per-eye render targets may differ from panel sizes.
+<a href="VR_ESTIMATES.md">Assumptions, calculations and stereo batching</a>.</p>
+<img src="vr-estimated-cost.png" alt="Estimated stereo neural cost for PSVR2 and Steam Frame">
+<img src="vr-estimated-budget.png" alt="Estimated remaining VR frame time at 90 and 120 Hz"></section>
 <section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
 Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
 <label for="extent">Resolution </label><select id="extent">''' + options + '''</select>

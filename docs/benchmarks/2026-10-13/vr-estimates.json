@@ -1,0 +1,202 @@
+{
+  "schema": "phoenix-vr-estimate/1",
+  "status": "ESTIMATES, NOT VR BENCHMARKS",
+  "source_measurements_sha256": "2907001a41555e862e3d4f823e8ed456e8fa2987032459b670672902dacd105a",
+  "source_measurement_date": "2026-10-13",
+  "gpu": "RTX 5080, driver 616.64",
+  "headsets": [
+    {
+      "name": "PSVR2",
+      "width": 2000,
+      "height": 2040,
+      "refresh_hz": [
+        90,
+        120
+      ],
+      "source": "https://www.playstation.com/en-us/ps-vr2/ps-vr2-tech-specs/"
+    },
+    {
+      "name": "Steam Frame",
+      "width": 2160,
+      "height": 2160,
+      "refresh_hz_range": [
+        72,
+        144
+      ],
+      "experimental_refresh_hz": 144,
+      "source": "https://store.steampowered.com/hardware/steamframe"
+    }
+  ],
+  "records": [
+    {
+      "headset": "PSVR2",
+      "mode": "panel",
+      "input_per_eye": [
+        2000,
+        2040
+      ],
+      "input_pixels_both_eyes": 8160000,
+      "stereo_model_ms": {
+        "phoenix": 13.1094546,
+        "nvidia": 12.771192766666667
+      },
+      "interpolation_extents": {
+        "phoenix": [
+          [
+            2560,
+            1440
+          ],
+          [
+            3840,
+            2160
+          ]
+        ],
+        "nvidia": [
+          [
+            2560,
+            1440
+          ],
+          [
+            3840,
+            2160
+          ]
+        ]
+      },
+      "phoenix_headroom_ms": {
+        "90": -1.9983434888888887,
+        "120": -4.7761212666666655
+      }
+    },
+    {
+      "headset": "PSVR2",
+      "mode": "half_linear",
+      "input_per_eye": [
+        1000,
+        1020
+      ],
+      "input_pixels_both_eyes": 2040000,
+      "stereo_model_ms": {
+        "phoenix": 5.238987333333333,
+        "nvidia": 5.3914639
+      },
+      "interpolation_extents": {
+        "phoenix": [
+          [
+            1280,
+            720
+          ],
+          [
+            1920,
+            1080
+          ]
+        ],
+        "nvidia": [
+          [
+            1280,
+            720
+          ],
+          [
+            1920,
+            1080
+          ]
+        ]
+      },
+      "phoenix_headroom_ms": {
+        "90": 5.8721237777777775,
+        "120": 3.0943460000000007
+      }
+    },
+    {
+      "headset": "Steam Frame",
+      "mode": "panel",
+      "input_per_eye": [
+        2160,
+        2160
+      ],
+      "input_pixels_both_eyes": 9331200,
+      "stereo_model_ms": {
+        "phoenix": 14.9847532,
+        "nvidia": 14.551382199999999
+      },
+      "interpolation_extents": {
+        "phoenix": [
+          [
+            2560,
+            1440
+          ],
+          [
+            3840,
+            2160
+          ]
+        ],
+        "nvidia": [
+          [
+            2560,
+            1440
+          ],
+          [
+            3840,
+            2160
+          ]
+        ]
+      },
+      "phoenix_headroom_ms": {
+        "90": -3.8736420888888894,
+        "120": -6.651419866666666
+      }
+    },
+    {
+      "headset": "Steam Frame",
+      "mode": "half_linear",
+      "input_per_eye": [
+        1080,
+        1080
+      ],
+      "input_pixels_both_eyes": 2332800,
+      "stereo_model_ms": {
+        "phoenix": 5.579652,
+        "nvidia": 5.7152458
+      },
+      "interpolation_extents": {
+        "phoenix": [
+          [
+            1280,
+            720
+          ],
+          [
+            1920,
+            1080
+          ]
+        ],
+        "nvidia": [
+          [
+            1280,
+            720
+          ],
+          [
+            1920,
+            1080
+          ]
+        ]
+      },
+      "phoenix_headroom_ms": {
+        "90": 5.53145911111111,
+        "120": 2.7536813333333336
+      }
+    }
+  ],
+  "method": "Stereo time = 2 * piecewise-linear interpolation in single-eye pixel count between neighboring measured native resolutions; no extrapolation or batching gain.",
+  "excluded": [
+    "game rendering",
+    "upscaling",
+    "compositor",
+    "copies",
+    "encoding/transport"
+  ],
+  "limitations": [
+    "Unmeasured eye aspect ratio and padding",
+    "Panel resolution may differ from runtime render target",
+    "No validated stereo integration or visual-quality result",
+    "Batch-2 speedup unmeasured; not a timing bound or error interval"
+  ]
+}

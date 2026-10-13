@@ -61,6 +61,12 @@ matched comparison of runner-only system RAM.
 
 </details>
 
+## Hypothetical VR costs
+
+[PSVR2 and Steam Frame charts, calculations and stereo-batching explanation](VR_ESTIMATES.md).
+These are estimates from the desktop measurements, not VR benchmarks, and are
+kept separate from the measured rows above.
+
 ## Output validation and resolution fixes
 
 - All nine standard extents match NVIDIA exactly at reset and frame 127.
