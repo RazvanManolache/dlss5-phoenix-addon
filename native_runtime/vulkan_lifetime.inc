@@ -3,6 +3,19 @@
 
 /* Explicit C++ initialization avoids process environment and CRT snapshots. */
 static VkPipeline phx_features_pipeline;
+int phoenix_native_wide_init(const char* path, unsigned columns) {
+    if (!g.rready || (columns != 32 && columns != 64))
+        FAIL("invalid wide matrix initialization", 0);
+    if (g.matrix_rows != 16 || g.fp8_k)
+        return 0; // A capability fallback keeps the original matrix engine.
+    free(g.rpaths[12]);
+    if (!(g.rpaths[12] = strdup(path)))
+        FAIL("wide matrix path allocation", 0);
+    if (build_pipeline(path, g.rpl, &phx_wide_pipeline))
+        return -1;
+    phx_wide_columns = columns;
+    return 0;
+}
 // Offsets count stored elements in each operand, not bytes. The generated
 // resident provider adds these view offsets when resolving the five buffer slots.
 void phoenix_native_operand_offsets(uint64_t left_offset, uint64_t right_offset,
@@ -86,6 +99,10 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
                                   : phx_native_matrix_rows == 8     ? matrix8
                                                                     : gemm;
     memcpy(phx_native_uuid, uuid, 33);
+    // The RTX driver passed the complete finite conversion and temporal suites.
+    // The available AMD iGPU failed a half-rounding contract; keep its fallback.
+    phx_native_hardware_half = (options & (1u << 19)) != 0 && selected_vendor == 0x10de;
+    phx_shape_matrices = (options & (1u << 18)) != 0;
     phx_native_configured = 1;
     int result = xmx_init(selected_shader);
     if (result < 0)
@@ -168,6 +185,10 @@ void xmx_shutdown(void) {
         if (phx_features_pipeline)
             vkDestroyPipeline(g.dev, phx_features_pipeline, NULL);
         phx_features_pipeline = VK_NULL_HANDLE;
+        if (phx_wide_pipeline)
+            vkDestroyPipeline(g.dev, phx_wide_pipeline, NULL);
+        phx_wide_pipeline = VK_NULL_HANDLE;
+        phx_wide_columns = 0;
         for (unsigned iteration_index = 0; iteration_index < MAX_RBUF; ++iteration_index)
             xmx_buf_destroy((int)iteration_index);
         struct buf* buffers[] = {&g.A, &g.B, &g.C, &g.stage};
@@ -214,7 +235,7 @@ void xmx_shutdown(void) {
     }
     if (g.inst)
         vkDestroyInstance(g.inst, NULL);
-    for (unsigned iteration_index = 0; iteration_index < 12; ++iteration_index)
+    for (unsigned iteration_index = 0; iteration_index < 13; ++iteration_index)
         free(g.rpaths[iteration_index]);
     for (unsigned iteration_index = 0; iteration_index < MAX_GRAPHS; ++iteration_index)
         free(graphs[iteration_index].kinds);
@@ -227,6 +248,8 @@ void xmx_shutdown(void) {
     specialized_count = 0;
     xmx_profile_reset();
     phx_native_configured = 0;
+    phx_native_hardware_half = 0;
+    phx_shape_matrices = 0;
     phx_native_matrix_rows = 0;
     phx_native_fp8_k = 0;
     phx_native_workgroup_rows = 0;

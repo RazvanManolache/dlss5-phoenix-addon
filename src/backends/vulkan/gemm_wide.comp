@@ -1,0 +1,129 @@
+#version 450
+// Four subgroups share one decoded weight tile. Each subgroup reuses its
+// activation fragment across multiple output tiles; a deeper shared tile
+// amortizes barriers without reordering the 16-element matrix reductions.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#include "publish.glsl"
+#ifndef WIDE_COLUMNS
+#define WIDE_COLUMNS 32
+#endif
+#ifndef WIDE_REDUCTION
+#define WIDE_REDUCTION 32
+#endif
+layout(local_size_x = 128) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+// Match the resident GEMM packet, including element strides and optional skip/gain.
+layout(push_constant, scalar) uniform Push {
+    HalfBuf a, b;
+    FloatBuf c, d;
+    uint m, n, k, batch, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+#include "specialize.glsl"
+#include "packed_weight.glsl"
+shared float16_t activations[64 * WIDE_REDUCTION];
+shared float16_t weights[WIDE_REDUCTION * WIDE_COLUMNS];
+shared float results[64 * WIDE_COLUMNS];
+void main() {
+    uint flags = operation_flags(), thread_index = gl_LocalInvocationID.x;
+    uint subgroup_index = thread_index / 32u, lane = thread_index % 32u;
+    uint row_tiles = (pc.m + 63u) / 64u;
+    uint tile_index = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
+    uint batch_index = tile_index / row_tiles;
+    if (batch_index >= max(pc.batch, 1u))
+        return;
+    uint first_row = (tile_index % row_tiles) * 64u;
+    uint first_column = gl_WorkGroupID.x * WIDE_COLUMNS;
+    uint left_stride = pc.lda == 0u ? pc.k : pc.lda;
+    uint right_stride = pc.ldb == 0u ? ((flags & 1u) != 0u ? pc.k : pc.n) : pc.ldb;
+    uint output_stride = pc.ldc == 0u ? pc.n : pc.ldc;
+    uint left_base = batch_index * pc.sa, right_base = batch_index * pc.sb;
+    bool direct_left = first_row + 64u <= pc.m && left_stride % 8u == 0u && pc.k % 16u == 0u;
+    coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> sums[WIDE_COLUMNS / 16];
+    for (uint column_tile = 0u; column_tile < WIDE_COLUMNS / 16; ++column_tile)
+        sums[column_tile] = coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+    for (uint reduction_base = 0u; reduction_base < pc.k; reduction_base += WIDE_REDUCTION) {
+        if (!direct_left)
+            for (uint element = thread_index; element < 64u * WIDE_REDUCTION; element += 128u) {
+                uint row = first_row + element / WIDE_REDUCTION;
+                uint reduction = reduction_base + element % WIDE_REDUCTION;
+                activations[element] = row < pc.m && reduction < pc.k
+                                           ? pc.a.v[left_base + row * left_stride + reduction]
+                                           : float16_t(0.0);
+            }
+        for (uint element = thread_index; element < WIDE_REDUCTION * WIDE_COLUMNS;
+             element += 128u) {
+            uint reduction = reduction_base + element / WIDE_COLUMNS;
+            uint column = first_column + element % WIDE_COLUMNS;
+            weights[element] =
+                reduction < pc.k && column < pc.n
+                    ? float16_t(matrix_b(right_base + ((flags & 1u) != 0u
+                                                           ? column * right_stride + reduction
+                                                           : reduction * right_stride + column)))
+                    : float16_t(0.0);
+        }
+        barrier();
+        for (uint inner_reduction = 0u;
+             inner_reduction < min(WIDE_REDUCTION, pc.k - reduction_base); inner_reduction += 16u) {
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> left_tile;
+            if (direct_left)
+                coopMatLoad(left_tile, pc.a.v,
+                            left_base + (first_row + subgroup_index * 16u) * left_stride +
+                                reduction_base + inner_reduction,
+                            left_stride, gl_CooperativeMatrixLayoutRowMajor);
+            else
+                coopMatLoad(left_tile, activations,
+                            subgroup_index * 16u * WIDE_REDUCTION + inner_reduction, WIDE_REDUCTION,
+                            gl_CooperativeMatrixLayoutRowMajor);
+            for (uint column_tile = 0u; column_tile < WIDE_COLUMNS / 16; ++column_tile) {
+                coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> right_tile;
+                coopMatLoad(right_tile, weights, inner_reduction * WIDE_COLUMNS + column_tile * 16u,
+                            WIDE_COLUMNS, gl_CooperativeMatrixLayoutRowMajor);
+                sums[column_tile] = coopMatMulAdd(left_tile, right_tile, sums[column_tile]);
+            }
+        }
+        // Every subgroup must finish reading before this tile can be reused.
+        barrier();
+    }
+    for (uint column_tile = 0u; column_tile < WIDE_COLUMNS / 16; ++column_tile)
+        coopMatStore(sums[column_tile], results,
+                     subgroup_index * 16u * WIDE_COLUMNS + column_tile * 16u, WIDE_COLUMNS,
+                     gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint element = lane; element < 16u * WIDE_COLUMNS; element += 32u) {
+        uint row = first_row + subgroup_index * 16u + element / WIDE_COLUMNS;
+        uint column = first_column + element % WIDE_COLUMNS;
+        if (row >= pc.m || column >= pc.n)
+            continue;
+        uint target = batch_index * pc.sc + row * output_stride + column;
+        precise float result = results[subgroup_index * 16u * WIDE_COLUMNS + element];
+        if ((flags & 0x4000000u) != 0u) {
+            float skip = (flags & 0x8000000u) != 0u ? float(HalfBuf(uint64_t(pc.d)).v[target])
+                                                    : pc.d.v[target];
+            precise float scaled_skip = skip * FloatBuf(pc.residual_cos).v[column];
+            result = result + scaled_skip;
+        }
+        result = publish((flags >> 8u) & 15u, result);
+        if ((flags & 0x1000u) != 0u)
+            HalfBuf(uint64_t(pc.c)).v[target] = float16_t(half_round(result));
+        else
+            pc.c.v[target] = result;
+    }
+}

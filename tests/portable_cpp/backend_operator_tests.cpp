@@ -140,6 +140,17 @@ int wmain(int argc, wchar_t** argv) {
                             {{matrix, uint64_t(batches) * matrix_rows * matrix_columns, 0, 0}},
                             events);
                         backend->download(c, actual.data(), actual.size() * 2);
+                        if (actual != expected) {
+                            const auto mismatch =
+                                std::mismatch(actual.begin(), actual.end(), expected.begin());
+                            std::cerr << "Matrix mismatch K=" << matrix_reduction
+                                      << " publication=" << publication
+                                      << " transposed=" << transposed_weights
+                                      << " padding=" << padding
+                                      << " index=" << (mismatch.first - actual.begin())
+                                      << " expected=" << std::hex << *mismatch.second
+                                      << " actual=" << *mismatch.first << std::dec << '\n';
+                        }
                         demand(actual == expected,
                                "Matrix tile tails, batch strides or output padding differ");
                     }

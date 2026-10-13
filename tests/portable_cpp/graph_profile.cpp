@@ -52,12 +52,24 @@ int wmain(int argc, wchar_t** argv) {
         char error[2048]{};
         const bool benchmark_pieces = job.contains("pieces");
         uint32_t options = benchmark_pieces ? 0u : DispatchProfiling;
+        if (config.value("vulkan_fp8_matrices", false))
+            options |= LosslessFp8Matrices;
+        if (config.value("vulkan_native_half", false))
+            options |= VulkanHardwareHalf;
+        if (config.value("vulkan_shape_matrices", false))
+            options |= VulkanShapeMatrices;
+        if (config.value("vulkan_matrix_columns", 16u) == 32u)
+            options |= VulkanWideColumns32;
+        if (config.value("vulkan_matrix_columns", 16u) == 64u)
+            options |= VulkanWideColumns64;
         if (config.value("cuda_direct_fp8", true))
             options |= CudaDirectFp8;
         if (config.value("cuda_fused_feed_forward", false))
             options |= CudaFusedFeedForward;
         if (config.value("cuda_fused_window_block", false))
             options |= CudaFusedWindowBlock;
+        if (config.value("cuda_compact_window_block", false))
+            options |= CudaCompactWindowBlock;
         if (config.value("cuda_fused_wide_feed_forward", false))
             options |= CudaFusedWideFeedForward;
         if (config.value("cuda_shape_matrices", false))

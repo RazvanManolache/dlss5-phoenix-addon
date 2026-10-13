@@ -90,6 +90,13 @@ class VulkanBackend final : public Backend {
         auto parallel_rows = shader_path("attention_rows.spv");
         check(call<int>("xmx_rows_init", parallel_rows.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
+        const bool shape_matrices =
+            (options & VulkanShapeMatrices) && call<unsigned>("phoenix_native_vendor") == 0x10de;
+        if (shape_matrices || (options & (VulkanWideColumns32 | VulkanWideColumns64))) {
+            const unsigned columns = options & VulkanWideColumns64 ? 64 : 32;
+            const auto wide = shader_path(columns == 64 ? "gemm_wide64.spv" : "gemm_wide32.spv");
+            check(call<int>("phoenix_native_wide_init", wide.c_str(), columns));
+        }
         // This tested RDNA2 iGPU advertises cooperative matrices, but its
         // fused attention shader is slower than separate ordered operators.
         prefer_unfused_attention = call<unsigned>("phoenix_native_vendor") == 0x1002 &&

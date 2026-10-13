@@ -83,15 +83,70 @@ __device__ __forceinline__ phx::Operation window_matrix(phx::Operation source, u
     return source;
 }
 
-template <bool SkipHalf>
+// Compress each 16-row group after all of its float QKV values have been read.
+// The half destination lies strictly behind unread float rows, so the complete
+// projection buffer can be reused without a second Q/K/V shared allocation.
+__device__ __forceinline__ void normalize_qkv_in_place(float* projected,
+                                                       const phx::Operation& query_operation) {
+    phx::Kernel<GpuMath> math{query_operation};
+    const unsigned lane = threadIdx.x % 8;
+    auto* packed = reinterpret_cast<uint16_t*>(projected);
+    const unsigned channels[4] = {lane, lane + 16, lane + 8, lane + 24};
+    for (unsigned first_row = 0; first_row < 64; first_row += 16) {
+        const unsigned row = first_row + threadIdx.x / 8;
+        float query_values[4], key_values[4], value_values[4];
+        float query_sum = 0, key_sum = 0;
+#pragma unroll
+        for (unsigned index = 0; index < 4; ++index) {
+            query_values[index] = projected[row * 96 + channels[index]];
+            key_values[index] = projected[row * 96 + 32 + channels[index]];
+            value_values[index] = projected[row * 96 + 64 + channels[index]];
+            query_sum = fmaf(query_values[index], query_values[index], query_sum);
+            key_sum = fmaf(key_values[index], key_values[index], key_sum);
+        }
+        auto inverse_norm = [&](float partial) {
+            const float even = math.half((row_member(partial, 0) + row_member(partial, 2)) +
+                                         (row_member(partial, 4) + row_member(partial, 6)));
+            const float odd = math.half((row_member(partial, 1) + row_member(partial, 3)) +
+                                        (row_member(partial, 5) + row_member(partial, 7)));
+            const float total = fmaxf(math.half(even + odd), 0.00006198883056640625f);
+            float root = sqrtf(total);
+            root += fmaf(-root, root, total) / (2.f * root);
+            return isinf(total) ? 0.f : math.reciprocal(root);
+        };
+        const float query_scale =
+            inverse_norm(query_sum) * math.load_float(query_operation.auxiliary, 0);
+        const float key_scale = inverse_norm(key_sum);
+        __syncthreads();
+#pragma unroll
+        for (unsigned index = 0; index < 4; ++index) {
+            packed[row * 96 + channels[index]] =
+                uint16_t(math.half_bits(math.quantize_e4m3(query_values[index] * query_scale)));
+            packed[row * 96 + 32 + channels[index]] =
+                uint16_t(math.half_bits(math.quantize_e4m3(key_values[index] * key_scale)));
+            packed[row * 96 + 64 + channels[index]] =
+                uint16_t(math.half_bits(math.quantize_e4m3(math.half(value_values[index]))));
+        }
+        __syncthreads();
+    }
+}
+
+template <bool SkipHalf, bool CompactShared = false>
 __global__ void window_block_shared(WindowBlockOperations block, uint64_t first_window) {
     // Projected QKV (24 KiB) reuses the MLP expansion and attention scratch.
     // Residuals remain live until the final projection. Q becomes context only
-    // after Q*K has consumed it. Total shared storage is 48 KiB per CTA.
+    // after Q*K has consumed it. The compact variant aliases dead inputs and
+    // compresses QKV in place: 32 KiB rather than 48 KiB of explicit storage.
     __shared__ __align__(32) float projected[64 * 96];
     __shared__ __align__(32) float residual[64 * 32];
-    __shared__ __align__(32) uint16_t quantized_residual[64 * 32];
-    __shared__ __align__(32) uint16_t query[64 * 32], key[64 * 32], value[64 * 32];
+    __shared__ __align__(32) uint16_t quantized_storage[CompactShared ? 1 : 64 * 32];
+    __shared__ __align__(32) uint16_t query_storage[CompactShared ? 1 : 64 * 32],
+        key_storage[CompactShared ? 1 : 64 * 32], value_storage[CompactShared ? 1 : 64 * 32];
+    auto* quantized_residual =
+        CompactShared ? reinterpret_cast<uint16_t*>(projected) : quantized_storage;
+    auto* query = CompactShared ? reinterpret_cast<uint16_t*>(projected) : query_storage;
+    auto* key = CompactShared ? reinterpret_cast<uint16_t*>(projected) + 32 : key_storage;
+    auto* value = CompactShared ? reinterpret_cast<uint16_t*>(projected) + 64 : value_storage;
     const uint64_t first_row = (first_window + blockIdx.x) * 64;
 
     constexpr unsigned PackedMatrix = 1 | phx::RightInputFp8 | phx::LeftInputFp8Grid;
@@ -124,34 +179,38 @@ __global__ void window_block_shared(WindowBlockOperations block, uint64_t first_
     auto project_qkv = window_matrix(block.project_qkv, 96, 32, PackedMatrix);
     project_qkv.left_input = quantized_residual;
     project_qkv.output = projected;
-    matrix_direct_fp8_tile<12, phx::KeepFloat>(project_qkv, 0);
+    matrix_direct_fp8_tile<12, phx::KeepFloat, CompactShared>(project_qkv, 0);
     __syncthreads();
 
-    auto normalize_query = block.normalize_query;
-    auto normalize_key = block.normalize_key;
-    normalize_query.family = normalize_key.family = phx::RowReduction;
-    normalize_query.flags = phx::StoreHalf | phx::InterleavedQkv;
-    normalize_key.flags = phx::StoreHalf | phx::InterleavedQkv | (1u << 18);
-    normalize_query.column_count = normalize_key.column_count = 64;
-    normalize_query.batch_count = normalize_key.batch_count = 1;
-    normalize_query.reduction_count = 1;
-    normalize_key.reduction_count = 0;
-    normalize_query.left_input = normalize_key.left_input = projected;
-    normalize_query.output = query;
-    normalize_key.output = key;
-    for (unsigned row = threadIdx.x / 8; row < 64; row += blockDim.x / 8) {
-        normalize_head_row8(normalize_query, row, threadIdx.x % 8);
-        normalize_head_row8(normalize_key, row, threadIdx.x % 8);
+    if constexpr (CompactShared) {
+        normalize_qkv_in_place(projected, block.normalize_query);
+    } else {
+        auto normalize_query = block.normalize_query;
+        auto normalize_key = block.normalize_key;
+        normalize_query.family = normalize_key.family = phx::RowReduction;
+        normalize_query.flags = phx::StoreHalf | phx::InterleavedQkv;
+        normalize_key.flags = phx::StoreHalf | phx::InterleavedQkv | (1u << 18);
+        normalize_query.column_count = normalize_key.column_count = 64;
+        normalize_query.batch_count = normalize_key.batch_count = 1;
+        normalize_query.reduction_count = 1;
+        normalize_key.reduction_count = 0;
+        normalize_query.left_input = normalize_key.left_input = projected;
+        normalize_query.output = query;
+        normalize_key.output = key;
+        for (unsigned row = threadIdx.x / 8; row < 64; row += blockDim.x / 8) {
+            normalize_head_row8(normalize_query, row, threadIdx.x % 8);
+            normalize_head_row8(normalize_key, row, threadIdx.x % 8);
+        }
+        auto split_value = block.split_value;
+        split_value.family = phx::Elementwise;
+        split_value.flags = phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
+        split_value.left_input = projected;
+        split_value.output = value;
+        for (unsigned element = threadIdx.x; element < 64 * 32; element += blockDim.x)
+            phx::Kernel<GpuMath>{split_value}.store(
+                element, projected[(element / 32) * 96 + 64 + element % 32]);
+        __syncthreads();
     }
-    auto split_value = block.split_value;
-    split_value.family = phx::Elementwise;
-    split_value.flags = phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
-    split_value.left_input = projected;
-    split_value.output = value;
-    for (unsigned element = threadIdx.x; element < 64 * 32; element += blockDim.x)
-        phx::Kernel<GpuMath>{split_value}.store(element,
-                                                projected[(element / 32) * 96 + 64 + element % 32]);
-    __syncthreads();
 
     auto attention = block.attention;
     attention.column_count = attention.batch_count = 1;
@@ -160,8 +219,8 @@ __global__ void window_block_shared(WindowBlockOperations block, uint64_t first_
     attention.auxiliary = value;
     attention.output = query;
     // There is one head, so every window uses the same relative-position bias.
-    window_attention_fp8_tile(attention, 0, projected,
-                              reinterpret_cast<uint8_t*>(projected + 4096));
+    window_attention_fp8_tile<CompactShared ? 96 : 32, CompactShared>(
+        attention, 0, projected, reinterpret_cast<uint8_t*>(projected + 4096));
     __syncthreads();
 
     auto project_output =

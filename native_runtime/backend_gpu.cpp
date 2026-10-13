@@ -27,6 +27,9 @@ using namespace phoenix_cpp;
 #if defined(PHX_CUDA)
 #include "cuda_narrow_math.cuh"
 struct GpuMath : CudaNarrowMath {
+#elif !defined(PHX_SYCL)
+#include "hip_narrow_math.cuh"
+struct GpuMath : HipNarrowMath {
 #else
 struct GpuMath {
 #endif
@@ -408,6 +411,7 @@ class GpuBackend final : public Backend {
     bool direct_fp8 = false;
     bool fused_feed_forward = false;
     bool fused_window_block = false;
+    bool compact_window_block = false;
     bool fused_wide_feed_forward = false;
     bool shape_matrices = false;
     unsigned fp8_columns = 32;
@@ -471,6 +475,7 @@ class GpuBackend final : public Backend {
         direct_fp8 = (options & CudaDirectFp8) != 0;
         fused_feed_forward = (options & CudaFusedFeedForward) != 0;
         fused_window_block = (options & CudaFusedWindowBlock) != 0;
+        compact_window_block = (options & CudaCompactWindowBlock) != 0;
         fused_wide_feed_forward = (options & CudaFusedWideFeedForward) != 0;
         shape_matrices = (options & CudaShapeMatrices) != 0;
         fp8_columns = (options & Fp8Columns128) ? 128 : (options & Fp8Columns64) ? 64 : 32;
@@ -728,7 +733,14 @@ class GpuBackend final : public Backend {
                         for (uint64_t first = 0; first < windows; first += 65535) {
                             const unsigned blocks =
                                 unsigned(std::min(uint64_t(65535), windows - first));
-                            if (window_block.contract.flags & phx::MatrixSkipHalf)
+                            if (compact_window_block &&
+                                (window_block.contract.flags & phx::MatrixSkipHalf))
+                                window_block_shared<true, true>
+                                    <<<blocks, 128, 0, stream>>>(window_block, first);
+                            else if (compact_window_block)
+                                window_block_shared<false, true>
+                                    <<<blocks, 128, 0, stream>>>(window_block, first);
+                            else if (window_block.contract.flags & phx::MatrixSkipHalf)
                                 window_block_shared<true>
                                     <<<blocks, 128, 0, stream>>>(window_block, first);
                             else

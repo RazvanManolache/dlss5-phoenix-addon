@@ -159,9 +159,14 @@ void main() {
 #ifdef FP8_K
         // Lossless narrowing only. Some boundary/transition operands are true
         // FP16, so a tile that cannot be represented exactly keeps FP16 math.
-        if (lane == 0u)
+        // Graph-marked activations were already published to the E4M3 grid.
+        // Their weights are validated E4M3 bytes, so no per-tile round-trip
+        // test or atomic vote is necessary. True FP16 boundaries still vote.
+        bool known_fp8 = (flags & 0x10000000u) != 0u;
+        if (!known_fp8 && lane == 0u)
             fp8_inexact = 0u;
-        barrier();
+        if (!known_fp8)
+            barrier();
         for (uint tile_element = lane; tile_element < 16u * FP8_K; tile_element += 32u) {
             uint row = rowbase + tile_element / FP8_K, reduction_index = kb + tile_element % FP8_K;
             float left_value =
@@ -169,20 +174,23 @@ void main() {
                     ? float(pc.a.v[left_batch_offset + row * left_row_stride + reduction_index])
                     : 0.0;
             uint column = colbase + tile_element / FP8_K;
-            float right_value =
-                column < pc.n && reduction_index < pc.k
-                    ? matrix_b(right_batch_offset +
-                               ((flags & 1u) != 0u ? column * right_row_stride + reduction_index
-                                                   : reduction_index * right_row_stride + column))
-                    : 0.0;
+            uint weight_index = right_batch_offset +
+                                ((flags & 1u) != 0u ? column * right_row_stride + reduction_index
+                                                    : reduction_index * right_row_stride + column);
+            uint weight_code = column < pc.n && reduction_index < pc.k
+                                   ? (WeightWords(uint64_t(pc.b)).v[weight_index >> 2u] >>
+                                      ((weight_index & 3u) * 8u)) &
+                                         255u
+                                   : 0u;
             a_fp8[tile_element] = floate4m3_t(left_value);
-            b_fp8[tile_element] = floate4m3_t(right_value);
-            if (float(a_fp8[tile_element]) != left_value ||
-                float(b_fp8[tile_element]) != right_value)
+            // Reinterpret the byte directly; decoding to float and converting
+            // straight back to E4M3 repeats work for every matrix tile.
+            b_fp8[tile_element] = uintBitsToFloate4m3EXT(uint8_t(weight_code));
+            if (!known_fp8 && float(a_fp8[tile_element]) != left_value)
                 atomicOr(fp8_inexact, 1u);
         }
         barrier();
-        if (fp8_inexact == 0u) {
+        if (known_fp8 || fp8_inexact == 0u) {
             PHX_FRAG_A8 a8;
             PHX_FRAG_B8 b8;
             PHX_LOAD_A8(a8, a_fp8);

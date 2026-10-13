@@ -89,6 +89,8 @@ struct Runtime {
                 options |= CudaFusedFeedForward;
             if (config.value("cuda_fused_window_block", true))
                 options |= CudaFusedWindowBlock;
+            if (config.value("cuda_compact_window_block", true))
+                options |= CudaCompactWindowBlock;
             if (config.value("cuda_fused_wide_feed_forward", false))
                 options |= CudaFusedWideFeedForward;
             if (config.value("cuda_shape_matrices", !config.contains("cuda_fp8_columns")))
@@ -101,6 +103,17 @@ struct Runtime {
                 options |= OrderedAttention;
             if (config.value("vulkan_fp8_matrices", false))
                 options |= LosslessFp8Matrices;
+            if (config.value("vulkan_native_half", true))
+                options |= VulkanHardwareHalf;
+            if (config.value("vulkan_shape_matrices", !config.contains("vulkan_matrix_columns")))
+                options |= VulkanShapeMatrices;
+            const auto vulkan_columns = config.value("vulkan_matrix_columns", 16u);
+            demand(vulkan_columns == 16 || vulkan_columns == 32 || vulkan_columns == 64,
+                   "Vulkan matrix columns must be 16, 32 or 64");
+            if (vulkan_columns == 32)
+                options |= VulkanWideColumns32;
+            if (vulkan_columns == 64)
+                options |= VulkanWideColumns64;
             const auto matrix_warps = config.value("vulkan_matrix_warps", 0u);
             demand(matrix_warps == 0 || matrix_warps == 1 || matrix_warps == 4,
                    "Vulkan matrix warps must be 0 (automatic), 1 or 4");

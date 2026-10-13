@@ -27,7 +27,7 @@ __device__ __forceinline__ float fp8_matrix_published_value(const phx::Kernel<Gp
     return math.publish((operation.flags >> 8u) & 15u, value);
 }
 
-template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX>
+template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX, bool InPlaceInput = false>
 __device__ __forceinline__ void matrix_direct_fp8_tile(phx::Operation operation, uint64_t tile) {
     // Fix known matrix/output semantics before device compilation. The common
     // half/FP8 and gated-half/FP8 variants omit unrelated publication branches.
@@ -79,6 +79,10 @@ __device__ __forceinline__ void matrix_direct_fp8_tile(phx::Operation operation,
 #endif
         }
     }
+    // An in-place, single-window QKV projection can reuse its input storage
+    // only after every subgroup has finished loading that input into registers.
+    if constexpr (InPlaceInput)
+        __syncthreads();
     phx::Kernel<GpuMath> math{operation};
     if constexpr (PublishMode == phx::PublishFusedGateFp8 ||
                   PublishMode == phx::PublishHalfThenFp8 ||

@@ -23,8 +23,19 @@ def patch_runtime(source):
 
     replace(
         "#include <vulkan/vulkan.h>",
-        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;',
+        '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;\nstatic VkPipeline phx_wide_pipeline;\nstatic unsigned phx_wide_columns;',
     )
+    replace("char* rpaths[12];", "char* rpaths[13];")
+    replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices;")
+    replace("specialization->mapEntryCount > sizeof entries / sizeof *entries - 2",
+            "specialization->mapEntryCount > sizeof entries / sizeof *entries - 3")
+    replace("specialization->dataSize > sizeof data - 2 * sizeof(VkBool32)",
+            "specialization->dataSize > sizeof data - 3 * sizeof(VkBool32)")
+    replace("VkSpecializationInfo constants = {", """VkBool32 native_half=phx_native_hardware_half?VK_TRUE:VK_FALSE;
+    entries[count++]=(VkSpecializationMapEntry){.constantID=3,.offset=size,.size=sizeof native_half};
+    memcpy(data+size,&native_half,sizeof native_half);
+    size+=sizeof native_half;
+    VkSpecializationInfo constants = {""")
     # Reading mapped NVIDIA VRAM through the CPU BAR was substantially slower
     # than a GPU copy into cached host storage. Keep the upstream environment
     # override and shared-memory AMD policy; change only our native NVIDIA route.
@@ -196,12 +207,31 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     replace(
         "else       vkCmdDispatch(g.rcb, (N + 15) / 16, (M + 7) / 8, batch ? batch : 1);",
         """else {
-            unsigned rows=phx_native_workgroup_rows?phx_native_workgroup_rows:g.matrix_rows?g.matrix_rows:8;
+            unsigned rows=wide?64u:phx_native_workgroup_rows?phx_native_workgroup_rows:g.matrix_rows?g.matrix_rows:8;
             uint64_t tiles=((uint64_t)M+rows-1)/rows*(batch?batch:1);
             unsigned y=tiles<65535u?(unsigned)tiles:65535u;
             if(!y||tiles>UINT32_MAX)FAIL("Portable GEMM grid exceeds indexing range",0);
-            vkCmdDispatch(g.rcb, (N+15)/16, y, (tiles+y-1)/y);
+            unsigned columns=wide?phx_wide_columns:16u;
+            vkCmdDispatch(g.rcb, (N+columns-1)/columns, y, (tiles+y-1)/y);
         }""",
+    )
+    replace(
+        "VkPipeline pipeline;\n    if (small) {",
+        """// The wider engine handles only packed model projections. Ordered
+    // image boundaries and attention matrices retain their existing path.
+    int wide=g.portable && phx_wide_pipeline && (bt&0x2000000u) && N>=phx_wide_columns;
+    if(wide && phx_shape_matrices) {
+        // Measured 1080p winners. Larger tiles lose on other projections,
+        // notably the strided per-head contractions and wide expansions.
+        unsigned publication=(bt>>8u)&15u;
+        wide=(K==32u && N<=128u) ||
+             (K==64u && (N==64u || N==192u || (N==256u && publication==6u))) ||
+             (K>=2048u && N<=1024u);
+    }
+    VkPipeline pipeline;
+    if(wide) {
+        if(resident_pipeline(12,bt,phx_wide_pipeline,&pipeline))return -1;
+    } else if (small) {""",
     )
     for old, groups, planes in [
         ("vkCmdDispatch(g.rcb, (n + 255) / 256, 1, 1);", "((uint64_t)n+255)/256", "1"),
@@ -292,6 +322,7 @@ def main():
         "phoenix_native_window_attention",
         "phoenix_native_operand_offsets",
         "phoenix_native_vendor",
+        "phoenix_native_wide_init",
     ]
     (out / "provider.def").write_text("LIBRARY phoenix_vulkan\nEXPORTS\n" + "\n".join(names) + "\n")
     # Generate an import library for the installed Vulkan loader using its exports.
@@ -435,12 +466,15 @@ exit /b %ERRORLEVEL%
             text = re.sub(r"float16_t\(([^()]+)\)", r"float16_t(half_round(\1))", text)
         source_path.write_text(text)
     shaders = {source_path.stem: (source_path, []) for source_path in gpu.glob("*.comp")}
+    shaders.pop("gemm_wide", None)  # Only the named 32/64-column variants are loaded.
     for reduction_size in (16, 32, 64):
         shaders[f"gemm_fp8{reduction_size}"] = (
             gpu / "gemm_matrix.comp",
             ["-DMATRIX_M=16", f"-DFP8_K={reduction_size}"],
         )
     shaders.update(
+        gemm_wide32=(gpu / "gemm_wide.comp", ["-DWIDE_COLUMNS=32"]),
+        gemm_wide64=(gpu / "gemm_wide.comp", ["-DWIDE_COLUMNS=64"]),
         gemm_tiled=(gpu / "gemm_resident.comp", ["-DRM=2", "-DRN=2"]),
         phoenix_window_attention8=(gpu / "phoenix_window_attention.comp", ["-DPHX_ATTENTION_M=8"]),
         gemm_matrix8=(gpu / "gemm_matrix.comp", ["-DMATRIX_M=8"]),

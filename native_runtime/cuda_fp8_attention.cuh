@@ -12,6 +12,7 @@ __device__ __forceinline__ void attention_mma8(float* sum, const uint32_t* left,
 #endif
 }
 
+template <unsigned InputStride = 32, bool CompactShared = false>
 __device__ __forceinline__ void window_attention_fp8_tile(phx::Operation operation, uint64_t batch,
                                                           float* scores, uint8_t* probabilities) {
     constexpr unsigned SharedStride = 68;
@@ -20,24 +21,54 @@ __device__ __forceinline__ void window_attention_fp8_tile(phx::Operation operati
     const auto* query = static_cast<const __half*>(operation.left_input) + batch * 2048;
     const auto* key = static_cast<const __half*>(operation.right_input) + batch * 2048;
     const auto* value = static_cast<const __half*>(operation.auxiliary) + batch * 2048;
+    auto* transposed_value = CompactShared ? reinterpret_cast<uint8_t*>(scores) +
+                                                 4096 * sizeof(float) + 64 * SharedStride
+                                           : reinterpret_cast<uint8_t*>(scores + 2048);
+    if constexpr (CompactShared) {
+        // Preserve V in the unused tail before scores overwrite interleaved QKV.
+        for (unsigned group = threadIdx.x; group < 512; group += blockDim.x) {
+            const uint32_t packed =
+                pack_half4_fp8(value + (group / 8) * InputStride + (group % 8) * 4);
+#pragma unroll
+            for (unsigned channel = 0; channel < 4; ++channel)
+                transposed_value[((group * 4) % 32 + channel) * SharedStride + group / 8] =
+                    uint8_t(packed >> (channel * 8));
+        }
+        __syncthreads();
+    }
     float sums[8][4] = {};
     uint32_t left[4];
 #pragma unroll
     for (unsigned fragment = 0; fragment < 4; ++fragment) {
         const unsigned row = warp * 16 + row_group + (fragment % 2) * 8;
         const unsigned reduction = reduction_group * 4 + (fragment / 2) * 16;
-        left[fragment] = pack_half4_fp8(query + row * 32 + reduction);
+        left[fragment] = pack_half4_fp8(query + row * InputStride + reduction);
     }
 #pragma unroll
     for (unsigned column_tile = 0; column_tile < 8; ++column_tile) {
-        const auto* source = key + (column_tile * 8 + row_group) * 32 + reduction_group * 4;
+        const auto* source =
+            key + (column_tile * 8 + row_group) * InputStride + reduction_group * 4;
         const uint32_t right[2] = {pack_half4_fp8(source), pack_half4_fp8(source + 16)};
         attention_mma8(sums[column_tile], left, right);
+        if constexpr (!CompactShared) {
+#pragma unroll
+            for (unsigned element = 0; element < 4; ++element) {
+                const unsigned row = warp * 16 + row_group + (element / 2) * 8;
+                const unsigned column = column_tile * 8 + reduction_group * 2 + element % 2;
+                scores[row * 64 + column] = sums[column_tile][element];
+            }
+        }
+    }
+    if constexpr (CompactShared) {
+        __syncthreads(); // All Q/K fragments must be consumed before in-place score stores.
+#pragma unroll
+        for (unsigned column_tile = 0; column_tile < 8; ++column_tile) {
 #pragma unroll
         for (unsigned element = 0; element < 4; ++element) {
             const unsigned row = warp * 16 + row_group + (element / 2) * 8;
             const unsigned column = column_tile * 8 + reduction_group * 2 + element % 2;
             scores[row * 64 + column] = sums[column_tile][element];
+        }
         }
     }
     __syncthreads();
@@ -50,9 +81,9 @@ __device__ __forceinline__ void window_attention_fp8_tile(phx::Operation operati
     __syncthreads();
     // V outlives scores. Transpose it into their unused second half so each
     // MMA B fragment can read four adjacent bytes; context uses the first half.
-    auto* transposed_value = reinterpret_cast<uint8_t*>(scores + 2048);
-    for (unsigned group = threadIdx.x; group < 512; group += blockDim.x) {
-        const uint32_t packed = pack_half4_fp8(value + group * 4);
+    if constexpr (!CompactShared)
+        for (unsigned group = threadIdx.x; group < 512; group += blockDim.x) {
+            const uint32_t packed = pack_half4_fp8(value + group * 4);
 #pragma unroll
         for (unsigned channel = 0; channel < 4; ++channel)
             transposed_value[((group * 4) % 32 + channel) * SharedStride + group / 8] =

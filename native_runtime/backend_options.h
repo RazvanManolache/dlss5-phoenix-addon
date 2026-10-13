@@ -18,6 +18,11 @@ enum BackendOption : uint32_t {
     CudaFusedWideFeedForward = 1u << 12, // Retained 64-channel experiment; measured slower.
     CudaShapeMatrices = 1u << 13,
     CudaFusedWindowBlock = 1u << 14, // Shared-memory 32-channel window block.
+    VulkanWideColumns32 = 1u << 15,
+    VulkanWideColumns64 = 1u << 16,
+    CudaCompactWindowBlock = 1u << 17,
+    VulkanShapeMatrices = 1u << 18,
+    VulkanHardwareHalf = 1u << 19,
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,
