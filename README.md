@@ -331,7 +331,7 @@ Build the selected native kernels with an explicit CUDA compiler path:
 python tools/production_build_native_kernels.py native_release --compiler "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\bin\nvcc.exe" --jobs 4
 ```
 
-Output: **`build/native_release/`**, containing 41 compiled kernels, their graph
+Output: **`build/native_release/`**, containing 41 kernel modules, their graph
 and build manifest. PTX, cubins and other generated files stay under `build/`.
 No pre-existing compiled kernels or extracted model files are required to compile.
 
@@ -404,7 +404,9 @@ python tools/validate_native.py --bundle ./build/native_release --probe ./build/
 
 Each command must succeed before proceeding. The tools generate synthetic inputs
 locally and compare outputs with saved Phoenix regression hashes. Native validation
-covers all four production extents, including 1920×1080.
+covers eight saved extents, including 1920×1080, 6K, 8K and odd sizes on both
+sides of the automatic kernel-selection threshold. Two modules contain default
+and large-input entries; validation must exercise both choices before packaging.
 
 For optional backends, provide their vendor libraries using the package builder's
 repeatable `--dependency PATH_TO_DLL` option. For SYCL CPU, also supply

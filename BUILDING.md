@@ -30,7 +30,7 @@ if (-not $env:CUDA_PATH) { throw 'Set CUDA_PATH to your installed CUDA Toolkit d
 python tools/production_build_native_kernels.py native_release --compiler "$env:CUDA_PATH/bin/nvcc.exe" --jobs 4
 ```
 
-This builds the 41 selected production kernels and their runtime graph/manifest under `build/native_release`. The repository contains only their source dependency set; alternative tuning profiles are not required.
+This builds 41 production kernel modules and their runtime graph/manifest under `build/native_release`. Two modules contain both default and large-input entry points; each network instance creates only the selected 41 function handles. The repository contains their complete source dependency set; historical tuning profiles are not required.
 
 All 41 kernels build from checked-in CUDA source and local helper headers. The input preparation and output reconstruction stages compile their `.cu` files to `kernel.ptx` inside the build directory, then assemble that generated PTX to `kernel.cubin`. The builder preserves independent D3D12 texture/sampler addressing and the selected 128-register budget for these two stages. These settings are recorded in `production_kernel_contracts.json`; they are required to reproduce the selected production code.
 
@@ -40,6 +40,15 @@ The catalogue also records the selected assembler optimization level where it
 differs from the default. These are production build requirements, not a tuning
 menu. Device debug tables remain in generated build files and are omitted from
 shipping cubins.
+
+The catalogue includes the two large-input entry names and their selection
+threshold. Global attention and the 512-channel attention projection switch to
+separately compiled 128-register entries at 18,662,400 neural input pixels
+(5760×3240 area). Smaller inputs retain their original entries. Selection uses
+the actual model input, not the output/display resolution; arbitrary aspect
+ratios use the same area rule. The three vectorized 64-channel stages retain
+their selected spill-free register budgets at every size. Both entries are
+built from the same checked-in operation source and stay in the same addon.
 
 The native runner queries GPU upload-heap support on the selected device. When
 available, immutable weights are written directly into GPU memory before the
@@ -115,10 +124,13 @@ Pass a local JSON mapping names (`cpu`, `cuda`, `hip_amd`, `sycl_cpu`, `vulkan_a
 in `tests/fixtures/runner_regressions.json`; another GPU/toolchain may need its own
 reviewed numerical reference. A mismatch must be investigated, not bypassed.
 
-`validate_native.py` generates inputs for the four saved regression extents, runs 128
+`validate_native.py` generates inputs for eight saved regression extents, runs 128
 frames per extent and compares reset and history readbacks with saved Phoenix
 native output hashes. It checks debug errors, GPU execution and kernel retirement
-before marking the bundle validated. This is Phoenix regression equivalence,
+before marking the bundle validated. Cases include 6K, 8K, and 5760×3239/5761×3241
+on opposite sides of the selection threshold. Both compiled branches must be
+exercised; packaging also verifies that the validated entry/threshold metadata
+has not changed. This is Phoenix regression equivalence,
 not equivalence to NVIDIA's renderer. `--cpu-only` on the standalone native probe
 checks geometry only and cannot satisfy inference validation.
 
