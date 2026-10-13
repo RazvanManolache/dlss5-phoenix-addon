@@ -37,6 +37,8 @@ excludes upload/readback and is not game frame time. Resolution planning and
 padding are corrected; the optimized CUDA kernel binaries are unchanged.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
 
+[Why the winner changes with resolution: measured native/kernel investigation](docs/NATIVE_SCALING_DIAGNOSIS_2026-10-13.md)
+
 ![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 720p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
 
 <details>

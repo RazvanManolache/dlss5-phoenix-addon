@@ -4,6 +4,7 @@
 #include "../../src/native/support/gpu_timing.h"
 #include <dxgi1_6.h>
 #include <iostream>
+#include <chrono>
 #include <psapi.h>
 using namespace phoenix_addon;
 namespace fs = std::filesystem;
@@ -178,13 +179,34 @@ int wmain(int argc, wchar_t** argv) {
     Json report{{"passed", false}, {"frames", Json::array()}};
     try {
         check(
-            argc == 5 || argc == 6,
+            argc >= 5,
             "Usage: native_inference_probe BUNDLE CAPTURE_PREFIX "
-            "NEW_OUTPUT WEIGHT_SOURCE_JSON [--cpu-only|--profile-layers|--check-upload-retirement|--staged-weights]");
+            "NEW_OUTPUT WEIGHT_SOURCE_JSON [--cpu-only|--profile-layers|--check-upload-retirement|--staged-weights] [--frames=N] [--warmup=N]");
         Json source_config;
         std::ifstream(argv[4]) >> source_config;
         auto source = phoenix_model::WeightSource::config(source_config);
-        const std::wstring option = argc == 6 ? argv[5] : L"";
+        std::wstring option;
+        unsigned frame_count = 128, warmup_frames = 16;
+        for (int argument = 5; argument < argc; ++argument) {
+            const std::wstring value = argv[argument];
+            const auto parse_count = [&](size_t prefix_length) {
+                size_t consumed = 0;
+                const auto count = std::stoul(value.substr(prefix_length), &consumed);
+                check(consumed == value.size() - prefix_length && count <= 4096,
+                      "Probe frame count must be between 0 and 4096");
+                return static_cast<unsigned>(count);
+            };
+            if (value.rfind(L"--frames=", 0) == 0)
+                frame_count = parse_count(9);
+            else if (value.rfind(L"--warmup=", 0) == 0)
+                warmup_frames = parse_count(9);
+            else {
+                check(option.empty(), "Only one probe execution mode may be selected");
+                option = value;
+            }
+        }
+        check(frame_count && warmup_frames < frame_count,
+              "Probe warmup must leave at least one measured frame");
         const bool cpu_only = option == L"--cpu-only";
         const bool profile_layers = option == L"--profile-layers";
         const bool check_upload_retirement = option == L"--check-upload-retirement";
@@ -252,8 +274,8 @@ int wmain(int argc, wchar_t** argv) {
         report["width"] = meta.width;
         report["height"] = meta.height;
         report["per_dispatch_queries"] = profile_layers;
-        report["warmup_frames"] = 16;
-        report["measured_frames"] = 112;
+        report["warmup_frames"] = warmup_frames;
+        report["measured_frames"] = frame_count - warmup_frames;
         ComPtr<ID3D12Debug> debug;
         phoenix_native::hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
         debug->EnableDebugLayer();
@@ -374,9 +396,9 @@ int wmain(int argc, wchar_t** argv) {
             };
         }
         const auto started = GetTickCount64();
-        for (unsigned i = 0; i < 128; ++i) {
+        for (unsigned i = 0; i < frame_count; ++i) {
             check(GetTickCount64() - started < 300000, "profile wall limit");
-            if (i == 16)
+            if (i == warmup_frames)
                 timer.restart();
             phoenix_device::Frame work;
             check(owner.try_begin(work) == phoenix_device::Status::complete, "frame slot");
@@ -385,6 +407,10 @@ int wmain(int argc, wchar_t** argv) {
             ID3D12Resource* outputs[2]{};
             double cpu_ms[2]{};
             controls.reset = i == 0;
+            const auto host_started_unix_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count();
             const auto call_start = std::chrono::steady_clock::now();
             if (layers)
                 layers->begin_frame();
@@ -424,13 +450,20 @@ int wmain(int argc, wchar_t** argv) {
             const double completed_ms = std::chrono::duration<double, std::milli>(
                                             std::chrono::steady_clock::now() - call_start)
                                             .count();
-            report["frames"].push_back({{"frame", i},
-                                        {"warmup", i < 16},
-                                        {"cpu_record_ms", cpu_ms[0]},
-                                        {"record_submit_wait_ms", completed_ms},
-                                        {"gpu", timer.report()},
-                                        {"memory", measure_memory(measured_adapter.Get())}});
-            if (i == 0 || i == 1 || i == 32 || i == 127)
+            report["frames"].push_back(
+                {{"frame", i},
+                 {"warmup", i < warmup_frames},
+                 // Correlate only the timed loop with external clock samples;
+                 // model loading/upload also boost the GPU during process startup.
+                 {"host_started_unix_ms", host_started_unix_ms},
+                 {"host_completed_unix_ms", std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                std::chrono::system_clock::now().time_since_epoch())
+                                                .count()},
+                 {"cpu_record_ms", cpu_ms[0]},
+                 {"record_submit_wait_ms", completed_ms},
+                 {"gpu", timer.report()},
+                 {"memory", measure_memory(measured_adapter.Get())}});
+            if (i == 0 || i == 1 || i == warmup_frames || i == frame_count - 1)
                 report["owned_memory_samples"].push_back(
                     {{"frame", i},
                      {"owned", p->memory.snapshot()},
@@ -438,7 +471,7 @@ int wmain(int argc, wchar_t** argv) {
             if (layers)
                 report["frames"].back()["kernel_ms"] = layers->read();
             check(!debug_errors(owner.device()), "D3D12 debug error");
-            if (i == 0 || i == 127) {
+            if (i == 0 || i == frame_count - 1) {
                 phoenix_device::Frame copy;
                 check(owner.try_begin(copy) == phoenix_device::Status::complete, "readback slot");
                 p->copy(copy.commands, outputs[0], 0);
@@ -493,7 +526,8 @@ int wmain(int argc, wchar_t** argv) {
         report["modules_retired"] = 41;
         report["debug_errors"] = 0;
         std::ofstream(out / "result.json") << report.dump(2);
-        std::cout << "128 single-instance frames, 112 measured, zero debug errors\n";
+        std::cout << frame_count << " single-instance frames, " << frame_count - warmup_frames
+                  << " measured, zero debug errors\n";
         return 0;
     } catch (const std::exception& e) {
         report["error"] = e.what();

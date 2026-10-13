@@ -176,6 +176,12 @@ Timing ranges, host memory and numerical receipts: <a href="measurements.json">m
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
 <section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 720p through 8K"></section>
 <section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
+<section><details><summary>Why the winner changes with resolution: measured investigation</summary>
+<p>Fresh interleaved comparisons, measured-loop clock observations and diagnostic per-launch timings.
+Per-launch queries can alter scheduling; whole-frame speed claims use the separate uninstrumented pass.
+<a href="../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md">Methods, findings and limits</a>.</p>
+<img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix and NVIDIA comparison">
+<img src="native-scaling-kernels.png" alt="Measured kernel-family crossovers and retained wins"></details></section>
 <section><h2>Hypothetical VR costs — not measured in VR</h2>
 <p>RTX 5080 estimates for two independent views, full network and one pass. No stereo-batch speedup assumed.
 Game rendering, upscaling, compositor and streaming costs are additional. Actual per-eye render targets may differ from panel sizes.

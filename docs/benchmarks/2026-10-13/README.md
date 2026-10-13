@@ -61,7 +61,15 @@ matched comparison of runner-only system RAM.
 
 </details>
 
-## Hypothetical VR costs
+## Further analysis
+
+[Native scaling investigation](../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md):
+fresh interleaved comparisons, measured-loop clock observations and direct
+Phoenix/NVIDIA launch attribution at 720p, 1080p, 4K and 8K. These diagnostic
+runs use their own sample counts; the benchmark snapshot above retains its
+documented measurement method.
+
+### Hypothetical VR costs
 
 [PSVR2 and Steam Frame charts, calculations and stereo-batching explanation](VR_ESTIMATES.md).
 These are estimates from the desktop measurements, not VR benchmarks, and are
