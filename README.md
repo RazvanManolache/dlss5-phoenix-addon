@@ -37,10 +37,10 @@ excludes upload/readback and is not game frame time. Resolution planning and
 padding are corrected; the optimized CUDA kernel binaries are unchanged.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
 
-![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 1080p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
+![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 720p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
 
 <details>
-<summary>Lower input resolutions: 360p, 480p, 540p and 720p</summary>
+<summary>Lower input resolutions: 360p, 480p and 540p</summary>
 
 ![Native Phoenix and NVIDIA DLSS NR: lower-resolution latency and GPU residency](docs/benchmarks/2026-10-13/native-lower-resolutions.png)
 

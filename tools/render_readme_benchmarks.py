@@ -94,8 +94,8 @@ def native():
     p.right(480, 499, "Phoenix", 23, GREEN)
     p.right(625, 499, "NVIDIA", 23, BLUE)
     p.right(780, 499, "Δ latency", 23, MUTED)
-    for index, row in enumerate(row for row in DATA["resolution_matrix"] if row["width"] >= 1920):
-        y = 551 + index * 54
+    for index, row in enumerate(row for row in DATA["resolution_matrix"] if row["width"] >= 1280):
+        y = 551 + index * 48
         p.text(76, y, f"{row['width']} × {row['height']}", 26)
         p.right(480, y, f"{row['phoenix']['gpu_ms']:.3f}", 26)
         p.right(625, y, f"{row['nvidia']['gpu_ms']:.3f}", 26)
@@ -174,7 +174,7 @@ GPU inference excludes upload/readback; GPU residency includes harness and drive
 <p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
 Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
-<section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 1080p through 8K"></section>
+<section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 720p through 8K"></section>
 <section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
 <section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
 Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
@@ -258,9 +258,9 @@ def memory():
 
 if __name__ == "__main__":
     native()
-    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] >= 1920],
-                       "Native RTX: 1080p through 8K", "native-resolution-scaling.png")
-    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] < 1920],
+    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] >= 1280],
+                       "Native RTX: 720p through 8K", "native-resolution-scaling.png")
+    resolution_scaling([row for row in DATA["resolution_matrix"] if row["width"] < 1280],
                        "Native RTX: lower resolutions", "native-lower-resolutions.png")
     resolution_report()
     portable()
