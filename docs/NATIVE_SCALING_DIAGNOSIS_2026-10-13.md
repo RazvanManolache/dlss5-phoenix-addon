@@ -1,5 +1,9 @@
 # Native resolution crossover — measured investigation
 
+**Diagnostic baseline, before automatic kernel tuning.** The current release
+uses the selection described in the follow-up and has fresh
+[current nine-resolution measurements](benchmarks/2026-10-13/README.md).
+
 **The crossover repeats, and specific kernels change winners with resolution.**
 The explanation is more specific than a generic launch-overhead hypothesis:
 Phoenix wins some small projections and retains several large-image wins, while

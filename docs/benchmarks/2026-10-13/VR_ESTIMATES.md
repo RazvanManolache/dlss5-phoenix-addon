@@ -18,7 +18,8 @@ one pass. They do not estimate standalone Steam Frame performance.
 - [Measured source data](measurements.json): 13 October 2026 native GPU timings,
   RTX 5080, driver 616.64. Two processes per renderer and extent, 96 measured
   frames per process, means of process medians. Native fixture and controls;
-  these are different from portable-runner full-call measurements.
+  these are different from portable-runner full-call measurements. Source
+  timings include the current automatic kernel selection and aligned memory reads.
 - Interpolate in **single-eye pixel count** between the two neighboring measured
   extents, then double the result for two independently processed views:
   `stereo_ms = 2 × interpolate(width_per_eye × height_per_eye)`.
@@ -30,10 +31,10 @@ one pass. They do not estimate standalone Steam Frame performance.
 
 | Headset | Neural input per eye | Phoenix stereo ms | NVIDIA stereo ms |
 | --- | --- | ---: | ---: |
-| PSVR2, panel size | 2000×2040 | ≈13.1 | ≈12.8 |
+| PSVR2, panel size | 2000×2040 | ≈13.0 | ≈12.8 |
 | PSVR2, half width/height | 1000×1020 | ≈5.2 | ≈5.4 |
-| Steam Frame, panel size | 2160×2160 | ≈15.0 | ≈14.6 |
-| Steam Frame, half width/height | 1080×1080 | ≈5.6 | ≈5.7 |
+| Steam Frame, panel size | 2160×2160 | ≈14.8 | ≈14.5 |
+| Steam Frame, half width/height | 1080×1080 | ≈5.5 | ≈5.7 |
 
 Game rendering, upscaling, compositor work, copies and streaming are excluded.
 The reduced-input scenario assumes a separate upscale step whose cost and

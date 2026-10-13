@@ -15,7 +15,7 @@ class Chart:
     def __init__(self, title, subtitle, height):
         self.image = Image.new("RGB", (1600, height), BG)
         self.draw = ImageDraw.Draw(self.image)
-        self.text(48, 27, "DLSS5 PHOENIX / NATIVE SCALING INVESTIGATION / 13 OCT 2026", 22, GREEN, True)
+        self.text(48, 27, "DLSS5 PHOENIX / DIAGNOSTIC BASELINE BEFORE TUNING / 13 OCT 2026", 22, GREEN, True)
         self.text(48, 72, title, 42, TEXT, True)
         self.text(48, 132, subtitle, 25, MUTED)
 
@@ -43,7 +43,7 @@ class Chart:
 
 
 def overview(data, output):
-    chart = Chart("The resolution crossover repeats in fresh tests",
+    chart = Chart("Baseline: the resolution crossover before tuning",
                   "RTX 5080 · matched input/model · full network · GPU inference only", 1080)
     chart.card(190, 690)
     for x, name in [(76, "Resolution"), (650, "Phoenix ms"), (945, "NVIDIA ms"), (1250, "Difference ms")]:
@@ -57,14 +57,14 @@ def overview(data, output):
         chart.right(1515, top, f"{case['difference_ms']:+.3f}", 31, color, True)
         chart.right(1515, top+41, f"Phoenix {case['difference_percent']:+.2f}%", 22, MUTED)
     chart.text(48, 725, "Negative difference: Phoenix faster. Positive: NVIDIA faster.", 27, TEXT, True)
-    y = chart.wrap(782, "Four fresh processes per renderer and resolution in balanced interleaved order; 256 frames each, discard 64. Values are means of process medians. Per-launch profiling is disabled in these headline comparisons.")
+    y = chart.wrap(782, "Four fresh processes per renderer and resolution in balanced interleaved order; 256 frames each, discard 64. Values are means of process medians. Per-launch profiling is disabled in this diagnostic baseline comparison.")
     y = chart.wrap(y+12, "A separate clock-window pass repeats the crossover. Clocks were observed, not locked; NVIDIA's median observed SM clock was about 1.1% higher at 4K and 0.4% higher at 8K. Clocks alone do not establish the cause of a timing difference.")
     chart.wrap(y+12, "8K timings varied during sustained load: Phoenix process medians 58.47–62.17 ms; NVIDIA 56.56–61.18 ms. Treat the exact margin as variable. This is an offline fixture, not game FPS.", color=GOLD)
     chart.image.save(output / "native-scaling-crossover.png", optimize=True)
 
 
 def kernel_crossover(data, output):
-    chart = Chart("Specific kernels change winners with resolution",
+    chart = Chart("Baseline: which kernels lost time at large inputs",
                   "Per-launch attribution · timings can disturb overlap · not headline speed figures", 1340)
     chart.card(190, 600)
     chart.text(76, 212, "512-channel Q/K/V projection — aggregate of 16 launches", 30, TEXT, True)

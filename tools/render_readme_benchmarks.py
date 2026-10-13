@@ -82,7 +82,7 @@ class Panel:
 
 def native():
     phoenix, nvidia = ROWS["phoenix"], ROWS["nvidia"]
-    p = Panel("Native RTX: near NVIDIA at 1080p", "RTX 5080 · driver 616.64 · GPU inference latency; lower is better", 1040, measured_date(phoenix).strftime("%d %b %Y").upper())
+    p = Panel("Native RTX: Phoenix and NVIDIA at 1080p", "RTX 5080 · automatic input-resolution tuning · GPU inference; lower is better", 1040, measured_date(phoenix).strftime("%d %b %Y").upper())
     for left, row, color in [(48, phoenix, GREEN), (815, nvidia, BLUE)]:
         p.box(left, 196, left + 735, 396)
         p.text(left + 28, 216, "Phoenix native RTX" if row["id"] == "phoenix" else "NVIDIA DLSS NR", 29, color, True)
@@ -119,7 +119,7 @@ def native():
 def resolution_scaling(rows, title, filename):
     """Use shared linear axes so latency and memory scaling stay comparable."""
     bottom = 325 + len(rows) * 153
-    p = Panel(title, "Phoenix / NVIDIA DLSS NR · same fixture and model · exact reset + final outputs", bottom + 180)
+    p = Panel(title, "Phoenix automatic / NVIDIA DLSS NR · same model · exact reset + final outputs", bottom + 180)
     p.box(48, 190, 790, bottom)
     p.box(815, 190, 1550, bottom)
     p.text(76, 214, "GPU inference · ms", 30, INK, True)
@@ -169,6 +169,9 @@ td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{backgr
 <p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
 Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
 GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
+<p>Phoenix automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
+Smaller inputs retain their original register choices; aligned memory reads apply at every size.
+Both entries are embedded in the same addon. Clocks were observed, not locked.</p>
 <section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
 <th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody>''' + table + '''</tbody></table></section>
 <p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
@@ -176,14 +179,14 @@ Timing ranges, host memory and numerical receipts: <a href="measurements.json">m
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
 <section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 720p through 8K"></section>
 <section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
-<section><details><summary>Why the winner changes with resolution: measured investigation</summary>
-<p>Fresh interleaved comparisons, measured-loop clock observations and diagnostic per-launch timings.
-Per-launch queries can alter scheduling; whole-frame speed claims use the separate uninstrumented pass.
+<section><details><summary>Earlier diagnostic baseline: why automatic tuning was added</summary>
+<p>The figures in this collapsed investigation describe the kernel set before automatic tuning.
+The current tables and main charts above use the newly measured automatic-selection runner.
+Per-launch queries can alter scheduling; diagnostic kernel timings are separate from whole-frame speed claims.
 <a href="../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md">Methods, findings and limits</a>.</p>
-<p>Source-build follow-up: controlled memory tests and automatic kernel selection recover about
-1.5–1.9% at 6K/8K while preserving the original small-input register choices.
+<p>The controlled tuning investigation preserves its own A/B measurements and tested alternatives.
 <a href="../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md">Automatic selection, measurements and limits</a>.
-The release snapshot charts remain separate from these follow-up trials.</p>
+The release snapshot now includes these kernel choices.</p>
 <img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix and NVIDIA comparison">
 <img src="native-scaling-kernels.png" alt="Measured kernel-family crossovers and retained wins"></details></section>
 <section><h2>Hypothetical VR costs — not measured in VR</h2>

@@ -14,20 +14,22 @@ RTX 5080 16 GiB, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 threads;
 310.8.0.0, controls, full eight blocks and one pass. D3D12 debug enabled on both.
 GPU timestamps cover runner/Evaluate, excluding uploads and readbacks. Each
 renderer uses two fresh processes per extent, 128 frames each, discarding 32.
+Phoenix uses automatic input-resolution kernel selection and aligned 64-channel
+memory access. Both routes were freshly rerun; input pixel hashes are unchanged.
 Headline values are arithmetic means of the two process medians; ranges are
 preserved in the JSON. Clocks and scheduling introduce variation.
 
 | Resolution | Phoenix GPU ms | NVIDIA GPU ms | Phoenix GPU MiB | NVIDIA GPU MiB |
 | --- | ---: | ---: | ---: | ---: |
-| 640 × 360 | 1.9282 | 2.0102 | 295.01 | 438.21 |
-| 854 × 480 | 2.0908 | 2.1526 | 318.70 | 460.40 |
-| 960 × 540 | 2.1273 | 2.2224 | 339.88 | 480.15 |
-| 1280 × 720 | 2.5050 | 2.5869 | 395.13 | 532.21 |
-| 1920 × 1080 | 3.8453 | 3.8608 | 558.82 | 686.52 |
-| 2560 × 1440 | 5.9245 | 5.7873 | 759.01 | 872.65 |
-| 3840 × 2160 | 13.3027 | 12.7914 | 1367.20 | 1448.46 |
-| 5760 × 3240 | 31.3819 | 30.4588 | 2765.13 | 2765.90 |
-| 7680 × 4320 | 59.5186 | 57.6122 | 4686.51 | 4562.52 |
+| 640 × 360 | 1.9190 | 2.0085 | 295.01 | 438.21 |
+| 854 × 480 | 2.0716 | 2.1440 | 318.70 | 460.40 |
+| 960 × 540 | 2.1199 | 2.2202 | 339.88 | 480.15 |
+| 1280 × 720 | 2.4905 | 2.5898 | 395.13 | 532.21 |
+| 1920 × 1080 | 3.8116 | 3.8589 | 558.82 | 686.52 |
+| 2560 × 1440 | 5.8779 | 5.7868 | 759.01 | 872.65 |
+| 3840 × 2160 | 13.0262 | 12.7374 | 1367.20 | 1448.46 |
+| 5760 × 3240 | 30.6054 | 30.2625 | 2765.13 | 2765.90 |
+| 7680 × 4320 | 57.0153 | 56.1495 | 4686.51 | 4562.52 |
 
 GPU memory is measured whole-process local residency, including harness and
 driver allocations. It is not the model size or NVIDIA internal buffer usage.
@@ -49,25 +51,27 @@ matched comparison of runner-only system RAM.
 
 | Resolution | Phoenix private commit | Phoenix working set | NVIDIA private commit | NVIDIA working set |
 | --- | ---: | ---: | ---: | ---: |
-| 640 × 360 | 602.1 | 293.3 | 664.4 | 351.2 |
-| 854 × 480 | 634.0 | 296.6 | 693.0 | 351.1 |
-| 960 × 540 | 655.9 | 299.0 | 712.9 | 351.0 |
-| 1280 × 720 | 716.8 | 305.8 | 761.4 | 351.2 |
-| 1920 × 1080 | 901.2 | 328.4 | 916.8 | 351.7 |
-| 2560 × 1440 | 1131.2 | 358.8 | 1101.0 | 350.2 |
-| 3840 × 2160 | 1828.7 | 447.0 | 1677.0 | 350.7 |
-| 5760 × 3240 | 3428.2 | 644.9 | 2997.2 | 350.5 |
-| 7680 × 4320 | 5630.3 | 921.5 | 4800.5 | 352.3 |
+| 640 × 360 | 602.5 | 292.4 | 665.7 | 351.2 |
+| 854 × 480 | 633.4 | 296.2 | 692.4 | 351.7 |
+| 960 × 540 | 656.4 | 298.7 | 713.4 | 351.1 |
+| 1280 × 720 | 719.2 | 306.1 | 761.6 | 350.7 |
+| 1920 × 1080 | 900.0 | 328.0 | 914.1 | 350.9 |
+| 2560 × 1440 | 1132.6 | 359.5 | 1103.2 | 351.5 |
+| 3840 × 2160 | 1828.1 | 446.6 | 1678.1 | 351.1 |
+| 5760 × 3240 | 3426.6 | 644.1 | 3000.0 | 351.0 |
+| 7680 × 4320 | 5630.3 | 921.1 | 4798.7 | 351.7 |
 
 </details>
 
 ## Further analysis
 
 [Native scaling investigation](../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md):
-fresh interleaved comparisons, measured-loop clock observations and direct
-Phoenix/NVIDIA launch attribution at 720p, 1080p, 4K and 8K. These diagnostic
-runs use their own sample counts; the benchmark snapshot above retains its
-documented measurement method.
+the retained baseline before tuning, with clock observations and direct
+Phoenix/NVIDIA launch attribution at 720p, 1080p, 4K and 8K.
+[Controlled memory tests and automatic selection](../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
+explain the implemented changes. These investigations retain their separate
+sample counts; the current release snapshot above uses the freshly rerun
+nine-resolution method documented here.
 
 ### Hypothetical VR costs
 
@@ -80,11 +84,12 @@ kept separate from the measured rows above.
 - All nine standard extents match NVIDIA exactly at reset and frame 127.
   Both fresh Phoenix processes produce identical endpoint hashes. NVIDIA
   final-frame comparisons are repeated in two fresh processes per extent.
-- Another **29 awkward extents** match at reset and frame 15, with two fresh
+- Earlier planner validation, before the automatic-kernel tuning, checked
+  **29 awkward extents** at reset and frame 15, with two fresh
   processes per renderer: small, odd, portrait and ultrawide
   inputs. Examples include 63×65, 960×540, 1025×769, 1921×1081,
   3841×2161, 721×1281 and 3441×1439.
-- Seven additional native-only sizes (1×1, 17×31, 1×1024, 4096×7, 7×4096,
+- Earlier native-only planner checks at seven additional sizes (1×1, 17×31, 1×1024, 4096×7, 7×4096,
   16384×17 and 17×16384) pass finite-output, zero-debug-error, retirement
   and two-process hash-repeatability checks. NVIDIA probes at 1×1 and 17×31
   hung the GPU device; the other thin cases were not compared to NVIDIA.
@@ -95,9 +100,14 @@ kept separate from the measured rows above.
   dispatch grids use their actual tile count. Transformer allocations include
   the complete 32-token write tail. Unwritten downsample border cells retain
   zero initialization across frames and passes through a small reserved tensor.
-- The optimized CUDA kernel binaries are unchanged. The failures reproduced
-  with the pre-release kernel bundle; resolution planning and allocation were
-  responsible. No per-frame full-workspace clear was added.
+- The earlier resolution failures reproduced with the pre-release kernels and
+  were fixed in planning/allocation. The current release additionally changes
+  three 64-channel memory-access stages and automatically selects two large-input
+  entries at 18,662,400 pixels. No per-frame full-workspace clear was added.
+- Current saved-regression validation checks **eight extents**, including
+  5760×3239 below the tuning threshold and 5761×3241 above it. Both compiled
+  branches are exercised; current NVIDIA comparisons cover all nine standard
+  extents. Earlier edge-case receipts retain their original source/version scope.
 
 These are numerical checks of one synthetic input and fixed controls. They do
 not certify moving-scene quality, every possible resolution, optional guides,
@@ -193,7 +203,7 @@ The adapter includes extra bridge/exposure resources; these scopes differ.
 
 ## Build and validation
 
-- Clean corrected addon: **11 CPU suites, two software D3D12 suites, 122 embedded
+- Current automatic-selection addon: **11 CPU suites, two software D3D12 suites, 122 embedded
   payload files verified**. No model or NVIDIA DLL embedded.
 - Rebuilt portable runtime: **42 exact regression frames / 18 jobs / six routes**.
   Latest CUDA/Vulkan paired trials check **144 exact temporal frames**; CPU/HIP
@@ -202,9 +212,9 @@ The adapter includes extra bridge/exposure resources; these scopes differ.
   errors/hazards. See [the optimization details](../../PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md).
 - This exact addon has not had a new live-game test. No game FPS, discrete
   AMD/Intel GPU, dual-GPU speedup or portable/native bit-equivalence is implied.
-- Addon source checkpoint: `118bff1`.
+- Addon source checkpoint: `f86c2f2`.
   Documentation may have later commits. Addon SHA256:
-  `e2b061ed62380b6f6ac99b51969daa9316040111e81f473baf1af992f141521c`.
+  `25576abc62674293d0f28e87ec5ad385bbc9e5a27c17d6c2f73ba6ec26a04316`.
 
 ## Regenerate the charts and HTML
 

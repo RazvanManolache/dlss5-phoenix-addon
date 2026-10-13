@@ -10,21 +10,24 @@ td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{backgr
 <p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
 Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
 GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
+<p>Phoenix automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
+Smaller inputs retain their original register choices; aligned memory reads apply at every size.
+Both entries are embedded in the same addon. Clocks were observed, not locked.</p>
 <section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
-<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody><tr><td>640 × 360</td><td>1.928</td><td>2.010</td><td>295.0</td><td>438.2</td><td>Exact reset + final</td></tr><tr><td>854 × 480</td><td>2.091</td><td>2.153</td><td>318.7</td><td>460.4</td><td>Exact reset + final</td></tr><tr><td>960 × 540</td><td>2.127</td><td>2.222</td><td>339.9</td><td>480.1</td><td>Exact reset + final</td></tr><tr><td>1280 × 720</td><td>2.505</td><td>2.587</td><td>395.1</td><td>532.2</td><td>Exact reset + final</td></tr><tr><td>1920 × 1080</td><td>3.845</td><td>3.861</td><td>558.8</td><td>686.5</td><td>Exact reset + final</td></tr><tr><td>2560 × 1440</td><td>5.925</td><td>5.787</td><td>759.0</td><td>872.6</td><td>Exact reset + final</td></tr><tr><td>3840 × 2160</td><td>13.303</td><td>12.791</td><td>1,367.2</td><td>1,448.5</td><td>Exact reset + final</td></tr><tr><td>5760 × 3240</td><td>31.382</td><td>30.459</td><td>2,765.1</td><td>2,765.9</td><td>Exact reset + final</td></tr><tr><td>7680 × 4320</td><td>59.519</td><td>57.612</td><td>4,686.5</td><td>4,562.5</td><td>Exact reset + final</td></tr></tbody></table></section>
+<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody><tr><td>640 × 360</td><td>1.919</td><td>2.009</td><td>295.0</td><td>438.2</td><td>Exact reset + final</td></tr><tr><td>854 × 480</td><td>2.072</td><td>2.144</td><td>318.7</td><td>460.4</td><td>Exact reset + final</td></tr><tr><td>960 × 540</td><td>2.120</td><td>2.220</td><td>339.9</td><td>480.1</td><td>Exact reset + final</td></tr><tr><td>1280 × 720</td><td>2.491</td><td>2.590</td><td>395.1</td><td>532.2</td><td>Exact reset + final</td></tr><tr><td>1920 × 1080</td><td>3.812</td><td>3.859</td><td>558.8</td><td>686.5</td><td>Exact reset + final</td></tr><tr><td>2560 × 1440</td><td>5.878</td><td>5.787</td><td>759.0</td><td>872.6</td><td>Exact reset + final</td></tr><tr><td>3840 × 2160</td><td>13.026</td><td>12.737</td><td>1,367.2</td><td>1,448.5</td><td>Exact reset + final</td></tr><tr><td>5760 × 3240</td><td>30.605</td><td>30.263</td><td>2,765.1</td><td>2,765.9</td><td>Exact reset + final</td></tr><tr><td>7680 × 4320</td><td>57.015</td><td>56.149</td><td>4,686.5</td><td>4,562.5</td><td>Exact reset + final</td></tr></tbody></table></section>
 <p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
 Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
 <section><img src="native-resolution-scaling.png" alt="Latency and GPU memory from 720p through 8K"></section>
 <section><img src="native-lower-resolutions.png" alt="Lower-resolution latency and GPU memory"></section>
-<section><details><summary>Why the winner changes with resolution: measured investigation</summary>
-<p>Fresh interleaved comparisons, measured-loop clock observations and diagnostic per-launch timings.
-Per-launch queries can alter scheduling; whole-frame speed claims use the separate uninstrumented pass.
+<section><details><summary>Earlier diagnostic baseline: why automatic tuning was added</summary>
+<p>The figures in this collapsed investigation describe the kernel set before automatic tuning.
+The current tables and main charts above use the newly measured automatic-selection runner.
+Per-launch queries can alter scheduling; diagnostic kernel timings are separate from whole-frame speed claims.
 <a href="../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md">Methods, findings and limits</a>.</p>
-<p>Source-build follow-up: controlled memory tests and automatic kernel selection recover about
-1.5–1.9% at 6K/8K while preserving the original small-input register choices.
+<p>The controlled tuning investigation preserves its own A/B measurements and tested alternatives.
 <a href="../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md">Automatic selection, measurements and limits</a>.
-The release snapshot charts remain separate from these follow-up trials.</p>
+The release snapshot now includes these kernel choices.</p>
 <img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix and NVIDIA comparison">
 <img src="native-scaling-kernels.png" alt="Measured kernel-family crossovers and retained wins"></details></section>
 <section><h2>Hypothetical VR costs — not measured in VR</h2>

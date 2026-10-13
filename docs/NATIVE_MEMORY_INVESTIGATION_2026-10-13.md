@@ -128,5 +128,7 @@ available, so the remaining gap is not fully explained.
 
 The built addon contains the existing portable runtimes plus these native
 kernels. It contains neither the NVIDIA model DLL nor extracted model weights.
-The public release charts remain the earlier release snapshot; the table above
-is the measured source-build follow-up.
+The public release charts now use a fresh matched nine-resolution pass with
+automatic kernel selection: [current release measurements](benchmarks/2026-10-13/README.md).
+The A/B table above retains the separate controlled investigation, rather than
+replacing it with results from a different run.

@@ -15,9 +15,10 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 ![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
-- **1080p inference: effectively tied.** Phoenix **3.845 ms**, NVIDIA DLSS NR
-  **3.861 ms** on RTX 5080. A 0.40% difference is near parity, not a promised
-  game-FPS gain. NVIDIA was about 2.4–4.0% faster at the larger tested extents.
+- **1080p inference: a small measured edge.** Phoenix **3.812 ms**, NVIDIA DLSS NR
+  **3.859 ms** on RTX 5080: about **1.2% lower GPU time** in this test.
+  Small margins vary with clocks and scheduling; this is not a promised game-FPS gain.
+  NVIDIA was about 1.1–2.3% faster at the larger tested extents.
 - **Less measured GPU residency at 1080p:** **558.8 MiB** for Phoenix versus **686.5 MiB**
   for NVIDIA in the matched probe—about **18.6% less**. This includes the
   harness and driver; it is not a measurement of NVIDIA's internal buffers.
@@ -34,10 +35,14 @@ Measured **13 October 2026**, two fresh processes per renderer at each extent,
 128 frames each, discarding the first 32. Figures average process medians.
 Same RGBA16F color/RG16F motion fixture, controls and model. GPU inference
 excludes upload/readback and is not game frame time. Resolution planning and
-padding are corrected; the optimized CUDA kernel binaries are unchanged.
+padding are corrected. Automatic kernel selection preserves the small-input
+register choices and switches two stages at 18.66 million neural input pixels
+(5760×3240 area). Wider memory reads improve three 64-channel stages.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
+At 8K the two Phoenix process medians span 56.41–57.62 ms;
+the chart shows their mean, not a fixed performance guarantee.
 
-[Why the winner changes with resolution: measured native/kernel investigation](docs/NATIVE_SCALING_DIAGNOSIS_2026-10-13.md)
+[Automatic kernel selection and memory tuning: measurements and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
 
 ![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 720p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
 
@@ -75,9 +80,9 @@ are necessary even if execution is batched together.
 ## A quick look
 
 - **Run native RTX:** the optimized path and the focus of this project.
-- **Let source builds choose tuned kernels:** automatic selection by neural input
-  resolution preserves the small-input register choices and improves measured
-  6K/8K inference time by about 1.5–1.9%. [Tests and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md).
+- **Choose tuned kernels automatically:** selection follows the actual neural
+  input resolution, including odd/portrait/ultrawide inputs; no manual switch.
+  [Tests and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md).
 - **Explore the portability lab:** experimental CUDA, Vulkan, HIP, CPU and SYCL runners.
 - **Bring a compatible model:** browse to a DLL or model folder and validate it.
 - **Choose resolution and upscaling:** Normal or Super resolution, aspect controls,

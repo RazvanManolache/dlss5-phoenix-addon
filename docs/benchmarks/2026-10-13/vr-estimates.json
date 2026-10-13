@@ -1,7 +1,7 @@
 {
   "schema": "phoenix-vr-estimate/1",
   "status": "ESTIMATES, NOT VR BENCHMARKS",
-  "source_measurements_sha256": "2907001a41555e862e3d4f823e8ed456e8fa2987032459b670672902dacd105a",
+  "source_measurements_sha256": "9d7596d3e4690da6afafd63b8e7175fd728796416a2ad0466acf94a9b1e7625c",
   "source_measurement_date": "2026-10-13",
   "gpu": "RTX 5080, driver 616.64",
   "headsets": [
@@ -37,8 +37,8 @@
       ],
       "input_pixels_both_eyes": 8160000,
       "stereo_model_ms": {
-        "phoenix": 13.1094546,
-        "nvidia": 12.771192766666667
+        "phoenix": 12.977011333333333,
+        "nvidia": 12.761042166666666
       },
       "interpolation_extents": {
         "phoenix": [
@@ -63,8 +63,8 @@
         ]
       },
       "phoenix_headroom_ms": {
-        "90": -1.9983434888888887,
-        "120": -4.7761212666666655
+        "90": -1.8659002222222227,
+        "120": -4.6436779999999995
       }
     },
     {
@@ -76,8 +76,8 @@
       ],
       "input_pixels_both_eyes": 2040000,
       "stereo_model_ms": {
-        "phoenix": 5.238987333333333,
-        "nvidia": 5.3914639
+        "phoenix": 5.206762933333333,
+        "nvidia": 5.3964875999999995
       },
       "interpolation_extents": {
         "phoenix": [
@@ -102,8 +102,8 @@
         ]
       },
       "phoenix_headroom_ms": {
-        "90": 5.8721237777777775,
-        "120": 3.0943460000000007
+        "90": 5.904348177777778,
+        "120": 3.126570400000001
       }
     },
     {
@@ -115,8 +115,8 @@
       ],
       "input_pixels_both_eyes": 9331200,
       "stereo_model_ms": {
-        "phoenix": 14.9847532,
-        "nvidia": 14.551382199999999
+        "phoenix": 14.793876,
+        "nvidia": 14.527652999999999
       },
       "interpolation_extents": {
         "phoenix": [
@@ -141,8 +141,8 @@
         ]
       },
       "phoenix_headroom_ms": {
-        "90": -3.8736420888888894,
-        "120": -6.651419866666666
+        "90": -3.6827648888888884,
+        "120": -6.460542666666665
       }
     },
     {
@@ -154,8 +154,8 @@
       ],
       "input_pixels_both_eyes": 2332800,
       "stereo_model_ms": {
-        "phoenix": 5.579652,
-        "nvidia": 5.7152458
+        "phoenix": 5.5425232,
+        "nvidia": 5.7190312
       },
       "interpolation_extents": {
         "phoenix": [
@@ -180,8 +180,8 @@
         ]
       },
       "phoenix_headroom_ms": {
-        "90": 5.53145911111111,
-        "120": 2.7536813333333336
+        "90": 5.568587911111111,
+        "120": 2.790810133333334
       }
     }
   ],
