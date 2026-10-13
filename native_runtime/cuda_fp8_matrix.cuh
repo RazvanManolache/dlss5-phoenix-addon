@@ -28,13 +28,12 @@ __device__ __forceinline__ float fp8_matrix_published_value(const phx::Kernel<Gp
 }
 
 template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX>
-__global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile) {
+__device__ __forceinline__ void matrix_direct_fp8_tile(phx::Operation operation, uint64_t tile) {
     // Fix known matrix/output semantics before device compilation. The common
     // half/FP8 and gated-half/FP8 variants omit unrelated publication branches.
     operation.family = phx::MatrixMultiply;
     if constexpr (PublishMode != UINT32_MAX)
         operation.flags = (operation.flags & ~0xf00u) | (PublishMode << 8u);
-    const uint64_t tile = first_tile + blockIdx.x;
     const unsigned column_tiles =
         (operation.column_count + ColumnTiles * 8 - 1) / (ColumnTiles * 8);
     const unsigned row_tiles = (operation.row_count + 63) / 64;
@@ -81,7 +80,8 @@ __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile)
         }
     }
     phx::Kernel<GpuMath> math{operation};
-    if constexpr (PublishMode == phx::PublishHalfThenFp8 ||
+    if constexpr (PublishMode == phx::PublishFusedGateFp8 ||
+                  PublishMode == phx::PublishHalfThenFp8 ||
                   PublishMode == phx::PublishGateThenHalfFp8) {
         // Each lane owns two adjacent columns in each of two rows. Publish
         // those values independently, then write their two halves as one word.
@@ -132,12 +132,73 @@ __global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile)
         }
 }
 
+template <unsigned ColumnTiles, unsigned PublishMode = UINT32_MAX>
+__global__ void matrix_direct_fp8(phx::Operation operation, uint64_t first_tile) {
+    matrix_direct_fp8_tile<ColumnTiles, PublishMode>(operation, first_tile + blockIdx.x);
+}
+
+// A CTA owns 64 tokens throughout a feed-forward block. Intermediate published
+// activations stay in shared memory instead of taking a round trip through the
+// scratch arena between each GEMM. The graph's original publication/residual
+// operations still define the arithmetic; no activation or rounding is removed.
+template <bool HasHeadProjection>
+__global__ void feed_forward_shared(phx::Operation expand, phx::Operation middle,
+                                    phx::Operation contract, uint64_t first_row_tile) {
+    extern __shared__ __align__(32) uint16_t temporary[];
+    const uint64_t first_row = (first_row_tile + blockIdx.x) * 64;
+    const unsigned live_rows = unsigned(min(uint64_t(64), uint64_t(expand.row_count) - first_row));
+    const unsigned channels = contract.column_count;
+    const auto original_expand = expand;
+    expand.left_input =
+        static_cast<uint16_t*>(expand.left_input) + first_row * expand.left_row_stride;
+    expand.output = temporary;
+    expand.row_count = live_rows;
+    expand.output_row_stride = expand.column_count;
+    expand.left_batch_stride = expand.right_batch_stride = expand.output_batch_stride = 0;
+    expand.flags = 1 | phx::RightInputFp8 | phx::LeftInputFp8Grid | phx::StoreHalf |
+                   (phx::PublishFusedGateFp8 << 8);
+    // Reuse each activation fragment across 128 output columns. Iterating
+    // 32-column tiles here would reload it four times inside the same CTA.
+    for (unsigned column_tile = 0; column_tile < (expand.column_count + 127) / 128; ++column_tile)
+        matrix_direct_fp8_tile<16, phx::PublishFusedGateFp8>(expand, column_tile);
+    __syncthreads();
+    uint16_t* contracted_input = temporary;
+    if constexpr (HasHeadProjection) {
+        contracted_input = temporary + 64 * original_expand.column_count;
+        middle.left_input = temporary;
+        middle.output = contracted_input;
+        middle.row_count = live_rows;
+        // The head batch advances across channels in both shared tensors.
+        // Preserve the strided-batch descriptor recorded by Graph.
+        for (unsigned head = 0; head < middle.batch_count; ++head)
+            matrix_direct_fp8_tile<4, phx::PublishHalfThenFp8>(middle, head);
+        __syncthreads();
+    }
+    contract.left_input = contracted_input;
+    contract.left_row_stride = channels == 32 ? original_expand.column_count : channels;
+    contract.row_count = live_rows;
+    const unsigned output_bytes = (contract.flags & phx::StoreHalf) ? 2 : 4;
+    contract.output = static_cast<uint8_t*>(contract.output) +
+                      first_row * contract.output_row_stride * output_bytes;
+    if (contract.flags & phx::MatrixResidual) {
+        const unsigned skip_bytes = (contract.flags & phx::MatrixSkipHalf) ? 2 : 4;
+        contract.auxiliary = static_cast<uint8_t*>(contract.auxiliary) +
+                             first_row * contract.output_row_stride * skip_bytes;
+    }
+    contract.left_batch_stride = contract.right_batch_stride = contract.output_batch_stride = 0;
+    matrix_direct_fp8_tile<8, phx::KeepFloat>(contract, 0);
+}
+
 // Keep the fully generic entry for other publication modes and experiments.
 // This selection happens during graph capture, not on each captured replay.
 template <unsigned ColumnTiles>
 static void launch_matrix_direct_fp8(phx::Operation operation, uint64_t first_tile, unsigned blocks,
                                      cudaStream_t stream) {
     switch ((operation.flags >> 8u) & 15u) {
+    case phx::PublishFusedGateFp8:
+        matrix_direct_fp8<ColumnTiles, phx::PublishFusedGateFp8>
+            <<<blocks, 128, 0, stream>>>(operation, first_tile);
+        break;
     case phx::PublishHalfThenFp8:
         matrix_direct_fp8<ColumnTiles, phx::PublishHalfThenFp8>
             <<<blocks, 128, 0, stream>>>(operation, first_tile);

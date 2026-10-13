@@ -10,11 +10,8 @@ __device__ __forceinline__ float row_member(float value, unsigned lane) {
 #endif
 }
 
-__global__ void normalize_heads8(phx::Operation operation, uint64_t count, uint64_t first) {
-    const uint64_t row = first + uint64_t(blockIdx.x) * 32 + threadIdx.x / 8;
-    if (row >= first + count)
-        return;
-    const unsigned lane = threadIdx.x % 8;
+__device__ __forceinline__ void normalize_head_row8(phx::Operation operation, uint64_t row,
+                                                    unsigned lane) {
     phx::Kernel<GpuMath> math{operation};
     float values[4];
     const unsigned channels[4] = {lane, lane + 16, lane + 8, lane + 24};
@@ -39,6 +36,12 @@ __global__ void normalize_heads8(phx::Operation operation, uint64_t count, uint6
 #pragma unroll
     for (unsigned index = 0; index < 4; ++index)
         math.store(row * 32 + channels[index], math.quantize_e4m3(values[index] * scale));
+}
+
+__global__ void normalize_heads8(phx::Operation operation, uint64_t count, uint64_t first) {
+    const uint64_t row = first + uint64_t(blockIdx.x) * 32 + threadIdx.x / 8;
+    if (row < first + count)
+        normalize_head_row8(operation, row, threadIdx.x % 8);
 }
 
 __global__ void normalize_global_scores8(phx::Operation operation, uint64_t count, uint64_t first) {

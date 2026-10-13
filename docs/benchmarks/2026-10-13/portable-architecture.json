@@ -1,0 +1,374 @@
+{
+  "status": "Validated local candidate; this record does not claim a published release or game validation",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5080, 16 GiB",
+    "driver": "616.64",
+    "cpu": "AMD Ryzen 9 9950X3D, 16 cores / 32 threads",
+    "ram": "96 GiB",
+    "cuda": "13.1, sm_120"
+  },
+  "resolution": [
+    1920,
+    1080
+  ],
+  "frames_per_process": 12,
+  "processes": 3,
+  "discarded_frames": 2,
+  "boundary": "RGB32F host/broker entry; model timing excludes host preparation, resolve and transfers",
+  "model": {
+    "version": "NVIDIA DLSS NR 310.8.0.0",
+    "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+  },
+  "exact_temporal_ab_frames": 216,
+  "saved_regression_frames": 42,
+  "validated_routes": [
+    "cpu",
+    "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
+    "hip:30303030303131363030303030303030",
+    "sycl:cpu",
+    "vulkan:00000000740000000000000000000000",
+    "vulkan:1b962af4ae3f9cf1b93a70efe043a13d"
+  ],
+  "measurements": [
+    {
+      "route": "cuda",
+      "variant": "baseline",
+      "model_ms": {
+        "median": 65.71028808457777,
+        "minimum": 65.64982433989644,
+        "maximum": 66.70422429405153
+      },
+      "frame_ms": {
+        "median": 110.65555,
+        "minimum": 108.66145,
+        "maximum": 118.44775
+      },
+      "resident_bytes": {
+        "median": 475404968,
+        "minimum": 475404968,
+        "maximum": 475404968
+      },
+      "scratch_bytes": {
+        "median": 323878912,
+        "minimum": 323878912,
+        "maximum": 323878912
+      },
+      "host_private_bytes": {
+        "median": 972107776,
+        "minimum": 970993664,
+        "maximum": 972746752
+      },
+      "host_working_set_bytes": {
+        "median": 331276288,
+        "minimum": 331247616,
+        "maximum": 331657216
+      }
+    },
+    {
+      "route": "cuda",
+      "variant": "batch512",
+      "model_ms": {
+        "median": 56.08790411101654,
+        "minimum": 55.69966403627768,
+        "maximum": 56.14585604565218
+      },
+      "frame_ms": {
+        "median": 99.08455000000001,
+        "minimum": 98.83175,
+        "maximum": 101.708
+      },
+      "resident_bytes": {
+        "median": 475404968,
+        "minimum": 475404968,
+        "maximum": 475404968
+      },
+      "scratch_bytes": {
+        "median": 323878912,
+        "minimum": 323878912,
+        "maximum": 323878912
+      },
+      "host_private_bytes": {
+        "median": 953176064,
+        "minimum": 951877632,
+        "maximum": 953708544
+      },
+      "host_working_set_bytes": {
+        "median": 317046784,
+        "minimum": 317014016,
+        "maximum": 317513728
+      }
+    },
+    {
+      "route": "cuda",
+      "variant": "batch1024",
+      "model_ms": {
+        "median": 54.773135614581406,
+        "minimum": 52.813647877424955,
+        "maximum": 56.318912013433874
+      },
+      "frame_ms": {
+        "median": 99.7701,
+        "minimum": 93.5729,
+        "maximum": 100.4077
+      },
+      "resident_bytes": {
+        "median": 498473640,
+        "minimum": 498473640,
+        "maximum": 498473640
+      },
+      "scratch_bytes": {
+        "median": 346947584,
+        "minimum": 346947584,
+        "maximum": 346947584
+      },
+      "host_private_bytes": {
+        "median": 963383296,
+        "minimum": 962613248,
+        "maximum": 964448256
+      },
+      "host_working_set_bytes": {
+        "median": 308260864,
+        "minimum": 308260864,
+        "maximum": 308318208
+      }
+    },
+    {
+      "route": "vulkan_nvidia",
+      "variant": "baseline",
+      "model_ms": {
+        "median": 111.968208,
+        "minimum": 111.942464,
+        "maximum": 113.34016
+      },
+      "frame_ms": {
+        "median": 162.59775000000002,
+        "minimum": 160.59165000000002,
+        "maximum": 163.95895000000002
+      },
+      "resident_bytes": {
+        "median": 475404968,
+        "minimum": 475404968,
+        "maximum": 475404968
+      },
+      "scratch_bytes": {
+        "median": 323878912,
+        "minimum": 323878912,
+        "maximum": 323878912
+      },
+      "host_private_bytes": {
+        "median": 723316736,
+        "minimum": 723234816,
+        "maximum": 734785536
+      },
+      "host_working_set_bytes": {
+        "median": 282001408,
+        "minimum": 281460736,
+        "maximum": 282476544
+      }
+    },
+    {
+      "route": "vulkan_nvidia",
+      "variant": "batch512",
+      "model_ms": {
+        "median": 101.390848,
+        "minimum": 101.341248,
+        "maximum": 106.327328
+      },
+      "frame_ms": {
+        "median": 150.38315,
+        "minimum": 147.56805,
+        "maximum": 158.95954999999998
+      },
+      "resident_bytes": {
+        "median": 475404968,
+        "minimum": 475404968,
+        "maximum": 475404968
+      },
+      "scratch_bytes": {
+        "median": 323878912,
+        "minimum": 323878912,
+        "maximum": 323878912
+      },
+      "host_private_bytes": {
+        "median": 776802304,
+        "minimum": 774918144,
+        "maximum": 797782016
+      },
+      "host_working_set_bytes": {
+        "median": 283455488,
+        "minimum": 283340800,
+        "maximum": 283996160
+      }
+    },
+    {
+      "route": "vulkan_nvidia",
+      "variant": "batch1024",
+      "model_ms": {
+        "median": 97.80412799999999,
+        "minimum": 97.28448,
+        "maximum": 98.53705599999999
+      },
+      "frame_ms": {
+        "median": 150.5448,
+        "minimum": 146.42085,
+        "maximum": 152.3453
+      },
+      "resident_bytes": {
+        "median": 498473640,
+        "minimum": 498473640,
+        "maximum": 498473640
+      },
+      "scratch_bytes": {
+        "median": 346947584,
+        "minimum": 346947584,
+        "maximum": 346947584
+      },
+      "host_private_bytes": {
+        "median": 794513408,
+        "minimum": 792031232,
+        "maximum": 795893760
+      },
+      "host_working_set_bytes": {
+        "median": 280297472,
+        "minimum": 280023040,
+        "maximum": 280449024
+      }
+    }
+  ],
+  "pieces": [
+    {
+      "route": "cuda",
+      "piece": "32-channel expansion",
+      "baseline_ms": 0.020161500200629234,
+      "candidate_ms": 0.020122000016272068
+    },
+    {
+      "route": "cuda",
+      "piece": "32-channel contraction",
+      "baseline_ms": 0.01191700017079711,
+      "candidate_ms": 0.011921499855816364
+    },
+    {
+      "route": "cuda",
+      "piece": "128-channel expansion",
+      "baseline_ms": 0.15106549859046936,
+      "candidate_ms": 0.08784500136971474
+    },
+    {
+      "route": "cuda",
+      "piece": "Global expansion 640x4096x1024",
+      "baseline_ms": 0.10407599806785583,
+      "candidate_ms": 0.06877300143241882
+    },
+    {
+      "route": "cuda",
+      "piece": "Global contraction 640x1024x4096",
+      "baseline_ms": 0.10237500071525574,
+      "candidate_ms": 0.09761650115251541
+    },
+    {
+      "route": "cuda",
+      "piece": "Global QK 640x640x32, 32 heads",
+      "baseline_ms": 0.15911700576543808,
+      "candidate_ms": 0.17000599950551987
+    },
+    {
+      "route": "cuda",
+      "piece": "Global normalization, 640 keys, 32 heads",
+      "baseline_ms": 0.2327990010380745,
+      "candidate_ms": 0.2324560061097145
+    },
+    {
+      "route": "cuda",
+      "piece": "Local attention, 512 single-head windows",
+      "baseline_ms": 0.013618499971926212,
+      "candidate_ms": 0.013593500014394522
+    },
+    {
+      "route": "cuda",
+      "piece": "32-channel feed-forward pair",
+      "baseline_ms": 0.031899500638246536,
+      "candidate_ms": 0.02391149941831827
+    },
+    {
+      "route": "cuda",
+      "piece": "Complete 32-channel window block",
+      "baseline_ms": 0.09697550162672997,
+      "candidate_ms": 0.059299999848008156
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "32-channel expansion",
+      "baseline_ms": 0.022487,
+      "candidate_ms": 0.0223715
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "32-channel contraction",
+      "baseline_ms": 0.0211615,
+      "candidate_ms": 0.02107
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "128-channel expansion",
+      "baseline_ms": 0.2546495,
+      "candidate_ms": 0.25912599999999997
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Global expansion 640x4096x1024",
+      "baseline_ms": 0.301914,
+      "candidate_ms": 0.299636
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Global contraction 640x1024x4096",
+      "baseline_ms": 0.394877,
+      "candidate_ms": 0.3936135
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Global QK 640x640x32, 32 heads",
+      "baseline_ms": 0.104597,
+      "candidate_ms": 0.10160999999999999
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Global normalization, 640 keys, 32 heads",
+      "baseline_ms": 0.8719534999999999,
+      "candidate_ms": 0.22799949999999997
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Local attention, 512 single-head windows",
+      "baseline_ms": 0.0414215,
+      "candidate_ms": 0.0413165
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "32-channel feed-forward pair",
+      "baseline_ms": 0.043807,
+      "candidate_ms": 0.0435435
+    },
+    {
+      "route": "vulkan_nvidia",
+      "piece": "Complete 32-channel window block",
+      "baseline_ms": 0.143191,
+      "candidate_ms": 0.130827
+    }
+  ],
+  "memory_scope": "Owned device allocations exclude driver caches; worker private bytes are committed address-space backing, not physical RAM or VRAM",
+  "benchmark_snapshot_bytes": 323878912,
+  "experimental_global_tensor": {
+    "selected": false,
+    "qk_only_exact_frames": 32,
+    "probability_value": "Fails exact output; eight-frame maximum channel error reaches 0.095241",
+    "reason": "QK alone has no stable whole-frame win; probability-value reduction changes output substantially"
+  },
+  "addon": {
+    "sha256": "039df58e654f9e30826c62d95b487ed2ef322fdb52abf981e67aba412f039ce5",
+    "bytes": 194919936,
+    "embedded_files": 120,
+    "model_data_included": false
+  }
+}

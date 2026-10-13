@@ -12,16 +12,14 @@ __device__ __forceinline__ void attention_mma8(float* sum, const uint32_t* left,
 #endif
 }
 
-__global__ void window_attention_fp8(phx::Operation operation, uint64_t first_batch) {
+__device__ __forceinline__ void window_attention_fp8_tile(phx::Operation operation, uint64_t batch,
+                                                          float* scores, uint8_t* probabilities) {
     constexpr unsigned SharedStride = 68;
-    const uint64_t batch = first_batch + blockIdx.x;
     const unsigned lane = threadIdx.x % 32, warp = threadIdx.x / 32;
     const unsigned row_group = lane / 4, reduction_group = lane % 4;
     const auto* query = static_cast<const __half*>(operation.left_input) + batch * 2048;
     const auto* key = static_cast<const __half*>(operation.right_input) + batch * 2048;
     const auto* value = static_cast<const __half*>(operation.auxiliary) + batch * 2048;
-    __shared__ __align__(32) float scores[4096];
-    __shared__ __align__(32) uint8_t probabilities[64 * SharedStride];
     float sums[8][4] = {};
     uint32_t left[4];
 #pragma unroll
@@ -97,4 +95,10 @@ __global__ void window_attention_fp8(phx::Operation operation, uint64_t first_ba
                 (batch % operation.column_count) * 32 + column;
             math.store(target, sums[column_tile][element]);
         }
+}
+
+__global__ void window_attention_fp8(phx::Operation operation, uint64_t first_batch) {
+    __shared__ __align__(32) float scores[4096];
+    __shared__ __align__(32) uint8_t probabilities[64 * 68];
+    window_attention_fp8_tile(operation, first_batch + blockIdx.x, scores, probabilities);
 }

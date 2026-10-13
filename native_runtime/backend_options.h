@@ -14,6 +14,10 @@ enum BackendOption : uint32_t {
     CudaDirectFp8 = 1u << 8,
     Fp8Columns64 = 1u << 9,
     Fp8Columns128 = 1u << 10,
+    CudaFusedFeedForward = 1u << 11,
+    CudaFusedWideFeedForward = 1u << 12, // Retained 64-channel experiment; measured slower.
+    CudaShapeMatrices = 1u << 13,
+    CudaFusedWindowBlock = 1u << 14, // Shared-memory 32-channel window block.
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,

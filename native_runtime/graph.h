@@ -550,24 +550,31 @@ class Graph {
                 auto middle_matrix = model_weight(block, 0, "mlp_mid");
                 auto per_head_result = allocate_tensor(batch, 64, channels);
                 per_head_result.fp8_grid = true;
-                for (unsigned head = 0; head < head_count; ++head) {
-                    auto head_input = tensor_view(hidden, head * 128, batch, 64, 128);
-                    auto head_matrix = tensor_view(middle_matrix, head * 32 * 128, 1, 32, 128);
+                // Heads are independent 128->32 projections. Represent them as
+                // one strided batch instead of recording a launch per head.
+                // A batch advances across channels; rows retain the original
+                // interleaved token stride. No transpose or extra tensor is needed.
+                {
+                    auto head_input = tensor_view(hidden, 0, batch, 64, 128);
+                    auto head_matrix = tensor_view(middle_matrix, 0, 1, 32, 128);
                     phx::Operation operation{};
                     operation.family = phx::MatrixMultiply;
                     operation.flags = 1 | phx::StoreHalf | (5 << 8) | phx::RightInputFp8 |
                                       (head_input.fp8_grid ? phx::LeftInputFp8Grid : 0);
                     operation.left_input = head_input.ptr();
                     operation.right_input = head_matrix.ptr();
-                    operation.output = tensor_view(per_head_result, head * 32, batch, 64, 32).ptr();
+                    operation.output = per_head_result.ptr();
                     operation.row_count = batch * 64;
                     operation.column_count = 32;
                     operation.reduction_count = 128;
-                    operation.batch_count = 1;
+                    operation.batch_count = head_count;
+                    operation.left_batch_stride = 128;
+                    operation.right_batch_stride = 32 * 128;
+                    operation.output_batch_stride = 32;
                     operation.left_row_stride = 4 * channels;
                     operation.right_row_stride = 128;
                     operation.output_row_stride = channels;
-                    emit(operation, uint64_t(operation.row_count) * 32);
+                    emit(operation, uint64_t(operation.row_count) * 32 * head_count);
                 }
                 hidden = per_head_result;
             }
@@ -734,8 +741,8 @@ class Graph {
         : backend_(backend), model_(model), fused_attention_(fused_attention),
           window_batch_limit_(window_batch_limit), device_features_(device_features),
           fused_residual_(fused_residual) {
-        demand(window_batch_limit >= 16 && window_batch_limit <= 1024,
-               "Window batch limit must be 16..1024");
+        demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
+               "Window batch limit must be 16..8192");
     }
 
     ~Graph() {

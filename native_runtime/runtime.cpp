@@ -85,6 +85,14 @@ struct Runtime {
             uint32_t options = 0;
             if (config.value("cuda_direct_fp8", true))
                 options |= CudaDirectFp8;
+            if (config.value("cuda_fused_feed_forward", true))
+                options |= CudaFusedFeedForward;
+            if (config.value("cuda_fused_window_block", true))
+                options |= CudaFusedWindowBlock;
+            if (config.value("cuda_fused_wide_feed_forward", false))
+                options |= CudaFusedWideFeedForward;
+            if (config.value("cuda_shape_matrices", !config.contains("cuda_fp8_columns")))
+                options |= CudaShapeMatrices;
             if (config.value("scalar_matrices", false))
                 options |= ScalarMatrices;
             if (config.value("profiling", std::string("frame")) == "dispatches")
@@ -132,8 +140,8 @@ struct Runtime {
                               !(features(backend) & PreferUnfusedWindowAttention)) && features &&
                           (features(backend) & FusedWindowAttention);
         window_batch_limit = config.value("window_batch_limit", 512u);
-        demand(window_batch_limit >= 16 && window_batch_limit <= 1024,
-               "Window batch limit must be 16..1024");
+        demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
+               "Window batch limit must be 16..8192");
         weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
         model = std::make_unique<Model>(weight_source);
         // Six spatial reductions. Preserve the portable plan's minimum/padding policy.

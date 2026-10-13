@@ -91,34 +91,63 @@ void phx_softmax_parallel(uint row, uint lane) {
 // Reduce global scores in 64-key blocks. Padding uses the zero-score
 // weight during the fixed reduction tree, then its contribution is removed
 // from the denominator; padded values are published as zero.
+// The clamped affine is a positive normal half in [1.439453125,1.9775390625].
+// Form its half mantissa directly, apply the model's exponential bit transform,
+// and decode the resulting positive normal half. General half packing handles
+// signs, subnormals and overflow that cannot occur inside this bounded step.
+float phx_global_weight(float score) {
+    precise float affine = half_round(score) * 0.08953857421875;
+    affine += 1.708984375;
+    affine = clamp(half_round(affine), 1.439453125, 1.9775390625);
+    if (isnan(affine))
+        return vit_weight(score);
+    uint affine_half = 0x3c00u | ((floatBitsToUint(affine) >> 13u) & 1023u);
+    uint weight_half = ((affine_half << 4u) + 0x4000u) & 65535u;
+    return uintBitsToFloat((((weight_half >> 10u) + 112u) << 23u) |
+                          ((weight_half & 1023u) << 13u));
+}
+// Denominator partials add positive normal weights. Keep each original half
+// rounding boundary, using its normal positive encoding rather than the full
+// general conversion. The final padding correction also leaves a positive
+// normal total; infinity is retained for oversized denominators.
+float phx_denominator_add(float left, float right) {
+    precise float sum = left + right;
+    uint bits = floatBitsToUint(sum);
+    uint rounded = bits + 0xfffu + ((bits >> 13u) & 1u);
+    return uintBitsToFloat(min(rounded & 0xffffe000u, 0x7f800000u));
+}
 void phx_vit_parallel(uint row, uint lane) {
     uint stride = pc.sa != 0u ? pc.sa : pc.n, base = row * stride, blocks = (pc.n + 63u) / 64u;
-    float zero = vit_weight(0.), total = 0.;
+    float zero = phx_global_weight(0.), total = 0.;
     for (uint key_block = 0u; key_block < blocks; key_block++) {
         float pair[4];
         for (uint inner_index = 0u; inner_index < 4u; inner_index++) {
             uint key_index = key_block * 64u + lane + 16u * inner_index;
-            float first_weight = key_index < pc.n ? vit_weight(pc.a.v[base + key_index]) : zero;
+            float first_weight = key_index < pc.n ? phx_global_weight(pc.a.v[base + key_index]) : zero;
             float second_weight =
-                key_index + 8u < pc.n ? vit_weight(pc.a.v[base + key_index + 8u]) : zero;
-            pair[inner_index] = hadd(first_weight, second_weight);
+                key_index + 8u < pc.n ? phx_global_weight(pc.a.v[base + key_index + 8u]) : zero;
+            pair[inner_index] = phx_denominator_add(first_weight, second_weight);
             if (key_index < stride)
                 store(base + key_index, key_index < pc.n ? e4m3(first_weight) : 0.);
             if (key_index + 8u < stride)
                 store(base + key_index + 8u, key_index + 8u < pc.n ? e4m3(second_weight) : 0.);
         }
-        float column = hadd(hadd(hadd(pair[0], pair[1]), pair[2]), pair[3]);
-        float even =
-            hadd(hadd(hadd(phx_lane(column, 0u), phx_lane(column, 2u)), phx_lane(column, 4u)),
-                 phx_lane(column, 6u));
-        float odd =
-            hadd(hadd(hadd(phx_lane(column, 1u), phx_lane(column, 3u)), phx_lane(column, 5u)),
-                 phx_lane(column, 7u));
-        total = hadd(total, hadd(even, odd));
+        // Each assignment retains a half-rounded boundary. Keep the column
+        // sum and the two lane parities in their original left-to-right order.
+        float column = phx_denominator_add(pair[0], pair[1]);
+        column = phx_denominator_add(column, pair[2]);
+        column = phx_denominator_add(column, pair[3]);
+        float even = phx_denominator_add(phx_lane(column, 0u), phx_lane(column, 2u));
+        even = phx_denominator_add(even, phx_lane(column, 4u));
+        even = phx_denominator_add(even, phx_lane(column, 6u));
+        float odd = phx_denominator_add(phx_lane(column, 1u), phx_lane(column, 3u));
+        odd = phx_denominator_add(odd, phx_lane(column, 5u));
+        odd = phx_denominator_add(odd, phx_lane(column, 7u));
+        total = phx_denominator_add(total, phx_denominator_add(even, odd));
     }
     uint padding = blocks * 64u - pc.n;
     if (padding > 0u)
-        total = hadd(total, -hmul(zero, float(padding)));
+        total = phx_denominator_add(total, -hmul(zero, float(padding)));
     if (lane == 0u)
         pc.d.v[row] = half_round(1. / total);
     // General callers may provide additional stride padding beyond the last

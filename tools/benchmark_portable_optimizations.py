@@ -28,8 +28,8 @@ def main():
     parser.add_argument('--candidate-options', type=json.loads, default={},
                         help='JSON object of candidate runtime options for ablation')
     args = parser.parse_args()
-    if args.frames < args.discarded + 2 or args.discarded < 1 or args.processes < 2 or any(n < 16 or n > 1024 for n in args.batches):
-        parser.error('At least two measured frames after warmup, two processes and batches in 16..1024 required')
+    if args.frames < args.discarded + 2 or args.discarded < 1 or args.processes < 2 or any(n < 16 or n > 8192 for n in args.batches):
+        parser.error('At least two measured frames after warmup, two processes and batches in 16..8192 required')
     if not isinstance(args.candidate_options, dict):
         parser.error('--candidate-options must be a JSON object')
     out = args.output.resolve()

@@ -84,6 +84,11 @@ class VulkanBackend final : public Backend {
                         matrix_shader.c_str(), matrix8.c_str(), matrix16.c_str(),
                         elementwise_shader.c_str(), attention_shader.c_str(),
                         history_shader.c_str(), options, fp8_matrix.c_str(), wide_matrix.c_str()));
+        // The provider routes cooperative row reductions only after this
+        // optional pipeline is initialized. Merely shipping the SPIR-V leaves
+        // g.rrows null and silently selects the 32-lane scalar fallback.
+        auto parallel_rows = shader_path("attention_rows.spv");
+        check(call<int>("xmx_rows_init", parallel_rows.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
         // This tested RDNA2 iGPU advertises cooperative matrices, but its
         // fused attention shader is slower than separate ordered operators.

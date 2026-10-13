@@ -9,6 +9,7 @@
 #include <iostream>
 #include <cstring>
 using namespace phoenix_cpp;
+#include "window_block_contract.h"
 int wmain(int argc, wchar_t** argv) {
     try {
         demand(argc >= 4 && argc <= 6,
@@ -58,12 +59,17 @@ int wmain(int argc, wchar_t** argv) {
         demand((create || basic_create) && destroy, "Backend factory ABI missing");
         char error[2048]{};
         auto backend = std::unique_ptr<Backend, DestroyBackend>(
-            create
-                ? create(device.c_str(), (root / "vulkan").c_str(),
-                         DispatchProfiling | OrderedAttention | extra_options, error, sizeof(error))
-                : basic_create(device.c_str(), (root / "vulkan").c_str(), error, sizeof(error)),
+            create ? create(device.c_str(), (root / "vulkan").c_str(),
+                            ((extra_options & CudaFusedWindowBlock)
+                                 ? 0u
+                                 : DispatchProfiling | OrderedAttention) |
+                                extra_options,
+                            error, sizeof(error))
+                   : basic_create(device.c_str(), (root / "vulkan").c_str(), error, sizeof(error)),
             destroy);
         demand(bool(backend), error);
+        if (kind == "cuda" && (extra_options & CudaFusedWindowBlock))
+            test_window_block_contract(*backend);
         phx::Kernel<HostMath> math{};
         std::vector<Allocation> owned;
         auto allocate = [&](size_t bytes) {
@@ -377,13 +383,16 @@ int wmain(int argc, wchar_t** argv) {
         std::cout << "Local row normalization exact for all head counts and row tails\n";
         // Global rows use a half-rounded reduction tree and publish the inverse
         // sum separately. Check both partial 64-key tiles and padded row strides.
-        for (unsigned width : {1u, 63u, 64u, 65u, 640u})
+        for (unsigned width : {1u, 63u, 64u, 65u, 127u, 129u, 640u, 1025u, 4097u})
             for (unsigned padding : {0u, 7u, 72u}) {
                 constexpr unsigned row_count = 129;
                 const unsigned stride = width + padding;
                 std::vector<float> scores(row_count * stride);
                 for (size_t index = 0; index < scores.size(); ++index)
-                    scores[index] = float(int(index * 19 % 701) - 350) * .007123f;
+                    scores[index] = index % 29 == 0 ? -1.e20f
+                                    : index % 31 == 0
+                                        ? 1.e20f
+                                        : float(int(index * 19 % 701) - 350) * .007123f;
                 auto input = allocate(scores.size() * 4), output = allocate(scores.size() * 2);
                 auto inverse = allocate(row_count * 4);
                 backend->upload(input, scores.data(), scores.size() * 4);

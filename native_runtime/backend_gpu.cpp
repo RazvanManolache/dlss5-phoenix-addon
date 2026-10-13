@@ -332,6 +332,7 @@ __global__ void matrix_tensor_f16(phx::Operation operation, uint64_t first_tile)
 #include "cuda_fp8_matrix.cuh"
 #include "cuda_window_attention.cuh"
 #include "cuda_fp8_attention.cuh"
+#include "cuda_window_block.cuh"
 
 #endif
 #if !defined(PHX_SYCL)
@@ -405,6 +406,10 @@ class GpuBackend final : public Backend {
     bool detailed_profile = false;
     unsigned tensor_column_tiles = 1;
     bool direct_fp8 = false;
+    bool fused_feed_forward = false;
+    bool fused_window_block = false;
+    bool fused_wide_feed_forward = false;
+    bool shape_matrices = false;
     unsigned fp8_columns = 32;
 #if defined(PHX_SYCL)
     std::unique_ptr<sycl::queue> queue_;
@@ -464,6 +469,10 @@ class GpuBackend final : public Backend {
         tensor_attention = !(options & OrderedAttention);
         detailed_profile = (options & DispatchProfiling) != 0;
         direct_fp8 = (options & CudaDirectFp8) != 0;
+        fused_feed_forward = (options & CudaFusedFeedForward) != 0;
+        fused_window_block = (options & CudaFusedWindowBlock) != 0;
+        fused_wide_feed_forward = (options & CudaFusedWideFeedForward) != 0;
+        shape_matrices = (options & CudaShapeMatrices) != 0;
         fp8_columns = (options & Fp8Columns128) ? 128 : (options & Fp8Columns64) ? 64 : 32;
         tensor_column_tiles = (options & MatrixColumns64) ? 4 : (options & MatrixColumns32) ? 2 : 1;
 #if defined(PHX_SYCL)
@@ -528,6 +537,10 @@ class GpuBackend final : public Backend {
         direct_fp8 = direct_fp8 &&
                      selected_properties.major * 10 + selected_properties.minor >= 89 &&
                      fp8_attributes.ptxVersion >= 89;
+        // This routing was measured on Blackwell GeForce. Other architectures
+        // retain their existing column choice until independently benchmarked.
+        shape_matrices =
+            shape_matrices && selected_properties.major == 12 && selected_properties.minor == 0;
 #endif
         PHX_CHECK(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking));
 #endif
@@ -703,7 +716,82 @@ class GpuBackend final : public Backend {
                     if (work_index == graph_spans[span].begin)
                         PHX_CHECK(
                             hipEventRecordWithFlags(timer.started, stream, hipEventRecordExternal));
-                    if (command.operation.family == phx::WindowAttention) {
+                    // Fuse only a complete, proven feed-forward chain. Detailed
+                    // dispatch profiling keeps the separate operations so its
+                    // event-to-command mapping remains truthful.
+                    unsigned fused_count = 0;
+                    WindowBlockOperations window_block;
+                    if (direct_fp8 && fused_window_block && !detailed_profile &&
+                        match_window_block(commands, work_index, graph_spans[span].end,
+                                           window_block)) {
+                        const uint64_t windows = window_block.expand.row_count / 64;
+                        for (uint64_t first = 0; first < windows; first += 65535) {
+                            const unsigned blocks =
+                                unsigned(std::min(uint64_t(65535), windows - first));
+                            if (window_block.contract.flags & phx::MatrixSkipHalf)
+                                window_block_shared<true>
+                                    <<<blocks, 128, 0, stream>>>(window_block, first);
+                            else
+                                window_block_shared<false>
+                                    <<<blocks, 128, 0, stream>>>(window_block, first);
+                        }
+                        fused_count = 9;
+                    }
+                    if (!fused_count && direct_fp8 && fused_feed_forward && !detailed_profile &&
+                        command.operation.family == phx::MatrixMultiply &&
+                        ((command.operation.flags >> 8) & 15u) == phx::PublishFusedGateFp8 &&
+                        (command.operation.flags & phx::LeftInputFp8Grid) &&
+                        command.operation.batch_count == 1 &&
+                        (command.operation.reduction_count == 32 ||
+                         (fused_wide_feed_forward && command.operation.reduction_count == 64)) &&
+                        command.operation.column_count == 4 * command.operation.reduction_count &&
+                        work_index + 1 < graph_spans[span].end) {
+                        const auto& next = commands[work_index + 1].operation;
+                        const bool has_middle = command.operation.reduction_count == 64;
+                        const size_t last = work_index + (has_middle ? 2 : 1);
+                        if (last < graph_spans[span].end) {
+                            const auto& contract = commands[last].operation;
+                            const bool middle_matches =
+                                !has_middle ||
+                                (next.family == phx::MatrixMultiply &&
+                                 next.left_input == command.operation.output &&
+                                 next.batch_count == 2 && next.reduction_count == 128 &&
+                                 next.column_count == 32 && next.left_batch_stride == 128 &&
+                                 next.right_batch_stride == 4096 && next.output_batch_stride == 32);
+                            if (middle_matches && contract.family == phx::MatrixMultiply &&
+                                contract.left_input ==
+                                    (has_middle ? next.output : command.operation.output) &&
+                                contract.row_count == command.operation.row_count &&
+                                contract.batch_count == 1 &&
+                                contract.column_count == command.operation.reduction_count &&
+                                ((contract.flags >> 8) & 15u) == phx::KeepFloat &&
+                                (contract.flags & phx::MatrixResidual) &&
+                                (contract.flags & phx::LeftInputFp8Grid) &&
+                                (contract.flags & phx::RightInputFp8)) {
+                                const uint64_t tiles =
+                                    (uint64_t(command.operation.row_count) + 63) / 64;
+                                const unsigned shared_bytes =
+                                    64 * (command.operation.column_count + (has_middle ? 64 : 0)) *
+                                    2;
+                                for (uint64_t first = 0; first < tiles; first += 65535) {
+                                    const unsigned blocks =
+                                        unsigned(std::min(uint64_t(65535), tiles - first));
+                                    if (has_middle)
+                                        feed_forward_shared<true>
+                                            <<<blocks, 128, shared_bytes, stream>>>(
+                                                command.operation, next, contract, first);
+                                    else
+                                        feed_forward_shared<false>
+                                            <<<blocks, 128, shared_bytes, stream>>>(
+                                                command.operation, {}, contract, first);
+                                }
+                                fused_count = has_middle ? 3 : 2;
+                            }
+                        }
+                    }
+                    if (fused_count) {
+                        work_index += fused_count - 1;
+                    } else if (command.operation.family == phx::WindowAttention) {
                         for (uint64_t first = 0; first < command.operation.batch_count;
                              first += 65535) {
                             const auto blocks = unsigned(std::min(
@@ -724,10 +812,31 @@ class GpuBackend final : public Backend {
                                command.operation.reduction_count >= 128 &&
                                command.operation.reduction_count % 32 == 0 &&
                                command.operation.left_row_stride % 4 == 0) {
-                        const unsigned columns =
+                        unsigned columns =
                             fp8_columns >= 128 && command.operation.column_count >= 128 ? 128
                             : fp8_columns >= 64 && command.operation.column_count >= 64 ? 64
                                                                                         : 32;
+                        if (shape_matrices) {
+                            const auto& operation = command.operation;
+                            const unsigned publication = (operation.flags >> 8) & 15u;
+                            // QKV projects C channels to 3*C. Sharing the left
+                            // fragment across wider output tiles pays here,
+                            // while the gated spatial MLP stays on 32 columns.
+                            if (!(operation.flags & phx::MatrixResidual) &&
+                                publication == phx::KeepFloat && operation.column_count >= 384 &&
+                                operation.column_count == 3 * operation.reduction_count)
+                                columns = 128;
+                            else if (!(operation.flags & phx::MatrixResidual) &&
+                                     publication == phx::PublishGateThenHalfFp8 &&
+                                     operation.column_count >= 2048 &&
+                                     operation.column_count == 4 * operation.reduction_count)
+                                columns = 128;
+                            else if ((operation.flags & phx::MatrixResidual) &&
+                                     publication == phx::KeepFloat &&
+                                     operation.column_count == 256 &&
+                                     operation.reduction_count == 256 && operation.row_count >= 512)
+                                columns = 64;
+                        }
                         const uint64_t tiles =
                             uint64_t((command.operation.row_count + 63) / 64) *
                             ((command.operation.column_count + columns - 1) / columns) *

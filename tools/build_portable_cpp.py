@@ -45,6 +45,7 @@ def main():
         "backend_contracts",
         "graph_profile",
         "matrix_benchmark",
+        "cuda_vendor_matrix_benchmark",
         "cuda_math_contracts",
         "opencl_cpu_proxy",
         "vulkan_adapter",
@@ -369,6 +370,13 @@ def main():
         "-arch=" + args.cuda_arch, "-Xcompiler=/MD,/EHsc,/DNOMINMAX",
         ROOT / "tests/portable_cpp/cuda_math_contracts.cu", "-o", out / "phoenix_cpp_cuda_math_contracts.exe"],
         out / "phoenix_cpp_cuda_math_contracts.exe")
+    build("cuda_vendor_matrix_benchmark", [cuda, "-allow-unsupported-compiler",
+          "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH", "-std=c++20", "-O2", "--fmad=false",
+          "-arch=" + args.cuda_arch, "-Xcompiler=/MD,/EHsc,/DNOMINMAX",
+          ROOT / "tests/portable_cpp/cuda_vendor_matrix_benchmark.cu",
+          "-o", out / "phoenix_cpp_cuda_vendor_matrix_benchmark.exe",
+          "cublasLt.lib", "-Xlinker", "bcrypt.lib"],
+          out / "phoenix_cpp_cuda_vendor_matrix_benchmark.exe")
     for kind in ("cuda", "hip", "sycl"):
         text = (
             f'#define PHX_{kind.upper()}\n#define DEVICE_NAME "{kind}-cpp"\n#define DEVICE_PREFIX "{kind}:"\n'
