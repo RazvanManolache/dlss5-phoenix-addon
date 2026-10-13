@@ -23,6 +23,7 @@ enum BackendOption : uint32_t {
     CudaCompactWindowBlock = 1u << 17,
     VulkanShapeMatrices = 1u << 18,
     VulkanHardwareHalf = 1u << 19,
+    VulkanGenericWide = 1u << 20,
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,

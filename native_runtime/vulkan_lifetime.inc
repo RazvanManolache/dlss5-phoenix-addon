@@ -103,6 +103,7 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     // The available AMD iGPU failed a half-rounding contract; keep its fallback.
     phx_native_hardware_half = (options & (1u << 19)) != 0 && selected_vendor == 0x10de;
     phx_shape_matrices = (options & (1u << 18)) != 0;
+    phx_wide_generic = (options & (1u << 20)) != 0;
     phx_native_configured = 1;
     int result = xmx_init(selected_shader);
     if (result < 0)
@@ -250,6 +251,7 @@ void xmx_shutdown(void) {
     phx_native_configured = 0;
     phx_native_hardware_half = 0;
     phx_shape_matrices = 0;
+    phx_wide_generic = 0;
     phx_native_matrix_rows = 0;
     phx_native_fp8_k = 0;
     phx_native_workgroup_rows = 0;

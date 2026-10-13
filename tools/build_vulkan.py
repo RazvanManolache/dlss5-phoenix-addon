@@ -26,7 +26,7 @@ def patch_runtime(source):
         '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;\nstatic VkPipeline phx_wide_pipeline;\nstatic unsigned phx_wide_columns;',
     )
     replace("char* rpaths[12];", "char* rpaths[13];")
-    replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices;")
+    replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices, phx_wide_generic;")
     replace("specialization->mapEntryCount > sizeof entries / sizeof *entries - 2",
             "specialization->mapEntryCount > sizeof entries / sizeof *entries - 3")
     replace("specialization->dataSize > sizeof data - 2 * sizeof(VkBool32)",
@@ -229,7 +229,9 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
              (K>=2048u && N<=1024u);
     }
     VkPipeline pipeline;
-    if(wide) {
+    if(wide && phx_wide_generic) {
+        pipeline=phx_wide_pipeline;
+    } else if(wide) {
         if(resident_pipeline(12,bt,phx_wide_pipeline,&pipeline))return -1;
     } else if (small) {""",
     )

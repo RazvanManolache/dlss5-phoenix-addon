@@ -107,6 +107,8 @@ struct Runtime {
                 options |= VulkanHardwareHalf;
             if (config.value("vulkan_shape_matrices", !config.contains("vulkan_matrix_columns")))
                 options |= VulkanShapeMatrices;
+            if (!config.value("vulkan_specialize_wide", true))
+                options |= VulkanGenericWide;
             const auto vulkan_columns = config.value("vulkan_matrix_columns", 16u);
             demand(vulkan_columns == 16 || vulkan_columns == 32 || vulkan_columns == 64,
                    "Vulkan matrix columns must be 16, 32 or 64");
