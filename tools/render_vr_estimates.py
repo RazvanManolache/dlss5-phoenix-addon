@@ -181,7 +181,10 @@ def main():
             records.append(row)
     receipt = {
         "schema": "phoenix-vr-estimate/1", "status": "ESTIMATES, NOT VR BENCHMARKS",
-        "source_measurements_sha256": hashlib.sha256(measured_path.read_bytes()).hexdigest(),
+        # Git normalizes text line endings. Hash the same UTF-8/LF representation
+        # on Windows and Linux so the published source checksum stays verifiable.
+        "source_measurements_sha256": hashlib.sha256(measured_path.read_text(encoding="utf-8").encode("utf-8")).hexdigest(),
+        "source_hash_normalization": "UTF-8 with LF line endings",
         "source_measurement_date": measured["date"], "gpu": "RTX 5080, driver 616.64",
         "headsets": HEADSETS, "records": records,
         "method": "Stereo time = 2 * piecewise-linear interpolation in single-eye pixel count between neighboring measured native resolutions; no extrapolation or batching gain.",
