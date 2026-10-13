@@ -1,8 +1,8 @@
-# Portable runner optimization follow-up — 2026-10-13
+# Portable runner optimization follow-up â€” 2026-10-13
 
 This pass keeps exact output while improving four alternate routes. These are
 portable-runner measurements, not the native Phoenix or NVIDIA DLL benchmark.
-All numbers below use 1920×1080 input and the same external model DLL.
+All numbers below use 1920Ã—1080 input and the same external model DLL.
 
 | Route | Previous model time | Selected model time | Model reduction | Previous full call | Selected full call |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -80,8 +80,8 @@ this pass does not claim a reduction in total process RAM or device memory.
   frames, with the second timed. All 16 reset-frame outputs match exactly.
   These timing measurements do not establish long-sequence temporal performance.
 - Final rebuilt runtime: **42 exact reference frames across 18 jobs** on CPU,
-  CUDA, HIP AMD, SYCL CPU, Vulkan AMD and Vulkan NVIDIA, at 1920×1080, 321×193
-  and 96×64. The smaller jobs exercise temporal history. SYCL and Vulkan AMD
+  CUDA, HIP AMD, SYCL CPU, Vulkan AMD and Vulkan NVIDIA, at 1920Ã—1080, 321Ã—193
+  and 96Ã—64. The smaller jobs exercise temporal history. SYCL and Vulkan AMD
   serve as regression routes; no speedup is claimed for them.
 - Operator contracts pass on CPU, HIP, CUDA and both Vulkan devices, including
   1,354,743 finite conversion checks, matrix tails/strides, residual publication,
@@ -120,7 +120,7 @@ Artifact: `build/portable_followup_20261013/addon_source/build/portable_candidat
 SHA-256 `e2b061ed62380b6f6ac99b51969daa9316040111e81f473baf1af992f141521c`.
 It embeds the validated portable runtime and unchanged native kernel bundle;
 the embedded manifest confirms `model_data_included=false`. This candidate has
-not been published or installed into a game in this pass.
+not had a new live-game test.
 
 Local artifact cleanup reclaimed approximately 5.40 GiB by removing disposable
 compiler/linker intermediates and hard-linking unchanged vendor dependency DLLs.

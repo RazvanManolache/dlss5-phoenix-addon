@@ -212,7 +212,7 @@ def portable():
         p.draw.rectangle((620, y + 49, 620 + length, y + 58), fill=color)
     p.wrap(48, 866, "Thin bars show complete-frame latency on a shared logarithmic scale. Full frame includes preparation, transfers, inference, resolve and broker round trip. Host RAM is worker resident working set; graph allocations and host RAM overlap and must not be added.", 1500, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 971, f"CUDA/Vulkan RTX: {measured_date(gpu):%d %b}, {gpu['processes']} processes × {gpu['samples'] // gpu['processes']} measured frames. CPU/iGPU: {measured_date(cpu):%d %b}, {cpu['processes']} × {cpu['samples'] // cpu['processes']}. CPU model time uses host timing. Discrete AMD/Intel GPUs remain untested.", 1500, 23)
+    p.wrap(48, 971, f"RTX: {gpu['processes']} × {gpu['samples'] // gpu['processes']} measured temporal frames. CPU/HIP: {cpu['processes']} × {cpu['samples'] // cpu['processes']} measured reset frames. Older SYCL/Vulkan AMD rows retain their dates. CPU uses host timing; discrete AMD/Intel GPUs untested.", 1500, 23)
     p.save("portable-runners.png")
 
 

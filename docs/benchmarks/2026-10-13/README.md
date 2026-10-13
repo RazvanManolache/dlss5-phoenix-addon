@@ -103,31 +103,33 @@ fixtures, not gameplay screenshots.
 Other comparisons: [640×360](output-640x360.png) · [854×480](output-854x480.png) · [960×540](output-960x540.png) · [1280×720](output-1280x720.png) · [1920×1080](output-1920x1080.png) · [2560×1440](output-2560x1440.png) · [3840×2160](output-3840x2160.png) · [5760×3240](output-5760x3240.png) · [7680×4320](output-7680x4320.png)
 
 
-## Experimental alternate runners — measured 12 October
+## Experimental alternate runners — latest measurements 13 October
 
 1920×1080 active, 1920×1088 padded; full model, one pass, all eight repetition
 controls set to one, 512-window batch limit. RGB32F/depth fixture with fractional
-motion (+0.375, -0.625) and temporal history. Startup and file I/O are excluded.
+motion (+0.375, -0.625) and temporal history on RTX. The latest CPU/HIP timing
+fixture uses reset frames; unchanged SYCL/Vulkan AMD timings retain their earlier
+temporal fixture. Startup and file I/O are excluded.
 Full call includes preparation/history, transfers, model execution, resolve and
 broker round trip. This differs from the native fixture/boundary, so a direct
 speedup ratio is inappropriate. These are offline timings, not game FPS.
 
-- RTX: three independent processes × 20 frames, discard two per process.
-- CPU/SYCL CPU/HIP/Vulkan AMD: two × three, discard one per process.
-- Headline values are medians of process medians. CPU K128 timing comes from
-  build 078; final 079 centralizes the identical dispatch predicate. HIP uses
-  the paired 077 receipt; that implementation is unchanged in the final assembly.
-- The AMD Vulkan headline uses process medians like the other rows. Taking the
-  median of all four warm frames instead yields 14,246.90 ms; the small difference
-  is aggregation, not a different build or a new performance claim.
+- RTX: measured 13 October, three independent processes × 12 frames, discard two.
+- CPU/HIP: measured 13 October, two processes × two reset frames, discard one;
+  baseline and candidate use ABBA ordering. These timings do not establish
+  long-sequence temporal performance.
+- SYCL CPU/Vulkan AMD: unchanged timings from 12 October, two × three temporal
+  frames, discard one. Both pass the new runtime regression checks.
+- Headline values are medians of process medians. Per-process selected-candidate
+  observations and receipt hashes are in [the current portable data](portable-current.json).
 - Model timing uses GPU events on GPU routes and host timing on CPU routes.
 
 | Runner / hardware | Model ms | Full call ms | Requested buffers MiB | Worker working set MiB | Worker private commit MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| CUDA C++ · RTX 5080 | 67.37 | 112.04 | 453.38 | 315.78 | 927.37 |
-| Vulkan C++ · RTX 5080 | 111.31 | 161.68 | 453.38 | 269.42 | 688.55 |
-| CPU C++ | 9,107.65 | 9,167.84 | 453.38 | 581.54 | 501.33 |
-| HIP C++ · AMD iGPU | 14,068.66 | 14,793.48 | 453.38 | 169.17 | 94.60 |
+| CUDA C++ · RTX 5080 | 51.21 | 103.34 | 453.38 | 303.20 | 908.45 |
+| Vulkan C++ · RTX 5080 | 97.65 | 152.27 | 453.38 | 270.48 | 754.54 |
+| CPU C++ | 8,182.67 | 8,229.86 | 453.38 | 549.87 | 501.23 |
+| HIP C++ · AMD iGPU | 13,196.03 | 13,845.77 | 453.38 | 137.55 | 94.69 |
 | Vulkan C++ · AMD iGPU | 14,142.86 | 14,240.38 | 453.38 | 640.42 | 546.11 |
 | SYCL C++ · CPU | 9,867.08 | 9,928.04 | 453.38 | 795.21 | 954.28 |
 
@@ -145,7 +147,9 @@ overlap and must not be summed. iGPU allocations use shared system memory.
 
 ## Alternate RTX resolution limits — measured 13 October
 
-These use the alternate-runner RGB32F/fractional-motion broker fixture above.
+These are measurements from the earlier portable build, before the latest
+1080p optimization pass; they have not been rerun with candidate 124. They use
+the alternate-runner RGB32F/fractional-motion broker fixture above.
 Two fresh processes × six frames, discard two; averages of process medians.
 Repeatability hashes match between processes. They are not native/NVIDIA parity
 checks, and the short runs are exploratory. Vulkan failures are reported as
@@ -175,16 +179,18 @@ The adapter includes extra bridge/exposure resources; these scopes differ.
 
 ## Build and validation
 
-- Clean corrected addon: **11 CPU suites, two software D3D12 suites, 120 embedded
+- Clean corrected addon: **11 CPU suites, two software D3D12 suites, 122 embedded
   payload files verified**. No model or NVIDIA DLL embedded.
-- Portable code is unchanged: prior **42 exact regression frames / 18 jobs / six
-  routes**, paired CUDA/Vulkan temporal checks and six operator suites remain
-  applicable; high-resolution limits are shown above.
+- Rebuilt portable runtime: **42 exact regression frames / 18 jobs / six routes**.
+  Latest CUDA/Vulkan paired trials check **144 exact temporal frames**; CPU/HIP
+  trials check 16 exact reset frames. Operator contracts pass on CPU, HIP, CUDA
+  and both Vulkan devices. CUDA compact-window memory/race checks report zero
+  errors/hazards. See [the optimization details](../../PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md).
 - This exact addon has not had a new live-game test. No game FPS, discrete
   AMD/Intel GPU, dual-GPU speedup or portable/native bit-equivalence is implied.
-- Addon source checkpoint: `3d872d4147088c6a61a659b9773922d9f188c65d`.
+- Addon source checkpoint: `118bff1`.
   Documentation may have later commits. Addon SHA256:
-  `da9fa586474d6097a780d76e42f9aef36b7f7e878ec4ce177d89f85573cceab2`.
+  `e2b061ed62380b6f6ac99b51969daa9316040111e81f473baf1af992f141521c`.
 
 ## Regenerate the charts and HTML
 

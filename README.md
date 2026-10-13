@@ -180,25 +180,29 @@ GPU paths are development/reference tools, not real-time gaming choices.
 
 ![Experimental alternate runners: current 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
 
-- **RTX 5080:** CUDA **67.37 ms** model / **112.04 ms** full call;
-  Vulkan **111.31 ms** / **161.68 ms**.
-- **Ryzen 9950X3D, 32 workers:** CPU C++ **9.17 s** full call;
+- **RTX 5080:** CUDA **51.21 ms** model / **103.34 ms** full call;
+  Vulkan **97.65 ms** / **152.27 ms**.
+- **Ryzen 9950X3D, 32 workers:** CPU C++ **8.23 s** full call;
   SYCL CPU **9.93 s**.
-- **Integrated Radeon gfx1036:** HIP **14.79 s** full call;
+- **Integrated Radeon gfx1036:** HIP **13.85 s** full call;
   Vulkan **14.24 s**. These are iGPU results, not discrete Radeon results.
 - **All six request 453.38 MiB of model/scratch buffers.** Host RAM, caller
   buffers, driver/JIT caches and GPU residency are separate scopes. CPU worker
   private commitment is about **501 MiB**, SYCL CPU about **954 MiB**; the chart
   shows resident working set instead. Equal tensor demand does not mean equal RAM.
 
-Measured **12 October 2026**, warm 1920×1080 calls, one pass and all eight block
-repetition controls set to one. CUDA/Vulkan RTX: three processes × 20 frames,
-discarding two per process; other routes: two × three, discarding one. Native
-uses a different fixture and timing boundary; do not infer a cross-runner
-speedup ratio. All six passed **42 saved regression frames**. The CUDA and
-Vulkan RTX paired trials each checked **120 exact temporal frame hashes**, with
-60 frames from the current candidate in each trial. These are offline results,
-not game FPS. The exact release binary has not had a new live-game test.
+CUDA/Vulkan RTX, CPU and HIP measured **13 October 2026**; unchanged SYCL CPU
+and Vulkan AMD timings are from **12 October**. Warm 1920×1080 calls, one pass
+and all eight block repetition controls set to one. RTX: three processes × 12
+temporal frames, discarding two. CPU/HIP: two processes × two reset frames,
+discarding one. SYCL/Vulkan AMD: two × three temporal frames, discarding one.
+Native uses a different fixture and timing boundary; do not infer a cross-runner
+speedup ratio. All six passed **42 saved regression frames**; the latest paired
+RTX trials checked **144 exact temporal frame hashes** across both variants and
+routes. These are offline results, not game FPS. The exact release binary has
+not had a new live-game test.
+
+[Latest optimization details and memory measurements](docs/PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md)
 
 </details>
 
