@@ -68,6 +68,14 @@ int wmain(int argc, wchar_t** argv) {
             options |= VulkanShapeMatrices;
         if (kind == "vulkan" && config.value("vulkan_fused_qkv", true))
             options |= VulkanFusedQkv;
+        if (kind == "vulkan" && config.value("vulkan_workgroup_fp8", true))
+            options |= VulkanWorkgroupFp8;
+        if (kind == "vulkan" && config.value("vulkan_workgroup_shape_tiles", true))
+            options |= VulkanWorkgroupShapeTiles;
+        if (kind == "vulkan" && config.value("vulkan_fused_feed_forward", true))
+            options |= VulkanFusedFeedForward;
+        if (kind == "vulkan" && config.value("vulkan_projected_qkv", true))
+            options |= VulkanProjectedQkv;
         if (!config.value("vulkan_specialize_wide", true))
             options |= VulkanGenericWide;
         if (config.value("vulkan_matrix_columns", 16u) == 32u)
@@ -281,9 +289,10 @@ int wmain(int argc, wchar_t** argv) {
                     std::vector<uint8_t> bytes(size_t(byte_count), uint8_t(0));
                     backend->download({reinterpret_cast<void*>(address), byte_count, arena.token},
                                       bytes.data(), byte_count);
-                    output_hashes.push_back({{"offset", address - uintptr_t(arena.address)},
-                                             {"bytes", byte_count},
-                                             {"sha256", phoenix_model::weight_digest(bytes.data(), bytes.size())}});
+                    output_hashes.push_back(
+                        {{"offset", address - uintptr_t(arena.address)},
+                         {"bytes", byte_count},
+                         {"sha256", phoenix_model::weight_digest(bytes.data(), bytes.size())}});
                 }
                 const auto& operation = command.operation;
                 rows.push_back({{"selection", selection},

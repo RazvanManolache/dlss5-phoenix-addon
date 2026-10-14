@@ -3,14 +3,81 @@
 
 /* Explicit C++ initialization avoids process environment and CRT snapshots. */
 static VkPipeline phx_features_pipeline, phx_qkv_pipeline;
+static VkPipeline phx_feed_forward_pipeline, phx_project_qkv_pipeline;
+
+unsigned phoenix_native_matrix2(void) {
+    return phx_native_matrix2;
+}
+int xmx_matrix2_init(unsigned kind, const char* path) {
+    if (!phx_native_matrix2 || kind > 2)
+        FAIL("workgroup FP8 engine unavailable", 0);
+    VkPipeline* target = kind == 0   ? &phx_matrix2_pipeline
+                         : kind == 1 ? &phx_feed_forward_pipeline
+                                     : &phx_project_qkv_pipeline;
+    if (*target)
+        return 0;
+    if (build_pipeline(path, g.rpl, target))
+        return -1;
+    if (kind == 0 && phx_native_matrix2_shapes) {
+        char wide_path[1024];
+        if (strlen(path) >= sizeof wide_path)
+            FAIL("matrix shader path too long", 0);
+        snprintf(wide_path, sizeof wide_path, "%s", path);
+        char* separator = strrchr(wide_path, '/');
+        char* backslash = strrchr(wide_path, '\\');
+        if (!separator || (backslash && backslash > separator))
+            separator = backslash;
+        if (!separator)
+            FAIL("matrix shader folder missing", 0);
+        separator[1] = 0;
+        if (strlen(wide_path) + strlen("phoenix_matrix2_wide.spv") >= sizeof wide_path)
+            FAIL("wide matrix shader path too long", 0);
+        strcat(wide_path, "phoenix_matrix2_wide.spv");
+        return build_pipeline(wide_path, g.rpl, &phx_matrix2_wide_pipeline);
+    }
+    return 0;
+}
+// Six logical tensor addresses use the same buffer-ID/byte-offset encoding as
+// the adapter's ordinary operations. Hidden feed-forward and projected QKV
+// tensors stay inside their dispatch, so no additional device allocation exists.
+int xmx_matrix2_fused_record(unsigned kind, const uint64_t* arguments) {
+    VkPipeline pipeline = kind == 1 ? phx_feed_forward_pipeline : phx_project_qkv_pipeline;
+    if (!g.recording || !phx_native_matrix2 || (kind != 1 && kind != 2) || !pipeline ||
+        !arguments[6])
+        FAIL("invalid fused workgroup recording", 0);
+    struct push packet = {0};
+    uint64_t* feed_forward_addresses[] = {
+        &packet.a, &packet.b, &packet.c, &packet.d, &packet.residual_cos, &packet.qkv_scale};
+    uint64_t* qkv_addresses[] = {&packet.residual_cos, &packet.a, &packet.b, &packet.c, &packet.d,
+                                 &packet.qkv_scale};
+    for (unsigned index = 0; index < 6; ++index) {
+        uint64_t logical = arguments[index];
+        uint64_t physical =
+            logical ? addr_of((int)(logical >> 40)) + (logical & ((1ull << 40) - 1ull)) : 0;
+        *(kind == 1 ? feed_forward_addresses[index] : qkv_addresses[index]) = physical;
+    }
+    packet.m = (unsigned)arguments[6];
+    packet.n = kind == 1 ? (unsigned)arguments[7] : 64u;
+    packet.k = kind == 1 ? (unsigned)arguments[8] : 0;
+    packet.batch = kind == 1 ? (unsigned)arguments[9] : 1u;
+    unsigned groups = (packet.m + 31u) / 32u, x = groups < 65535u ? groups : 65535u;
+    vkCmdBindPipeline(g.rcb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdPushConstants(g.rcb, g.rpl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof packet, &packet);
+    if (phx_dispatch(g.rcb, x, 1, (groups + x - 1u) / x))
+        return -1;
+    barrier();
+    stamp(PK_GEMM, 0);
+    ++g.recorded;
+    return 0;
+}
 
 // One dispatch normalizes local Q/K heads and publishes V. The five operands
 // can be views of one scratch buffer; the adapter supplies byte offsets.
 int xmx_qkv_init(const char* path) {
     return build_pipeline(path, g.rpl, &phx_qkv_pipeline);
 }
-int xmx_rec_qkv_prepare(int projected, int query, int key, int value, int scale,
-                unsigned rows, unsigned tokens, unsigned heads) {
+int xmx_rec_qkv_prepare(int projected, int query, int key, int value, int scale, unsigned rows,
+                        unsigned tokens, unsigned heads) {
     if (!g.recording || !phx_qkv_pipeline || !rows || tokens != 64u || !heads || heads == 16u)
         FAIL("invalid local QKV preparation", 0);
     struct push packet = {.a = addr_of(projected) + phx_native_view_offsets[0],
@@ -18,7 +85,9 @@ int xmx_rec_qkv_prepare(int projected, int query, int key, int value, int scale,
                           .c = addr_of(key) + phx_native_view_offsets[2],
                           .d = addr_of(value) + phx_native_view_offsets[3],
                           .qkv_scale = addr_of(scale) + phx_native_view_offsets[4],
-                          .m = rows, .n = tokens, .batch = heads};
+                          .m = rows,
+                          .n = tokens,
+                          .batch = heads};
     memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));
     vkCmdBindPipeline(g.rcb, VK_PIPELINE_BIND_POINT_COMPUTE, phx_qkv_pipeline);
     vkCmdPushConstants(g.rcb, g.rpl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof packet, &packet);
@@ -91,6 +160,8 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     if (vkCreateInstance(&ci, NULL, &instance) != VK_SUCCESS)
         return -1;
     unsigned count = 0, shapes = 0, fp8_caps = 0, selected_vendor = 0;
+    phx_native_matrix2 = 0;
+    phx_native_matrix2_shapes = 0;
     int selected_integrated = 0;
     if (vkEnumeratePhysicalDevices(instance, &count, NULL) == VK_SUCCESS && count && count <= 256) {
         VkPhysicalDevice* devices = calloc(count, sizeof(*devices));
@@ -106,6 +177,9 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
                 }
                 if (selected && !(options & 1u)) {
                     shapes = phx_matrix_shapes(instance, selected);
+                    if ((options & (1u << 26)) && (shapes & 2))
+                        phx_native_matrix2 = phx_matrix2_caps(instance, selected);
+                    phx_native_matrix2_shapes = phx_native_matrix2 && (options & (1u << 29));
                     if (options & 8u)
                         fp8_caps = phx_fp8_caps(instance, selected);
                 }
@@ -128,11 +202,11 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
         (!(options & 16u) &&
          (selected_vendor == 0x10de || (selected_vendor == 0x1002 && selected_integrated)));
     phx_native_workgroup_rows =
-        !phx_native_fp8_k && phx_native_matrix_rows == 16 && wide_workgroup && wide_matrix
-            ? 64u
-            : !phx_native_matrix_rows && (options & (1u << 21)) ? 32u : phx_native_matrix_rows;
-    const char* selected_shader = !phx_native_matrix_rows          ? gemm
-                                  : phx_native_fp8_k              ? fp8_matrix
+        !phx_native_fp8_k && phx_native_matrix_rows == 16 && wide_workgroup && wide_matrix ? 64u
+        : !phx_native_matrix_rows && (options & (1u << 21))                                ? 32u
+                                                            : phx_native_matrix_rows;
+    const char* selected_shader = !phx_native_matrix_rows           ? gemm
+                                  : phx_native_fp8_k                ? fp8_matrix
                                   : phx_native_workgroup_rows == 64 ? wide_matrix
                                   : phx_native_matrix_rows == 16    ? matrix16
                                   : phx_native_matrix_rows == 8     ? matrix8
@@ -223,6 +297,13 @@ int phoenix_native_features(int color, int prior, int noise, int validity, int o
 void xmx_shutdown(void) {
     if (g.dev) {
         vkDeviceWaitIdle(g.dev);
+        VkPipeline matrix2_pipelines[] = {phx_matrix2_wide_pipeline, phx_matrix2_pipeline,
+                                          phx_feed_forward_pipeline, phx_project_qkv_pipeline};
+        for (unsigned index = 0; index < 4; ++index)
+            if (matrix2_pipelines[index])
+                vkDestroyPipeline(g.dev, matrix2_pipelines[index], NULL);
+        phx_matrix2_wide_pipeline = phx_matrix2_pipeline = phx_feed_forward_pipeline =
+            phx_project_qkv_pipeline = VK_NULL_HANDLE;
         if (phx_qkv_pipeline)
             vkDestroyPipeline(g.dev, phx_qkv_pipeline, NULL);
         phx_qkv_pipeline = VK_NULL_HANDLE;
@@ -303,6 +384,8 @@ void xmx_shutdown(void) {
     phx_native_workgroup_rows = 0;
     phx_native_scalar_columns = 0;
     phx_native_skip = phx_native_gain = 0;
+    phx_native_matrix2 = 0;
+    phx_native_matrix2_shapes = 0;
     memset(phx_native_uuid, 0, sizeof(phx_native_uuid));
     memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));
 }

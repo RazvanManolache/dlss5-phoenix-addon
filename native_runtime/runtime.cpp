@@ -115,6 +115,14 @@ struct Runtime {
                 options |= VulkanHardwareHalf;
             if (kind == "vulkan" && config.value("vulkan_fused_qkv", true))
                 options |= VulkanFusedQkv;
+            if (kind == "vulkan" && config.value("vulkan_workgroup_fp8", true))
+                options |= VulkanWorkgroupFp8;
+            if (kind == "vulkan" && config.value("vulkan_workgroup_shape_tiles", true))
+                options |= VulkanWorkgroupShapeTiles;
+            if (kind == "vulkan" && config.value("vulkan_fused_feed_forward", true))
+                options |= VulkanFusedFeedForward;
+            if (kind == "vulkan" && config.value("vulkan_projected_qkv", true))
+                options |= VulkanProjectedQkv;
             if (kind == "vulkan" && config.value("vulkan_cache_noise", true))
                 options |= VulkanCacheNoise;
             if (config.value("vulkan_shape_matrices", !config.contains("vulkan_matrix_columns")))
@@ -220,6 +228,13 @@ struct Runtime {
                   {"python_required", false}};
         if (kind == "vulkan") {
             status["vulkan_fused_qkv"] = features && (features(backend) & FusedQkvPreparation);
+            status["vulkan_workgroup_fp8"] = features && (features(backend) & WorkgroupFp8Matrices);
+            status["vulkan_workgroup_shape_tiles"] =
+                features && (features(backend) & WorkgroupShapeTiles);
+            status["vulkan_fused_feed_forward"] =
+                features && (features(backend) & FusedFeedForward);
+            status["vulkan_projected_qkv"] =
+                features && (features(backend) & ProjectedQkvPreparation);
             status["device_noise_cache"] = device_noise_cache;
             const bool matrix_acceleration = features && (features(backend) & FusedMatrixResidual);
             status["vulkan_matrix_acceleration"] = matrix_acceleration;

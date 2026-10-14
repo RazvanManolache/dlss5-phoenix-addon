@@ -241,3 +241,4 @@ int phoenix_device_info(unsigned index, char* uuid, char* name, unsigned* vendor
     vkDestroyInstance(instance, NULL);
     return 0;
 }
+#include "phoenix_matrix2.h"

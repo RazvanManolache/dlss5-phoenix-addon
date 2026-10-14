@@ -47,7 +47,8 @@ def patch_runtime(source):
         '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;\nstatic VkPipeline phx_wide_pipeline;\nstatic unsigned phx_wide_columns;',
     )
     replace("char* rpaths[12];", "char* rpaths[14];")
-    replace("static VkPipeline phx_wide_pipeline;", "static VkPipeline phx_wide_pipeline, phx_coalesced_pipeline;")
+    replace("static VkPipeline phx_wide_pipeline;", "static VkPipeline phx_wide_pipeline, phx_coalesced_pipeline, phx_matrix2_pipeline, phx_matrix2_wide_pipeline;")
+    replace("static int phx_native_configured;", "static unsigned phx_native_matrix2, phx_native_matrix2_shapes;\nstatic int phx_native_configured;")
     replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices, phx_wide_generic;")
     replace("static unsigned phx_native_matrix_rows,", "static unsigned phx_native_scalar_columns, phx_native_matrix_rows,")
     replace("specialization->mapEntryCount > sizeof entries / sizeof *entries - 2",
@@ -155,7 +156,8 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     )
     replace(
         "float prio = 1.0f;",
-        """VkPhysicalDeviceShaderFloat8FeaturesEXT f8={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT};
+        """VkPhysicalDeviceCooperativeMatrix2FeaturesNV matrix2={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_2_FEATURES_NV};
+    VkPhysicalDeviceShaderFloat8FeaturesEXT f8={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT8_FEATURES_EXT};
     if (g.portable) {
         // Enable optional matrix/FP8 features only for the selected engine.
         v12.pNext=&v13; v13.pNext=NULL;
@@ -172,6 +174,16 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
             f8.shaderFloat8=VK_TRUE; f8.shaderFloat8CooperativeMatrix=VK_TRUE;
             cm.pNext=&f8; v12.storageBuffer8BitAccess=VK_TRUE; v12.shaderInt8=VK_TRUE;
         }
+        if(phx_native_matrix2) {
+            matrix2.cooperativeMatrixFlexibleDimensions=VK_TRUE;
+            matrix2.cooperativeMatrixWorkgroupScope=VK_TRUE;
+            matrix2.cooperativeMatrixTensorAddressing=VK_TRUE;
+            matrix2.cooperativeMatrixConversions=VK_TRUE;
+            matrix2.cooperativeMatrixPerElementOperations=VK_TRUE;
+            cm.pNext=&f8;f8.pNext=&matrix2;
+            f8.shaderFloat8=VK_TRUE;f8.shaderFloat8CooperativeMatrix=VK_TRUE;
+            v12.storageBuffer8BitAccess=VK_TRUE;v12.shaderInt8=VK_TRUE;
+        }
         VkPhysicalDeviceVulkan12Features have12={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
         VkPhysicalDeviceVulkan11Features have11={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,.pNext=&have12};
         VkPhysicalDeviceFeatures2 have={.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,.pNext=&have11};
@@ -184,11 +196,12 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     )
     replace(
         "r = vkCreateDevice(g.pd, &dci, NULL, &g.dev);",
-        """const char *portable_ext[3];
+        """const char *portable_ext[4];
     if(g.portable) {
         unsigned count=0;
         if(g.matrix_rows)portable_ext[count++]=VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME;
-        if(g.fp8_k)portable_ext[count++]=VK_EXT_SHADER_FLOAT8_EXTENSION_NAME;
+        if(g.fp8_k||phx_native_matrix2)portable_ext[count++]=VK_EXT_SHADER_FLOAT8_EXTENSION_NAME;
+        if(phx_native_matrix2)portable_ext[count++]=VK_NV_COOPERATIVE_MATRIX_2_EXTENSION_NAME;
         if(stats)portable_ext[count++]=VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME;
         dci.enabledExtensionCount=count; dci.ppEnabledExtensionNames=portable_ext;
     }
@@ -217,7 +230,7 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     p.a += (uint64_t)oa * 2;""")
     replace(
         "int small = g.staged32",
-        """if(g.portable && (bt & ~0x1e011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
+        """if(g.portable && (bt & ~0x3e011f01u)) FAIL("Unsupported fusion in portable GEMM",0);
     int small = g.staged32""",
     )
     replace("if (g.rstaged32[0]) return 0;", "if (g.portable || g.rstaged32[0]) return 0;")
@@ -257,8 +270,15 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     // This choice changes memory access only; both shaders retain ordered FMA.
     int coalesced=g.portable && !g.matrix_rows && phx_coalesced_pipeline &&
         (bt&0x2000000u) && ((K>=128u && N>K) || (K==128u && N==32u && M>=16384u));
+    // The adapter proves native FP8 weight encoding (bit 29). Legacy E4M3
+    // bytes 0x7f/0xff decode as +/-480 and must never become hardware NaNs.
+    int matrix2_route=phx_matrix2_pipeline && K>=256u && N>=64u &&
+        (bt&0x32000001u)==0x32000001u && K%16u==0u && lda%8u==0u && ldb%16u==0u &&
+        (batch<=1u || (sa%8u==0u && sb%16u==0u)) &&
+        (p.a&15u)==0u && (p.b&15u)==0u;
     VkPipeline pipeline;
-    if(coalesced) {
+    int matrix2_wide=matrix2_route && phx_matrix2_wide_pipeline && N>=128u && M>=512u;
+    if(matrix2_route) {pipeline=matrix2_wide?phx_matrix2_wide_pipeline:phx_matrix2_pipeline;} else if(coalesced) {
         if(resident_pipeline(13,bt,phx_coalesced_pipeline,&pipeline))return -1;
     } else if(wide && phx_wide_generic) {
         pipeline=phx_wide_pipeline;
@@ -304,6 +324,13 @@ static uint64_t phx_resident_bytes, phx_resident_peak;""",
         'snprintf(g.name, sizeof g.name, "%s", props.deviceName);',
         'memcpy(phx_limits,props.limits.maxComputeWorkGroupCount,sizeof phx_limits);\n\tsnprintf(g.name, sizeof g.name, "%s", props.deviceName);',
     )
+    replace('if (staged) {\n        unsigned rows', '''if(matrix2_route) {
+        unsigned tile_rows=matrix2_wide?64u:32u;
+        uint64_t tiles=((uint64_t)M+tile_rows-1u)/tile_rows*(batch?batch:1u);
+        unsigned y=tiles<65535u?(unsigned)tiles:65535u;
+        if(!y || phx_dispatch(g.rcb,(N+63u)/64u,y,(tiles+y-1u)/y))return -1;
+    } else if (staged) {
+        unsigned rows''')
     return (
         "// DLSS5 Phoenix integration patch; see tools/build_vulkan.py and upstream NOTICE.\n"
         + source
@@ -334,6 +361,7 @@ def prepare_sources(out):
         set(re.findall(r"(?m)^(?!static)[^\n]*?\b(xmx_\w+)\s*\([^;]*\)\s*\{", runtime_source))
     )
     names += [
+        "phoenix_native_matrix2",
         "phoenix_device_count",
         "phoenix_device_info",
         "phoenix_matrix_shapes",
@@ -458,6 +486,7 @@ def prepare_sources(out):
             text = re.sub(r"float16_t\(([^()]+)\)", r"float16_t(half_round(\1))", text)
         source_path.write_text(text)
     shaders = {source_path.stem: (source_path, []) for source_path in gpu.glob("*.comp")}
+    shaders["phoenix_matrix2_wide"] = (gpu / "phoenix_matrix2.comp", ["-DBLOCK_ROWS=64"])
     shaders.pop("gemm_wide", None)  # Only the named 32/64-column variants are loaded.
     for reduction_size in (16, 32, 64):
         shaders[f"gemm_fp8{reduction_size}"] = (

@@ -10,6 +10,7 @@
 #include <cstring>
 using namespace phoenix_cpp;
 #include "window_block_contract.h"
+#include "vulkan_matrix2_contract.h"
 #ifdef _WIN32
 int wmain(int argc, wchar_t** argv) {
 #else
@@ -85,6 +86,11 @@ int main(int argc, char** argv) {
             owned.push_back(a);
             return a;
         };
+        auto capabilities = reinterpret_cast<uint32_t (*)(Backend*)>(
+            library_symbol(module, "phoenix_backend_features"));
+        if (kind == "vulkan" && capabilities &&
+            (capabilities(backend.get()) & WorkgroupFp8Matrices))
+            test_vulkan_matrix2_contract(*backend, allocate);
         // Exercise tile tails, both weight layouts and strided batches. Even K
         // checks masked paired-half gathers; odd K checks the CPU's safe fallback.
         for (bool packed_weights : {false, true})
@@ -228,10 +234,10 @@ int main(int argc, char** argv) {
                         backend->upload(skip, skip_values.data(), skip_values.size() * 4);
                     phx::Operation matrix{};
                     matrix.family = phx::MatrixMultiply;
-                    matrix.flags =
-                        1 | phx::RightInputFp8 |
-                        ((extra_options & (CudaDirectFp8 | LosslessFp8Matrices)) ? phx::LeftInputFp8Grid
-                                                                                 : 0);
+                    matrix.flags = 1 | phx::RightInputFp8 |
+                                   ((extra_options & (CudaDirectFp8 | LosslessFp8Matrices))
+                                        ? phx::LeftInputFp8Grid
+                                        : 0);
                     matrix.left_input = left.address;
                     matrix.right_input = right.address;
                     matrix.output = projection.address;
@@ -257,7 +263,8 @@ int main(int argc, char** argv) {
                                           (half_skip ? phx::MatrixSkipHalf : 0);
                     std::vector<Event> events;
                     backend->execute(
-                        {{matrix, rows * channels, 0, 0}, {residual, rows * channels, 0, 0}}, events);
+                        {{matrix, rows * channels, 0, 0}, {residual, rows * channels, 0, 0}},
+                        events);
                     backend->execute({{fused_matrix, rows * channels, 0, 0}}, events);
                     std::vector<float> expected(rows * channels), actual(rows * channels);
                     backend->download(reference, expected.data(), expected.size() * 4);
@@ -439,7 +446,8 @@ int main(int argc, char** argv) {
                             operation.left_batch_stride = 64;
                             operation.right_batch_stride = 2;
                         }
-                        commands.push_back({operation, uint64_t(rows) * (part == 2 ? 32 : 1), 0, 0});
+                        commands.push_back(
+                            {operation, uint64_t(rows) * (part == 2 ? 32 : 1), 0, 0});
                     }
                     std::vector<Event> events;
                     backend->execute(commands, events);
@@ -456,7 +464,8 @@ int main(int argc, char** argv) {
                             else
                                 phx::Kernel<HostMath>{operation}(index);
                         }
-                        demand(actual == expected, "Fused local QKV differs from separate publication");
+                        demand(actual == expected,
+                               "Fused local QKV differs from separate publication");
                     }
                 }
             std::cout << "Combined local Q/K/V exact for head counts and row tails\n";

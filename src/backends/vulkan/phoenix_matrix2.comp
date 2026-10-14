@@ -1,0 +1,94 @@
+#version 450
+// One workgroup computes a 32/64-row, 64-column FP8 tile. Model weights remain
+// byte-packed; activations are already on the finite FP8 grid in half storage.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+#extension GL_EXT_float_e4m3 : require
+#include "publish.glsl"
+#ifndef BLOCK_ROWS
+#define BLOCK_ROWS 32
+#endif
+layout(local_size_x = 128) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 16) buffer Fp8Buf {
+    floate4m3_t v[];
+};
+// Names/offsets retain the resident GEMM packet shared by existing engines.
+layout(push_constant, scalar) uniform Push {
+    HalfBuf a, b;
+    FloatBuf c, d;
+    uint m, n, k, batch, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+shared float output_tile[BLOCK_ROWS * 64];
+void main() {
+    uint row_tiles = (pc.m + BLOCK_ROWS - 1u) / BLOCK_ROWS;
+    uint tile = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
+    uint batch_index = tile / row_tiles;
+    if (batch_index >= max(pc.batch, 1u))
+        return;
+    uint row_base = (tile % row_tiles) * BLOCK_ROWS, column_base = gl_WorkGroupID.x * 64u;
+    uint left_stride = pc.lda == 0u ? pc.k : pc.lda;
+    uint right_stride = pc.ldb == 0u ? pc.k : pc.ldb, output_stride = pc.ldc == 0u ? pc.n : pc.ldc;
+    coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 64, gl_MatrixUseAccumulator> sum =
+        coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 64, gl_MatrixUseAccumulator>(0.);
+    // Ascending K tiles preserve the tested FP32 accumulator ordering.
+    // Tensor addressing pads partial rows/columns collectively with zeros.
+    for (uint reduction = 0u; reduction < pc.k; reduction += 32u) {
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> input_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        input_layout = setTensorLayoutDimensionNV(input_layout, pc.m, pc.k);
+        input_layout = setTensorLayoutStrideNV(input_layout, left_stride, 1u);
+        input_layout = sliceTensorLayoutNV(input_layout, row_base, BLOCK_ROWS, reduction, 32u);
+        coopmat<float16_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseAccumulator> loaded_input;
+        coopMatLoadTensorNV(loaded_input, pc.a.v, batch_index * pc.sa, input_layout);
+        coopmat<floate4m3_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseA> left =
+            coopmat<floate4m3_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseA>(loaded_input);
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> weight_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        weight_layout = setTensorLayoutDimensionNV(weight_layout, pc.n, pc.k);
+        weight_layout = setTensorLayoutStrideNV(weight_layout, right_stride, 1u);
+        weight_layout = sliceTensorLayoutNV(weight_layout, column_base, 64u, reduction, 32u);
+        coopmat<floate4m3_t, gl_ScopeWorkgroup, 32, 64, gl_MatrixUseB> right;
+        coopMatLoadTensorNV(right, Fp8Buf(uint64_t(pc.b)).v, batch_index * pc.sb, weight_layout,
+                            createTensorViewNV(2, false, 1, 0));
+        sum = coopMatMulAdd(left, right, sum);
+    }
+    coopMatStore(sum, output_tile, 0u, 64u, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint element = gl_LocalInvocationID.x; element < BLOCK_ROWS * 64u; element += 128u) {
+        uint row = row_base + element / 64u, column = column_base + element % 64u;
+        if (row >= pc.m || column >= pc.n)
+            continue;
+        uint index = batch_index * pc.sc + row * output_stride + column;
+        precise float value = output_tile[element];
+        if ((pc.flags & 0x4000000u) != 0u) {
+            float skip = (pc.flags & 0x8000000u) != 0u ? float(HalfBuf(uint64_t(pc.d)).v[index])
+                                                       : pc.d.v[index];
+            precise float product = skip * FloatBuf(pc.residual_cos).v[column];
+            value = value + product;
+        }
+        value = publish((pc.flags >> 8u) & 15u, value);
+        if ((pc.flags & 0x1000u) != 0u)
+            HalfBuf(uint64_t(pc.c)).v[index] = float16_t(half_round(value));
+        else
+            pc.c.v[index] = value;
+    }
+}

@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 using namespace phoenix_cpp;
 class VulkanBackend final : public Backend {
     LibraryHandle module = nullptr;
@@ -22,6 +24,13 @@ class VulkanBackend final : public Backend {
     bool prefer_unfused_attention = false;
     bool fused_qkv = false;
     bool cache_noise = false;
+    bool workgroup_fp8 = false, fused_feed_forward = false, projected_qkv = false;
+    bool shape_tiles = false;
+    std::unordered_map<int, uint64_t> allocation_extents;
+    std::unordered_set<int> native_fp8_weights;
+    bool packed_weights_supported(void* address) const {
+        return workgroup_fp8 && native_fp8_weights.contains(buffer_id(address));
+    }
     static std::mutex& global() {
         static std::mutex m;
         return m;
@@ -127,6 +136,18 @@ class VulkanBackend final : public Backend {
         check(call<int>("xmx_profile", detailed_profile ? 1 : 2));
         if (call<unsigned>("phoenix_native_vendor") == 0x10de)
             submission_size = 1024;
+        workgroup_fp8 = call<unsigned>("phoenix_native_matrix2") != 0;
+        shape_tiles = workgroup_fp8 && (options & VulkanWorkgroupShapeTiles);
+        fused_feed_forward = workgroup_fp8 && (options & VulkanFusedFeedForward);
+        projected_qkv = workgroup_fp8 && (options & VulkanProjectedQkv);
+        if (workgroup_fp8)
+            check(call<int>("xmx_matrix2_init", 0u, shader_path("phoenix_matrix2.spv").c_str()));
+        if (fused_feed_forward)
+            check(call<int>("xmx_matrix2_init", 1u,
+                            shader_path("phoenix_feed_forward_matrix2.spv").c_str()));
+        if (projected_qkv)
+            check(
+                call<int>("xmx_matrix2_init", 2u, shader_path("phoenix_project_qkv.spv").c_str()));
         rollback.done = true;
     }
     ~VulkanBackend() {
@@ -146,7 +167,11 @@ class VulkanBackend final : public Backend {
                (matrix_rows ? FusedMatrixResidual : 0) |
                (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0) |
                (cache_noise ? DeviceNoiseCache : 0) |
-               (fused_qkv && !detailed_profile ? FusedQkvPreparation : 0);
+               (fused_qkv && !detailed_profile ? FusedQkvPreparation : 0) |
+               (workgroup_fp8 ? WorkgroupFp8Matrices : 0) |
+               (fused_feed_forward && !detailed_profile ? FusedFeedForward : 0) |
+               (projected_qkv && !detailed_profile ? ProjectedQkvPreparation : 0) |
+               (shape_tiles ? WorkgroupShapeTiles : 0);
     }
     const char* name() const override {
         return "vulkan-cpp";
@@ -156,17 +181,44 @@ class VulkanBackend final : public Backend {
         int key = call<int>("xmx_buf_create_kind", byte_count, 0);
         check(key);
         live.push_back(key);
+        allocation_extents[key] = byte_count;
         check(call<int>("xmx_buf_zero", key));
         return {reinterpret_cast<void*>(uint64_t(key) << 40), byte_count, uint64_t(key)};
     }
     void release(Allocation allocation) override {
         clear_graphs();
         check(call<int>("xmx_buf_destroy", int(allocation.token)));
+        allocation_extents.erase(int(allocation.token));
+        native_fp8_weights.erase(int(allocation.token));
     }
     void upload(Allocation allocation, const void* source, uint64_t byte_count) override {
         demand(byte_count <= allocation.bytes, "Vulkan upload bounds");
         check(call<int>("xmx_buf_upload", int(allocation.token), source,
                         uint64_t(offset(allocation.address, 1)), byte_count));
+        if (workgroup_fp8) {
+            // Legacy packed weights use 0x7f/0xff for +/-480; hardware E4M3
+            // treats those codes as NaN. Prove byte compatibility once at
+            // complete upload, then keep only a buffer-ID marker. Partial
+            // uploads invalidate it and any graph that selected this engine.
+            const int id = int(allocation.token);
+            bool compatible =
+                offset(allocation.address, 1) == 0 && allocation_extents.at(id) == byte_count;
+            if (compatible) {
+                const auto* bytes = static_cast<const uint8_t*>(source);
+                for (uint64_t index = 0; index < byte_count; ++index)
+                    if ((bytes[index] & 127u) == 127u) {
+                        compatible = false;
+                        break;
+                    }
+            }
+            const bool previous = native_fp8_weights.contains(id);
+            if (previous != compatible)
+                clear_graphs();
+            if (compatible)
+                native_fp8_weights.insert(id);
+            else
+                native_fp8_weights.erase(id);
+        }
     }
     void download(Allocation allocation, void* destination, uint64_t byte_count) override {
         demand(byte_count <= allocation.bytes, "Vulkan download bounds");
@@ -212,10 +264,56 @@ class VulkanBackend final : public Backend {
                     const auto& command = commands[command_index];
                     auto operation = command.operation;
                     bool combined_qkv = false;
+                    // Complete 32-channel projection/preparation group. Aligned
+                    // row groups avoid partial tensor stores in the driver;
+                    // other shapes retain individually bounded operations.
+                    if (projected_qkv && !detailed_profile &&
+                        packed_weights_supported(operation.right_input) &&
+                        operation.family == phx::MatrixMultiply && operation.row_count &&
+                        operation.row_count % 32 == 0 && operation.reduction_count == 32 &&
+                        operation.column_count == 96 && operation.batch_count == 1 &&
+                        operation.flags == (1u | phx::RightInputFp8 | phx::LeftInputFp8Grid) &&
+                        operation.left_row_stride == 32 && operation.right_row_stride == 32 &&
+                        operation.output_row_stride == 96 && command_index + 3 < commands.size() &&
+                        command_index % submission_size < submission_size - 3) {
+                        const auto& query = commands[command_index + 1].operation;
+                        const auto& key = commands[command_index + 2].operation;
+                        const auto& value = commands[command_index + 3].operation;
+                        if (query.family == phx::RowReduction &&
+                            query.flags == (phx::StoreHalf | phx::InterleavedQkv) &&
+                            key.family == phx::RowReduction &&
+                            key.flags == (phx::StoreHalf | phx::InterleavedQkv | (1u << 18)) &&
+                            value.family == phx::Elementwise &&
+                            value.flags == (phx::SplitQkvHeads | phx::StoreHalf | (5u << 8)) &&
+                            query.left_input == operation.output &&
+                            key.left_input == operation.output &&
+                            value.left_input == operation.output &&
+                            query.row_count == operation.row_count &&
+                            key.row_count == operation.row_count &&
+                            value.row_count == operation.row_count && query.batch_count == 1 &&
+                            key.batch_count == 1 && value.batch_count == 1 &&
+                            query.column_count == 64 && key.column_count == 64 &&
+                            value.column_count == 32 && query.reduction_count == 1 &&
+                            key.reduction_count == 0 && query.auxiliary == key.auxiliary &&
+                            value.left_batch_stride == 64 && value.right_batch_stride == 2) {
+                            uint64_t args[] = {uintptr_t(operation.left_input),
+                                               uintptr_t(operation.right_input),
+                                               uintptr_t(query.output),
+                                               uintptr_t(key.output),
+                                               uintptr_t(value.output),
+                                               uintptr_t(query.auxiliary),
+                                               operation.row_count};
+                            check(call<int>("xmx_matrix2_fused_record", 2u, args));
+                            command_index += 3;
+                            combined_qkv = true;
+                        }
+                    }
+
                     // Match a complete local Q/K/V group. Global and split-head
                     // blocks have different rounding rules and keep separate passes.
                     // Never cross a fenced graph boundary, or hide dispatch profiling.
-                    if (fused_qkv && !detailed_profile && operation.family == phx::RowReduction &&
+                    if (!combined_qkv && fused_qkv && !detailed_profile &&
+                        operation.family == phx::RowReduction &&
                         operation.flags == (phx::StoreHalf | phx::InterleavedQkv) &&
                         operation.reduction_count == 1 && operation.column_count == 64 &&
                         operation.batch_count && operation.batch_count != 16 &&
@@ -252,6 +350,49 @@ class VulkanBackend final : public Backend {
                             combined_qkv = true;
                         }
                     }
+                    // Hide only a dead expansion output, within one submission.
+                    // Both packed matrices must have native-compatible bytes.
+                    if (fused_feed_forward && !combined_qkv && !detailed_profile &&
+                        packed_weights_supported(operation.right_input) &&
+                        operation.family == phx::MatrixMultiply &&
+                        operation.reduction_count == 32 && operation.column_count == 128 &&
+                        operation.batch_count == 1 && operation.row_count &&
+                        operation.row_count % 32 == 0 && operation.right_row_stride == 32 &&
+                        ((operation.flags >> 8) & 15u) == phx::PublishFusedGateFp8 &&
+                        (operation.flags & phx::LeftInputFp8Grid) &&
+                        (operation.flags & phx::RightInputFp8) &&
+                        operation.flags == (1u | phx::StoreHalf | (phx::PublishFusedGateFp8 << 8) |
+                                            phx::RightInputFp8 | phx::LeftInputFp8Grid) &&
+                        operation.left_row_stride == 32 && command_index + 1 < commands.size() &&
+                        ((command_index + 1) % submission_size) != 0) {
+                        const auto& contract = commands[command_index + 1].operation;
+                        if (contract.family == phx::MatrixMultiply &&
+                            contract.left_input == operation.output &&
+                            contract.row_count == operation.row_count &&
+                            contract.column_count == 32 && contract.reduction_count == 128 &&
+                            contract.batch_count == 1 && contract.left_row_stride == 128 &&
+                            contract.right_row_stride == 128 &&
+                            packed_weights_supported(contract.right_input) &&
+                            (contract.flags & phx::MatrixResidual) &&
+                            (contract.flags & phx::RightInputFp8) && (contract.flags & 1u) &&
+                            ((contract.flags >> 8) & 15u) == phx::KeepFloat &&
+                            !(contract.flags & phx::StoreHalf) &&
+                            contract.output_row_stride == 32) {
+                            uint64_t args[] = {uintptr_t(operation.left_input),
+                                               uintptr_t(operation.right_input),
+                                               uintptr_t(contract.output),
+                                               uintptr_t(contract.right_input),
+                                               uintptr_t(contract.auxiliary),
+                                               uintptr_t(contract.secondary_output),
+                                               operation.row_count,
+                                               operation.left_row_stride,
+                                               contract.output_row_stride,
+                                               contract.flags};
+                            check(call<int>("xmx_matrix2_fused_record", 1u, args));
+                            ++command_index;
+                            combined_qkv = true;
+                        }
+                    }
                     if (!combined_qkv) {
                         if (operation.family == phx::MatrixMultiply) {
                             if (operation.flags & phx::MatrixResidual) {
@@ -270,7 +411,10 @@ class VulkanBackend final : public Backend {
                                 operation.row_count, operation.column_count,
                                 operation.reduction_count, operation.batch_count,
                                 operation.left_batch_stride, operation.right_batch_stride,
-                                operation.output_batch_stride, operation.flags,
+                                operation.output_batch_stride,
+                                operation.flags |
+                                    (packed_weights_supported(operation.right_input) ? 0x20000000u
+                                                                                     : 0u),
                                 operation.left_row_stride, operation.right_row_stride,
                                 operation.output_row_stride, offset(operation.left_input, 2),
                                 offset(operation.right_input,

@@ -1,0 +1,101 @@
+#version 450
+// A complete 32->128->32 feed-forward pair. Cooperative registers carry the
+// activated hidden matrix directly into contraction; only final output is stored.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_NV_cooperative_matrix2 : require
+#extension GL_EXT_float_e4m3 : require
+#include "publish.glsl"
+#ifndef BLOCK_ROWS
+#define BLOCK_ROWS 32
+#endif
+layout(local_size_x = 128) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 16) buffer Fp8Buf {
+    floate4m3_t v[];
+};
+layout(push_constant, scalar) uniform Push {
+    HalfBuf input_values;
+    Fp8Buf expansion_weights;
+    FloatBuf output_values;
+    Fp8Buf contraction_weights;
+    uint rows, input_stride, output_stride, contract_flags, spare0, spare1, spare2, spare3;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual;
+    uint image_h, image_w, window_cols, window_pad;
+    FloatBuf gain;
+}
+pc;
+uint row_base;
+float activate(const in uint row, const in uint column, const in float value) {
+    return publish(6u, value);
+}
+float add_residual(const in uint row, const in uint column, const in float value) {
+    uint actual_row = row_base + row;
+    if (actual_row >= pc.rows)
+        return 0.;
+    uint index = actual_row * pc.output_stride + column;
+    float skip = (pc.contract_flags & 0x8000000u) != 0u ? float(HalfBuf(pc.residual).v[index])
+                                                        : FloatBuf(pc.residual).v[index];
+    precise float product = skip * pc.gain.v[column];
+    precise float result = value + product;
+    return result;
+}
+void main() {
+    row_base = (gl_WorkGroupID.x + gl_WorkGroupID.z * gl_NumWorkGroups.x) * BLOCK_ROWS;
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> input_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    input_layout = setTensorLayoutDimensionNV(input_layout, pc.rows, 32u);
+    input_layout = setTensorLayoutStrideNV(input_layout, pc.input_stride, 1u);
+    input_layout = sliceTensorLayoutNV(input_layout, row_base, BLOCK_ROWS, 0u, 32u);
+    coopmat<float16_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseAccumulator> input_half;
+    coopMatLoadTensorNV(input_half, pc.input_values.v, 0u, input_layout);
+    coopmat<floate4m3_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseA> input_matrix =
+        coopmat<floate4m3_t, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseA>(input_half);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> expansion_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    expansion_layout = setTensorLayoutDimensionNV(expansion_layout, 128u, 32u);
+    coopmat<floate4m3_t, gl_ScopeWorkgroup, 32, 128, gl_MatrixUseB> expansion;
+    coopMatLoadTensorNV(expansion, pc.expansion_weights.v, 0u, expansion_layout,
+                        createTensorViewNV(2, false, 1, 0));
+    coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 128, gl_MatrixUseAccumulator> hidden =
+        coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 128, gl_MatrixUseAccumulator>(0.);
+    hidden = coopMatMulAdd(input_matrix, expansion, hidden);
+    coopMatPerElementNV(hidden, hidden, activate);
+    // Change the cooperative register layout directly, keeping the already
+    // published FP8 grid in FP16. FP16 contraction preserves the original
+    // accumulation behavior on wide-range inputs; a full-K FP8 contraction
+    // differed by one ULP in stress tests. No hidden tensor goes to memory.
+    coopmat<float16_t, gl_ScopeWorkgroup, BLOCK_ROWS, 128, gl_MatrixUseA> hidden_matrix =
+        coopmat<float16_t, gl_ScopeWorkgroup, BLOCK_ROWS, 128, gl_MatrixUseA>(hidden);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> contraction_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    contraction_layout = setTensorLayoutDimensionNV(contraction_layout, 32u, 128u);
+    coopmat<floate4m3_t, gl_ScopeWorkgroup, 128, 32, gl_MatrixUseAccumulator> loaded_contraction;
+    coopMatLoadTensorNV(loaded_contraction, pc.contraction_weights.v, 0u, contraction_layout,
+                        createTensorViewNV(2, false, 1, 0));
+    coopmat<float16_t, gl_ScopeWorkgroup, 128, 32, gl_MatrixUseB> contraction =
+        coopmat<float16_t, gl_ScopeWorkgroup, 128, 32, gl_MatrixUseB>(loaded_contraction);
+    coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseAccumulator> output_matrix =
+        coopmat<float, gl_ScopeWorkgroup, BLOCK_ROWS, 32, gl_MatrixUseAccumulator>(0.);
+    output_matrix = coopMatMulAdd(hidden_matrix, contraction, output_matrix);
+    coopMatPerElementNV(output_matrix, output_matrix, add_residual);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> output_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    output_layout = setTensorLayoutDimensionNV(output_layout, pc.rows, 32u);
+    output_layout = setTensorLayoutStrideNV(output_layout, pc.output_stride, 1u);
+    output_layout = sliceTensorLayoutNV(output_layout, row_base, BLOCK_ROWS, 0u, 32u);
+    coopMatStoreTensorNV(output_matrix, pc.output_values.v, 0u, output_layout);
+}

@@ -1,0 +1,119 @@
+#version 450
+// Project 32-channel inputs and prepare one local Q/K/V head in one dispatch.
+// Projected values stay in shared memory. Eight lanes retain the existing ordered
+// normalization tree per head; V retains its half-then-FP8 publication.
+// The packet uses the provider's existing 128-byte push-constant ABI.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_NV_cooperative_matrix2 : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_float_e4m3 : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#include "publish.glsl"
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+layout(push_constant, scalar) uniform Push {
+    FloatBuf projected, queries, keys, values;
+    uint row_count, tokens, k, head_count, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t input_address;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+layout(local_size_x = 128) in;
+uint part_index, row_base;
+shared float projected_tile[32 * 96];
+layout(buffer_reference, scalar, buffer_reference_align = 16) buffer Fp8Buf {
+    floate4m3_t v[];
+};
+float phx_lane(float value, uint lane) {
+    return subgroupShuffle(value, (gl_SubgroupInvocationID & ~7u) + lane);
+}
+float phx_qk_load(uint row, uint channel) {
+    return projected_tile[(row - row_base) * 96u + part_index * 32u + channel];
+}
+void store(uint index, float value) {
+    HalfBuf(part_index == 0u ? uint64_t(pc.queries) : uint64_t(pc.keys)).v[index] =
+        float16_t(half_round(value));
+}
+float phoenix_reciprocal(float denominator) {
+    if (isinf(denominator))
+        return 0.0;
+    precise float inverse = 1.0 / denominator;
+    precise float error = fma(-inverse, denominator, 1.0);
+    return fma(error, inverse, inverse);
+}
+
+void phx_norm_parallel(uint row, uint lane) {
+    float head_values[4];
+    head_values[0] = phx_qk_load(row, lane);
+    head_values[1] = phx_qk_load(row, lane + 16u);
+    head_values[2] = phx_qk_load(row, lane + 8u);
+    head_values[3] = phx_qk_load(row, lane + 24u);
+    precise float partial_sum = 0.;
+    for (uint iteration_index = 0u; iteration_index < 4u; iteration_index++)
+        partial_sum = fma(head_values[iteration_index], head_values[iteration_index], partial_sum);
+    precise float even_sum = half_round((phx_lane(partial_sum, 0u) + phx_lane(partial_sum, 2u)) +
+                                        (phx_lane(partial_sum, 4u) + phx_lane(partial_sum, 6u)));
+    precise float odd_sum = half_round((phx_lane(partial_sum, 1u) + phx_lane(partial_sum, 3u)) +
+                                       (phx_lane(partial_sum, 5u) + phx_lane(partial_sum, 7u)));
+    float total = max(half_round(even_sum + odd_sum), 0.00006198883056640625);
+    precise float scale = 0.;
+    if (!isinf(total)) {
+        precise float root = sqrt(total);
+        precise float error = fma(-root, root, total);
+        root += error / (2.0 * root);
+        scale = phoenix_reciprocal(root);
+    }
+    if (part_index == 0u)
+        scale *= FloatBuf(pc.qkv_scale).v[(row / pc.tokens) % pc.head_count];
+    store(row * 32u + lane, e4m3(head_values[0] * scale));
+    store(row * 32u + lane + 16u, e4m3(head_values[1] * scale));
+    store(row * 32u + lane + 8u, e4m3(head_values[2] * scale));
+    store(row * 32u + lane + 24u, e4m3(head_values[3] * scale));
+}
+
+void main() {
+    row_base = (gl_WorkGroupID.x + gl_WorkGroupID.z * gl_NumWorkGroups.x) * 32u;
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> input_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    input_layout = setTensorLayoutDimensionNV(input_layout, pc.row_count, 32u);
+    input_layout = sliceTensorLayoutNV(input_layout, row_base, 32u, 0u, 32u);
+    coopmat<float16_t, gl_ScopeWorkgroup, 32, 32, gl_MatrixUseAccumulator> loaded;
+    coopMatLoadTensorNV(loaded, HalfBuf(pc.input_address).v, 0u, input_layout);
+    coopmat<floate4m3_t, gl_ScopeWorkgroup, 32, 32, gl_MatrixUseA> input_matrix =
+        coopmat<floate4m3_t, gl_ScopeWorkgroup, 32, 32, gl_MatrixUseA>(loaded);
+    coopmat<floate4m3_t, gl_ScopeWorkgroup, 32, 96, gl_MatrixUseB> weights;
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> weights_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    weights_layout = setTensorLayoutDimensionNV(weights_layout, 96u, 32u);
+    coopMatLoadTensorNV(weights, Fp8Buf(uint64_t(pc.projected)).v, 0u, weights_layout,
+                        createTensorViewNV(2, false, 1, 0));
+    coopmat<float, gl_ScopeWorkgroup, 32, 96, gl_MatrixUseAccumulator> projected =
+        coopmat<float, gl_ScopeWorkgroup, 32, 96, gl_MatrixUseAccumulator>(0.);
+    projected = coopMatMulAdd(input_matrix, weights, projected);
+    coopMatStore(projected, projected_tile, 0u, 96u, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    uint lane = gl_LocalInvocationID.x % 8u;
+    for (uint row = row_base + gl_LocalInvocationID.x / 8u; row < min(row_base + 32u, pc.row_count);
+         row += 16u) {
+        for (part_index = 0u; part_index < 2u; ++part_index)
+            phx_norm_parallel(row, lane);
+        part_index = 2u;
+        for (uint channel = lane; channel < 32u; channel += 8u)
+            HalfBuf(uint64_t(pc.values)).v[row * 32u + channel] =
+                float16_t(e4m3(half_round(phx_qk_load(row, channel))));
+    }
+}

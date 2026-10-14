@@ -198,6 +198,16 @@ over `metal:default` when multiple GPUs are present. Unvalidated devices require
 explicit opt-in; a device's presence is not evidence of model parity.
 On Windows use absolute JSON paths such as `C:/Phoenix/sdk/bin`.
 
+The NVIDIA Vulkan route automatically enables the workgroup FP8 engine only
+when the selected device exposes the required matrix shapes, tensor addressing
+and conversion features. The configuration switches `vulkan_workgroup_fp8`,
+`vulkan_workgroup_shape_tiles`, `vulkan_fused_feed_forward` and
+`vulkan_projected_qkv` default to `true`; setting any to `false` disables that
+optimization. Other devices keep their existing engines. Legacy packed weight
+codes incompatible with hardware FP8 automatically use the established decoder.
+These switches select execution paths for the same model, without adding a
+second weight copy or changing its precision/publication rules.
+
 The model DLL is read as **binary data**, never executed by this runner. Unix
 hosts parse its PE resource tree to find `RCDATA/WEIGHTS_HT`, authenticate the
 file and decode the tensor records. Disk models use the existing
