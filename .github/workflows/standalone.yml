@@ -22,6 +22,8 @@ jobs:
       - name: Test portable components
         # Hosted macOS runners do not provide a certified Apple GPU test device.
         run: ctest --test-dir build/standalone -C Release --output-on-failure -E metal_operators
+      - name: Test source integrity handling
+        run: python -m unittest discover -s tests -p test_vulkan_import_integrity.py
       - name: Test Metal if an Apple GPU is exposed
         if: runner.os == 'macOS'
         run: python tools/test_metal_available.py build/standalone
@@ -59,3 +61,43 @@ jobs:
         with:
           name: phoenix-sdk-android-arm64
           path: build/sdk
+  vulkan:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'ndk;27.3.13750724'
+      - run: sudo apt-get update -qq && sudo apt-get install -y libvulkan-dev ninja-build
+      - uses: actions/checkout@v4
+        with:
+          repository: KhronosGroup/Vulkan-Headers
+          ref: v1.4.365
+          path: build/dependencies/headers
+      - uses: actions/checkout@v4
+        with:
+          repository: KhronosGroup/glslang
+          ref: 16.6.0
+          path: build/dependencies/glslang
+      - name: Prepare pinned glslang dependencies
+        working-directory: build/dependencies/glslang
+        run: python update_glslang_sources.py
+      - name: Build host shader compiler
+        run: |
+          cmake -S build/dependencies/glslang -B build/glslang -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF
+          cmake --build build/glslang --parallel 4
+      - name: Build Linux Vulkan provider and run portable tests
+        run: |
+          cmake -S native_runtime -B build/linux-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
+          cmake --build build/linux-vulkan --parallel 4
+          ctest --test-dir build/linux-vulkan --output-on-failure
+      - name: Cross-build Android Vulkan provider
+        run: |
+          cmake -S native_runtime -B build/android-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
+          cmake --build build/android-vulkan --parallel 4
