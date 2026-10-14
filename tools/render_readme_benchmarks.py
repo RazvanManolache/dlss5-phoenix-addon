@@ -195,6 +195,12 @@ Game rendering, upscaling, compositor and streaming costs are additional. Actual
 <a href="VR_ESTIMATES.md">Assumptions, calculations and stereo batching</a>.</p>
 <img src="vr-estimated-cost.png" alt="Estimated stereo neural cost for PSVR2 and Steam Frame">
 <img src="vr-estimated-budget.png" alt="Estimated remaining VR frame time at 90 and 120 Hz"></section>
+<section><h2>Experimental alternate runners at 1080p</h2>
+<p>The portable graph uses a separate RGB32F temporal fixture and complete broker-call boundary.
+The validated RTX Vulkan path now includes workgroup FP8 matrices and eligible feed-forward/QKV fusions.
+<a href="../../VULKAN_MATRIX2_2026-10-14.md">Measurements and validation</a>.
+The native-kernel Vulkan launch prototype is not enabled in the release.</p>
+<img src="portable-runners.png" alt="Current alternate-runner timing and memory measurements"></section>
 <section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
 Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
 <label for="extent">Resolution </label><select id="extent">''' + options + '''</select>
@@ -271,7 +277,7 @@ def memory():
             left += width
     p.wrap(843, 709, "All tracked owned allocations reached zero after shutdown; capture readbacks retired too.", 670, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 854, f"The current native inner-network probe owns {ROWS['phoenix']['owned_bytes'] / MIB:.2f} MiB with RG16F motion; the adapter measurements above are from 11 October. Alternate-runner graphs request {gpu['owned_bytes'] / MIB:.2f} MiB on all six routes: {gpu['memory_parts']['Packed weights'] / MIB:.2f} MiB weights + {gpu['memory_parts']['Scratch / activations'] / MIB:.2f} MiB scratch/activations. These are different scopes.", 1500, 24)
+    p.wrap(48, 854, f"The current native inner-network probe owns {ROWS['phoenix']['owned_bytes'] / MIB:.2f} MiB with RG16F motion; the adapter measurements above are from 11 October. Alternate graphs: CUDA/CPU/HIP/SYCL/AMD Vulkan {gpu['owned_bytes'] / MIB:.2f} MiB; RTX Vulkan {ROWS['vulkan_nvidia']['owned_bytes'] / MIB:.2f} MiB including cached noise. Native probe, full adapter, GPU residency and worker RAM are different scopes.", 1500, 24)
     p.wrap(48, 958, "Owned resources, GPU residency and host working set overlap. Keep them separate; NVIDIA's internal component sizes remain unknown.", 1500, 23)
     p.save("memory-breakdown.png")
 

@@ -89,27 +89,35 @@
       "family": "portable",
       "processes": 3,
       "samples": 30,
-      "core_ms": 104.911136,
-      "wall_ms": 158.0671,
-      "process_median_min_ms": 156.8556,
-      "process_median_max_ms": 158.9967,
-      "host_private_bytes": 810397696,
-      "host_working_set_bytes": 328753152,
-      "owned_bytes": 475404968,
+      "core_ms": 68.370944,
+      "wall_ms": 117.67465,
+      "process_median_min_ms": 115.25065000000001,
+      "process_median_max_ms": 121.31354999999999,
+      "host_private_bytes": 776761344,
+      "host_working_set_bytes": 271142912,
+      "owned_bytes": 487938728,
       "memory_parts": {
         "Packed weights": 151526056,
-        "Scratch / activations": 323878912
+        "Scratch / activations + cached noise": 336412672
       },
       "measured_date": "2026-10-14",
       "memory_sampling": "Worker working set/private bytes: median of final-frame observations across processes; not a peak",
       "motion_mode": "fractional",
-      "source_commit": "c1a6d83b38c64dc5c7e7c6b03008635f63ccbf04",
+      "source_commit": "07398bb2b6e07b6e6ba66c429998036091c0a894",
       "frames_per_process": 12,
       "discarded_per_process": 2,
       "exact_frames": 36,
-      "measurement_note": "Fresh replay of the saved chart sequence; every frame checked against its saved hash.",
+      "measurement_note": "Validated workgroup FP8 matrices, fused feed-forward/QKV and shape-selected tiles. Three alternating fresh-process pairs; 12 temporal frames each, two discarded for timing. Exact saved output on all 36 candidate frames.",
       "weight_bytes": 151526056,
-      "scratch_bytes": 323878912
+      "scratch_bytes": 336412672,
+      "options": {
+        "vulkan_workgroup_fp8": true,
+        "vulkan_workgroup_shape_tiles": true,
+        "vulkan_fused_feed_forward": true,
+        "vulkan_projected_qkv": true,
+        "vulkan_fused_qkv": true,
+        "vulkan_cache_noise": true
+      }
     },
     {
       "id": "cpu",
@@ -601,7 +609,8 @@
     "planner_allocation_extents": 41,
     "portable_reset_exact_frames_cpu_hip": 16,
     "native_executed_frames": 4617,
-    "native_current_saved_regression_extents": 8
+    "native_current_saved_regression_extents": 8,
+    "vulkan_workgroup_exact_comparison_frames": 72
   },
   "scope": {
     "native": "Current automatic native selection. Same synthetic RGBA16F/RG16F zero-motion, model, controls,8 blocks,1 pass. PNNP order;2 processes/route/extent,128 frames each,discard32;mean of process medians. GPU interval excludes uploads/readbacks. Stock clocks observed, not locked.",
@@ -633,7 +642,8 @@
       "build\\regular_performance_20261014\\control_results.json": "d37374827e2e9f111dea3082abf62258bff27d58100d6fa973dad49651ea37be",
       "build\\regular_performance_tools_ready_20261014\\build_report.json": "015465ff2fe9b23bbe915dc942641fb76a61742962ace6aee83cf980f3e4c73e",
       "build\\regular_performance_runner_20261014\\build_report.json": "97e8bec4f7e9ab3d5d2aaa7893aa68628a9ca54838d404028aff6c6e7eeff399"
-    }
+    },
+    "vulkan_workgroup": "9b405c40ba45a3847be504ea38b05a998f89ee7a465f1ef1c7326bedbc6ffcac"
   },
   "direct_memory_date": "2026-10-11",
   "source_commit": "c1a6d83b38c64dc5c7e7c6b03008635f63ccbf04",

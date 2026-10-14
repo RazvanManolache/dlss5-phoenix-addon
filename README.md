@@ -38,7 +38,7 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
   primary path. Getting the same architecture running through other APIs is
   extra engineering exploration. Yes, we may have taken the side quest too far.
 
-Measured **13 October 2026**, two fresh processes per renderer at each extent,
+Measured **14 October 2026**, two fresh processes per renderer at each extent,
 128 frames each, discarding the first 32. Figures average process medians.
 Same RGBA16F color/RG16F motion fixture, controls and model. GPU inference
 excludes upload/readback and is not game frame time. Resolution planning and
@@ -46,7 +46,7 @@ padding are corrected. Automatic kernel selection preserves the small-input
 register choices and switches two stages at 18.66 million neural input pixels
 (5760×3240 area). Wider memory reads improve three 64-channel stages.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
-At 8K the two Phoenix process medians span 56.41–57.62 ms;
+At 8K the two Phoenix process medians span 60.94–63.74 ms;
 the chart shows their mean, not a fixed performance guarantee.
 
 [Automatic kernel selection and memory tuning: measurements and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
@@ -219,12 +219,13 @@ GPU paths are development/reference tools, not real-time gaming choices.
 ![Experimental alternate runners: current 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
 
 - **RTX 5080:** CUDA **56.31 ms** model / **102.84 ms** full call;
-  Vulkan **104.91 ms** / **158.07 ms**.
+  Vulkan **68.37 ms** / **117.67 ms**.
 - **Ryzen 9950X3D, 32 workers:** CPU C++ **9.36 s** full call;
   SYCL CPU **11.37 s**.
 - **Integrated Radeon gfx1036:** HIP **14.78 s** full call;
   Vulkan **12.11 s**. These are iGPU results, not discrete Radeon results.
-- **All six request 453.38 MiB of model/scratch buffers.** Host RAM, caller
+- **Owned model/scratch buffers:** Vulkan RTX requests **465.33 MiB**, including
+  its cached noise tensor; the other five routes request **453.38 MiB**. Host RAM, caller
   buffers, driver/JIT caches and GPU residency are separate scopes. CPU worker
   private commitment is about **501 MiB**, SYCL CPU about **954 MiB**; the chart
   shows resident working set instead. Equal tensor demand does not mean equal RAM.
@@ -234,10 +235,15 @@ and all eight block repetition controls set to one. RTX: three processes × 12
 temporal frames, discarding two. CPU/HIP: two processes × two reset frames,
 discarding one. SYCL/Vulkan AMD: two × three temporal frames, discarding one.
 Native uses a different fixture and timing boundary; do not infer a cross-runner
-speedup ratio. The current replay checked **92 exact frame hashes** across all
+speedup ratio. The six-route regression checked **92 exact frame hashes** across all
 six alternate routes; native reset/final comparisons pass at all nine standard
-resolutions. These are offline results, not game FPS. The exact release binary has
-not had a new live-game test.
+resolutions. The newly packaged Vulkan path additionally passed **72 exact temporal
+frame comparisons** plus edge-size and operator checks. These are offline results,
+not game FPS; the new package has not had a new live-game test.
+
+[Vulkan measurements and validation](docs/VULKAN_MATRIX2_2026-10-14.md).
+The Vulkan-native kernel-launch prototype remains experimental and is not enabled
+in this release.
 
 [Latest optimization details and memory measurements](docs/PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md)
 

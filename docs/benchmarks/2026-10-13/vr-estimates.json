@@ -1,7 +1,7 @@
 {
   "schema": "phoenix-vr-estimate/1",
   "status": "ESTIMATES, NOT VR BENCHMARKS",
-  "source_measurements_sha256": "341752d39600152e8e792c8a66725d15f02e19de9cd8d6fd968b1f9260684636",
+  "source_measurements_sha256": "0110aeafc25a1307cb3cde24d35f1acdfee37e0b0679e0fe72b436a8a28d26a4",
   "source_hash_normalization": "UTF-8 with LF line endings",
   "source_measurement_date": "2026-10-14",
   "gpu": "RTX 5080, driver 616.64",

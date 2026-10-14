@@ -1,0 +1,121 @@
+{
+  "schema": "phoenix-vulkan-workgroup-benchmark/1",
+  "date": "2026-10-14",
+  "source_commit": "07398bb2b6e07b6e6ba66c429998036091c0a894",
+  "hardware": {
+    "cpu": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
+    "cores": 16,
+    "threads": 32,
+    "installed_ram_bytes": 103079215104,
+    "nvidia": "NVIDIA GeForce RTX 5080, 616.64, 16303 MiB",
+    "cuda_toolkit": "13.1",
+    "nvidia_model_dll_file_version": "310.8.0.0"
+  },
+  "resolution": [
+    1920,
+    1080
+  ],
+  "controls": "Full network; all eight repetitions one; one pass; saved RGB32F fractional-motion sequence",
+  "timing": "Median of three process medians after discarding the first two of twelve frames. GPU model interval and complete broker call are separate. Not game FPS or the native RGBA16F timing boundary.",
+  "candidate": {
+    "id": "vulkan_nvidia",
+    "label": "Vulkan C++ \u00b7 RTX 5080",
+    "hardware": "RTX 5080 \u00b7 NVIDIA 616.64",
+    "family": "portable",
+    "processes": 3,
+    "samples": 30,
+    "core_ms": 68.370944,
+    "wall_ms": 117.67465,
+    "process_median_min_ms": 115.25065000000001,
+    "process_median_max_ms": 121.31354999999999,
+    "host_private_bytes": 776761344,
+    "host_working_set_bytes": 271142912,
+    "owned_bytes": 487938728,
+    "memory_parts": {
+      "Packed weights": 151526056,
+      "Scratch / activations + cached noise": 336412672
+    },
+    "measured_date": "2026-10-14",
+    "memory_sampling": "Worker working set/private bytes: median of final-frame observations across processes; not a peak",
+    "motion_mode": "fractional",
+    "source_commit": "07398bb2b6e07b6e6ba66c429998036091c0a894",
+    "frames_per_process": 12,
+    "discarded_per_process": 2,
+    "exact_frames": 36,
+    "measurement_note": "Validated workgroup FP8 matrices, fused feed-forward/QKV and shape-selected tiles. Three alternating fresh-process pairs; 12 temporal frames each, two discarded for timing. Exact saved output on all 36 candidate frames.",
+    "weight_bytes": 151526056,
+    "scratch_bytes": 336412672,
+    "options": {
+      "vulkan_workgroup_fp8": true,
+      "vulkan_workgroup_shape_tiles": true,
+      "vulkan_fused_feed_forward": true,
+      "vulkan_projected_qkv": true,
+      "vulkan_fused_qkv": true,
+      "vulkan_cache_noise": true
+    }
+  },
+  "exact_comparison_frames": 72,
+  "processes": [
+    {
+      "label": "baseline",
+      "iteration": 0,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 90.411808,
+      "call_ms": 139.77405,
+      "resident_bytes": 487938728,
+      "report_sha256": "b67b838014d051383fe18a4bbb14f6b0af525bccde393eb65975fcb313a70066"
+    },
+    {
+      "label": "matrix2",
+      "iteration": 0,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 69.661616,
+      "call_ms": 121.31354999999999,
+      "resident_bytes": 487938728,
+      "report_sha256": "13e43a04eb1e175222f1d4f356c3a88f2206bf2950df1d1361e507f385e5fbd4"
+    },
+    {
+      "label": "matrix2",
+      "iteration": 1,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 67.93472,
+      "call_ms": 117.67465,
+      "resident_bytes": 487938728,
+      "report_sha256": "767d4de230432cfbbcca336b9c7b8b5c56a7fd66edfed2d73639d6f69533785f"
+    },
+    {
+      "label": "baseline",
+      "iteration": 1,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 89.04163199999999,
+      "call_ms": 148.0815,
+      "resident_bytes": 487938728,
+      "report_sha256": "5eb948e68d13df0a4975024f3b1361665821d80d60b89dfa48e3235f426aa30d"
+    },
+    {
+      "label": "baseline",
+      "iteration": 2,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 88.87750399999999,
+      "call_ms": 138.77365,
+      "resident_bytes": 487938728,
+      "report_sha256": "4ebd43a23928e169130e75a51ef958e819efa37b49d95660f9fe6c6635a8a508"
+    },
+    {
+      "label": "matrix2",
+      "iteration": 2,
+      "passed": true,
+      "exact_frames": 12,
+      "gpu_ms": 68.370944,
+      "call_ms": 115.25065000000001,
+      "resident_bytes": 487938728,
+      "report_sha256": "adfac0e8025cd5ba0b14f2741e8b59ab1d7f5d040e669ecbc5c212945f0f1da3"
+    }
+  ],
+  "runtime_validation_sha256": "0ff21f01f6be439f88e9d0e691a23ed2f5a09d8c2f017c252e660f082c491a07"
+}
