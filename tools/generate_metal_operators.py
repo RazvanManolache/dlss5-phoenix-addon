@@ -27,6 +27,9 @@ def generate():
     source = re.sub(r"static_cast<((?:const )?(?:uint16_t|uint8_t|float))\*>",
                     r"static_cast<device \1*>", source)
     source = re.sub(r"\bhalf\(", "round_binary16(", source)
+    source = re.sub(r"\bfragment\b", "fragment_index", source) # MSL stage keyword.
+    source = source.replace("auto* output =", "device uint16_t* output =")
+    source = source.replace("auto* noise =", "device const uint16_t* noise =")
     # MSL has no standard offsetof macro; host-side descriptor layout is checked
     # independently. Device pointers are constructed from bound buffers below.
     source = re.sub(r"^static_assert.*\n", "", source, flags=re.M)

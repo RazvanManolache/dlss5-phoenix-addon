@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install pinned NDK
-        run: sdkmanager 'ndk;27.3.13750724'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ''ndk;27.3.13750724'''
       - name: Configure ARM64 library
         run: >-
           cmake -S native_runtime -B build/android -DCMAKE_BUILD_TYPE=Release
