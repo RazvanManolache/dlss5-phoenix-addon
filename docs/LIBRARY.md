@@ -80,7 +80,7 @@ Android cross-build (substitute your NDK path):
 ```sh
 cmake -S native_runtime -B build/android -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE=/path/to/ndk/27.3.13750724/build/cmake/android.toolchain.cmake \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DPHOENIX_ENABLE_METAL=OFF
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DPHOENIX_ENABLE_METAL=OFF
 cmake --build build/android --parallel 4
 cmake --install build/android --prefix build/android-sdk
 ```
