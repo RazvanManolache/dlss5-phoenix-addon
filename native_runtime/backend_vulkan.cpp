@@ -20,6 +20,8 @@ class VulkanBackend final : public Backend {
     unsigned matrix_rows = 0;
     bool scalar_attention = false;
     bool prefer_unfused_attention = false;
+    bool fused_qkv = false;
+    bool cache_noise = false;
     static std::mutex& global() {
         static std::mutex m;
         return m;
@@ -72,8 +74,8 @@ class VulkanBackend final : public Backend {
         module = open_library(folder / library_name("phoenix_vulkan"));
         demand(module != nullptr, "Vulkan provider load failed");
         auto shader_path = [&](const char* name) { return (folder / name).string(); };
-        auto matrix_shader = shader_path(options & VulkanTiledFallback
-                                            ? "gemm_portable_tiled.spv" : "gemm_portable.spv");
+        auto matrix_shader = shader_path(options & VulkanTiledFallback ? "gemm_portable_tiled.spv"
+                                                                       : "gemm_portable.spv");
         auto elementwise_shader = shader_path("resident.spv");
         auto attention_shader = shader_path("attention.spv");
         auto history_shader = shader_path("history.spv");
@@ -91,7 +93,8 @@ class VulkanBackend final : public Backend {
         check(call<int>("xmx_rows_init", parallel_rows.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
         scalar_attention = !matrix_rows && (options & VulkanScalarAttention);
-        if (!matrix_rows && (options & VulkanTiledFallback) && (options & VulkanCoalescedFallback)) {
+        if (!matrix_rows && (options & VulkanTiledFallback) &&
+            (options & VulkanCoalescedFallback)) {
             auto coalesced_shader = shader_path("gemm_portable_coalesced.spv");
             check(call<int>("phoenix_native_coalesced_init", coalesced_shader.c_str()));
         }
@@ -107,13 +110,19 @@ class VulkanBackend final : public Backend {
         prefer_unfused_attention = call<unsigned>("phoenix_native_vendor") == 0x1002 &&
                                    call<unsigned>("phoenix_native_device_id") == 0x13c0;
         if (matrix_rows || scalar_attention) {
-            auto window = shader_path(scalar_attention ? "phoenix_window_attention_scalar.spv"
-                                     : matrix_rows == 8 ? "phoenix_window_attention8.spv"
-                                                       : "phoenix_window_attention.spv");
+            auto window = shader_path(scalar_attention   ? "phoenix_window_attention_scalar.spv"
+                                      : matrix_rows == 8 ? "phoenix_window_attention8.spv"
+                                                         : "phoenix_window_attention.spv");
             check(call<int>("xmx_window_init", window.c_str(), 1u));
         }
         auto features_shader = shader_path("frame_features.spv");
         check(call<int>("phoenix_native_features_init", features_shader.c_str()));
+        // Other vendors retain their measured scheduling and memory policy.
+        const bool tested_nvidia = call<unsigned>("phoenix_native_vendor") == 0x10de;
+        fused_qkv = tested_nvidia && (options & VulkanFusedQkv);
+        cache_noise = tested_nvidia && (options & VulkanCacheNoise);
+        if (fused_qkv)
+            check(call<int>("xmx_qkv_init", shader_path("phoenix_qkv_prepare.spv").c_str()));
         detailed_profile = (options & DispatchProfiling) != 0;
         check(call<int>("xmx_profile", detailed_profile ? 1 : 2));
         if (call<unsigned>("phoenix_native_vendor") == 0x10de)
@@ -133,10 +142,11 @@ class VulkanBackend final : public Backend {
         }
     }
     uint32_t features() const {
-        return DeviceFeaturePacking |
-               (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
+        return DeviceFeaturePacking | (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
                (matrix_rows ? FusedMatrixResidual : 0) |
-               (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0);
+               (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0) |
+               (cache_noise ? DeviceNoiseCache : 0) |
+               (fused_qkv && !detailed_profile ? FusedQkvPreparation : 0);
     }
     const char* name() const override {
         return "vulkan-cpp";
@@ -198,74 +208,125 @@ class VulkanBackend final : public Backend {
                 demand((commands.size() + submission_size - 1) / submission_size <= 128,
                        "Vulkan graph capacity");
                 check(call<int>("xmx_begin"));
-                for (auto& command : commands) {
+                for (size_t command_index = 0; command_index < commands.size(); ++command_index) {
+                    const auto& command = commands[command_index];
                     auto operation = command.operation;
-                    if (operation.family == phx::MatrixMultiply) {
-                        if (operation.flags & phx::MatrixResidual) {
-                            demand(matrix_rows != 0,
-                                   "Fused matrix residual requires Vulkan cooperative matrices");
-                            call<void>("phoenix_native_matrix_residual",
-                                       buffer_id(operation.auxiliary),
-                                       buffer_id(operation.secondary_output),
+                    bool combined_qkv = false;
+                    // Match a complete local Q/K/V group. Global and split-head
+                    // blocks have different rounding rules and keep separate passes.
+                    // Never cross a fenced graph boundary, or hide dispatch profiling.
+                    if (fused_qkv && !detailed_profile && operation.family == phx::RowReduction &&
+                        operation.flags == (phx::StoreHalf | phx::InterleavedQkv) &&
+                        operation.reduction_count == 1 && operation.column_count == 64 &&
+                        operation.batch_count && operation.batch_count != 16 &&
+                        command_index + 2 < commands.size() &&
+                        command_index % submission_size < submission_size - 2) {
+                        const auto& key = commands[command_index + 1].operation;
+                        const auto& value_command = commands[command_index + 2];
+                        const auto& value = value_command.operation;
+                        if (key.family == phx::RowReduction &&
+                            key.flags == (phx::StoreHalf | phx::InterleavedQkv | (1u << 18)) &&
+                            key.reduction_count == 0 && key.left_input == operation.left_input &&
+                            key.auxiliary == operation.auxiliary &&
+                            key.row_count == operation.row_count && key.column_count == 64 &&
+                            key.batch_count == operation.batch_count &&
+                            value.family == phx::Elementwise &&
+                            value.flags == (phx::SplitQkvHeads | phx::StoreHalf | (5u << 8)) &&
+                            value.left_input == operation.left_input &&
+                            value.row_count == operation.row_count &&
+                            value.column_count == operation.batch_count * 32 &&
+                            value.batch_count == operation.batch_count &&
+                            value.left_batch_stride == 64 && value.right_batch_stride == 2 &&
+                            value_command.count == uint64_t(operation.row_count) * 32) {
+                            call<void>("phoenix_native_operand_offsets",
+                                       uint64_t(offset(operation.left_input, 1)),
+                                       uint64_t(offset(operation.output, 1)),
+                                       uint64_t(offset(key.output, 1)),
+                                       uint64_t(offset(value.output, 1)),
+                                       uint64_t(offset(operation.auxiliary, 1)));
+                            check(call<int>("xmx_rec_qkv_prepare", buffer_id(operation.left_input),
+                                            buffer_id(operation.output), buffer_id(key.output),
+                                            buffer_id(value.output), buffer_id(operation.auxiliary),
+                                            operation.row_count, 64u, operation.batch_count));
+                            command_index += 2;
+                            combined_qkv = true;
+                        }
+                    }
+                    if (!combined_qkv) {
+                        if (operation.family == phx::MatrixMultiply) {
+                            if (operation.flags & phx::MatrixResidual) {
+                                demand(
+                                    matrix_rows != 0,
+                                    "Fused matrix residual requires Vulkan cooperative matrices");
+                                call<void>("phoenix_native_matrix_residual",
+                                           buffer_id(operation.auxiliary),
+                                           buffer_id(operation.secondary_output),
+                                           uint64_t(offset(operation.auxiliary, 1)),
+                                           uint64_t(offset(operation.secondary_output, 1)));
+                            }
+                            check(call<int>(
+                                "xmx_rec_gemm", buffer_id(operation.left_input),
+                                buffer_id(operation.right_input), buffer_id(operation.output),
+                                operation.row_count, operation.column_count,
+                                operation.reduction_count, operation.batch_count,
+                                operation.left_batch_stride, operation.right_batch_stride,
+                                operation.output_batch_stride, operation.flags,
+                                operation.left_row_stride, operation.right_row_stride,
+                                operation.output_row_stride, offset(operation.left_input, 2),
+                                offset(operation.right_input,
+                                       (operation.flags & 0x2000000) ? 1 : 2),
+                                offset(operation.output, (operation.flags & 0x1000) ? 2 : 4)));
+                        } else {
+                            call<void>("phoenix_native_operand_offsets",
+                                       uint64_t(offset(operation.left_input, 1)),
+                                       uint64_t(offset(operation.right_input, 1)),
+                                       uint64_t(offset(operation.output, 1)),
                                        uint64_t(offset(operation.auxiliary, 1)),
                                        uint64_t(offset(operation.secondary_output, 1)));
+                            if (operation.family == phx::WindowAttention)
+                                check(call<int>("phoenix_native_window_attention",
+                                                buffer_id(operation.left_input),
+                                                buffer_id(operation.right_input),
+                                                buffer_id(operation.auxiliary),
+                                                buffer_id(operation.secondary_output),
+                                                buffer_id(operation.output), operation.batch_count,
+                                                operation.column_count));
+                            else if (operation.family == phx::RowReduction)
+                                check(call<int>(
+                                    "xmx_rec_row", operation.flags, buffer_id(operation.left_input),
+                                    buffer_id(operation.right_input), buffer_id(operation.output),
+                                    buffer_id(operation.auxiliary), operation.row_count,
+                                    operation.column_count, operation.batch_count,
+                                    operation.reduction_count, operation.left_batch_stride, 0.f));
+                            else if (operation.secondary_output)
+                                check(call<int>(
+                                    "xmx_rec_unary2", operation.flags,
+                                    buffer_id(operation.left_input),
+                                    buffer_id(operation.right_input), buffer_id(operation.output),
+                                    buffer_id(operation.auxiliary),
+                                    buffer_id(operation.secondary_output), uint32_t(command.count),
+                                    operation.column_count, operation.scale, operation.batch_count,
+                                    operation.left_batch_stride, operation.right_batch_stride,
+                                    operation.output_batch_stride, operation.reduction_count));
+                            else
+                                check(call<int>(
+                                    "xmx_rec_unary", operation.flags,
+                                    buffer_id(operation.left_input),
+                                    buffer_id(operation.right_input), buffer_id(operation.output),
+                                    buffer_id(operation.auxiliary), uint32_t(command.count),
+                                    operation.column_count, operation.scale, operation.batch_count,
+                                    operation.left_batch_stride, operation.right_batch_stride,
+                                    operation.output_batch_stride, operation.reduction_count));
                         }
-                        check(call<int>(
-                            "xmx_rec_gemm", buffer_id(operation.left_input),
-                            buffer_id(operation.right_input), buffer_id(operation.output),
-                            operation.row_count, operation.column_count, operation.reduction_count,
-                            operation.batch_count, operation.left_batch_stride,
-                            operation.right_batch_stride, operation.output_batch_stride,
-                            operation.flags, operation.left_row_stride, operation.right_row_stride,
-                            operation.output_row_stride, offset(operation.left_input, 2),
-                            offset(operation.right_input, (operation.flags & 0x2000000) ? 1 : 2),
-                            offset(operation.output, (operation.flags & 0x1000) ? 2 : 4)));
-                    } else {
-                        call<void>("phoenix_native_operand_offsets",
-                                   uint64_t(offset(operation.left_input, 1)),
-                                   uint64_t(offset(operation.right_input, 1)),
-                                   uint64_t(offset(operation.output, 1)),
-                                   uint64_t(offset(operation.auxiliary, 1)),
-                                   uint64_t(offset(operation.secondary_output, 1)));
-                        if (operation.family == phx::WindowAttention)
-                            check(call<int>(
-                                "phoenix_native_window_attention", buffer_id(operation.left_input),
-                                buffer_id(operation.right_input), buffer_id(operation.auxiliary),
-                                buffer_id(operation.secondary_output), buffer_id(operation.output),
-                                operation.batch_count, operation.column_count));
-                        else if (operation.family == phx::RowReduction)
-                            check(call<int>(
-                                "xmx_rec_row", operation.flags, buffer_id(operation.left_input),
-                                buffer_id(operation.right_input), buffer_id(operation.output),
-                                buffer_id(operation.auxiliary), operation.row_count,
-                                operation.column_count, operation.batch_count,
-                                operation.reduction_count, operation.left_batch_stride, 0.f));
-                        else if (operation.secondary_output)
-                            check(call<int>(
-                                "xmx_rec_unary2", operation.flags, buffer_id(operation.left_input),
-                                buffer_id(operation.right_input), buffer_id(operation.output),
-                                buffer_id(operation.auxiliary),
-                                buffer_id(operation.secondary_output), uint32_t(command.count),
-                                operation.column_count, operation.scale, operation.batch_count,
-                                operation.left_batch_stride, operation.right_batch_stride,
-                                operation.output_batch_stride, operation.reduction_count));
-                        else
-                            check(call<int>(
-                                "xmx_rec_unary", operation.flags, buffer_id(operation.left_input),
-                                buffer_id(operation.right_input), buffer_id(operation.output),
-                                buffer_id(operation.auxiliary), uint32_t(command.count),
-                                operation.column_count, operation.scale, operation.batch_count,
-                                operation.left_batch_stride, operation.right_batch_stride,
-                                operation.output_batch_stride, operation.reduction_count));
                     }
                     // Keep submission bounds below the Windows watchdog risk; all dependencies
                     // cross a fenced boundary. Later device validation can increase this batch.
-                    if (&command == &commands.back() ||
-                        ((&command - commands.data() + 1) % submission_size) == 0) {
+                    if (command_index + 1 == commands.size() ||
+                        (command_index + 1) % submission_size == 0) {
                         auto graph = call<int>("xmx_graph_capture");
                         check(graph);
                         graphs.push_back(graph);
-                        if (&command != &commands.back())
+                        if (command_index + 1 != commands.size())
                             check(call<int>("xmx_begin"));
                     }
                 }
@@ -305,13 +366,16 @@ static std::filesystem::path shader_folder(const wchar_t* root) {
     return std::filesystem::path(info.dli_fname).parent_path() / "vulkan";
 #endif
 }
-extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_utf8(
-    const char* device_id, const char* root, uint32_t options, char* error, size_t size) {
+extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_utf8(const char* device_id,
+                                                               const char* root, uint32_t options,
+                                                               char* error, size_t size) {
     try {
         demand(root != nullptr, "Vulkan shader folder required");
-        return new VulkanBackend(device_id ? device_id : "", std::filesystem::u8path(root), options);
+        return new VulkanBackend(device_id ? device_id : "", std::filesystem::u8path(root),
+                                 options);
     } catch (const std::exception& exception) {
-        copy_error(error,size,exception.what()); return nullptr;
+        copy_error(error, size, exception.what());
+        return nullptr;
     }
 }
 extern "C" PHOENIX_EXPORT Backend*
@@ -327,9 +391,10 @@ extern "C" PHOENIX_EXPORT void phoenix_backend_destroy(Backend* backend) {
     delete backend;
 }
 
-extern "C" PHOENIX_EXPORT Backend*
-phoenix_backend_create_configured(const char* device_id, const wchar_t* root, uint32_t options,
-                                  char* error, size_t size) {
+extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_configured(const char* device_id,
+                                                                     const wchar_t* root,
+                                                                     uint32_t options, char* error,
+                                                                     size_t size) {
     try {
         return new VulkanBackend(device_id ? device_id : "", shader_folder(root), options);
     } catch (const std::exception& exception) {

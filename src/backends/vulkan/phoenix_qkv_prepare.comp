@@ -1,0 +1,96 @@
+#version 450
+// Prepare local Q, K and V together. Eight lanes retain the existing ordered
+// normalization tree per head; V retains its half-then-FP8 publication.
+// The packet uses the provider's existing 128-byte push-constant ABI.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#include "publish.glsl"
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+layout(push_constant, scalar) uniform Push {
+    FloatBuf projected, queries, keys, values;
+    uint row_count, tokens, k, head_count, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+}
+pc;
+layout(local_size_x = 128) in;
+uint part_index;
+float phx_lane(float value, uint lane) {
+    return subgroupShuffle(value, (gl_SubgroupInvocationID & ~7u) + lane);
+}
+float phx_qk_load(uint row, uint channel) {
+    uint head = (row / pc.tokens) % pc.head_count, token = row % pc.tokens,
+         window = row / (pc.tokens * pc.head_count);
+    return pc.projected
+        .v[((window * pc.tokens + token) * 3u * pc.head_count + part_index * pc.head_count + head) *
+               32u +
+           channel];
+}
+void store(uint index, float value) {
+    HalfBuf(part_index == 0u ? uint64_t(pc.queries) : uint64_t(pc.keys)).v[index] =
+        float16_t(half_round(value));
+}
+float phoenix_reciprocal(float denominator) {
+    if (isinf(denominator))
+        return 0.0;
+    precise float inverse = 1.0 / denominator;
+    precise float error = fma(-inverse, denominator, 1.0);
+    return fma(error, inverse, inverse);
+}
+
+void phx_norm_parallel(uint row, uint lane) {
+    float head_values[4];
+    head_values[0] = phx_qk_load(row, lane);
+    head_values[1] = phx_qk_load(row, lane + 16u);
+    head_values[2] = phx_qk_load(row, lane + 8u);
+    head_values[3] = phx_qk_load(row, lane + 24u);
+    precise float partial_sum = 0.;
+    for (uint iteration_index = 0u; iteration_index < 4u; iteration_index++)
+        partial_sum = fma(head_values[iteration_index], head_values[iteration_index], partial_sum);
+    precise float even_sum = half_round((phx_lane(partial_sum, 0u) + phx_lane(partial_sum, 2u)) +
+                                        (phx_lane(partial_sum, 4u) + phx_lane(partial_sum, 6u)));
+    precise float odd_sum = half_round((phx_lane(partial_sum, 1u) + phx_lane(partial_sum, 3u)) +
+                                       (phx_lane(partial_sum, 5u) + phx_lane(partial_sum, 7u)));
+    float total = max(half_round(even_sum + odd_sum), 0.00006198883056640625);
+    precise float scale = 0.;
+    if (!isinf(total)) {
+        precise float root = sqrt(total);
+        precise float error = fma(-root, root, total);
+        root += error / (2.0 * root);
+        scale = phoenix_reciprocal(root);
+    }
+    if (part_index == 0u)
+        scale *= FloatBuf(pc.qkv_scale).v[(row / pc.tokens) % pc.head_count];
+    store(row * 32u + lane, e4m3(head_values[0] * scale));
+    store(row * 32u + lane + 16u, e4m3(head_values[1] * scale));
+    store(row * 32u + lane + 8u, e4m3(head_values[2] * scale));
+    store(row * 32u + lane + 24u, e4m3(head_values[3] * scale));
+}
+
+void main() {
+    uint row = (gl_WorkGroupID.x + gl_WorkGroupID.z * gl_NumWorkGroups.x) * 16u +
+               gl_LocalInvocationID.x / 8u;
+    if (row >= pc.row_count)
+        return;
+    uint lane = gl_LocalInvocationID.x % 8u;
+    for (part_index = 0u; part_index < 2u; ++part_index)
+        phx_norm_parallel(row, lane);
+    part_index = 2u;
+    for (uint channel = lane; channel < 32u; channel += 8u)
+        HalfBuf(uint64_t(pc.values)).v[row * 32u + channel] =
+            float16_t(e4m3(half_round(phx_qk_load(row, channel))));
+}

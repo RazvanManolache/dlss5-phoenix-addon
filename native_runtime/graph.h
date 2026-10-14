@@ -38,6 +38,9 @@ class Graph {
     unsigned window_batch_limit_ = 128;
     bool device_features_ = false;
     bool fused_residual_ = false;
+    bool device_noise_cache_ = false;
+    bool noise_uploaded_ = false;
+    unsigned uploaded_noise_seed_ = 0;
     std::array<Tensor, 4> frame_planes_;
 
     static bool publishes_fp8(unsigned publication) {
@@ -82,8 +85,13 @@ class Graph {
                 point.after + 1);
 
         for (const auto& plane : frame_planes_)
-            if (plane.memory)
+            if (plane.memory) {
                 scratch_.touch(plane.ptr(), 0);
+                // Cached noise must survive every neural command and subsequent
+                // frames. Other upload planes remain short-lived scratch views.
+                if (device_noise_cache_ && &plane == &frame_planes_[2])
+                    scratch_.touch(plane.ptr(), commands.size() + 1);
+            }
         auto arena = backend_.allocate(scratch_.layout());
         owned_allocations_.push_back(arena);
 
@@ -734,13 +742,16 @@ class Graph {
     std::vector<Command> commands;
     Tensor input, output;
     unsigned width = 0, height = 0;
+    bool cached_noise(unsigned seed) const {
+        return device_noise_cache_ && noise_uploaded_ && uploaded_noise_seed_ == seed;
+    }
 
     Graph(Backend& backend, Model& model, bool fused_attention = false,
           unsigned window_batch_limit = 128, bool device_features = false,
-          bool fused_residual = false)
+          bool fused_residual = false, bool device_noise_cache = false)
         : backend_(backend), model_(model), fused_attention_(fused_attention),
           window_batch_limit_(window_batch_limit), device_features_(device_features),
-          fused_residual_(fused_residual) {
+          fused_residual_(fused_residual), device_noise_cache_(device_noise_cache && device_features) {
         demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
                "Window batch limit must be 16..8192");
     }
@@ -892,16 +903,27 @@ class Graph {
                          const std::vector<uint8_t>& validity, const std::vector<uint16_t>& noise,
                          unsigned active_width, unsigned active_height, unsigned style, float tone,
                          float structure, float skin, bool auto_mask, std::vector<float>& head,
-                         std::vector<Event>& events) {
+                         std::vector<Event>& events, unsigned noise_seed = 0) {
         demand(device_features_ && color_count == size_t(active_width) * active_height * 3 &&
                    prior.size() == color_count && validity.size() * 3 == color_count &&
-                   noise.size() == size_t(width) * height * 3,
+                   (noise.size() == size_t(width) * height * 3 || cached_noise(noise_seed)),
                "Device feature plane extent");
         const void* sources[] = {color, prior.data(), noise.data(), validity.data()};
         const uint64_t bytes[] = {color_count * 4, prior.size() * 4, noise.size() * 2,
                                   validity.size()};
-        for (unsigned plane = 0; plane < 4; ++plane)
+        // Invalidate the old seed before any upload can fail: a partially
+        // replaced noise plane must never be mistaken for the previous seed.
+        if (uploaded_noise_seed_ != noise_seed)
+            noise_uploaded_ = false;
+        for (unsigned plane = 0; plane < 4; ++plane) {
+            if (plane == 2 && cached_noise(noise_seed))
+                continue;
             backend_.upload(tensor_allocation(frame_planes_[plane]), sources[plane], bytes[plane]);
+        }
+        if (device_noise_cache_) {
+            noise_uploaded_ = true;
+            uploaded_noise_seed_ = noise_seed;
+        }
         phx::Operation pack{};
         pack.family = phx::FrameFeatures;
         pack.left_input = frame_planes_[0].ptr();

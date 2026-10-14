@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
         char error[2048]{};
         auto backend = std::unique_ptr<Backend, DestroyBackend>(
             create ? create(device.c_str(), shader_folder_argument,
-                            ((extra_options & CudaFusedWindowBlock)
+                            ((extra_options & (CudaFusedWindowBlock | VulkanFusedQkv))
                                  ? 0u
                                  : DispatchProfiling | OrderedAttention) |
                                 extra_options,
@@ -402,6 +402,65 @@ int main(int argc, char** argv) {
                        "Cooperative cosine normalization differs from reference");
             }
         std::cout << "Cosine normalization exact for Q/K, head counts and partial rows\n";
+        if (features && (features(backend.get()) & FusedQkvPreparation)) {
+            // Test the complete group, including V publication, padded row
+            // tails and multiple heads. A dispatch-profiling backend keeps the
+            // separate operations, so this option uses graph-level timestamps.
+            for (unsigned heads : {1u, 2u, 4u, 8u})
+                for (unsigned rows : {1u, 17u, 63u, 64u, 129u}) {
+                    unsigned windows = (rows + heads * 64 - 1) / (heads * 64);
+                    std::vector<float> projection(windows * heads * 64 * 96), gains(heads);
+                    for (size_t index = 0; index < projection.size(); ++index)
+                        projection[index] = float(int(index * 17 % 311) - 155) * .001131f;
+                    for (unsigned head = 0; head < heads; ++head)
+                        gains[head] = .72341f + head * .023411f;
+                    auto projected = allocate(projection.size() * 4), gain = allocate(heads * 4);
+                    backend->upload(projected, projection.data(), projected.bytes);
+                    backend->upload(gain, gains.data(), gain.bytes);
+                    std::vector<Command> commands;
+                    std::array<Allocation, 3> outputs;
+                    for (unsigned part = 0; part < 3; ++part) {
+                        outputs[part] = allocate(size_t(rows) * 32 * 2);
+                        phx::Operation operation{};
+                        operation.left_input = projected.address;
+                        operation.auxiliary = gain.address;
+                        operation.output = outputs[part].address;
+                        operation.row_count = rows;
+                        operation.batch_count = heads;
+                        operation.column_count = 64;
+                        if (part < 2) {
+                            operation.family = phx::RowReduction;
+                            operation.flags = phx::StoreHalf | phx::InterleavedQkv | (part << 18);
+                            operation.reduction_count = part == 0;
+                        } else {
+                            operation.family = phx::Elementwise;
+                            operation.flags = phx::SplitQkvHeads | phx::StoreHalf | (5u << 8);
+                            operation.column_count = heads * 32;
+                            operation.left_batch_stride = 64;
+                            operation.right_batch_stride = 2;
+                        }
+                        commands.push_back({operation, uint64_t(rows) * (part == 2 ? 32 : 1), 0, 0});
+                    }
+                    std::vector<Event> events;
+                    backend->execute(commands, events);
+                    for (unsigned part = 0; part < 3; ++part) {
+                        std::vector<uint16_t> expected(size_t(rows) * 32), actual(expected.size());
+                        backend->download(outputs[part], actual.data(), outputs[part].bytes);
+                        auto operation = commands[part].operation;
+                        operation.left_input = projection.data();
+                        operation.auxiliary = gains.data();
+                        operation.output = expected.data();
+                        for (unsigned index = 0; index < commands[part].count; ++index) {
+                            if (part < 2)
+                                phx::Kernel<HostMath>{operation}.norm(index);
+                            else
+                                phx::Kernel<HostMath>{operation}(index);
+                        }
+                        demand(actual == expected, "Fused local QKV differs from separate publication");
+                    }
+                }
+            std::cout << "Combined local Q/K/V exact for head counts and row tails\n";
+        }
         // The streamed local normalizer trades an extra read for fewer private
         // temporaries. Compare every published half bit with the original tree.
         for (unsigned heads : {1u, 2u, 4u, 8u, 16u}) {

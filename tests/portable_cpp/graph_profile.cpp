@@ -66,6 +66,8 @@ int wmain(int argc, wchar_t** argv) {
             options |= VulkanHardwareHalf;
         if (config.value("vulkan_shape_matrices", false))
             options |= VulkanShapeMatrices;
+        if (kind == "vulkan" && config.value("vulkan_fused_qkv", true))
+            options |= VulkanFusedQkv;
         if (!config.value("vulkan_specialize_wide", true))
             options |= VulkanGenericWide;
         if (config.value("vulkan_matrix_columns", 16u) == 32u)

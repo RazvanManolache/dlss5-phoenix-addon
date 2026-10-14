@@ -27,11 +27,15 @@ enum BackendOption : uint32_t {
     VulkanTiledFallback = 1u << 21, // Shared-memory FP32 tiles; no matrix extension required.
     VulkanCoalescedFallback = 1u << 22, // Contiguous loads for measured fallback matrix shapes.
     VulkanScalarAttention = 1u << 23, // Shared-memory attention without matrix extensions.
+    VulkanFusedQkv = 1u << 24, // Combine eligible local Q/K normalization and V packing.
+    VulkanCacheNoise = 1u << 25, // Retain seeded noise on the tested GPU; release its host copy.
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,
     DeviceFeaturePacking = 1u << 1,
     FusedMatrixResidual = 1u << 2,
-    PreferUnfusedWindowAttention = 1u << 3 // Scheduling hint, not missing operation support.
+    PreferUnfusedWindowAttention = 1u << 3, // Scheduling hint, not missing operation support.
+    DeviceNoiseCache = 1u << 4,
+    FusedQkvPreparation = 1u << 5
 };
 }

@@ -2,7 +2,34 @@
 // Keep fence completion and reference ownership paired before releasing GPU-visible allocations.
 
 /* Explicit C++ initialization avoids process environment and CRT snapshots. */
-static VkPipeline phx_features_pipeline;
+static VkPipeline phx_features_pipeline, phx_qkv_pipeline;
+
+// One dispatch normalizes local Q/K heads and publishes V. The five operands
+// can be views of one scratch buffer; the adapter supplies byte offsets.
+int xmx_qkv_init(const char* path) {
+    return build_pipeline(path, g.rpl, &phx_qkv_pipeline);
+}
+int xmx_rec_qkv_prepare(int projected, int query, int key, int value, int scale,
+                unsigned rows, unsigned tokens, unsigned heads) {
+    if (!g.recording || !phx_qkv_pipeline || !rows || tokens != 64u || !heads || heads == 16u)
+        FAIL("invalid local QKV preparation", 0);
+    struct push packet = {.a = addr_of(projected) + phx_native_view_offsets[0],
+                          .b = addr_of(query) + phx_native_view_offsets[1],
+                          .c = addr_of(key) + phx_native_view_offsets[2],
+                          .d = addr_of(value) + phx_native_view_offsets[3],
+                          .qkv_scale = addr_of(scale) + phx_native_view_offsets[4],
+                          .m = rows, .n = tokens, .batch = heads};
+    memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));
+    vkCmdBindPipeline(g.rcb, VK_PIPELINE_BIND_POINT_COMPUTE, phx_qkv_pipeline);
+    vkCmdPushConstants(g.rcb, g.rpl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof packet, &packet);
+    unsigned groups = (rows + 15u) / 16u, x = groups < 65535u ? groups : 65535u;
+    if (phx_dispatch(g.rcb, x, 1, (groups + x - 1u) / x))
+        return -1;
+    barrier();
+    stamp(PK_ROW, 0);
+    ++g.recorded;
+    return 0;
+}
 int phoenix_native_coalesced_init(const char* path) {
     if (!g.rready || g.matrix_rows)
         FAIL("invalid coalesced matrix initialization", 0);
@@ -196,6 +223,9 @@ int phoenix_native_features(int color, int prior, int noise, int validity, int o
 void xmx_shutdown(void) {
     if (g.dev) {
         vkDeviceWaitIdle(g.dev);
+        if (phx_qkv_pipeline)
+            vkDestroyPipeline(g.dev, phx_qkv_pipeline, NULL);
+        phx_qkv_pipeline = VK_NULL_HANDLE;
         if (phx_features_pipeline)
             vkDestroyPipeline(g.dev, phx_features_pipeline, NULL);
         phx_features_pipeline = VK_NULL_HANDLE;

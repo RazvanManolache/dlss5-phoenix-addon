@@ -24,6 +24,7 @@ struct Runtime {
     std::array<unsigned, 8> repeats{};
     bool fused_attention = false;
     bool device_features = false;
+    bool device_noise_cache = false;
     bool fused_residual = false;
     unsigned window_batch_limit = 128;
     std::vector<std::vector<float>> histories;
@@ -112,6 +113,10 @@ struct Runtime {
                 options |= LosslessFp8Matrices;
             if (config.value("vulkan_native_half", true))
                 options |= VulkanHardwareHalf;
+            if (kind == "vulkan" && config.value("vulkan_fused_qkv", true))
+                options |= VulkanFusedQkv;
+            if (kind == "vulkan" && config.value("vulkan_cache_noise", true))
+                options |= VulkanCacheNoise;
             if (config.value("vulkan_shape_matrices", !config.contains("vulkan_matrix_columns")))
                 options |= VulkanShapeMatrices;
             if (!config.value("vulkan_specialize_wide", true))
@@ -151,11 +156,12 @@ struct Runtime {
             if (matrix_columns == 64)
                 options |= MatrixColumns64;
             using Utf8Create = Backend* (*)(const char*, const char*, uint32_t, char*, size_t);
-            auto utf8_create = reinterpret_cast<Utf8Create>(
-                library_symbol(module, "phoenix_backend_create_utf8"));
+            auto utf8_create =
+                reinterpret_cast<Utf8Create>(library_symbol(module, "phoenix_backend_create_utf8"));
             const auto shader_folder_utf8 = phoenix_model::source_path_string(root / "vulkan");
-            backend = utf8_create
-                ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options, message, sizeof(message))
+            backend =
+                utf8_create ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options,
+                                          message, sizeof(message))
                 : configured_create
                     ? configured_create(device.c_str(), shader_folder_argument, options, message,
                                         sizeof(message))
@@ -169,9 +175,11 @@ struct Runtime {
                          (features(backend) & FusedMatrixResidual);
         device_features = config.value("device_features", true) && features &&
                           (features(backend) & DeviceFeaturePacking);
-        fused_attention = config.value("fused_attention", !features ||
-                              !(features(backend) & PreferUnfusedWindowAttention)) && features &&
-                          (features(backend) & FusedWindowAttention);
+        fused_attention =
+            config.value("fused_attention",
+                         !features || !(features(backend) & PreferUnfusedWindowAttention)) &&
+            features && (features(backend) & FusedWindowAttention);
+        device_noise_cache = device_features && features && (features(backend) & DeviceNoiseCache);
         window_batch_limit = config.value("window_batch_limit", 512u);
         demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
                "Window batch limit must be 16..8192");
@@ -211,13 +219,18 @@ struct Runtime {
                   {"inference_validated", tested},
                   {"python_required", false}};
         if (kind == "vulkan") {
+            status["vulkan_fused_qkv"] = features && (features(backend) & FusedQkvPreparation);
+            status["device_noise_cache"] = device_noise_cache;
             const bool matrix_acceleration = features && (features(backend) & FusedMatrixResidual);
             status["vulkan_matrix_acceleration"] = matrix_acceleration;
-            status["vulkan_fallback_tile"] = matrix_acceleration ? "unused" :
-                config.value("vulkan_tiled_fallback", true) ? "32x32" : "8x16";
+            status["vulkan_fallback_tile"] = matrix_acceleration ? "unused"
+                                             : config.value("vulkan_tiled_fallback", true) ? "32x32"
+                                                                                           : "8x16";
             status["vulkan_coalesced_fallback"] = !matrix_acceleration &&
-                config.value("vulkan_tiled_fallback", true) && config.value("vulkan_coalesced_fallback", true);
-            status["vulkan_scalar_attention"] = !matrix_acceleration && config.value("vulkan_scalar_attention", false);
+                                                  config.value("vulkan_tiled_fallback", true) &&
+                                                  config.value("vulkan_coalesced_fallback", true);
+            status["vulkan_scalar_attention"] =
+                !matrix_acceleration && config.value("vulkan_scalar_attention", false);
         }
         if (cpu_device)
             status.update({{"cpu_threads", cpu_threads},
@@ -322,7 +335,7 @@ struct Runtime {
             if (!model->decoded())
                 model = std::make_unique<Model>(weight_source);
             graph = std::make_unique<Graph>(*backend, *model, fused_attention, window_batch_limit,
-                                            device_features, fused_residual);
+                                            device_features, fused_residual, device_noise_cache);
             graph->build(frame->padded_width, frame->padded_height, requested);
             model->discard_decoded();
             repeats = requested;
@@ -390,21 +403,25 @@ struct Runtime {
             post_pixels = std::count(resolve_mask->begin(), resolve_mask->end(), uint8_t(1));
             history_used = history_used || pre_pixels || post_pixels;
             std::vector<uint16_t> features;
-            if (device_features)
-                frame->prepare_noise(controls.seed);
-            else
+            if (device_features) {
+                if (!graph->cached_noise(controls.seed))
+                    frame->prepare_noise(controls.seed);
+            } else
                 features = frame->features(current_color, controls, *conditioning_source,
                                            conditioning_valid);
             sample_temporary_capacity(features.capacity() * sizeof(uint16_t));
             prepare_ms += elapsed(stage_started);
             stage_started = Clock::now();
             if (device_features)
-                graph->run_from_planes(
-                    current_color, pixel_count * 3, *conditioning_source, conditioning_valid,
-                    frame->noise, frame->width, frame->height, controls.style, controls.tone,
-                    controls.structure, controls.skin, controls.auto_mask, head, events);
+                graph->run_from_planes(current_color, pixel_count * 3, *conditioning_source,
+                                       conditioning_valid, frame->noise, frame->width,
+                                       frame->height, controls.style, controls.tone,
+                                       controls.structure, controls.skin, controls.auto_mask, head,
+                                       events, controls.seed);
             else
                 graph->run(features, head, events);
+            if (graph->cached_noise(controls.seed))
+                std::vector<uint16_t>().swap(frame->noise);
             sample_temporary_capacity();
             execute_ms += elapsed(stage_started);
             stage_started = Clock::now();
@@ -497,7 +514,7 @@ struct Runtime {
 thread_local std::string last_error;
 }
 extern "C" PHOENIX_EXPORT void* phoenix_runtime_create(const char* json, unsigned width,
-                                                              unsigned height) {
+                                                       unsigned height) {
     try {
         demand(json != nullptr, "Missing runtime configuration");
         auto runtime = std::make_unique<Runtime>(Json::parse(json), width, height);
@@ -512,9 +529,9 @@ extern "C" PHOENIX_EXPORT void phoenix_runtime_destroy(void* runtime) {
     delete static_cast<Runtime*>(runtime);
 }
 extern "C" PHOENIX_EXPORT int phoenix_runtime_frame(void* runtime, const float* color,
-                                                           const float* motion, const float* depth,
-                                                           const float* validity,
-                                                           const char* metadata, float* output) {
+                                                    const float* motion, const float* depth,
+                                                    const float* validity, const char* metadata,
+                                                    float* output) {
     try {
         demand(runtime, "Missing runtime");
         demand(metadata != nullptr, "Missing frame metadata");
@@ -531,7 +548,7 @@ extern "C" PHOENIX_EXPORT const char* phoenix_runtime_error() {
     return last_error.c_str();
 }
 extern "C" PHOENIX_EXPORT size_t phoenix_runtime_status(void* handle, char* destination,
-                                                               size_t capacity) {
+                                                        size_t capacity) {
     if (!handle)
         return 0;
     auto& runtime = *static_cast<Runtime*>(handle);
