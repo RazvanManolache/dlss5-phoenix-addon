@@ -21,6 +21,18 @@
 #ifdef FP8_K
 #include "phoenix_fp8.glsl"
 #endif
+
+#ifndef MATRIX_REDUCTION
+#define MATRIX_REDUCTION 32
+#endif
+#ifndef COALESCED_MATRIX_WEIGHTS
+#define COALESCED_MATRIX_WEIGHTS 1
+#endif
+#ifdef FP8_K
+#define STAGED_REDUCTION FP8_K
+#else
+#define STAGED_REDUCTION MATRIX_REDUCTION
+#endif
 layout(local_size_x = 32 * MATRIX_WARPS) in;
 layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
     float16_t v[];
@@ -44,14 +56,16 @@ layout(push_constant, scalar) uniform Push {
 pc;
 #include "specialize.glsl"
 #include "packed_weight.glsl"
-shared float16_t a_tile[MATRIX_M * MATRIX_WARPS * 16];
-shared float16_t b_tile[16 * 16];
+shared float16_t a_tile[MATRIX_M * MATRIX_WARPS * STAGED_REDUCTION];
+shared float16_t b_tile[STAGED_REDUCTION * 16];
 shared float output_tile[MATRIX_M * MATRIX_WARPS * 16];
 shared float ordered_left[MATRIX_M * MATRIX_WARPS * 32];
 shared float ordered_right[32 * 16];
 // Each subgroup owns one output tile. Boundary loads contribute zeros;
 // the deterministic image-boundary projections retain ascending K/FMA order,
 // while inner layers use cooperative matrix multiplication and publication.
+
+
 void main() {
     uint flags = operation_flags();
     uint left_row_stride = pc.lda == 0u ? pc.k : pc.lda;
@@ -153,7 +167,7 @@ void main() {
 #ifdef FP8_K
     const uint step_k = FP8_K;
 #else
-    const uint step_k = 16u;
+    const uint step_k = MATRIX_REDUCTION;
 #endif
     for (uint kb = 0u; kb < pc.k; kb += step_k) {
 #ifdef FP8_K
@@ -200,43 +214,58 @@ void main() {
             continue;
         }
 #endif
-        for (uint sub_k = 0u; sub_k < step_k; sub_k += 16u) {
-            bool direct_left = rowbase + MATRIX_M <= pc.m && kb + sub_k + 16u <= pc.k &&
-                               left_row_stride % 8u == 0u;
-            if (!direct_left)
-            for (uint tile_element = lane; tile_element < MATRIX_M * 16u; tile_element += 32u) {
-                uint row = rowbase + tile_element / 16u,
-                     reduction_index = kb + sub_k + tile_element % 16u;
-                a_tile[shared_offset + tile_element] =
-                    row < pc.m && reduction_index < pc.k
-                        ? pc.a.v[left_batch_offset + row * left_row_stride + reduction_index]
-                        : float16_t(half_round(0));
+
+        // Stage a larger reduction chunk once. The cooperative arithmetic below
+        // still advances in ascending 16-element steps, preserving every MMA.
+        // Every subgroup must participate when the collective shared tile is needed.
+        bool direct_left = block_row + block_rows <= pc.m && kb + step_k <= pc.k &&
+                           left_row_stride % 8u == 0u;
+        if (!direct_left)
+            for (uint element = thread_index; element < block_rows * step_k; element += 32u * MATRIX_WARPS) {
+                uint row = block_row + element / step_k, reduction = kb + element % step_k;
+                a_tile[element] = row < pc.m && reduction < pc.k
+                    ? pc.a.v[left_batch_offset + row * left_row_stride + reduction] : float16_t(0.0);
             }
-            // All warps reuse one decoded weight tile. With four row subgroups,
-            // each byte is decoded once instead of by four separate workgroups.
-            for (uint tile_element = thread_index; tile_element < 256u; tile_element += 32u * MATRIX_WARPS) {
-                uint reduction_index = kb + sub_k + tile_element / 16u,
-                     column = colbase + tile_element % 16u;
-                b_tile[tile_element] =
-                    reduction_index < pc.k && column < pc.n
-                        ? float16_t(matrix_b(right_batch_offset +
-                                             ((flags & 1u) != 0u
-                                                  ? column * right_row_stride + reduction_index
-                                                  : reduction_index * right_row_stride + column)))
-                        : float16_t(half_round(0));
+        bool packed_contiguous = COALESCED_MATRIX_WEIGHTS != 0 && (flags & 0x2000001u) == 0x2000001u &&
+                                 right_row_stride % 4u == 0u && right_batch_offset % 4u == 0u;
+        if (packed_contiguous) {
+            // Weight rows are output channels; adjacent lanes fetch consecutive
+            // reduction words, then transpose their four decoded values in shared memory.
+            for (uint word = thread_index; word < 16u * step_k / 4u; word += 32u * MATRIX_WARPS) {
+                uint column = colbase + word / (step_k / 4u), local_reduction = (word % (step_k / 4u)) * 4u;
+                uint reduction = kb + local_reduction;
+                uint codes = reduction < pc.k && column < pc.n
+                    ? WeightWords(uint64_t(pc.b)).v[(right_batch_offset + column * right_row_stride + reduction) / 4u] : 0u;
+                // A padded weight row may end inside the last loaded word.
+                // Mask those bytes so both sides of a tail product remain zero.
+                if ((pc.k & 3u) != 0u && reduction < pc.k && reduction + 4u > pc.k)
+                    codes &= (1u << ((pc.k - reduction) * 8u)) - 1u;
+                for (uint byte = 0u; byte < 4u; ++byte)
+                    b_tile[(column - colbase) * step_k + local_reduction + byte] =
+                        float16_t(decoded_weight_byte((codes >> (byte * 8u)) & 255u));
             }
-            barrier();
+        } else {
+            for (uint element = thread_index; element < step_k * 16u; element += 32u * MATRIX_WARPS) {
+                uint reduction = kb + element / 16u, column = colbase + element % 16u;
+                b_tile[(element % 16u) * step_k + element / 16u] = reduction < pc.k && column < pc.n
+                    ? float16_t(matrix_b(right_batch_offset + ((flags & 1u) != 0u
+                        ? column * right_row_stride + reduction : reduction * right_row_stride + column))) : float16_t(0.0);
+            }
+        }
+        barrier();
+        for (uint sub_k = 0u; sub_k < min(step_k, pc.k - kb); sub_k += 16u) {
             coopmat<float16_t, gl_ScopeSubgroup, MATRIX_M, 16, gl_MatrixUseA> a;
             coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
             if (direct_left)
                 coopMatLoad(a, pc.a.v, left_batch_offset + rowbase * left_row_stride + kb + sub_k,
                             left_row_stride, gl_CooperativeMatrixLayoutRowMajor);
             else
-                coopMatLoad(a, a_tile, shared_offset, 16, gl_CooperativeMatrixLayoutRowMajor);
-            coopMatLoad(b, b_tile, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(a, a_tile, warp * MATRIX_M * step_k + sub_k, step_k,
+                            gl_CooperativeMatrixLayoutRowMajor);
+            coopMatLoad(b, b_tile, sub_k, step_k, gl_CooperativeMatrixLayoutColumnMajor);
             sum = coopMatMulAdd(a, b, sum);
-            barrier();
         }
+        barrier();
     }
     coopMatStore(sum, output_tile, shared_offset, 16, gl_CooperativeMatrixLayoutRowMajor);
     barrier();

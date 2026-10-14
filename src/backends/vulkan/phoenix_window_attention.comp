@@ -82,11 +82,14 @@ void main() {
     for (uint inner_index = 0u; inner_index < 4u; inner_index++)
         coopMatStore(score_tiles[inner_index], scores, row * 64u + inner_index * 16u, 64,
                      gl_CooperativeMatrixLayoutRowMajor);
-    barrier();
+    subgroupMemoryBarrierShared();
+    subgroupBarrier();
     uint lane = local % 8u;
     bool split = pc.heads == 16u;
-    for (uint query_index = local / 8u; query_index < 64u;
-         query_index += PHX_ATTENTION_LANES / 8u) {
+    // Normalize only this subgroup's score rows. Eight lanes retain the
+    // original arithmetic tree for each row; ownership no longer crosses warps.
+    for (uint query_index = row + (local % 32u) / 8u;
+         query_index < row + PHX_ATTENTION_M; query_index += 4u) {
         float weights[8];
         for (uint iteration_index = 0u; iteration_index < 8u; iteration_index++) {
             uint key = lane + iteration_index * 8u;
@@ -128,7 +131,8 @@ void main() {
             probabilities[query_index * 64u + lane + iteration_index * 8u] =
                 float16_t(e4m3(half_round(weights[iteration_index] * inverse)));
     }
-    barrier();
+    subgroupMemoryBarrierShared();
+    subgroupBarrier();
     coopmat<float, gl_ScopeSubgroup, PHX_ATTENTION_M, 16, gl_MatrixUseAccumulator> context_tiles[2];
     for (uint inner_index = 0u; inner_index < 2u; inner_index++)
         context_tiles[inner_index] =
@@ -147,7 +151,7 @@ void main() {
     }
     for (uint inner_index = 0u; inner_index < 2u; inner_index++) {
         if (MERGED_OUTPUT)
-            coopMatStore(context_tiles[inner_index], scores, row * 32u + inner_index * 16u, 32,
+            coopMatStore(context_tiles[inner_index], scores, row * 64u + inner_index * 16u, 64,
                          gl_CooperativeMatrixLayoutRowMajor);
         else
             coopMatStore(context_tiles[inner_index], pc.output_data.v,
@@ -155,13 +159,17 @@ void main() {
                          gl_CooperativeMatrixLayoutRowMajor);
     }
     if (MERGED_OUTPUT) {
-        barrier();
-        for (uint element_index = local; element_index < 2048u;
-             element_index += PHX_ATTENTION_LANES) {
+        subgroupMemoryBarrierShared();
+    subgroupBarrier();
+        // Reuse the same subgroup-owned score rows as context staging.
+        // Compacting them to a 32-column pitch would overwrite another warp's
+        // scores before it finishes normalization without a workgroup barrier.
+        for (uint element_index = row * 32u + local % 32u;
+             element_index < (row + PHX_ATTENTION_M) * 32u; element_index += 32u) {
             uint target = ((batch / pc.heads) * 64u + element_index / 32u) * pc.heads * 32u +
                           (batch % pc.heads) * 32u + element_index % 32u;
             HalfBuf(uint64_t(pc.output_data)).v[target] =
-                float16_t(e4m3(half_round(scores[element_index])));
+                float16_t(e4m3(half_round(scores[(element_index / 32u) * 64u + element_index % 32u])));
         }
     }
 }

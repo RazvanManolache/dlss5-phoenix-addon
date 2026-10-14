@@ -267,6 +267,22 @@ int wmain(int argc, wchar_t** argv) {
                 }
                 auto sorted = gpu_samples;
                 std::sort(sorted.begin(), sorted.end());
+                // Read only the regions produced by this isolated piece, after
+                // timing finishes. Matching full-frame output remains a separate
+                // gate, but these hashes catch local rounding/store regressions.
+                Json output_hashes = Json::array();
+                for (const auto& [address, byte_count] : written) {
+                    demand(address >= uintptr_t(arena.address) &&
+                               address - uintptr_t(arena.address) <= arena.bytes &&
+                               byte_count <= arena.bytes - (address - uintptr_t(arena.address)),
+                           "Piece output escapes scratch allocation");
+                    std::vector<uint8_t> bytes(size_t(byte_count), uint8_t(0));
+                    backend->download({reinterpret_cast<void*>(address), byte_count, arena.token},
+                                      bytes.data(), byte_count);
+                    output_hashes.push_back({{"offset", address - uintptr_t(arena.address)},
+                                             {"bytes", byte_count},
+                                             {"sha256", phoenix_model::weight_digest(bytes.data(), bytes.size())}});
+                }
                 const auto& operation = command.operation;
                 rows.push_back({{"selection", selection},
                                 {"index", index},
@@ -274,7 +290,8 @@ int wmain(int argc, wchar_t** argv) {
                                 {"flags", operation.flags},
                                 {"gpu_median_ms", sorted[1]},
                                 {"gpu_samples_ms", gpu_samples},
-                                {"host_samples_ms", host_samples}});
+                                {"host_samples_ms", host_samples},
+                                {"output_hashes", output_hashes}});
                 std::cout << "Piece " << index << ": " << sorted[1] << " ms\n" << std::flush;
             }
             Json report = {

@@ -17,6 +17,9 @@
 #ifndef WIDE_REDUCTION
 #define WIDE_REDUCTION 32
 #endif
+#ifndef COALESCED_MATRIX_WEIGHTS
+#define COALESCED_MATRIX_WEIGHTS 1
+#endif
 layout(local_size_x = 128) in;
 layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
     float16_t v[];
@@ -41,6 +44,8 @@ pc;
 shared float16_t activations[64 * WIDE_REDUCTION];
 shared float16_t weights[WIDE_REDUCTION * WIDE_COLUMNS];
 shared float results[64 * WIDE_COLUMNS];
+
+
 void main() {
     uint flags = operation_flags(), thread_index = gl_LocalInvocationID.x;
     uint subgroup_index = thread_index / 32u, lane = thread_index % 32u;
@@ -66,18 +71,35 @@ void main() {
                 uint reduction = reduction_base + element % WIDE_REDUCTION;
                 activations[element] = row < pc.m && reduction < pc.k
                                            ? pc.a.v[left_base + row * left_stride + reduction]
-                                           : float16_t(0.0);
+                                           : float16_t(half_round(0.0));
             }
+
+        if (COALESCED_MATRIX_WEIGHTS != 0 && (flags & 0x2000001u) == 0x2000001u &&
+            right_stride % 4u == 0u && right_base % 4u == 0u) {
+            for (uint word = thread_index; word < WIDE_COLUMNS * WIDE_REDUCTION / 4u; word += 128u) {
+                uint column = first_column + word / (WIDE_REDUCTION / 4u);
+                uint local_reduction = (word % (WIDE_REDUCTION / 4u)) * 4u;
+                uint reduction = reduction_base + local_reduction;
+                uint codes = reduction < pc.k && column < pc.n
+                    ? WeightWords(uint64_t(pc.b)).v[(right_base + column * right_stride + reduction) / 4u] : 0u;
+                if ((pc.k & 3u) != 0u && reduction < pc.k && reduction + 4u > pc.k)
+                    codes &= (1u << ((pc.k - reduction) * 8u)) - 1u;
+                for (uint byte = 0u; byte < 4u; ++byte)
+                    weights[(column - first_column) * WIDE_REDUCTION + local_reduction + byte] =
+                        float16_t(decoded_weight_byte((codes >> (byte * 8u)) & 255u));
+            }
+        } else {
         for (uint element = thread_index; element < WIDE_REDUCTION * WIDE_COLUMNS;
              element += 128u) {
             uint reduction = reduction_base + element / WIDE_COLUMNS;
             uint column = first_column + element % WIDE_COLUMNS;
-            weights[element] =
+            weights[(element % WIDE_COLUMNS) * WIDE_REDUCTION + element / WIDE_COLUMNS] =
                 reduction < pc.k && column < pc.n
                     ? float16_t(matrix_b(right_base + ((flags & 1u) != 0u
                                                            ? column * right_stride + reduction
                                                            : reduction * right_stride + column)))
-                    : float16_t(0.0);
+                    : float16_t(half_round(0.0));
+        }
         }
         barrier();
         for (uint inner_reduction = 0u;
@@ -94,8 +116,8 @@ void main() {
                             gl_CooperativeMatrixLayoutRowMajor);
             for (uint column_tile = 0u; column_tile < WIDE_COLUMNS / 16; ++column_tile) {
                 coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> right_tile;
-                coopMatLoad(right_tile, weights, inner_reduction * WIDE_COLUMNS + column_tile * 16u,
-                            WIDE_COLUMNS, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(right_tile, weights, column_tile * 16u * WIDE_REDUCTION + inner_reduction,
+                            WIDE_REDUCTION, gl_CooperativeMatrixLayoutColumnMajor);
                 sums[column_tile] = coopMatMulAdd(left_tile, right_tile, sums[column_tile]);
             }
         }
