@@ -155,6 +155,9 @@ depth and validity are R32F. Optional planes require matching `has_motion`,
 The application owns these arrays and must provide their documented capacities.
 Calls are synchronous. Reuse a session for temporal history; reset when cutting
 scenes. Serialize its calls and never destroy it during a frame call.
+The current Vulkan provider permits one active Vulkan session per process;
+creating a second fails explicitly. CPU and Metal sessions have independent
+backend state. Separate processes are an option for simultaneous Vulkan streams.
 
 Configuration example (absolute paths, local model supplied separately):
 
