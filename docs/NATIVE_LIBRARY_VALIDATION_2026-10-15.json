@@ -1,0 +1,57 @@
+{
+  "passed": true,
+  "hardware": "RTX 5080; driver 616.64; Ryzen 9950X3D; 96 GiB RAM",
+  "cases": [
+    {
+      "name": "pack_baseline_2",
+      "mode": "network_only",
+      "gpu_ms": 3.824832,
+      "call_ms": 4.1812000000000005
+    },
+    {
+      "name": "pack_baseline_3",
+      "mode": "network_only",
+      "gpu_ms": 3.8267360000000004,
+      "call_ms": 4.20055
+    },
+    {
+      "name": "pack_final_gpu_2",
+      "mode": "gpu",
+      "gpu_ms": 3.827664,
+      "call_ms": 4.24295
+    },
+    {
+      "name": "pack_final_gpu_3",
+      "mode": "gpu",
+      "gpu_ms": 3.829936,
+      "call_ms": 4.281599999999999
+    },
+    {
+      "name": "pack_final_host_2",
+      "mode": "host",
+      "gpu_ms": 3.793888,
+      "call_ms": 8.0012
+    }
+  ],
+  "paired_1080p_endpoint_hashes": {
+    "0": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
+    "127": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc"
+  },
+  "odd_fractional_motion_exact": true,
+  "scaled_controlled_host_gpu_exact_frames": 12,
+  "actual_720p_to_1080p_frames": 12,
+  "tests": "All probes use D3D12 debug layer, reject debug errors and check no live ID3D12Resource remains after destroy; 32 warmup frames discarded from 128-frame performance runs.",
+  "dll_sha256": "7c2052837da3e766ec617f69698d21311b43ca577655425e2f384891ef53e858",
+  "date": "2026-10-15",
+  "contract_tests_passed": 6,
+  "installed_sdk_consumer_passed": true,
+  "source_sha256": {
+    "native_runtime/native_api.cpp": "5d965f6ae91ed6c81eb9d8b6890c73ae2f445742b04d7d671e0179cabac17d1e",
+    "native_runtime/phoenix_native.h": "f21be1f8e3351a01564b4a285658f6a522de8223f150e2e67272d0057db8fe19",
+    "native_runtime/CMakeLists.txt": "76d294e6b1194e5aca8a250ee522a64b59137c8b1eeece96c209f9972a60505f",
+    "src/native/support/resolution_bridge.h": "4d5185c9b350e6f31816b2fe12bdf3a46f9aa0f0ff7aea36004cbdeddd2e1d00",
+    "tests/native/native_library_tests.cpp": "5669ae6a2c0170687731a670ee69470ed365fedd0a80d2e8f598762f181c6b97",
+    "tests/native/native_library_probe.cpp": "bb534d39e27eb5f4fd19a1d4f9ea1717ff6f4215e411a7f75ef0ecd889e60ad2",
+    "tests/native/native_header_c.c": "b0379434c0bb0f09ac98e723e2276da0353b694c739ae3075554af29e7b00d6c"
+  }
+}

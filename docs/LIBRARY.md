@@ -2,10 +2,10 @@
 
 Phoenix can be embedded without ReShade through the C interface in
 [`native_runtime/phoenix.h`](../native_runtime/phoenix.h). The addon remains the
-main, optimized Windows integration. This standalone interface currently uses
-the portable graph and host-plane frame boundary; **it does not expose the fast
-D3D12/NVAPI native RTX path**. Its performance must not be inferred from the
-native RTX charts.
+main game integration. This portable interface uses the portable graph and
+host-plane frame boundary; its performance must not be inferred from native RTX
+charts. Windows x64 also has a separate [native RTX and spatial extension](NATIVE_LIBRARY.md)
+with D3D12 textures, owned/borrowed devices and optional host-buffer transfers.
 
 ## Platform status
 
@@ -239,7 +239,9 @@ Changing repeats rebuilds the graph and clears history; it is not a free
 per-frame switch. Intensity/tone/structure are 0..2, skin is -1..2, style 0..2.
 The host can adapt repeats/passes or processing resolution to its own FPS/time
 budget using returned timings. This ABI does not include the addon's automatic
-budget controller or upscaler integration. Resize by creating a new session.
+budget controller or upscaler integration. The Windows native extension exposes
+spatial resizing separately; vendor temporal upscalers remain addon-only.
+Resize by creating a new session.
 
 `phoenix_runtime_status` reports GPU/CPU timing scope, resident weight/scratch
 bytes, sampled host capacities and history usage. These allocations are not

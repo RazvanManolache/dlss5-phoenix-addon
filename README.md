@@ -11,7 +11,9 @@ exposes model selection, block repeats, passes, conditioning, history and
 timing/memory status without ReShade. Windows/Linux builds and an Android ARM64
 cross-build are available; Apple silicon Metal compiles in Mac CI and still
 needs GPU/model validation. These portable runners do not inherit the native RTX
-performance shown below.
+performance shown below. A separate [Windows native RTX library](docs/NATIVE_LIBRARY.md)
+now reuses the optimized executor and spatial resizing without ReShade, with
+D3D12 texture and host-buffer interfaces.
 
 I dislike how much of the software we add to our games is closed source. We
 rush for the best experience, often giving code access to our systems without

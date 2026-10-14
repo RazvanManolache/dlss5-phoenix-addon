@@ -22,6 +22,24 @@ float4 interpolate(float2 position, int2 lower, int2 upper) {
                 lerp(Source.Load(int3(clamp(base + int2(0,1), lower, upper), 0)),
                      Source.Load(int3(clamp(base + 1, lower, upper), 0)), fraction.x), fraction.y);
 }
+float original_alpha(uint2 pixel) {
+    uint original_width = 0, original_height = 0;
+    Original.GetDimensions(original_width, original_height);
+    float alpha = Original.Load(int3(pixel,0)).a;
+    // Library clients may supply a smaller source than the output. Resample
+    // alpha independently; the trained network does not reconstruct opacity.
+    if (original_width != Width || original_height != Height) {
+    float2 position = (float2(pixel)+0.5) * float2(original_width,original_height) /
+                      float2(Width,Height) - 0.5;
+    int2 base = int2(floor(position)), upper = int2(original_width-1,original_height-1);
+    float2 fraction = frac(position);
+    alpha = lerp(lerp(Original.Load(int3(clamp(base,int2(0,0),upper),0)).a,
+                     Original.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0)).a,fraction.x),
+                lerp(Original.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0)).a,
+                     Original.Load(int3(clamp(base+1,int2(0,0),upper),0)).a,fraction.x),fraction.y);
+    }
+    return alpha;
+}
 [numthreads(16,16,1)]
 void main(uint3 thread : SV_DispatchThreadID) {
     uint2 pixel = thread.xy;
@@ -32,7 +50,7 @@ void main(uint3 thread : SV_DispatchThreadID) {
         // Vendor reconstruction already has output dimensions. Convert its
         // format while retaining the game's alpha, which temporal APIs omit.
         float4 result = Source.Load(int3(pixel,0));
-        result.a = Original.Load(int3(pixel,0)).a;
+        result.a = original_alpha(pixel);
         Destination[pixel] = result;
         return;
     }
@@ -42,7 +60,7 @@ void main(uint3 thread : SV_DispatchThreadID) {
                           float2(ImageWidth,ImageHeight) / float2(Width,Height) - 0.5;
         float4 result = interpolate(position, int2(Left,Top),
                                    int2(Left+ImageWidth-1,Top+ImageHeight-1));
-        result.a = Original.Load(int3(pixel,0)).a;
+        result.a = original_alpha(pixel);
         Destination[pixel] = result;
         return;
     }
@@ -149,13 +167,19 @@ class ResolutionBridge {
                 operation};
     }
     void reduce(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source, D3D12_RESOURCE_STATES state,
-                ID3D12Resource* destination, bool motion) {
+                ID3D12Resource* destination, bool motion, float motion_scale_x = 0,
+                float motion_scale_y = 0) {
         auto& dispatch = pass({source, nullptr, nullptr, destination});
         phoenix_native::transition(cmd, source, state,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        dispatch.record(cmd, {source, nullptr, nullptr}, destination, constants(motion ? 1 : 0));
+        auto geometry = constants(motion ? 1 : 0);
+        if (motion && motion_scale_x > 0 && motion_scale_y > 0) {
+            geometry.divider = motion_scale_x;
+            geometry.gain = motion_scale_y;
+        }
+        dispatch.record(cmd, {source, nullptr, nullptr}, destination, geometry);
         phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -163,13 +187,26 @@ class ResolutionBridge {
     }
     void present(ID3D12GraphicsCommandList* cmd, ID3D12Resource* low, ID3D12Resource* game,
                  D3D12_RESOURCE_STATES state) {
-        auto& dispatch = pass({low, game, nullptr, output_.Get()});
+        present_source(cmd, low, game, state, game, state);
+    }
+    // The addon resolves over its original game image; library clients can
+    // provide a distinct source image for alpha and a differently sized target.
+    void present_source(ID3D12GraphicsCommandList* cmd, ID3D12Resource* low,
+                        ID3D12Resource* original, D3D12_RESOURCE_STATES original_state,
+                        ID3D12Resource* game, D3D12_RESOURCE_STATES state) {
+        auto& dispatch = pass({low, original, nullptr, output_.Get()});
         phoenix_native::transition(cmd, low, D3D12_RESOURCE_STATE_COPY_SOURCE,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, game, state,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        if (original != game)
+            phoenix_native::transition(cmd, original, original_state,
+                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         // The low-resolution surface is stable. The engine output rotates.
-        dispatch.record(cmd, {low, game, nullptr}, output_.Get(), constants(2));
+        dispatch.record(cmd, {low, original, nullptr}, output_.Get(), constants(2));
+        if (original != game)
+            phoenix_native::transition(cmd, original, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                       original_state);
         phoenix_native::transition(cmd, output_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_COPY_SOURCE);
         phoenix_native::transition(cmd, game, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
