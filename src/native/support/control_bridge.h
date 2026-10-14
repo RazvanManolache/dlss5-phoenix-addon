@@ -1,13 +1,17 @@
 #pragma once
+#include <optional>
 #include "overrides.h"
-#include "../session/session.h"
+#include "policy.h"
+#include "../../../third_party/nlohmann/json.hpp"
 
 namespace phoenix_addon::phoenix::control_bridge {
+using Json = nlohmann::json;
 // Local bounded mailbox. Pure validation is shared by the addon and CPU tests.
 struct Command {
     std::string id, op;
     Settings settings;
     unsigned frames = 0;
+    std::optional<bool> enabled, coherent_frames;
 };
 inline Command validate(const Json& request, const std::string& session, unsigned pid, uint64_t now,
                         const Settings& current) {
@@ -17,7 +21,8 @@ inline Command validate(const Json& request, const std::string& session, unsigne
         check(lookup_iterator.key() == "schema" || lookup_iterator.key() == "session" ||
                   lookup_iterator.key() == "pid" || lookup_iterator.key() == "expires_tick_ms" ||
                   lookup_iterator.key() == "id" || lookup_iterator.key() == "op" ||
-                  lookup_iterator.key() == "settings" || lookup_iterator.key() == "frames",
+                  lookup_iterator.key() == "settings" || lookup_iterator.key() == "frames" ||
+                  lookup_iterator.key() == "enabled" || lookup_iterator.key() == "coherent_frames",
               "Unknown bridge request field");
     check(request.at("schema") == "phoenix-control/1", "Bridge schema mismatch");
     check(request.at("session") == session && request.at("pid") == pid,
@@ -40,9 +45,19 @@ inline Command validate(const Json& request, const std::string& session, unsigne
               cmd.op == "validate_model",
           "Unknown bridge operation");
     cmd.settings = current;
-    check((cmd.op == "set") == request.contains("settings"), "Settings only allowed for set");
+    const bool frontend = request.contains("enabled") || request.contains("coherent_frames");
+    check(cmd.op == "set" ? request.contains("settings") || frontend
+                          : !request.contains("settings") && !frontend,
+          "Settings and frontend controls only allowed for set");
+    for (auto item : {std::pair{"enabled", &cmd.enabled},
+                      std::pair{"coherent_frames", &cmd.coherent_frames}}) {
+        if (request.contains(item.first)) {
+            check(request.at(item.first).is_boolean(), "Boolean frontend control required");
+            *item.second = request.at(item.first).get<bool>();
+        }
+    }
     check((cmd.op == "capture") == request.contains("frames"), "Frames only allowed for capture");
-    if (cmd.op == "set") {
+    if (cmd.op == "set" && request.contains("settings")) {
         const auto& values = request.at("settings");
         check(values.is_object() && !values.empty() && values.size() <= 128,
               "Invalid bridge settings object");

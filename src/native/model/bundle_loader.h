@@ -129,7 +129,7 @@ struct Bundle {
                         manifest.at("model_weights_included") == false &&
                         manifest.at("captured_plans_included") == false,
                     "Native source-build manifest");
-            require(digest(folder / "native_graph.json") == manifest.at("native_graph_sha256"),
+            require(digest(folder / "native_graph.json") == manifest.at("native_graph_sha256").get<std::string>(),
                     "Native graph digest");
             graph = json_file(folder / "native_graph.json");
             const auto supported_dll = graph.at("supported_dll_sha256").get<std::string>();
@@ -150,7 +150,7 @@ struct Bundle {
                 for (const auto& component : relative)
                     require(component != "..", "Generated kernel outside bundle");
                 const auto binary = fs::absolute(folder / relative).lexically_normal();
-                require(digest(binary) == kernel_record.at("binary_sha256"),
+                require(digest(binary) == kernel_record.at("binary_sha256").get<std::string>(),
                         "Generated kernel digest");
                 kernel_record["binary"] = binary.string();
                 kernels[name] = std::move(kernel_record);

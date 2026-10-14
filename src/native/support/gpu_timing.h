@@ -33,6 +33,7 @@ class GpuTiming {
     unsigned current_ = slots, next_ = 0;
     uint64_t frequency_ = 0, signaled_ = 0;
     std::string settings_;
+    std::string base_settings_;
     std::string upscaler_status_;
     DepthBudget* budget_ = nullptr;
     static uint64_t now_ms() {
@@ -92,7 +93,8 @@ class GpuTiming {
         return archive_->history_offset();
     }
     void settings(const std::string& key) {
-        if (settings_ != key) {
+        if (base_settings_ != key) {
+            base_settings_ = key;
             settings_ = key;
             upscaler_status_.clear();
             if (budget_)

@@ -31,6 +31,7 @@ FORBIDDEN = {
     ".dll",
     ".exe",
     ".addon64",
+    ".addon32",
     ".asi",
     ".lib",
     ".obj",

@@ -12,6 +12,7 @@ __pycache__/
 *.dll
 *.exe
 *.addon64
+*.addon32
 *.lib
 *.obj
 *.exp

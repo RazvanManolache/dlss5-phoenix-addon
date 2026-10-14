@@ -177,21 +177,40 @@ class Task {
             result.passed = true;
         });
     }
-    void validate(const phoenix_model::WeightSource& source, const std::filesystem::path& runtime) {
+    void validate(const phoenix_model::WeightSource& source, const std::filesystem::path& runtime,
+                  HMODULE embedded_addon = nullptr) {
         const auto key = source.configuration().dump();
-        start(key, [source, runtime](Result& result) {
+        start(key, [source, runtime, embedded_addon](Result& result) {
             if (!source.external())
                 throw std::runtime_error("Select a model folder or NVIDIA DLL first");
             size_t records = 0;
             phoenix_model::with_model_resource(
-                source, phoenix_embedded::file_digest, [&](const uint8_t* data, size_t bytes) {
+                source, [](const std::filesystem::path& path) {
+                    return phoenix_embedded::file_digest(path);
+                }, [&](const uint8_t* data, size_t bytes) {
                     phoenix_model::validate_model_layout(data, bytes);
                     records = phoenix_model::resource_records(data, bytes).size();
                     return 0;
                 });
             // A small real CPU inference checks decoding, loading, and finite
             // temporal output without competing with the game's GPU.
-            std::ifstream file(runtime / "phoenix_native_cpp.json");
+            auto runtime_root = runtime;
+            if (runtime_root.empty() && embedded_addon) {
+                // Validation owns a separate CPU broker. It must not activate
+                // the candidate or replace the game's working graphics helper.
+#ifdef _WIN64
+                runtime_root = phoenix_embedded::install(embedded_addon).runtime;
+#else
+                const auto frontend = phoenix_embedded::install(embedded_addon, {}, "compatibility");
+                const auto core_path = frontend.root / "compatibility" / "Phoenix.addon64";
+                HMODULE core = LoadLibraryExW(core_path.c_str(), nullptr,
+                    LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+                if (!core) throw std::runtime_error("Embedded model validator is unavailable");
+                struct Unload { HMODULE module; ~Unload() { FreeLibrary(module); } } unload{core};
+                runtime_root = phoenix_embedded::install(core).runtime;
+#endif
+            }
+            std::ifstream file(runtime_root / "phoenix_native_cpp.json");
             if (!file)
                 throw std::runtime_error(
                     "Model integrity passed; inference test needs the C++ runtime");
@@ -202,14 +221,14 @@ class Task {
             config["execution"] = "broker";
             config["cpu_threads"] = 2;
             config["weight_source"] = source.configuration();
-            config["runtime_root"] = phoenix_model::source_path_string(runtime);
+            config["runtime_root"] = phoenix_model::source_path_string(runtime_root);
             constexpr unsigned width = 96, height = 64;
             std::vector<float> color(width * height * 3), motion(width * height * 2, 0),
                 output(color.size());
             for (size_t iteration_index = 0; iteration_index < color.size(); ++iteration_index)
                 color[iteration_index] = float((iteration_index * 17) % 251) / 250.f;
             phoenix_cpp::NativeSession session;
-            session.open(runtime, config, width, height);
+            session.open(runtime_root, config, width, height);
             for (unsigned frame = 0; frame < 3; ++frame) {
                 Json metadata{
                     {"reset", frame == 0},

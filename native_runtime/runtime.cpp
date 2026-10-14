@@ -116,6 +116,12 @@ struct Runtime {
                 options |= VulkanShapeMatrices;
             if (!config.value("vulkan_specialize_wide", true))
                 options |= VulkanGenericWide;
+            if (kind == "vulkan" && config.value("vulkan_tiled_fallback", true))
+                options |= VulkanTiledFallback;
+            if (kind == "vulkan" && config.value("vulkan_coalesced_fallback", true))
+                options |= VulkanCoalescedFallback;
+            if (kind == "vulkan" && config.value("vulkan_scalar_attention", false))
+                options |= VulkanScalarAttention;
             const auto vulkan_columns = config.value("vulkan_matrix_columns", 16u);
             demand(vulkan_columns == 16 || vulkan_columns == 32 || vulkan_columns == 64,
                    "Vulkan matrix columns must be 16, 32 or 64");
@@ -204,6 +210,15 @@ struct Runtime {
                   {"working_height", working_height},
                   {"inference_validated", tested},
                   {"python_required", false}};
+        if (kind == "vulkan") {
+            const bool matrix_acceleration = features && (features(backend) & FusedMatrixResidual);
+            status["vulkan_matrix_acceleration"] = matrix_acceleration;
+            status["vulkan_fallback_tile"] = matrix_acceleration ? "unused" :
+                config.value("vulkan_tiled_fallback", true) ? "32x32" : "8x16";
+            status["vulkan_coalesced_fallback"] = !matrix_acceleration &&
+                config.value("vulkan_tiled_fallback", true) && config.value("vulkan_coalesced_fallback", true);
+            status["vulkan_scalar_attention"] = !matrix_acceleration && config.value("vulkan_scalar_attention", false);
+        }
         if (cpu_device)
             status.update({{"cpu_threads", cpu_threads},
                            {"cpu_threads_requested", requested_threads},

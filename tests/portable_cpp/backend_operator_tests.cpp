@@ -87,81 +87,97 @@ int main(int argc, char** argv) {
         };
         // Exercise tile tails, both weight layouts and strided batches. Even K
         // checks masked paired-half gathers; odd K checks the CPU's safe fallback.
-        for (bool transposed_weights : {false, true})
-            for (unsigned matrix_reduction : {128u, 256u, 259u})
-                for (unsigned publication :
-                     {phx::KeepFloat, phx::PublishHalfThenFp8, phx::PublishGateThenHalfFp8})
-                    for (unsigned padding : {0u, 3u}) {
-                        constexpr unsigned matrix_rows = 33, matrix_columns = 129, batches = 2;
-                        const unsigned left_stride = matrix_reduction + padding,
-                                       right_stride = (transposed_weights ? matrix_reduction
-                                                                          : matrix_columns) +
-                                                      padding,
-                                       output_stride =
-                                           matrix_columns + (matrix_reduction == 256 ? 4 : 5);
-                        const size_t left_batch = size_t(matrix_rows) * left_stride,
-                                     right_batch = size_t(transposed_weights ? matrix_columns
-                                                                             : matrix_reduction) *
-                                                   right_stride,
-                                     output_batch = size_t(matrix_rows) * output_stride;
-                        std::vector<uint16_t> left_values(batches * left_batch),
-                            expected(batches * output_batch, 0x3555), actual(expected.size());
-                        std::vector<uint8_t> right_values(batches * right_batch);
-                        for (size_t index = 0; index < left_values.size(); ++index)
-                            left_values[index] =
-                                uint16_t(math.half_bits(float(int(index * 13 % 23) - 11) * .0625f));
-                        for (size_t index = 0; index < right_values.size(); ++index)
-                            right_values[index] =
-                                uint8_t((32 + index * 17 % 57) | ((index & 1) ? 128 : 0));
-                        phx::Operation matrix{};
-                        matrix.family = phx::MatrixMultiply;
-                        matrix.flags = (transposed_weights ? 1u : 0u) | phx::RightInputFp8 |
-                                       phx::LeftInputFp8Grid | phx::StoreHalf | (publication << 8u);
-                        matrix.row_count = matrix_rows;
-                        matrix.column_count = matrix_columns;
-                        matrix.reduction_count = matrix_reduction;
-                        matrix.batch_count = batches;
-                        matrix.left_row_stride = left_stride;
-                        matrix.right_row_stride = right_stride;
-                        matrix.output_row_stride = output_stride;
-                        matrix.left_batch_stride = left_batch;
-                        matrix.right_batch_stride = right_batch;
-                        matrix.output_batch_stride = output_batch;
-                        matrix.left_input = left_values.data();
-                        matrix.right_input = right_values.data();
-                        matrix.output = expected.data();
-                        phx::Kernel<HostMath> reference_matrix{matrix};
-                        for (uint64_t index = 0;
-                             index < uint64_t(batches) * matrix_rows * matrix_columns; ++index)
-                            reference_matrix.gemm(index);
-                        auto a = allocate(left_values.size() * 2),
-                             b = allocate(right_values.size()), c = allocate(expected.size() * 2);
-                        std::vector<uint16_t> sentinel(expected.size(), 0x3555);
-                        backend->upload(a, left_values.data(), left_values.size() * 2);
-                        backend->upload(b, right_values.data(), right_values.size());
-                        backend->upload(c, sentinel.data(), sentinel.size() * 2);
-                        matrix.left_input = a.address;
-                        matrix.right_input = b.address;
-                        matrix.output = c.address;
-                        std::vector<Event> events;
-                        backend->execute(
-                            {{matrix, uint64_t(batches) * matrix_rows * matrix_columns, 0, 0}},
-                            events);
-                        backend->download(c, actual.data(), actual.size() * 2);
-                        if (actual != expected) {
-                            const auto mismatch =
-                                std::mismatch(actual.begin(), actual.end(), expected.begin());
-                            std::cerr << "Matrix mismatch K=" << matrix_reduction
-                                      << " publication=" << publication
-                                      << " transposed=" << transposed_weights
-                                      << " padding=" << padding
-                                      << " index=" << (mismatch.first - actual.begin())
-                                      << " expected=" << std::hex << *mismatch.second
-                                      << " actual=" << *mismatch.first << std::dec << '\n';
+        for (bool packed_weights : {false, true})
+            for (bool transposed_weights : {false, true})
+                for (unsigned matrix_reduction : {128u, 256u, 259u})
+                    for (unsigned publication :
+                         {phx::KeepFloat, phx::PublishHalfThenFp8, phx::PublishGateThenHalfFp8})
+                        for (unsigned padding : {0u, 3u}) {
+                            constexpr unsigned matrix_rows = 33, batches = 2;
+                            const unsigned matrix_columns = matrix_reduction == 259 ? 513 : 129;
+                            const unsigned left_stride = matrix_reduction + padding,
+                                           right_stride = (transposed_weights ? matrix_reduction
+                                                                              : matrix_columns) +
+                                                          padding,
+                                           output_stride =
+                                               matrix_columns + (matrix_reduction == 256 ? 4 : 5);
+                            const size_t left_batch = size_t(matrix_rows) * left_stride,
+                                         right_batch =
+                                             size_t(transposed_weights ? matrix_columns
+                                                                       : matrix_reduction) *
+                                             right_stride,
+                                         output_batch = size_t(matrix_rows) * output_stride;
+                            std::vector<uint16_t> left_values(batches * left_batch),
+                                expected(batches * output_batch, 0x3555), actual(expected.size());
+                            std::vector<uint8_t> right_values(batches * right_batch *
+                                                              (packed_weights ? 1 : 2));
+                            for (size_t index = 0; index < left_values.size(); ++index)
+                                left_values[index] = uint16_t(
+                                    math.half_bits(float(int(index * 13 % 23) - 11) * .0625f));
+                            for (size_t index = 0; index < batches * right_batch; ++index) {
+                                if (packed_weights)
+                                    right_values[index] =
+                                        uint8_t((32 + index * 17 % 57) | ((index & 1) ? 128 : 0));
+                                else {
+                                    auto bits = uint16_t(
+                                        math.half_bits(float(int(index * 17 % 29) - 14) * .03125f));
+                                    std::memcpy(right_values.data() + index * 2, &bits,
+                                                sizeof bits);
+                                }
+                            }
+                            phx::Operation matrix{};
+                            matrix.family = phx::MatrixMultiply;
+                            matrix.flags =
+                                (transposed_weights ? 1u : 0u) |
+                                (packed_weights ? phx::RightInputFp8 | phx::LeftInputFp8Grid : 0u) |
+                                phx::StoreHalf | (publication << 8u);
+                            matrix.row_count = matrix_rows;
+                            matrix.column_count = matrix_columns;
+                            matrix.reduction_count = matrix_reduction;
+                            matrix.batch_count = batches;
+                            matrix.left_row_stride = left_stride;
+                            matrix.right_row_stride = right_stride;
+                            matrix.output_row_stride = output_stride;
+                            matrix.left_batch_stride = left_batch;
+                            matrix.right_batch_stride = right_batch;
+                            matrix.output_batch_stride = output_batch;
+                            matrix.left_input = left_values.data();
+                            matrix.right_input = right_values.data();
+                            matrix.output = expected.data();
+                            phx::Kernel<HostMath> reference_matrix{matrix};
+                            for (uint64_t index = 0;
+                                 index < uint64_t(batches) * matrix_rows * matrix_columns; ++index)
+                                reference_matrix.gemm(index);
+                            auto a = allocate(left_values.size() * 2),
+                                 b = allocate(right_values.size()),
+                                 c = allocate(expected.size() * 2);
+                            std::vector<uint16_t> sentinel(expected.size(), 0x3555);
+                            backend->upload(a, left_values.data(), left_values.size() * 2);
+                            backend->upload(b, right_values.data(), right_values.size());
+                            backend->upload(c, sentinel.data(), sentinel.size() * 2);
+                            matrix.left_input = a.address;
+                            matrix.right_input = b.address;
+                            matrix.output = c.address;
+                            std::vector<Event> events;
+                            backend->execute(
+                                {{matrix, uint64_t(batches) * matrix_rows * matrix_columns, 0, 0}},
+                                events);
+                            backend->download(c, actual.data(), actual.size() * 2);
+                            if (actual != expected) {
+                                const auto mismatch =
+                                    std::mismatch(actual.begin(), actual.end(), expected.begin());
+                                std::cerr << "Matrix mismatch K=" << matrix_reduction
+                                          << " packed_weights=" << packed_weights
+                                          << " publication=" << publication
+                                          << " transposed=" << transposed_weights
+                                          << " padding=" << padding
+                                          << " index=" << (mismatch.first - actual.begin())
+                                          << " expected=" << std::hex << *mismatch.second
+                                          << " actual=" << *mismatch.first << std::dec << '\n';
+                            }
+                            demand(actual == expected,
+                                   "Matrix tile tails, batch strides or output padding differ");
                         }
-                        demand(actual == expected,
-                               "Matrix tile tails, batch strides or output padding differ");
-                    }
         std::cout << "Matrix tile tails, both weight layouts and batch strides exact\n";
         constexpr unsigned rows = 96, channels = 32, reduction = 128;
         auto left = allocate(rows * reduction * 2), right = allocate(channels * reduction);
@@ -182,62 +198,82 @@ int main(int argc, char** argv) {
         backend->upload(left, activations.data(), activations.size() * 2);
         backend->upload(right, weights.data(), weights.size());
         backend->upload(gains, scale.data(), scale.size() * 4);
-        for (bool half_skip : {false, true})
-            for (unsigned publication : {0u, 4u, 5u}) {
-                if (half_skip) {
-                    std::vector<uint16_t> packed(skip_values.size());
-                    for (size_t i = 0; i < packed.size(); ++i)
-                        packed[i] = uint16_t(math.half_bits(skip_values[i]));
-                    backend->upload(skip, packed.data(), packed.size() * 2);
-                } else
-                    backend->upload(skip, skip_values.data(), skip_values.size() * 4);
-                phx::Operation matrix{};
-                matrix.family = phx::MatrixMultiply;
-                matrix.flags =
-                    1 | phx::RightInputFp8 |
-                    ((extra_options & (CudaDirectFp8 | LosslessFp8Matrices)) ? phx::LeftInputFp8Grid
-                                                                             : 0);
-                matrix.left_input = left.address;
-                matrix.right_input = right.address;
-                matrix.output = projection.address;
-                matrix.row_count = rows;
-                matrix.column_count = channels;
-                matrix.reduction_count = reduction;
-                matrix.batch_count = 1;
-                matrix.left_row_stride = matrix.right_row_stride = reduction;
-                matrix.output_row_stride = channels;
-                phx::Operation residual{};
-                residual.left_input = projection.address;
-                residual.right_input = skip.address;
-                residual.auxiliary = gains.address;
-                residual.output = reference.address;
-                residual.flags = phx::ScaledResidual | (publication << 8) |
-                                 (half_skip ? phx::RightInputHalf : 0);
-                residual.column_count = channels;
-                auto fused_matrix = matrix;
-                fused_matrix.output = fused.address;
-                fused_matrix.auxiliary = skip.address;
-                fused_matrix.secondary_output = gains.address;
-                fused_matrix.flags |= phx::MatrixResidual | (publication << 8) |
-                                      (half_skip ? phx::MatrixSkipHalf : 0);
+        // The Vulkan scalar fallback does not advertise fused residuals. Its
+        // graph uses separate operations; direct requests must fail explicitly.
+        const bool unsupported_vulkan_residual =
+            kind == "vulkan" && (!features || !(features(backend.get()) & FusedMatrixResidual));
+        if (unsupported_vulkan_residual) {
+            phx::Operation unsupported{};
+            unsupported.family = phx::MatrixMultiply;
+            unsupported.flags = phx::MatrixResidual;
+            bool rejected = false;
+            try {
                 std::vector<Event> events;
-                backend->execute(
-                    {{matrix, rows * channels, 0, 0}, {residual, rows * channels, 0, 0}}, events);
-                backend->execute({{fused_matrix, rows * channels, 0, 0}}, events);
-                std::vector<float> expected(rows * channels), actual(rows * channels);
-                backend->download(reference, expected.data(), expected.size() * 4);
-                backend->download(fused, actual.data(), actual.size() * 4);
-                size_t differences = 0;
-                for (size_t i = 0; i < actual.size(); ++i)
-                    if (std::memcmp(&actual[i], &expected[i], 4)) {
-                        if (differences++ < 4)
-                            std::cerr << "element " << i << ": " << expected[i] << " vs "
-                                      << actual[i] << '\n';
-                    }
-                std::cout << "skip_half=" << half_skip << " publication=" << publication
-                          << " differences=" << differences << '\n';
-                demand(!differences, "Fused residual differs from separate execution");
+                backend->execute({{unsupported, 1, 0, 0}}, events);
+            } catch (const std::runtime_error& error) {
+                rejected = std::string(error.what()) ==
+                           "Fused matrix residual requires Vulkan cooperative matrices";
             }
+            demand(rejected, "Unsupported Vulkan fused residual was not rejected");
+            std::cout << "Unsupported Vulkan fused residual rejected; separate graph path tested\n";
+        } else {
+            for (bool half_skip : {false, true})
+                for (unsigned publication : {0u, 4u, 5u}) {
+                    if (half_skip) {
+                        std::vector<uint16_t> packed(skip_values.size());
+                        for (size_t i = 0; i < packed.size(); ++i)
+                            packed[i] = uint16_t(math.half_bits(skip_values[i]));
+                        backend->upload(skip, packed.data(), packed.size() * 2);
+                    } else
+                        backend->upload(skip, skip_values.data(), skip_values.size() * 4);
+                    phx::Operation matrix{};
+                    matrix.family = phx::MatrixMultiply;
+                    matrix.flags =
+                        1 | phx::RightInputFp8 |
+                        ((extra_options & (CudaDirectFp8 | LosslessFp8Matrices)) ? phx::LeftInputFp8Grid
+                                                                                 : 0);
+                    matrix.left_input = left.address;
+                    matrix.right_input = right.address;
+                    matrix.output = projection.address;
+                    matrix.row_count = rows;
+                    matrix.column_count = channels;
+                    matrix.reduction_count = reduction;
+                    matrix.batch_count = 1;
+                    matrix.left_row_stride = matrix.right_row_stride = reduction;
+                    matrix.output_row_stride = channels;
+                    phx::Operation residual{};
+                    residual.left_input = projection.address;
+                    residual.right_input = skip.address;
+                    residual.auxiliary = gains.address;
+                    residual.output = reference.address;
+                    residual.flags = phx::ScaledResidual | (publication << 8) |
+                                     (half_skip ? phx::RightInputHalf : 0);
+                    residual.column_count = channels;
+                    auto fused_matrix = matrix;
+                    fused_matrix.output = fused.address;
+                    fused_matrix.auxiliary = skip.address;
+                    fused_matrix.secondary_output = gains.address;
+                    fused_matrix.flags |= phx::MatrixResidual | (publication << 8) |
+                                          (half_skip ? phx::MatrixSkipHalf : 0);
+                    std::vector<Event> events;
+                    backend->execute(
+                        {{matrix, rows * channels, 0, 0}, {residual, rows * channels, 0, 0}}, events);
+                    backend->execute({{fused_matrix, rows * channels, 0, 0}}, events);
+                    std::vector<float> expected(rows * channels), actual(rows * channels);
+                    backend->download(reference, expected.data(), expected.size() * 4);
+                    backend->download(fused, actual.data(), actual.size() * 4);
+                    size_t differences = 0;
+                    for (size_t i = 0; i < actual.size(); ++i)
+                        if (std::memcmp(&actual[i], &expected[i], 4)) {
+                            if (differences++ < 4)
+                                std::cerr << "element " << i << ": " << expected[i] << " vs "
+                                          << actual[i] << '\n';
+                        }
+                    std::cout << "skip_half=" << half_skip << " publication=" << publication
+                              << " differences=" << differences << '\n';
+                    demand(!differences, "Fused residual differs from separate execution");
+                }
+        }
 
         // Reference-only backends have no fused attention operator. Exercise
         // their normalization, GEMM, packing and conversion contracts below.

@@ -1,24 +1,8 @@
 {
-  "date": "2026-10-13",
-  "source_commit": "f86c2f20c211dc384a7755941e2a3a53541f6e96",
-  "hardware": {
-    "cpu": "Ryzen9950X3D",
-    "threads": 32,
-    "ram_gib": 96,
-    "gpu": "RTX5080 16GiB",
-    "driver": "616.64",
-    "cuda": "13.1",
-    "model_dll_version": "310.8.0.0"
-  },
+  "passed": true,
+  "date": "2026-10-14",
+  "source_commit": "c1a6d83b38c64dc5c7e7c6b03008635f63ccbf04",
   "scope": "Current automatic native selection. Same synthetic RGBA16F/RG16F zero-motion, model, controls,8 blocks,1 pass. PNNP order;2 processes/route/extent,128 frames each,discard32;mean of process medians. GPU interval excludes uploads/readbacks. Stock clocks observed, not locked.",
-  "automatic_kernel_selection": {
-    "automatic": true,
-    "large_input_min_pixels": 18662400,
-    "modules": 41,
-    "scope": "Actual neural input area; default entries below threshold, separately compiled128-register attention/projection entries at or above it; aligned64-channel accesses throughout.",
-    "manifest_sha256": "9d9106b1e658353e981c8bfb67f4dd70311fe5fcb49e5c88a2b40aff3a46f6b3"
-  },
-  "raw_receipt_sha256": "49ba2e24a9077075f43250dfce7f52a197805b0955e7c0c53ef3c6a4d1af7a20",
   "cases": [
     {
       "width": 640,
@@ -47,32 +31,32 @@
             "peak_allocation_info_bytes": 182452224
           },
           "family_ms": {},
-          "receipt_sha256": "91eccec77a4edc98c23a48ada8184268da9b68dc3ea502359a43a7cd4826fdd7",
+          "receipt_sha256": "ca2bc217b1e24af7f8537fb00d900790092bd52d0889e879e795ea7a6c531294",
           "telemetry": {
-            "samples": 3,
+            "samples": 2,
             "clocks.current.sm": {
-              "median": 270.0,
-              "min": 270.0,
-              "max": 270.0
+              "median": 2789.5,
+              "min": 2767.0,
+              "max": 2812.0
             },
             "temperature.gpu": {
-              "median": 32.0,
-              "min": 32.0,
-              "max": 32.0
+              "median": 40.0,
+              "min": 37.0,
+              "max": 43.0
             },
             "power.draw": {
-              "median": 12.54,
-              "min": 12.54,
-              "max": 12.54
+              "median": 50.12,
+              "min": 41.66,
+              "max": 58.58
             },
             "utilization.gpu": {
-              "median": 8.0,
-              "min": 8.0,
-              "max": 8.0
+              "median": 43.0,
+              "min": 4.0,
+              "max": 82.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 1.919648,
+          "gpu_ms": 1.92328,
           "samples": 96,
           "final_sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
           "owned_bytes": 182452224,
@@ -243,11 +227,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.24445,
+          "wall_ms": 2.3302,
           "device_local_bytes": 309338112.0,
           "device_nonlocal_bytes": 43343872.0,
-          "host_private_bytes": 630673408.0,
-          "host_working_set_bytes": 306659328.0,
+          "host_private_bytes": 629309440.0,
+          "host_working_set_bytes": 307060736.0,
           "output_final_exact": true
         },
         {
@@ -256,39 +240,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.0088,
+          "gpu_ms": 2.00784,
           "final_sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
           "input_sha256": "3df1730d16294f297bc6d149e92c7244b4868b200eb53088f35b3b59ae8a635c",
           "motion_sha256": "0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366",
-          "receipt_sha256": "1e4e2b45adc0036e49712019283fcf6c97960880c87059b449d94fac1313a621",
+          "receipt_sha256": "d0b97de957badf7b53c9fb756db92861b4b0a96635af9732def55d0b5a5d3545",
           "telemetry": {
-            "samples": 2,
+            "samples": 3,
             "clocks.current.sm": {
-              "median": 1065.0,
-              "min": 1065.0,
-              "max": 1065.0
+              "median": 2775.0,
+              "min": 2775.0,
+              "max": 2842.0
             },
             "temperature.gpu": {
-              "median": 33.0,
-              "min": 33.0,
-              "max": 33.0
+              "median": 37.0,
+              "min": 37.0,
+              "max": 43.0
             },
             "power.draw": {
-              "median": 26.44,
-              "min": 26.44,
-              "max": 26.44
+              "median": 42.68,
+              "min": 42.68,
+              "max": 63.84
             },
             "utilization.gpu": {
-              "median": 1.0,
-              "min": 1.0,
-              "max": 1.0
+              "median": 5.0,
+              "min": 5.0,
+              "max": 83.0
             }
           },
-          "wall_ms": 2.40265,
+          "wall_ms": 2.5517,
           "device_local_bytes": 459497472.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 695562240.0,
-          "host_working_set_bytes": 366936064.0,
+          "host_private_bytes": 697184256.0,
+          "host_working_set_bytes": 368496640.0,
           "output_final_exact": true
         },
         {
@@ -297,17 +281,17 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.008272,
+          "gpu_ms": 2.0069600000000003,
           "final_sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
           "input_sha256": "3df1730d16294f297bc6d149e92c7244b4868b200eb53088f35b3b59ae8a635c",
           "motion_sha256": "0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366",
-          "receipt_sha256": "dff3e7bbaf220c4b4f86680f27abfe8a503fec63f1920e1996d1bc70e4359c7f",
+          "receipt_sha256": "806f9a1a6e9d73bc0f964e23de95fb63e431bd32342e630a250547590b1741f2",
           "telemetry": {
-            "samples": 2,
+            "samples": 3,
             "clocks.current.sm": {
-              "median": 2752.0,
-              "min": 2752.0,
-              "max": 2752.0
+              "median": 2775.0,
+              "min": 2775.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
               "median": 37.0,
@@ -315,21 +299,21 @@
               "max": 37.0
             },
             "power.draw": {
-              "median": 30.48,
-              "min": 30.48,
-              "max": 30.48
+              "median": 42.46,
+              "min": 42.46,
+              "max": 42.46
             },
             "utilization.gpu": {
-              "median": 59.0,
-              "min": 59.0,
-              "max": 59.0
+              "median": 7.0,
+              "min": 7.0,
+              "max": 7.0
             }
           },
-          "wall_ms": 2.4023000000000003,
+          "wall_ms": 2.63765,
           "device_local_bytes": 459497472.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 700456960.0,
-          "host_working_set_bytes": 369680384.0,
+          "host_private_bytes": 694349824.0,
+          "host_working_set_bytes": 367218688.0,
           "output_final_exact": true
         },
         {
@@ -355,32 +339,32 @@
             "peak_allocation_info_bytes": 182452224
           },
           "family_ms": {},
-          "receipt_sha256": "bce376af9b0878be9a3422f45b189eb8bcde8b84af818df018d0bb497c17f982",
+          "receipt_sha256": "a3ff6dc9f4cb2b03c6d81585009391a2c4842d404214cb15a68746af53017a69",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 547.0,
-              "min": 547.0,
-              "max": 547.0
+              "median": 2745.0,
+              "min": 2745.0,
+              "max": 2745.0
             },
             "temperature.gpu": {
-              "median": 32.0,
-              "min": 32.0,
-              "max": 32.0
+              "median": 37.0,
+              "min": 37.0,
+              "max": 37.0
             },
             "power.draw": {
-              "median": 21.7,
-              "min": 21.7,
-              "max": 21.7
+              "median": 40.67,
+              "min": 40.67,
+              "max": 40.67
             },
             "utilization.gpu": {
-              "median": 4.0,
-              "min": 4.0,
-              "max": 4.0
+              "median": 2.0,
+              "min": 2.0,
+              "max": 2.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 1.918256,
+          "gpu_ms": 1.921184,
           "samples": 96,
           "final_sha256": "76312dcb51900abd006e4b38d3f71631583053955c885fe99ef83a3883bb9432",
           "owned_bytes": 182452224,
@@ -551,11 +535,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.2659000000000002,
+          "wall_ms": 2.3007999999999997,
           "device_local_bytes": 309338112.0,
           "device_nonlocal_bytes": 43343872.0,
-          "host_private_bytes": 632791040.0,
-          "host_working_set_bytes": 306479104.0,
+          "host_private_bytes": 632377344.0,
+          "host_working_set_bytes": 306872320.0,
           "output_final_exact": true
         }
       ],
@@ -572,13 +556,33 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 1.988864,
+        "gpu_ms": 1.994496,
         "final_sha256": "9317944bf386e5fe3d4d0e6576ecea27e198c1ac0ad205cb3e28aeb756dacbb9",
         "input_sha256": "3df1730d16294f297bc6d149e92c7244b4868b200eb53088f35b3b59ae8a635c",
         "motion_sha256": "0b150fd32588b1daca5569992ebe559c0102c837306b1af4c44d35128ec58366",
-        "receipt_sha256": "0bad1237220b0a10bd2dae1ffd486f7c5973e34ed2a6ad7e4384048d0425c4ed",
+        "receipt_sha256": "11de08489d2afbbbabfb793ac15789471ce2e37925748a523411978a3a7a2675",
         "telemetry": {
-          "samples": 0
+          "samples": 1,
+          "clocks.current.sm": {
+            "median": 2782.0,
+            "min": 2782.0,
+            "max": 2782.0
+          },
+          "temperature.gpu": {
+            "median": 37.0,
+            "min": 37.0,
+            "max": 37.0
+          },
+          "power.draw": {
+            "median": 42.48,
+            "min": 42.48,
+            "max": 42.48
+          },
+          "utilization.gpu": {
+            "median": 6.0,
+            "min": 6.0,
+            "max": 6.0
+          }
         }
       },
       "gallery_pixel_hash_unchanged": true
@@ -610,32 +614,32 @@
             "peak_allocation_info_bytes": 203489280
           },
           "family_ms": {},
-          "receipt_sha256": "09ef3e7e04be732b6c7698f1bcb7aaf38f52e96f4244330563eeb4f898f79ad6",
+          "receipt_sha256": "0e98295d7d52e606b889e23978ecb76d21dba2ea0fcd782571f311312083a018",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 930.0,
-              "min": 930.0,
-              "max": 930.0
+              "median": 2775.0,
+              "min": 2775.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 33.0,
-              "min": 33.0,
-              "max": 33.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 38.0
             },
             "power.draw": {
-              "median": 27.45,
-              "min": 27.45,
-              "max": 27.45
+              "median": 42.57,
+              "min": 42.57,
+              "max": 42.57
             },
             "utilization.gpu": {
-              "median": 3.0,
-              "min": 3.0,
-              "max": 3.0
+              "median": 7.0,
+              "min": 7.0,
+              "max": 7.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.0699199999999998,
+          "gpu_ms": 2.089312,
           "samples": 96,
           "final_sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
           "owned_bytes": 203489280,
@@ -806,11 +810,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.38755,
+          "wall_ms": 2.5987999999999998,
           "device_local_bytes": 334176256.0,
-          "device_nonlocal_bytes": 44761088.0,
-          "host_private_bytes": 666357760.0,
-          "host_working_set_bytes": 310697984.0,
+          "device_nonlocal_bytes": 44777472.0,
+          "host_private_bytes": 661753856.0,
+          "host_working_set_bytes": 310657024.0,
           "output_final_exact": true
         },
         {
@@ -819,39 +823,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.142848,
+          "gpu_ms": 2.15832,
           "final_sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
           "input_sha256": "84383e697d0dfbbc0c037aa1d8fa622395c66229db8d70fed6627d3e7f236238",
           "motion_sha256": "10f9ce7e1a3f43419abc5144df824bcf8cda78926a0943ac5387a914596f9081",
-          "receipt_sha256": "2c24ccecf73396aebed9c3fda7a39df1d8ecabe7f8fca80617383b5934f7251e",
+          "receipt_sha256": "aa2d6e53a71d0021995afb79d4fb5bf316036c8ff4e0eb11abeda880e31fb474",
           "telemetry": {
-            "samples": 2,
+            "samples": 3,
             "clocks.current.sm": {
-              "median": 2790.0,
-              "min": 2790.0,
-              "max": 2790.0
+              "median": 2760.0,
+              "min": 2760.0,
+              "max": 2760.0
             },
             "temperature.gpu": {
-              "median": 34.0,
-              "min": 34.0,
-              "max": 34.0
+              "median": 37.0,
+              "min": 37.0,
+              "max": 37.0
             },
             "power.draw": {
-              "median": 42.84,
-              "min": 42.84,
-              "max": 42.84
+              "median": 42.11,
+              "min": 42.11,
+              "max": 42.11
             },
             "utilization.gpu": {
-              "median": 2.0,
-              "min": 2.0,
-              "max": 2.0
+              "median": 7.0,
+              "min": 7.0,
+              "max": 7.0
             }
           },
-          "wall_ms": 2.51565,
+          "wall_ms": 2.77255,
           "device_local_bytes": 482762752.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 725336064.0,
-          "host_working_set_bytes": 368439296.0,
+          "host_private_bytes": 724987904.0,
+          "host_working_set_bytes": 366882816.0,
           "output_final_exact": true
         },
         {
@@ -860,39 +864,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.145136,
+          "gpu_ms": 2.158896,
           "final_sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
           "input_sha256": "84383e697d0dfbbc0c037aa1d8fa622395c66229db8d70fed6627d3e7f236238",
           "motion_sha256": "10f9ce7e1a3f43419abc5144df824bcf8cda78926a0943ac5387a914596f9081",
-          "receipt_sha256": "7f659cdd6279537f9a0a6d36fa3b2480ef35d12ebbb01bdb84d4b55a52224a90",
+          "receipt_sha256": "3ecde67b491b78d13453ab4552150182d3adba1989acdc4aa7ff05de37dc44c0",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 540.0,
-              "min": 540.0,
-              "max": 540.0
+              "median": 2782.0,
+              "min": 2782.0,
+              "max": 2782.0
             },
             "temperature.gpu": {
-              "median": 33.0,
-              "min": 33.0,
-              "max": 33.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 38.0
             },
             "power.draw": {
-              "median": 24.54,
-              "min": 24.54,
-              "max": 24.54
+              "median": 42.95,
+              "min": 42.95,
+              "max": 42.95
             },
             "utilization.gpu": {
-              "median": 3.0,
-              "min": 3.0,
-              "max": 3.0
+              "median": 6.0,
+              "min": 6.0,
+              "max": 6.0
             }
           },
-          "wall_ms": 2.5783500000000004,
+          "wall_ms": 2.8008,
           "device_local_bytes": 482762752.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 726700032.0,
-          "host_working_set_bytes": 369102848.0,
+          "host_private_bytes": 726163456.0,
+          "host_working_set_bytes": 368488448.0,
           "output_final_exact": true
         },
         {
@@ -918,32 +922,32 @@
             "peak_allocation_info_bytes": 203489280
           },
           "family_ms": {},
-          "receipt_sha256": "c039ecfebed625207c3ff9750ec0c14bd8aa7b04a38598d4fc4030dd72cc8f43",
+          "receipt_sha256": "9a3e185a691b69a0c69c3b8845de01896ab8b65dedea45410551a91582587250",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 1402.0,
-              "min": 1402.0,
-              "max": 1402.0
+              "median": 2782.0,
+              "min": 2782.0,
+              "max": 2782.0
             },
             "temperature.gpu": {
-              "median": 34.0,
-              "min": 34.0,
-              "max": 34.0
+              "median": 43.0,
+              "min": 43.0,
+              "max": 43.0
             },
             "power.draw": {
-              "median": 29.39,
-              "min": 29.39,
-              "max": 29.39
+              "median": 49.02,
+              "min": 49.02,
+              "max": 49.02
             },
             "utilization.gpu": {
-              "median": 5.0,
-              "min": 5.0,
-              "max": 5.0
+              "median": 61.0,
+              "min": 61.0,
+              "max": 61.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.073216,
+          "gpu_ms": 2.0872960000000003,
           "samples": 96,
           "final_sha256": "621e4e2e57b51af7acba27f7410447c9e330d60e0c9fbe77ca3ebfe1f9d5c250",
           "owned_bytes": 203489280,
@@ -1114,11 +1118,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.39685,
+          "wall_ms": 2.6426499999999997,
           "device_local_bytes": 334176256.0,
           "device_nonlocal_bytes": 44761088.0,
-          "host_private_bytes": 661987328.0,
-          "host_working_set_bytes": 310433792.0,
+          "host_private_bytes": 661381120.0,
+          "host_working_set_bytes": 310775808.0,
           "output_final_exact": true
         }
       ],
@@ -1135,13 +1139,33 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 2.139488,
+        "gpu_ms": 2.15264,
         "final_sha256": "84772b05c59266cbcfb452d1b00c854a18f0a83ed8fa278a9e890a13f09352af",
         "input_sha256": "84383e697d0dfbbc0c037aa1d8fa622395c66229db8d70fed6627d3e7f236238",
         "motion_sha256": "10f9ce7e1a3f43419abc5144df824bcf8cda78926a0943ac5387a914596f9081",
-        "receipt_sha256": "555e4701e137c047886a0b179927b3bef137ce8def21659924937ea51ccd8889",
+        "receipt_sha256": "82413231c9e8f32dd35708f4987278b85ad42d1b98b591d264154ef2ad0f57df",
         "telemetry": {
-          "samples": 0
+          "samples": 1,
+          "clocks.current.sm": {
+            "median": 2812.0,
+            "min": 2812.0,
+            "max": 2812.0
+          },
+          "temperature.gpu": {
+            "median": 38.0,
+            "min": 38.0,
+            "max": 38.0
+          },
+          "power.draw": {
+            "median": 44.38,
+            "min": 44.38,
+            "max": 44.38
+          },
+          "utilization.gpu": {
+            "median": 5.0,
+            "min": 5.0,
+            "max": 5.0
+          }
         }
       },
       "gallery_pixel_hash_unchanged": true
@@ -1173,32 +1197,32 @@
             "peak_allocation_info_bytes": 223150080
           },
           "family_ms": {},
-          "receipt_sha256": "359904183b0f0e8d7641ee264c74a205c914331f386598b27e799677c5b05282",
+          "receipt_sha256": "11727158c0304f2a5ab9cf68b78d16f0039f13874ccb5e90446c1fb28e8d2d62",
           "telemetry": {
-            "samples": 2,
+            "samples": 3,
             "clocks.current.sm": {
-              "median": 1860.0,
-              "min": 1860.0,
-              "max": 1860.0
+              "median": 2775.0,
+              "min": 2775.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 39.0,
-              "min": 39.0,
-              "max": 39.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 38.0
             },
             "power.draw": {
-              "median": 27.23,
-              "min": 27.23,
-              "max": 27.23
+              "median": 42.26,
+              "min": 42.26,
+              "max": 42.26
             },
             "utilization.gpu": {
-              "median": 29.0,
-              "min": 29.0,
-              "max": 29.0
+              "median": 6.0,
+              "min": 6.0,
+              "max": 6.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.119856,
+          "gpu_ms": 2.126848,
           "samples": 96,
           "final_sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
           "owned_bytes": 223150080,
@@ -1369,11 +1393,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.4562,
+          "wall_ms": 2.54515,
           "device_local_bytes": 356392960.0,
           "device_nonlocal_bytes": 45592576.0,
-          "host_private_bytes": 689025024.0,
-          "host_working_set_bytes": 312930304.0,
+          "host_private_bytes": 688459776.0,
+          "host_working_set_bytes": 312377344.0,
           "output_final_exact": true
         },
         {
@@ -1382,39 +1406,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.22024,
+          "gpu_ms": 2.229872,
           "final_sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
           "input_sha256": "534385fe0727676c048ace5a6880c898c8844fa9417968d99923803c2e77fb1d",
           "motion_sha256": "11283ef755895422e6f28b93f3d78cad7539891cf2893c9fdccefb923c5bf70b",
-          "receipt_sha256": "ee51926ff811ea946818cb1f198cede0747358fdc82e180ec3faca0f086c2f61",
+          "receipt_sha256": "a0ee9aa571679270a71d1f296ef92ab41a9c95e27aa6b1338d59884a2e3da00c",
           "telemetry": {
-            "samples": 2,
+            "samples": 3,
             "clocks.current.sm": {
-              "median": 2377.0,
-              "min": 2377.0,
-              "max": 2377.0
+              "median": 2752.0,
+              "min": 2752.0,
+              "max": 2752.0
             },
             "temperature.gpu": {
-              "median": 34.0,
-              "min": 34.0,
-              "max": 34.0
+              "median": 44.0,
+              "min": 44.0,
+              "max": 44.0
             },
             "power.draw": {
-              "median": 30.93,
-              "min": 30.93,
-              "max": 30.93
+              "median": 49.97,
+              "min": 49.97,
+              "max": 49.97
             },
             "utilization.gpu": {
-              "median": 2.0,
-              "min": 2.0,
-              "max": 2.0
+              "median": 58.0,
+              "min": 58.0,
+              "max": 58.0
             }
           },
-          "wall_ms": 2.5986000000000002,
+          "wall_ms": 2.81435,
           "device_local_bytes": 503472128.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 749330432.0,
-          "host_working_set_bytes": 369020928.0,
+          "host_private_bytes": 749662208.0,
+          "host_working_set_bytes": 368259072.0,
           "output_final_exact": true
         },
         {
@@ -1423,39 +1447,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.220112,
+          "gpu_ms": 2.226448,
           "final_sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
           "input_sha256": "534385fe0727676c048ace5a6880c898c8844fa9417968d99923803c2e77fb1d",
           "motion_sha256": "11283ef755895422e6f28b93f3d78cad7539891cf2893c9fdccefb923c5bf70b",
-          "receipt_sha256": "c5836c9c00bef2102ef7ca6bec56b5812882cfb7fbc9d366d76c2d533c0fbfd2",
+          "receipt_sha256": "235802948434d975e16bad4ae2121a97e9e0aa6611764091874e5007f42039e6",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 1773.5,
-              "min": 727.0,
-              "max": 2820.0
+              "median": 2737.0,
+              "min": 2737.0,
+              "max": 2737.0
             },
             "temperature.gpu": {
-              "median": 39.0,
-              "min": 34.0,
+              "median": 44.0,
+              "min": 44.0,
               "max": 44.0
             },
             "power.draw": {
-              "median": 39.57,
-              "min": 25.98,
-              "max": 53.16
+              "median": 48.8,
+              "min": 48.8,
+              "max": 48.8
             },
             "utilization.gpu": {
-              "median": 42.5,
-              "min": 0.0,
-              "max": 85.0
+              "median": 55.0,
+              "min": 55.0,
+              "max": 55.0
             }
           },
-          "wall_ms": 2.5976,
+          "wall_ms": 2.77865,
           "device_local_bytes": 503472128.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 746680320.0,
-          "host_working_set_bytes": 367190016.0,
+          "host_private_bytes": 747196416.0,
+          "host_working_set_bytes": 367648768.0,
           "output_final_exact": true
         },
         {
@@ -1481,32 +1505,32 @@
             "peak_allocation_info_bytes": 223150080
           },
           "family_ms": {},
-          "receipt_sha256": "26129b96afe548bf3621c9e7bcdea54f4373590365466733bd882f34ff4f95bf",
+          "receipt_sha256": "cf6674fddd5a0b77e2786de3839372c12a87c406e8ffa49cf14fb6a3e8b8b35d",
           "telemetry": {
             "samples": 2,
             "clocks.current.sm": {
-              "median": 1170.0,
-              "min": 1170.0,
-              "max": 1170.0
+              "median": 2745.0,
+              "min": 2745.0,
+              "max": 2745.0
             },
             "temperature.gpu": {
-              "median": 34.0,
-              "min": 34.0,
-              "max": 34.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 38.0
             },
             "power.draw": {
-              "median": 21.87,
-              "min": 21.87,
-              "max": 21.87
+              "median": 41.66,
+              "min": 41.66,
+              "max": 41.66
             },
             "utilization.gpu": {
-              "median": 4.0,
-              "min": 4.0,
-              "max": 4.0
+              "median": 9.0,
+              "min": 9.0,
+              "max": 9.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.1200159999999997,
+          "gpu_ms": 2.1245760000000002,
           "samples": 96,
           "final_sha256": "3bdd1915abefd8f0822f0d7234583b529b1033bdf6bea9d071974a55e6d9c425",
           "owned_bytes": 223150080,
@@ -1677,11 +1701,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.439,
+          "wall_ms": 2.5385,
           "device_local_bytes": 356392960.0,
-          "device_nonlocal_bytes": 46641152.0,
-          "host_private_bytes": 687484928.0,
-          "host_working_set_bytes": 313536512.0,
+          "device_nonlocal_bytes": 45592576.0,
+          "host_private_bytes": 687718400.0,
+          "host_working_set_bytes": 312848384.0,
           "output_final_exact": true
         }
       ],
@@ -1698,11 +1722,11 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 2.216416,
+        "gpu_ms": 2.204704,
         "final_sha256": "e9dd4bf5810c8333d3a6e34089a7c7922e9a21f2873642d31a3263430d160705",
         "input_sha256": "534385fe0727676c048ace5a6880c898c8844fa9417968d99923803c2e77fb1d",
         "motion_sha256": "11283ef755895422e6f28b93f3d78cad7539891cf2893c9fdccefb923c5bf70b",
-        "receipt_sha256": "a4f487f1cc78a2853dfb0a86fbfca868a7a900f0179ee17fb83c99e5152ec4e9",
+        "receipt_sha256": "523baab6a14e6f4499b71b328fd8552a75da14f9eac5fc7edcda82f6f0c86669",
         "telemetry": {
           "samples": 0
         }
@@ -1736,32 +1760,32 @@
             "peak_allocation_info_bytes": 273285120
           },
           "family_ms": {},
-          "receipt_sha256": "55c40917ec1961e924a355b7b55156afc1de1a149d74791919dadeba0b16fc10",
+          "receipt_sha256": "f5f24be6eacf179d5fa7df92367acb3c83f5129ac6bed85d6a01f5d204dc88bb",
           "telemetry": {
             "samples": 3,
             "clocks.current.sm": {
-              "median": 1792.0,
-              "min": 1792.0,
-              "max": 1792.0
+              "median": 2767.0,
+              "min": 2767.0,
+              "max": 2767.0
             },
             "temperature.gpu": {
-              "median": 36.0,
-              "min": 36.0,
-              "max": 36.0
+              "median": 49.0,
+              "min": 49.0,
+              "max": 49.0
             },
             "power.draw": {
-              "median": 30.92,
-              "min": 30.92,
-              "max": 30.92
+              "median": 61.94,
+              "min": 61.94,
+              "max": 61.94
             },
             "utilization.gpu": {
-              "median": 17.0,
-              "min": 17.0,
-              "max": 17.0
+              "median": 82.0,
+              "min": 82.0,
+              "max": 82.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.4926079999999997,
+          "gpu_ms": 2.495568,
           "samples": 96,
           "final_sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
           "owned_bytes": 273285120,
@@ -1932,11 +1956,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.8212,
+          "wall_ms": 2.96055,
           "device_local_bytes": 414326784.0,
           "device_nonlocal_bytes": 48848896.0,
-          "host_private_bytes": 754259968.0,
-          "host_working_set_bytes": 320987136.0,
+          "host_private_bytes": 753893376.0,
+          "host_working_set_bytes": 320790528.0,
           "output_final_exact": true
         },
         {
@@ -1945,39 +1969,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.594016,
+          "gpu_ms": 2.590224,
           "final_sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
           "input_sha256": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18",
           "motion_sha256": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
-          "receipt_sha256": "ff95cb0d83807e8228b6358fe7a8d31516fc23573843b87d1183e1a235b81525",
+          "receipt_sha256": "46b3382b69ab147f380c29dca3bb19eb6b7c567ef67d191269b2cabcc1d4c598",
           "telemetry": {
             "samples": 3,
             "clocks.current.sm": {
-              "median": 2730.0,
-              "min": 2730.0,
-              "max": 2730.0
+              "median": 2812.0,
+              "min": 2805.0,
+              "max": 2812.0
             },
             "temperature.gpu": {
-              "median": 35.0,
-              "min": 35.0,
-              "max": 35.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 52.0
             },
             "power.draw": {
-              "median": 43.07,
-              "min": 43.07,
-              "max": 43.07
+              "median": 44.43,
+              "min": 44.43,
+              "max": 92.56
             },
             "utilization.gpu": {
               "median": 3.0,
               "min": 3.0,
-              "max": 3.0
+              "max": 82.0
             }
           },
-          "wall_ms": 2.9701,
+          "wall_ms": 3.1578,
           "device_local_bytes": 558063616.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 797487104.0,
-          "host_working_set_bytes": 367742976.0,
+          "host_private_bytes": 797077504.0,
+          "host_working_set_bytes": 367022080.0,
           "output_final_exact": true
         },
         {
@@ -1986,39 +2010,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 2.58568,
+          "gpu_ms": 2.587584,
           "final_sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
           "input_sha256": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18",
           "motion_sha256": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
-          "receipt_sha256": "b3f4ecc34e4aa4349b87825f5d2d76d450eef9905ddf9f66aca9bcef9f063adc",
+          "receipt_sha256": "86d294e81b3fc9ce020d81800d74d6e0c482e4fd75207de4d2b574fd2169e13a",
           "telemetry": {
             "samples": 3,
             "clocks.current.sm": {
-              "median": 2730.0,
-              "min": 2730.0,
-              "max": 2730.0
+              "median": 2745.0,
+              "min": 2745.0,
+              "max": 2745.0
             },
             "temperature.gpu": {
-              "median": 35.0,
-              "min": 35.0,
-              "max": 35.0
+              "median": 49.0,
+              "min": 49.0,
+              "max": 49.0
             },
             "power.draw": {
-              "median": 27.72,
-              "min": 27.72,
-              "max": 27.72
+              "median": 61.4,
+              "min": 61.4,
+              "max": 61.4
             },
             "utilization.gpu": {
-              "median": 3.0,
-              "min": 3.0,
-              "max": 3.0
+              "median": 79.0,
+              "min": 79.0,
+              "max": 79.0
             }
           },
-          "wall_ms": 3.1003499999999997,
+          "wall_ms": 3.2340999999999998,
           "device_local_bytes": 558063616.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 799797248.0,
-          "host_working_set_bytes": 367796224.0,
+          "host_private_bytes": 796942336.0,
+          "host_working_set_bytes": 367144960.0,
           "output_final_exact": true
         },
         {
@@ -2044,32 +2068,32 @@
             "peak_allocation_info_bytes": 273285120
           },
           "family_ms": {},
-          "receipt_sha256": "d20bcfd39418fa7c5e4b419a4f0014e3ccc365c679d01c014eaab339917d0350",
+          "receipt_sha256": "d3d1ff34d4e15d925a25383d7fa2588d62d3395bda97c4d7fd3b0bb1ba37f47b",
           "telemetry": {
             "samples": 3,
             "clocks.current.sm": {
-              "median": 2767.0,
-              "min": 615.0,
-              "max": 2767.0
+              "median": 2775.0,
+              "min": 2775.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 48.0,
-              "min": 35.0,
-              "max": 48.0
+              "median": 38.0,
+              "min": 38.0,
+              "max": 38.0
             },
             "power.draw": {
-              "median": 50.2,
-              "min": 26.92,
-              "max": 50.2
+              "median": 42.5,
+              "min": 42.5,
+              "max": 42.5
             },
             "utilization.gpu": {
-              "median": 83.0,
-              "min": 0.0,
-              "max": 83.0
+              "median": 6.0,
+              "min": 6.0,
+              "max": 6.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 2.48848,
+          "gpu_ms": 2.498688,
           "samples": 96,
           "final_sha256": "ec28a96ae662dfe64323f206252898515daef6b8418fc4640df95bd1d898a0cb",
           "owned_bytes": 273285120,
@@ -2240,11 +2264,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 2.8846,
+          "wall_ms": 2.9488,
           "device_local_bytes": 414326784.0,
           "device_nonlocal_bytes": 48848896.0,
-          "host_private_bytes": 753934336.0,
-          "host_working_set_bytes": 320942080.0,
+          "host_private_bytes": 755437568.0,
+          "host_working_set_bytes": 320634880.0,
           "output_final_exact": true
         }
       ],
@@ -2261,11 +2285,11 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 2.553792,
+        "gpu_ms": 2.727456,
         "final_sha256": "c6417c69cb75cce142ab70736d71b4278088ef61f3d5d12d3f82bc8ec36e47cc",
         "input_sha256": "86cab5b38c3848dca39371a0e96e6809149b04455d54cee785855b577448be18",
         "motion_sha256": "0c660f2bd3eff3150dd0040789abe2291613b9af319df870203d4f77a4913a5f",
-        "receipt_sha256": "904a816840c595c4fd2c293dcc0d4518419c1c29ea5e76efa4d5ee0b76e5ecfa",
+        "receipt_sha256": "932911732d8d28f32d9913bde30ee68424b912cfb4823e0b604369fbabc13c9e",
         "telemetry": {
           "samples": 0
         }
@@ -2299,32 +2323,32 @@
             "peak_allocation_info_bytes": 421265408
           },
           "family_ms": {},
-          "receipt_sha256": "4ebaa6144e41003da660ba315cdffc15d01a395928bf6c26bd59f7164a25f9b5",
+          "receipt_sha256": "a439f297055eaf712d32a0966ede58f2bd91ad61ca60403cc281c1810dd10947",
           "telemetry": {
             "samples": 4,
             "clocks.current.sm": {
-              "median": 975.0,
-              "min": 975.0,
-              "max": 2760.0
+              "median": 2775.0,
+              "min": 2752.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 35.0,
-              "min": 35.0,
+              "median": 57.0,
+              "min": 38.0,
               "max": 57.0
             },
             "power.draw": {
-              "median": 26.58,
-              "min": 26.58,
-              "max": 147.33
+              "median": 108.71,
+              "min": 41.35,
+              "max": 108.71
             },
             "utilization.gpu": {
-              "median": 4.0,
+              "median": 86.0,
               "min": 4.0,
-              "max": 90.0
+              "max": 86.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 3.812976,
+          "gpu_ms": 3.824592,
           "samples": 96,
           "final_sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
           "owned_bytes": 421265408,
@@ -2495,11 +2519,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 4.1435,
+          "wall_ms": 4.3604,
           "device_local_bytes": 585965568.0,
           "device_nonlocal_bytes": 58089472.0,
-          "host_private_bytes": 944197632.0,
-          "host_working_set_bytes": 344076288.0,
+          "host_private_bytes": 941441024.0,
+          "host_working_set_bytes": 343859200.0,
           "output_final_exact": true
         },
         {
@@ -2508,39 +2532,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 3.858752,
+          "gpu_ms": 3.860624,
           "final_sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
           "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
           "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
-          "receipt_sha256": "707d00ea9247bed535df60f2fb802ab30fc543bebf371ef43e8df1ed41f9abfe",
+          "receipt_sha256": "b37c15c6665811c14b48aaa858d73069dceba89378f9f6f1140245e7cfc1db74",
           "telemetry": {
             "samples": 4,
             "clocks.current.sm": {
-              "median": 2730.0,
-              "min": 2730.0,
-              "max": 2730.0
+              "median": 2790.0,
+              "min": 2760.0,
+              "max": 2790.0
             },
             "temperature.gpu": {
-              "median": 36.0,
-              "min": 36.0,
-              "max": 36.0
+              "median": 56.0,
+              "min": 39.0,
+              "max": 56.0
             },
             "power.draw": {
-              "median": 27.57,
-              "min": 27.57,
-              "max": 27.57
+              "median": 104.74,
+              "min": 44.55,
+              "max": 104.74
             },
             "utilization.gpu": {
-              "median": 1.0,
-              "min": 1.0,
-              "max": 1.0
+              "median": 86.0,
+              "min": 5.0,
+              "max": 86.0
             }
           },
-          "wall_ms": 4.2681000000000004,
+          "wall_ms": 4.5459,
           "device_local_bytes": 719872000.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 957718528.0,
-          "host_working_set_bytes": 366825472.0,
+          "host_private_bytes": 958291968.0,
+          "host_working_set_bytes": 368787456.0,
           "output_final_exact": true
         },
         {
@@ -2549,39 +2573,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 3.8589919999999998,
+          "gpu_ms": 3.86648,
           "final_sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
           "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
           "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
-          "receipt_sha256": "b35a17a1d335396070cd2d5bac472adf33d450293058af751c94bb3896f506fe",
+          "receipt_sha256": "524d3c0d6b019a115ba937cfa1c4f844571f0d657d16294b124dc6197ecd92bd",
           "telemetry": {
             "samples": 4,
             "clocks.current.sm": {
-              "median": 2340.0,
-              "min": 2340.0,
-              "max": 2790.0
+              "median": 2752.0,
+              "min": 2752.0,
+              "max": 2805.0
             },
             "temperature.gpu": {
-              "median": 36.0,
-              "min": 36.0,
+              "median": 39.0,
+              "min": 39.0,
               "max": 58.0
             },
             "power.draw": {
-              "median": 24.51,
-              "min": 24.51,
-              "max": 132.91
+              "median": 42.47,
+              "min": 42.47,
+              "max": 142.51
             },
             "utilization.gpu": {
-              "median": 3.0,
-              "min": 3.0,
-              "max": 90.0
+              "median": 6.0,
+              "min": 6.0,
+              "max": 86.0
             }
           },
-          "wall_ms": 4.24695,
+          "wall_ms": 4.5421499999999995,
           "device_local_bytes": 719872000.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 959254528.0,
-          "host_working_set_bytes": 369168384.0,
+          "host_private_bytes": 960262144.0,
+          "host_working_set_bytes": 367312896.0,
           "output_final_exact": true
         },
         {
@@ -2607,32 +2631,32 @@
             "peak_allocation_info_bytes": 421265408
           },
           "family_ms": {},
-          "receipt_sha256": "7a676f5c9f30d040fa0ea9be11eaa448f346334fed43cfcd8d12d6a5394d4c57",
+          "receipt_sha256": "ea43975c9b825540f499ca4210155945c1bc0ab8b90e964756ca2b0e9f6783aa",
           "telemetry": {
             "samples": 4,
             "clocks.current.sm": {
-              "median": 1623.5,
-              "min": 480.0,
-              "max": 2767.0
+              "median": 2752.0,
+              "min": 2752.0,
+              "max": 2752.0
             },
             "temperature.gpu": {
-              "median": 47.0,
-              "min": 36.0,
-              "max": 58.0
+              "median": 46.0,
+              "min": 46.0,
+              "max": 46.0
             },
             "power.draw": {
-              "median": 67.27,
-              "min": 23.87,
-              "max": 110.67
+              "median": 47.67,
+              "min": 47.67,
+              "max": 47.67
             },
             "utilization.gpu": {
-              "median": 45.5,
-              "min": 2.0,
-              "max": 89.0
+              "median": 28.0,
+              "min": 28.0,
+              "max": 28.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 3.8101599999999998,
+          "gpu_ms": 3.833056,
           "samples": 96,
           "final_sha256": "63be78332ba45dfee949ae53033a823f8cc9fee8a9d84758b407e21098ed0bdc",
           "owned_bytes": 421265408,
@@ -2803,11 +2827,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 4.14805,
+          "wall_ms": 4.4721,
           "device_local_bytes": 585965568.0,
           "device_nonlocal_bytes": 58089472.0,
-          "host_private_bytes": 943312896.0,
-          "host_working_set_bytes": 343701504.0,
+          "host_private_bytes": 943849472.0,
+          "host_working_set_bytes": 343793664.0,
           "output_final_exact": true
         }
       ],
@@ -2824,11 +2848,11 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 3.741824,
+        "gpu_ms": 4.127808,
         "final_sha256": "83f5b9d0415b215fc68ea6e9bbd42895a9992c08d8acffb3ca9ef643b6990740",
         "input_sha256": "3f0d1e42db48a9f6f976993299ad0605ce9d722a3733b2db8d516f471c4f9afa",
         "motion_sha256": "788ae0147bdf979a6575938ca2d7d4403788588f7be2010f03776c968fd1ab49",
-        "receipt_sha256": "628849103c921314aa68e20065f2fecb30e22c07e56208efcda8b82175da90d4",
+        "receipt_sha256": "a7b221f4979d643c5cd7e957314985278356c20b4b525c2f585d29852ec91b46",
         "telemetry": {
           "samples": 0
         }
@@ -2862,32 +2886,32 @@
             "peak_allocation_info_bytes": 598147072
           },
           "family_ms": {},
-          "receipt_sha256": "3e3a359344c956ee57f7915d6a65b86811e659fd0167f3625233819ac6406568",
+          "receipt_sha256": "44ac054e490c4d6ee13c08c64cc07a6ece3747d1493cfa89dd41185adc5020a9",
           "telemetry": {
             "samples": 6,
             "clocks.current.sm": {
-              "median": 2745.0,
-              "min": 2722.0,
-              "max": 2745.0
+              "median": 2760.0,
+              "min": 2760.0,
+              "max": 2767.0
             },
             "temperature.gpu": {
-              "median": 59.0,
-              "min": 59.0,
-              "max": 62.0
+              "median": 60.0,
+              "min": 39.0,
+              "max": 60.0
             },
             "power.draw": {
-              "median": 88.24,
-              "min": 88.24,
-              "max": 240.22
+              "median": 151.32,
+              "min": 42.56,
+              "max": 151.32
             },
             "utilization.gpu": {
-              "median": 92.0,
-              "min": 92.0,
-              "max": 92.0
+              "median": 91.0,
+              "min": 5.0,
+              "max": 91.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 5.8768,
+          "gpu_ms": 6.24128,
           "samples": 96,
           "final_sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
           "owned_bytes": 598147072,
@@ -3058,11 +3082,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 6.2212,
+          "wall_ms": 6.8408999999999995,
           "device_local_bytes": 795877376.0,
-          "device_nonlocal_bytes": 71983104.0,
-          "host_private_bytes": 1188016128.0,
-          "host_working_set_bytes": 377495552.0,
+          "device_nonlocal_bytes": 70934528.0,
+          "host_private_bytes": 1185828864.0,
+          "host_working_set_bytes": 376066048.0,
           "output_final_exact": true
         },
         {
@@ -3071,39 +3095,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 5.7855039999999995,
+          "gpu_ms": 6.1456,
           "final_sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
           "input_sha256": "e62150e522233a4bbaa319484a0a8e0b479d9b0dbb4ae0ae117c3f157f11cf57",
           "motion_sha256": "defe5059e4a7b5c797a007fa8428d93cf7586359b5d78c6c9c1a4a8586ea7a2a",
-          "receipt_sha256": "94c03ae89b357a02b63163045ef67e5d5f44d8321fa9fa5cddcc1ee6a9cd1ca6",
+          "receipt_sha256": "e0350acd7090f0ca26a438497a5c5fce572102521ec02df1b90bbfc870c23aaa",
           "telemetry": {
             "samples": 6,
             "clocks.current.sm": {
-              "median": 2748.5,
-              "min": 2730.0,
-              "max": 2767.0
+              "median": 2790.0,
+              "min": 2775.0,
+              "max": 2790.0
             },
             "temperature.gpu": {
-              "median": 50.0,
-              "min": 37.0,
+              "median": 63.0,
+              "min": 40.0,
               "max": 63.0
             },
             "power.draw": {
-              "median": 98.11500000000001,
-              "min": 26.99,
-              "max": 169.24
+              "median": 158.93,
+              "min": 44.18,
+              "max": 158.93
             },
             "utilization.gpu": {
-              "median": 46.0,
-              "min": 0.0,
-              "max": 92.0
+              "median": 90.0,
+              "min": 8.0,
+              "max": 90.0
             }
           },
-          "wall_ms": 6.2118,
+          "wall_ms": 6.7885,
           "device_local_bytes": 915038208.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 1158438912.0,
-          "host_working_set_bytes": 369037312.0,
+          "host_private_bytes": 1153126400.0,
+          "host_working_set_bytes": 367648768.0,
           "output_final_exact": true
         },
         {
@@ -3112,39 +3136,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 5.788144,
+          "gpu_ms": 6.1580639999999995,
           "final_sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
           "input_sha256": "e62150e522233a4bbaa319484a0a8e0b479d9b0dbb4ae0ae117c3f157f11cf57",
           "motion_sha256": "defe5059e4a7b5c797a007fa8428d93cf7586359b5d78c6c9c1a4a8586ea7a2a",
-          "receipt_sha256": "a231883283fbd7f8f6d8e794bcc1b899c872898e1421198ec893a11b4306d47f",
+          "receipt_sha256": "b1d55ed4340bdfd415dea49eeaff21651b27cb53c96b163d40fab0fe5507f944",
           "telemetry": {
             "samples": 6,
             "clocks.current.sm": {
-              "median": 2748.5,
-              "min": 2730.0,
-              "max": 2767.0
+              "median": 2782.0,
+              "min": 2767.0,
+              "max": 2782.0
             },
             "temperature.gpu": {
-              "median": 50.5,
-              "min": 38.0,
-              "max": 63.0
+              "median": 58.0,
+              "min": 58.0,
+              "max": 64.0
             },
             "power.draw": {
-              "median": 88.72,
-              "min": 26.45,
-              "max": 150.99
+              "median": 85.14,
+              "min": 85.14,
+              "max": 234.68
             },
             "utilization.gpu": {
-              "median": 48.5,
-              "min": 4.0,
+              "median": 90.0,
+              "min": 90.0,
               "max": 93.0
             }
           },
-          "wall_ms": 6.2181999999999995,
+          "wall_ms": 6.83475,
           "device_local_bytes": 915038208.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 1155203072.0,
-          "host_working_set_bytes": 368037888.0,
+          "host_private_bytes": 1154822144.0,
+          "host_working_set_bytes": 369430528.0,
           "output_final_exact": true
         },
         {
@@ -3170,32 +3194,32 @@
             "peak_allocation_info_bytes": 598147072
           },
           "family_ms": {},
-          "receipt_sha256": "7b65644eb3fe8115e5327ffc124c78ebb00b133507c3e6ddc53ee5a2b3cf1df9",
+          "receipt_sha256": "345e65156ab9448e837e13986e6284594602fed3c2c8e8f77770e1624a14a944",
           "telemetry": {
             "samples": 6,
             "clocks.current.sm": {
-              "median": 2730.0,
-              "min": 1230.0,
-              "max": 2730.0
+              "median": 2745.0,
+              "min": 2745.0,
+              "max": 2790.0
             },
             "temperature.gpu": {
               "median": 63.0,
-              "min": 38.0,
+              "min": 41.0,
               "max": 63.0
             },
             "power.draw": {
-              "median": 163.23,
-              "min": 22.3,
-              "max": 163.23
+              "median": 176.91,
+              "min": 44.61,
+              "max": 176.91
             },
             "utilization.gpu": {
               "median": 92.0,
-              "min": 6.0,
+              "min": 8.0,
               "max": 92.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 5.87904,
+          "gpu_ms": 6.282128,
           "samples": 96,
           "final_sha256": "8e740c1b0670067ce7f3720e7400188986470e6ee23b51bc2eafc763ae1fe66b",
           "owned_bytes": 598147072,
@@ -3366,11 +3390,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 6.25115,
+          "wall_ms": 6.78935,
           "device_local_bytes": 795877376.0,
           "device_nonlocal_bytes": 70934528.0,
-          "host_private_bytes": 1187131392.0,
-          "host_working_set_bytes": 376397824.0,
+          "host_private_bytes": 1185910784.0,
+          "host_working_set_bytes": 375992320.0,
           "output_final_exact": true
         }
       ],
@@ -3387,33 +3411,13 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 5.577952,
+        "gpu_ms": 6.212192,
         "final_sha256": "ebf3c91eff5a315deb315a48498d6451312aaba2c8ed4029e944216e3efc5bb9",
         "input_sha256": "e62150e522233a4bbaa319484a0a8e0b479d9b0dbb4ae0ae117c3f157f11cf57",
         "motion_sha256": "defe5059e4a7b5c797a007fa8428d93cf7586359b5d78c6c9c1a4a8586ea7a2a",
-        "receipt_sha256": "491c6d451bd180c25f9a18d0772f118b39dd2ad59cd3fcd5385adfaec3ae80be",
+        "receipt_sha256": "9df8b9931b7e435564d4857dcdc237ccb7e06ecca4c2f4683cefb6957fd07cf6",
         "telemetry": {
-          "samples": 1,
-          "clocks.current.sm": {
-            "median": 930.0,
-            "min": 930.0,
-            "max": 930.0
-          },
-          "temperature.gpu": {
-            "median": 38.0,
-            "min": 38.0,
-            "max": 38.0
-          },
-          "power.draw": {
-            "median": 21.83,
-            "min": 21.83,
-            "max": 21.83
-          },
-          "utilization.gpu": {
-            "median": 2.0,
-            "min": 2.0,
-            "max": 2.0
-          }
+          "samples": 0
         }
       },
       "gallery_pixel_hash_unchanged": true
@@ -3445,32 +3449,32 @@
             "peak_allocation_info_bytes": 1143930880
           },
           "family_ms": {},
-          "receipt_sha256": "97312cd2740c714476a29ac2a9b0914cc1b3108d968847089b0de9c569caebb1",
+          "receipt_sha256": "7ad5e27595975f6b57483472eb8c1ac02415bbea7a6f0df5c46aa6d462ccda5c",
           "telemetry": {
-            "samples": 12,
+            "samples": 13,
             "clocks.current.sm": {
-              "median": 2658.5,
-              "min": 2640.0,
-              "max": 2745.0
+              "median": 2715.0,
+              "min": 2715.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 63.0,
-              "min": 39.0,
-              "max": 64.0
+              "median": 65.0,
+              "min": 60.0,
+              "max": 66.0
             },
             "power.draw": {
-              "median": 284.11,
-              "min": 31.41,
-              "max": 366.88
+              "median": 257.48,
+              "min": 94.31,
+              "max": 362.08
             },
             "utilization.gpu": {
-              "median": 95.0,
-              "min": 21.0,
-              "max": 95.0
+              "median": 96.0,
+              "min": 95.0,
+              "max": 96.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 13.006224,
+          "gpu_ms": 13.999056,
           "samples": 96,
           "final_sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
           "owned_bytes": 1143930880,
@@ -3641,11 +3645,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 13.51245,
+          "wall_ms": 14.55575,
           "device_local_bytes": 1433608192.0,
           "device_nonlocal_bytes": 107831296.0,
-          "host_private_bytes": 1916682240.0,
-          "host_working_set_bytes": 468168704.0,
+          "host_private_bytes": 1916715008.0,
+          "host_working_set_bytes": 468451328.0,
           "output_final_exact": true
         },
         {
@@ -3654,39 +3658,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 12.70952,
+          "gpu_ms": 13.725344,
           "final_sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
           "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
           "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
-          "receipt_sha256": "5d846966496ff19a6fb0f203554bd91a69457286f44c94516d7502c43136688e",
+          "receipt_sha256": "d14d7fe3f54826cc1b01231e0c65c06a5dd504075666b045ba5b42e84d650e5c",
           "telemetry": {
-            "samples": 12,
+            "samples": 13,
             "clocks.current.sm": {
-              "median": 2699.5,
-              "min": 2685.0,
-              "max": 2737.0
+              "median": 2752.0,
+              "min": 2752.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 65.0,
-              "min": 47.0,
-              "max": 66.0
+              "median": 66.0,
+              "min": 65.0,
+              "max": 67.0
             },
             "power.draw": {
-              "median": 268.055,
-              "min": 39.1,
-              "max": 360.45
+              "median": 287.38,
+              "min": 155.01,
+              "max": 361.29
             },
             "utilization.gpu": {
               "median": 95.0,
-              "min": 18.0,
+              "min": 95.0,
               "max": 96.0
             }
           },
-          "wall_ms": 13.379999999999999,
+          "wall_ms": 14.598400000000002,
           "device_local_bytes": 1518821376.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 1761292288.0,
-          "host_working_set_bytes": 368914432.0,
+          "host_private_bytes": 1759989760.0,
+          "host_working_set_bytes": 367132672.0,
           "output_final_exact": true
         },
         {
@@ -3695,39 +3699,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 12.765328,
+          "gpu_ms": 13.53056,
           "final_sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
           "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
           "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
-          "receipt_sha256": "7bdfbf0d2b0951d4209218e646c925a82f9875e830823d7efef225010bc1ab8e",
+          "receipt_sha256": "516fbd13bc96f68ba184896ef4ce1df8fa4cb2d89fc67a14bcec4293d0367f3c",
           "telemetry": {
-            "samples": 13,
+            "samples": 12,
             "clocks.current.sm": {
-              "median": 2700.0,
-              "min": 2670.0,
-              "max": 2722.0
+              "median": 2745.0,
+              "min": 2737.0,
+              "max": 2775.0
             },
             "temperature.gpu": {
-              "median": 66.0,
-              "min": 40.0,
+              "median": 67.0,
+              "min": 53.0,
               "max": 67.0
             },
             "power.draw": {
-              "median": 319.42,
-              "min": 34.49,
-              "max": 360.63
+              "median": 343.73,
+              "min": 54.89,
+              "max": 361.57
             },
             "utilization.gpu": {
               "median": 95.0,
-              "min": 0.0,
-              "max": 95.0
+              "min": 37.0,
+              "max": 96.0
             }
           },
-          "wall_ms": 13.41755,
+          "wall_ms": 14.354849999999999,
           "device_local_bytes": 1518821376.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 1758019584.0,
-          "host_working_set_bytes": 367333376.0,
+          "host_private_bytes": 1758666752.0,
+          "host_working_set_bytes": 367206400.0,
           "output_final_exact": true
         },
         {
@@ -3753,32 +3757,32 @@
             "peak_allocation_info_bytes": 1143930880
           },
           "family_ms": {},
-          "receipt_sha256": "6a67e0541bc74b30a8865e184618f9bfa1340bd5bb304deaf44506f3a7fea760",
+          "receipt_sha256": "9ab31cbff1b3e95a09dcc77170a6580832218530285aca19d5d72b0c1e88428a",
           "telemetry": {
-            "samples": 12,
+            "samples": 13,
             "clocks.current.sm": {
-              "median": 2655.0,
-              "min": 2655.0,
-              "max": 2737.0
+              "median": 2715.0,
+              "min": 2700.0,
+              "max": 2782.0
             },
             "temperature.gpu": {
               "median": 65.0,
-              "min": 62.0,
-              "max": 66.0
+              "min": 51.0,
+              "max": 67.0
             },
             "power.draw": {
-              "median": 243.99,
-              "min": 69.55,
-              "max": 365.69
+              "median": 318.84,
+              "min": 50.88,
+              "max": 362.42
             },
             "utilization.gpu": {
-              "median": 95.0,
-              "min": 95.0,
-              "max": 95.0
+              "median": 96.0,
+              "min": 25.0,
+              "max": 96.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 13.046256,
+          "gpu_ms": 13.885743999999999,
           "samples": 96,
           "final_sha256": "581685064861bea26f20e3892d1eeaa11dcfa8f19e1f861719ec30afd387d3d5",
           "owned_bytes": 1143930880,
@@ -3949,11 +3953,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 13.55435,
+          "wall_ms": 14.484200000000001,
           "device_local_bytes": 1433608192.0,
           "device_nonlocal_bytes": 107831296.0,
-          "host_private_bytes": 1917030400.0,
-          "host_working_set_bytes": 468389888.0,
+          "host_private_bytes": 1917870080.0,
+          "host_working_set_bytes": 468348928.0,
           "output_final_exact": true
         }
       ],
@@ -3970,11 +3974,11 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 11.945632,
+        "gpu_ms": 12.63536,
         "final_sha256": "4b7dea75b6baa31253494dd5ff1853080720e1a65148f7bef6c73dba510ba454",
         "input_sha256": "435827528d9f93c51f1579c49e908889423f1f25a5b3fdc645dc81a3acb8dbe4",
         "motion_sha256": "33c9aff6d23026135eadf5cd36f5784220bf77c05ed774e7c186a0f812ba0c7b",
-        "receipt_sha256": "7f8f807fb54cd93749d882a693aa2fd435584c05c2627e185f2a921bd3ca7ec7",
+        "receipt_sha256": "50794119b78fe04bf6b1a393e3400ac9035cda9eb3188da53711628dceb277b5",
         "telemetry": {
           "samples": 0
         }
@@ -4008,32 +4012,32 @@
             "peak_allocation_info_bytes": 2399272960
           },
           "family_ms": {},
-          "receipt_sha256": "3384fb720e5fdf4f98622e884bd4c767c5e8cf3dacda703b0b08451c083d8311",
+          "receipt_sha256": "99002870c0704b6666de569d08576d25df90aac0aba50d168164e9e370e5e372",
           "telemetry": {
-            "samples": 28,
+            "samples": 30,
             "clocks.current.sm": {
-              "median": 2576.0,
-              "min": 2565.0,
-              "max": 2595.0
+              "median": 2670.0,
+              "min": 2662.0,
+              "max": 2692.0
             },
             "temperature.gpu": {
-              "median": 68.0,
-              "min": 65.0,
-              "max": 68.0
+              "median": 67.5,
+              "min": 66.0,
+              "max": 69.0
             },
             "power.draw": {
-              "median": 359.99,
-              "min": 236.25,
-              "max": 368.03
+              "median": 359.97,
+              "min": 285.53,
+              "max": 362.3
             },
             "utilization.gpu": {
-              "median": 98.0,
+              "median": 97.0,
               "min": 97.0,
               "max": 98.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 30.548912,
+          "gpu_ms": 32.979392000000004,
           "samples": 96,
           "final_sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
           "owned_bytes": 2399272960,
@@ -4204,11 +4208,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 31.08245,
+          "wall_ms": 33.64405,
           "device_local_bytes": 2899451904.0,
           "device_nonlocal_bytes": 190799872.0,
-          "host_private_bytes": 3593068544.0,
-          "host_working_set_bytes": 675536896.0,
+          "host_private_bytes": 3592544256.0,
+          "host_working_set_bytes": 675680256.0,
           "output_final_exact": true
         },
         {
@@ -4217,39 +4221,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 30.238176,
+          "gpu_ms": 32.755424000000005,
           "final_sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
           "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
           "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
-          "receipt_sha256": "d1adf049ab572c5ccd7d32ece6f99e8c304cc97bd5ba3344fc36f04d20804488",
+          "receipt_sha256": "250b6db65ab57a81d0e416d74a10b5978ef064619773f1237f60b0e8b5e5a6e1",
           "telemetry": {
-            "samples": 28,
+            "samples": 30,
             "clocks.current.sm": {
-              "median": 2636.0,
-              "min": 2625.0,
-              "max": 2640.0
+              "median": 2737.0,
+              "min": 2692.0,
+              "max": 2752.0
             },
             "temperature.gpu": {
-              "median": 68.5,
-              "min": 67.0,
-              "max": 69.0
+              "median": 69.0,
+              "min": 68.0,
+              "max": 71.0
             },
             "power.draw": {
-              "median": 360.065,
-              "min": 267.83,
-              "max": 361.64
+              "median": 360.735,
+              "min": 355.3,
+              "max": 361.98
             },
             "utilization.gpu": {
-              "median": 98.0,
+              "median": 97.0,
               "min": 97.0,
               "max": 98.0
             }
           },
-          "wall_ms": 30.93755,
+          "wall_ms": 33.64865,
           "device_local_bytes": 2900254720.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 3147055104.0,
-          "host_working_set_bytes": 369016832.0,
+          "host_private_bytes": 3144454144.0,
+          "host_working_set_bytes": 367624192.0,
           "output_final_exact": true
         },
         {
@@ -4258,39 +4262,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 30.28688,
+          "gpu_ms": 32.2696,
           "final_sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
           "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
           "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
-          "receipt_sha256": "39fa0762eb42a56ab2fe48bce1efe1de17e0c999276f6c7d2ee86dc3c1119ac4",
+          "receipt_sha256": "2d437c70c6223bd0fe1443a25fe198c402acfe1668ecc8b1c0158d911e483172",
           "telemetry": {
-            "samples": 28,
+            "samples": 29,
             "clocks.current.sm": {
-              "median": 2625.0,
-              "min": 2625.0,
-              "max": 2662.0
+              "median": 2700.0,
+              "min": 2670.0,
+              "max": 2745.0
             },
             "temperature.gpu": {
-              "median": 69.0,
-              "min": 67.0,
+              "median": 71.0,
+              "min": 69.0,
               "max": 71.0
             },
             "power.draw": {
-              "median": 359.82,
-              "min": 195.06,
-              "max": 360.49
+              "median": 360.11,
+              "min": 278.63,
+              "max": 364.3
             },
             "utilization.gpu": {
-              "median": 98.0,
+              "median": 97.0,
               "min": 97.0,
               "max": 98.0
             }
           },
-          "wall_ms": 30.991999999999997,
+          "wall_ms": 33.167,
           "device_local_bytes": 2900254720.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 3144376320.0,
-          "host_working_set_bytes": 367104000.0,
+          "host_private_bytes": 3142725632.0,
+          "host_working_set_bytes": 367038464.0,
           "output_final_exact": true
         },
         {
@@ -4316,32 +4320,32 @@
             "peak_allocation_info_bytes": 2399272960
           },
           "family_ms": {},
-          "receipt_sha256": "4c66b0ae1ca2df0d8fb749f1f346931733b06fa1daff50b6c3812841208c17e7",
+          "receipt_sha256": "42a8a6962019172b2df222378b2143a64ac1c12611f685e10c5f669f510a0ea6",
           "telemetry": {
-            "samples": 28,
+            "samples": 31,
             "clocks.current.sm": {
-              "median": 2572.0,
-              "min": 2557.0,
-              "max": 2602.0
+              "median": 2655.0,
+              "min": 2647.0,
+              "max": 2662.0
             },
             "temperature.gpu": {
-              "median": 70.0,
-              "min": 68.0,
-              "max": 70.0
+              "median": 71.0,
+              "min": 70.0,
+              "max": 72.0
             },
             "power.draw": {
-              "median": 360.005,
-              "min": 203.69,
-              "max": 360.38
+              "median": 360.18,
+              "min": 347.05,
+              "max": 360.5
             },
             "utilization.gpu": {
-              "median": 98.0,
-              "min": 98.0,
+              "median": 97.0,
+              "min": 97.0,
               "max": 98.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 30.661792,
+          "gpu_ms": 32.865856,
           "samples": 96,
           "final_sha256": "de41386c1445876b4a9372149e34723622d123932a98280d334f52f4bdb6b501",
           "owned_bytes": 2399272960,
@@ -4512,11 +4516,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 31.185650000000003,
+          "wall_ms": 33.533100000000005,
           "device_local_bytes": 2899451904.0,
           "device_nonlocal_bytes": 190799872.0,
-          "host_private_bytes": 3592966144.0,
-          "host_working_set_bytes": 675319808.0,
+          "host_private_bytes": 3592269824.0,
+          "host_working_set_bytes": 675667968.0,
           "output_final_exact": true
         }
       ],
@@ -4533,13 +4537,33 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 28.2104,
+        "gpu_ms": 31.975456,
         "final_sha256": "37c409a535578ef355eaa8de903c5cc963a3758f8697712600e6c72db0e3315a",
         "input_sha256": "50164eb4978f6e9ad3c301c0193033b2de3fc9f553fcef8bd5b36e4a8158fdd9",
         "motion_sha256": "99d049b5653e923cb4661a23958b812a7449f69e5b54b5428c4c61f319430e4a",
-        "receipt_sha256": "7db6ef7ac5d93005dd97b23b146fc5fc143ed908ab5c41dca7e46e7fb90dffea",
+        "receipt_sha256": "3a980b47d3b49b0fed610ab2c16c71b054276578814c7e8f97d8076811720146",
         "telemetry": {
-          "samples": 0
+          "samples": 1,
+          "clocks.current.sm": {
+            "median": 2775.0,
+            "min": 2775.0,
+            "max": 2775.0
+          },
+          "temperature.gpu": {
+            "median": 47.0,
+            "min": 47.0,
+            "max": 47.0
+          },
+          "power.draw": {
+            "median": 49.76,
+            "min": 49.76,
+            "max": 49.76
+          },
+          "utilization.gpu": {
+            "median": 5.0,
+            "min": 5.0,
+            "max": 5.0
+          }
         }
       },
       "gallery_pixel_hash_unchanged": true
@@ -4571,32 +4595,32 @@
             "peak_allocation_info_bytes": 4124573696
           },
           "family_ms": {},
-          "receipt_sha256": "5d1775bbceb68f170fc0c1d38d33369d7e989890047cb82a3af604ba545ab02e",
+          "receipt_sha256": "97e5f6bda8235f95f926e6085e80efd6df85b3686e5131991b003b61031ba34f",
           "telemetry": {
-            "samples": 51,
+            "samples": 58,
             "clocks.current.sm": {
-              "median": 2580.0,
-              "min": 2557.0,
-              "max": 2602.0
+              "median": 2722.0,
+              "min": 2700.0,
+              "max": 2745.0
             },
             "temperature.gpu": {
-              "median": 71.0,
+              "median": 72.0,
               "min": 69.0,
-              "max": 73.0
+              "max": 74.0
             },
             "power.draw": {
-              "median": 360.24,
-              "min": 359.52,
-              "max": 360.52
+              "median": 360.14,
+              "min": 359.21,
+              "max": 361.3
             },
             "utilization.gpu": {
-              "median": 99.0,
-              "min": 99.0,
+              "median": 98.5,
+              "min": 98.0,
               "max": 99.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 56.407984,
+          "gpu_ms": 63.735552,
           "samples": 96,
           "final_sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
           "owned_bytes": 4124573696,
@@ -4767,11 +4791,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 56.9369,
+          "wall_ms": 64.38855,
           "device_local_bytes": 4914159616.0,
           "device_nonlocal_bytes": 306864128.0,
-          "host_private_bytes": 5903527936.0,
-          "host_working_set_bytes": 965992448.0,
+          "host_private_bytes": 5902884864.0,
+          "host_working_set_bytes": 1099784192.0,
           "output_final_exact": true
         },
         {
@@ -4780,39 +4804,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 56.12952,
+          "gpu_ms": 60.996048,
           "final_sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
           "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
           "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
-          "receipt_sha256": "a70b6f2efcc219f79fd4128e4943122d1874a79749509fc9541dff115bcdfcaf",
+          "receipt_sha256": "b673f871ae3e79aa236ce6c2fc70e0e02ff04518ac58ce67cadcb4576d1e82c9",
           "telemetry": {
-            "samples": 51,
+            "samples": 55,
             "clocks.current.sm": {
-              "median": 2632.0,
-              "min": 2625.0,
-              "max": 2647.0
+              "median": 2715.0,
+              "min": 2707.0,
+              "max": 2737.0
             },
             "temperature.gpu": {
-              "median": 73.0,
+              "median": 75.0,
               "min": 71.0,
-              "max": 75.0
+              "max": 76.0
             },
             "power.draw": {
-              "median": 359.93,
-              "min": 359.41,
-              "max": 360.27
+              "median": 360.29,
+              "min": 356.74,
+              "max": 363.31
             },
             "utilization.gpu": {
-              "median": 99.0,
+              "median": 98.0,
               "min": 98.0,
               "max": 99.0
             }
           },
-          "wall_ms": 56.859300000000005,
+          "wall_ms": 61.86095,
           "device_local_bytes": 4784152576.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 5030289408.0,
-          "host_working_set_bytes": 367910912.0,
+          "host_private_bytes": 5028737024.0,
+          "host_working_set_bytes": 632373248.0,
           "output_final_exact": true
         },
         {
@@ -4821,39 +4845,39 @@
           "warmup": 32,
           "samples": 96,
           "route": "nvidia",
-          "gpu_ms": 56.169424,
+          "gpu_ms": 61.082592,
           "final_sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
           "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
           "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
-          "receipt_sha256": "fbd42d84b62b4f2e627def9cc3cf80a6ce091789a515a79bf14509829d7cbe6f",
+          "receipt_sha256": "87b47864f95e1c7c8c8738e471b266a0eeeac6d11a2d67c470d507f49c869c03",
           "telemetry": {
-            "samples": 51,
+            "samples": 55,
             "clocks.current.sm": {
-              "median": 2632.0,
-              "min": 2617.0,
-              "max": 2662.0
+              "median": 2715.0,
+              "min": 2707.0,
+              "max": 2730.0
             },
             "temperature.gpu": {
-              "median": 74.0,
+              "median": 75.0,
               "min": 72.0,
-              "max": 75.0
+              "max": 76.0
             },
             "power.draw": {
-              "median": 359.98,
-              "min": 359.76,
-              "max": 360.47
+              "median": 359.91,
+              "min": 358.65,
+              "max": 361.82
             },
             "utilization.gpu": {
               "median": 98.0,
-              "min": 98.0,
+              "min": 97.0,
               "max": 99.0
             }
           },
-          "wall_ms": 56.916250000000005,
+          "wall_ms": 62.0521,
           "device_local_bytes": 4784152576.0,
           "device_nonlocal_bytes": 43261952.0,
-          "host_private_bytes": 5033271296.0,
-          "host_working_set_bytes": 369586176.0,
+          "host_private_bytes": 5029703680.0,
+          "host_working_set_bytes": 632631296.0,
           "output_final_exact": true
         },
         {
@@ -4879,32 +4903,32 @@
             "peak_allocation_info_bytes": 4124573696
           },
           "family_ms": {},
-          "receipt_sha256": "0ba4c72293ac8736491cd06a7cc30da1a7e21a7bca9b3c20d83d001fab1ab556",
+          "receipt_sha256": "e48592e20b3b439ffc1707282cd5cbc4e0a4d9162418ceffa66ecabda09e2b85",
           "telemetry": {
-            "samples": 53,
+            "samples": 55,
             "clocks.current.sm": {
-              "median": 2602.0,
-              "min": 2572.0,
-              "max": 2610.0
+              "median": 2662.0,
+              "min": 2632.0,
+              "max": 2685.0
             },
             "temperature.gpu": {
-              "median": 74.0,
-              "min": 73.0,
+              "median": 75.0,
+              "min": 72.0,
               "max": 76.0
             },
             "power.draw": {
-              "median": 360.19,
-              "min": 358.34,
-              "max": 361.58
+              "median": 360.13,
+              "min": 359.18,
+              "max": 361.0
             },
             "utilization.gpu": {
-              "median": 99.0,
+              "median": 98.0,
               "min": 98.0,
               "max": 99.0
             }
           },
           "route": "phoenix",
-          "gpu_ms": 57.622528,
+          "gpu_ms": 60.936,
           "samples": 96,
           "final_sha256": "3ad40847f91a6d6999d82c23ebe843f38e0c7f0bdaada6badadfb8c919404d55",
           "owned_bytes": 4124573696,
@@ -5075,11 +5099,11 @@
               "name": "cc_vit_1d_repack_2d_to_1d_fp8"
             }
           ],
-          "wall_ms": 58.1872,
+          "wall_ms": 61.67515,
           "device_local_bytes": 4914159616.0,
           "device_nonlocal_bytes": 306864128.0,
-          "host_private_bytes": 5904035840.0,
-          "host_working_set_bytes": 965701632.0,
+          "host_private_bytes": 5902385152.0,
+          "host_working_set_bytes": 1231724544.0,
           "output_final_exact": true
         }
       ],
@@ -5096,28 +5120,50 @@
         "warmup": 0,
         "samples": 1,
         "route": "nvidia",
-        "gpu_ms": 52.645376,
+        "gpu_ms": 60.220448,
         "final_sha256": "9943748f32c1efde4e9c9ffaa6f59c3a0ee31b4b067f3082e6f3bdd94d18a1b2",
         "input_sha256": "5d0e62ae592788b7c124a586a82dfd6b5d728338e81af70e43e04e5de09e8c31",
         "motion_sha256": "d6faab0c3d253f4255e646473bdb5befcf5156fc72ccef823d01fb7d580d5935",
-        "receipt_sha256": "11da9df602708fff93f201f329fe9ae400f74503c052013362c905046a174ef3",
+        "receipt_sha256": "1d9c15ed49f3b2dcb30995fe2c3009d589ab49e81482a710069a38775e068f93",
         "telemetry": {
-          "samples": 0
+          "samples": 1,
+          "clocks.current.sm": {
+            "median": 2767.0,
+            "min": 2767.0,
+            "max": 2767.0
+          },
+          "temperature.gpu": {
+            "median": 50.0,
+            "min": 50.0,
+            "max": 50.0
+          },
+          "power.draw": {
+            "median": 50.23,
+            "min": 50.23,
+            "max": 50.23
+          },
+          "utilization.gpu": {
+            "median": 2.0,
+            "min": 2.0,
+            "max": 2.0
+          }
         }
       },
       "gallery_pixel_hash_unchanged": true
     }
   ],
-  "gallery_reuse": "Current reset/final pixel hashes equal the previous exact-gallery hashes at all9 extents; PNGs are reused because displayed pixels did not change.",
-  "gallery_png_sha256": {
-    "output-640x360.png": "cc4c4991d1dfebb604453194969bdc1545d7c2a21907831adcba6216a1450e65",
-    "output-854x480.png": "ab9ea1402c49503bc1b6dead3d268fefa27b3662a388560532052eb589c5f585",
-    "output-960x540.png": "28f14cbb9d90a25a55c36ad9fd732eeb25f2d99858eb322673c45a4c05cfa7d7",
-    "output-1280x720.png": "94c076135a1933b7f90c0431f09a39446ebc666e41c84f277fa3675fb30dba80",
-    "output-1920x1080.png": "86395a12f58a70b577a90a2a91420001c0996a94e0d794a35d2e3ccd10a0bf4b",
-    "output-2560x1440.png": "1d27e7db5bfc703a890cb21577ed4cb6f8556d7a7aeee0a9b48f368745ccd0ee",
-    "output-3840x2160.png": "955680a98e8f969ea23d20891c8414b22a8fde39ae8f7a551e283a6b99705afb",
-    "output-5760x3240.png": "ad3afbbbf41c82210f1b42fa19161be2d1266343b93c73505a1a2ddbe705fbbc",
-    "output-7680x4320.png": "b3b27c3c7d8aa33bc6ec113fe0dfb8279e61c69f840b437badd3d5a447adcd6b"
+  "model_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "native_manifest_sha256": "9d9106b1e658353e981c8bfb67f4dd70311fe5fcb49e5c88a2b40aff3a46f6b3",
+  "native_probe_sha256": "79a0a90ca7a5d2c5ec2f96daeb484da87b50fc36c00122a2ec5ed82070cab6fb",
+  "nvidia_probe_sha256": "51e34581d968d8a67c107a7d694b9515889edc3b7748f3850d66f5c9e3b9f6c1",
+  "addon_sha256": "c04132e71517be5743cf3250210a39d7c332d8e450eb6b29a7ae4c6880253c6d",
+  "hardware": {
+    "cpu": "Ryzen9950X3D",
+    "threads": 32,
+    "ram_gib": 96,
+    "gpu": "RTX5080 16GiB",
+    "driver": "616.64",
+    "cuda": "13.1",
+    "model_dll_version": "310.8.0.0"
   }
 }

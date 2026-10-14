@@ -22,10 +22,10 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 ![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
-- **1080p inference: a small measured edge.** Phoenix **3.812 ms**, NVIDIA DLSS NR
-  **3.859 ms** on RTX 5080: about **1.2% lower GPU time** in this test.
+- **1080p inference: a small measured edge.** Phoenix **3.829 ms**, NVIDIA DLSS NR
+  **3.864 ms** on RTX 5080: about **0.9% lower GPU time** in this test.
   Small margins vary with clocks and scheduling; this is not a promised game-FPS gain.
-  NVIDIA was about 1.1–2.3% faster at the larger tested extents.
+  NVIDIA was about 1.2–2.3% faster at the larger tested extents.
 - **Less measured GPU residency at 1080p:** **558.8 MiB** for Phoenix versus **686.5 MiB**
   for NVIDIA in the matched probe—about **18.6% less**. This includes the
   harness and driver; it is not a measurement of NVIDIA's internal buffers.
@@ -60,6 +60,8 @@ the chart shows their mean, not a fixed performance guarantee.
 
 </details>
 
+[Latest regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
+[Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
 [Download 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
 [Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
@@ -216,26 +218,25 @@ GPU paths are development/reference tools, not real-time gaming choices.
 
 ![Experimental alternate runners: current 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
 
-- **RTX 5080:** CUDA **51.21 ms** model / **103.34 ms** full call;
-  Vulkan **97.65 ms** / **152.27 ms**.
-- **Ryzen 9950X3D, 32 workers:** CPU C++ **8.23 s** full call;
-  SYCL CPU **9.93 s**.
-- **Integrated Radeon gfx1036:** HIP **13.85 s** full call;
-  Vulkan **14.24 s**. These are iGPU results, not discrete Radeon results.
+- **RTX 5080:** CUDA **56.31 ms** model / **102.84 ms** full call;
+  Vulkan **104.91 ms** / **158.07 ms**.
+- **Ryzen 9950X3D, 32 workers:** CPU C++ **9.36 s** full call;
+  SYCL CPU **11.37 s**.
+- **Integrated Radeon gfx1036:** HIP **14.78 s** full call;
+  Vulkan **12.11 s**. These are iGPU results, not discrete Radeon results.
 - **All six request 453.38 MiB of model/scratch buffers.** Host RAM, caller
   buffers, driver/JIT caches and GPU residency are separate scopes. CPU worker
   private commitment is about **501 MiB**, SYCL CPU about **954 MiB**; the chart
   shows resident working set instead. Equal tensor demand does not mean equal RAM.
 
-CUDA/Vulkan RTX, CPU and HIP measured **13 October 2026**; unchanged SYCL CPU
-and Vulkan AMD timings are from **12 October**. Warm 1920×1080 calls, one pass
+All six alternate runners measured **14 October 2026**. Warm 1920×1080 calls, one pass
 and all eight block repetition controls set to one. RTX: three processes × 12
 temporal frames, discarding two. CPU/HIP: two processes × two reset frames,
 discarding one. SYCL/Vulkan AMD: two × three temporal frames, discarding one.
 Native uses a different fixture and timing boundary; do not infer a cross-runner
-speedup ratio. All six passed **42 saved regression frames**; the latest paired
-RTX trials checked **144 exact temporal frame hashes** across both variants and
-routes. These are offline results, not game FPS. The exact release binary has
+speedup ratio. The current replay checked **92 exact frame hashes** across all
+six alternate routes; native reset/final comparisons pass at all nine standard
+resolutions. These are offline results, not game FPS. The exact release binary has
 not had a new live-game test.
 
 [Latest optimization details and memory measurements](docs/PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md)
@@ -443,6 +444,22 @@ Final output: **`build/addon_embedded/phoenix.addon64`**.
 The runner libraries and GPU kernels are embedded in this file. The NVIDIA model
 DLL remains separate. A game installation also needs compatible ReShade with
 addon support and a local `Phoenix.json` configuration; see [BUILDING.md](BUILDING.md).
+
+### Other graphics APIs and 32-bit games
+
+The experimental graphics bridge builds `Phoenix.addon32` and `Phoenix.addon64`,
+with a private x64 helper embedded. Both cover D3D9, D3D10/10.1, D3D11,
+D3D12, OpenGL and Vulkan; x64 D3D12 retains its direct route. All APIs return
+matching pixels in the x64 matrix. x86 transport/sharing and a real D3D9 game
+are checked; the remaining x86 game/API checks are pending. These final-color
+bridges lack engine motion/depth inputs, and readback adds latency.
+Matched-frame display is the default: hold the last completed input/output pair
+until the next result is ready, so newer movement cannot show under older masks.
+The panel offers experimental live-frame editing for D3D9/D3D11.
+Both bitnesses reuse the main controls and timing UI. The thin addon obtains
+devices, validation and timing data from its x64 helper; controls requiring
+missing engine inputs remain visible with a capability explanation.
+See [build, installation, latency and validation details](docs/GRAPHICS_COMPATIBILITY.md).
 
 ### Tests and source checks
 

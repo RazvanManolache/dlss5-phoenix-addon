@@ -3,6 +3,16 @@
 
 /* Explicit C++ initialization avoids process environment and CRT snapshots. */
 static VkPipeline phx_features_pipeline;
+int phoenix_native_coalesced_init(const char* path) {
+    if (!g.rready || g.matrix_rows)
+        FAIL("invalid coalesced matrix initialization", 0);
+    if (phx_coalesced_pipeline)
+        return 0;
+    free(g.rpaths[13]);
+    if (!(g.rpaths[13] = strdup(path)))
+        FAIL("coalesced matrix path allocation", 0);
+    return build_pipeline(path, g.rpl, &phx_coalesced_pipeline);
+}
 int phoenix_native_wide_init(const char* path, unsigned columns) {
     if (!g.rready || (columns != 32 && columns != 64))
         FAIL("invalid wide matrix initialization", 0);
@@ -78,6 +88,7 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     }
     vkDestroyInstance(instance, NULL);
     phx_native_matrix_rows = (shapes & 2u) ? 16u : (shapes & 1u) ? 8u : 0u;
+    phx_native_scalar_columns = !phx_native_matrix_rows && (options & (1u << 21)) ? 32u : 16u;
     // A tile uses FP8 only when both operands are exactly representable. True
     // half-valued boundaries take the shader's original FP16 fallback.
     phx_native_fp8_k =
@@ -92,8 +103,9 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
     phx_native_workgroup_rows =
         !phx_native_fp8_k && phx_native_matrix_rows == 16 && wide_workgroup && wide_matrix
             ? 64u
-            : phx_native_matrix_rows;
-    const char* selected_shader = phx_native_fp8_k                  ? fp8_matrix
+            : !phx_native_matrix_rows && (options & (1u << 21)) ? 32u : phx_native_matrix_rows;
+    const char* selected_shader = !phx_native_matrix_rows          ? gemm
+                                  : phx_native_fp8_k              ? fp8_matrix
                                   : phx_native_workgroup_rows == 64 ? wide_matrix
                                   : phx_native_matrix_rows == 16    ? matrix16
                                   : phx_native_matrix_rows == 8     ? matrix8
@@ -141,7 +153,8 @@ int phoenix_native_window_attention(int query, int key, int value, int bias, int
     memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));
     vkCmdBindPipeline(g.rcb, VK_PIPELINE_BIND_POINT_COMPUTE, g.rwindow[1]);
     vkCmdPushConstants(g.rcb, g.rpl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof packet, &packet);
-    vkCmdDispatch(g.rcb, 1, batches < 65535u ? batches : 65535u, (batches + 65534u) / 65535u);
+    vkCmdDispatch(g.rcb, g.matrix_rows ? 1u : 4u, batches < 65535u ? batches : 65535u,
+                  (batches + 65534u) / 65535u);
     barrier();
     stamp(PK_ROW, 3);
     ++g.recorded;
@@ -189,6 +202,9 @@ void xmx_shutdown(void) {
         if (phx_wide_pipeline)
             vkDestroyPipeline(g.dev, phx_wide_pipeline, NULL);
         phx_wide_pipeline = VK_NULL_HANDLE;
+        if (phx_coalesced_pipeline)
+            vkDestroyPipeline(g.dev, phx_coalesced_pipeline, NULL);
+        phx_coalesced_pipeline = VK_NULL_HANDLE;
         phx_wide_columns = 0;
         for (unsigned iteration_index = 0; iteration_index < MAX_RBUF; ++iteration_index)
             xmx_buf_destroy((int)iteration_index);
@@ -236,7 +252,7 @@ void xmx_shutdown(void) {
     }
     if (g.inst)
         vkDestroyInstance(g.inst, NULL);
-    for (unsigned iteration_index = 0; iteration_index < 13; ++iteration_index)
+    for (unsigned iteration_index = 0; iteration_index < 14; ++iteration_index)
         free(g.rpaths[iteration_index]);
     for (unsigned iteration_index = 0; iteration_index < MAX_GRAPHS; ++iteration_index)
         free(graphs[iteration_index].kinds);
@@ -255,6 +271,7 @@ void xmx_shutdown(void) {
     phx_native_matrix_rows = 0;
     phx_native_fp8_k = 0;
     phx_native_workgroup_rows = 0;
+    phx_native_scalar_columns = 0;
     phx_native_skip = phx_native_gain = 0;
     memset(phx_native_uuid, 0, sizeof(phx_native_uuid));
     memset(phx_native_view_offsets, 0, sizeof(phx_native_view_offsets));

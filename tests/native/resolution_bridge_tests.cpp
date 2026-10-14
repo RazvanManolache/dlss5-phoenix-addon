@@ -32,6 +32,21 @@ int main() {
         phoenix::GpuTiming empty_timer(device.Get(), queue.Get());
         check(Json::parse(empty_timer.report().dump()).at("active_settings").is_object(),
               "An empty timing context must serialize as valid JSON");
+        phoenix::DepthBudget timing_budget;
+        timing_budget.configure(true, 8, 2, 10);
+        empty_timer.budget(&timing_budget);
+        empty_timer.settings("{\"test\":1}");
+        empty_timer.upscaler_status("No upscaling");
+        timing_budget.sample(8, 5);
+        empty_timer.settings("{\"test\":1}");
+        empty_timer.upscaler_status("No upscaling");
+        check(timing_budget.ema() == 5 &&
+                  empty_timer.report().at("active_settings").at("UpscalerStatus") == "No upscaling",
+              "Refreshing a restored stream preserves resolved status and budget samples");
+        empty_timer.settings("{\"test\":2}");
+        check(timing_budget.ema() == 0,
+              "A genuine settings change resets budget samples");
+        empty_timer.budget(nullptr);
         empty_timer.begin(command.Get(), 3, 8, 96, 54);
         auto geometry = phoenix::fit_resolution(96, 54, 48, 32);
         phoenix::direct::ResolutionBridge bridge(device.Get(), geometry,

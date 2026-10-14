@@ -1,0 +1,26 @@
+{
+  "source": "DLSS5-Feeder-clean-20260901-v2",
+  "date": "2026-10-14",
+  "files": [
+    {
+      "source": "source\\host\\dlss5-feed-host64.cpp",
+      "sha256": "5a51e7271c1c4199f11696c5d76311a6587052a96572a8cdec74949ce7acd060"
+    },
+    {
+      "source": "source\\host\\phoenix-host-config.h",
+      "sha256": "6f4b55a293b4e262d640ccb9e4309e2272437df34f1360b753f728e30269b31c"
+    },
+    {
+      "source": "source\\host\\phoenix-host-pixels.h",
+      "sha256": "3c78d47a69d03f852a7830d1596c82e1426dd7b9b5f8d950ca1277418ef0a501"
+    },
+    {
+      "source": "source\\host\\phoenix-format-adapter.h",
+      "sha256": "df17ec4271da5e6f4ce62c1c8472b7c1a9ca20762877fff1e729780239e05e6a"
+    },
+    {
+      "source": "source\\host\\phoenix-host-safety.h",
+      "sha256": "5028774ff6530f8c56d1e8d931261ba4249c4123521f34c69cf9aea8ecc73d55"
+    }
+  ]
+}

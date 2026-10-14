@@ -52,6 +52,14 @@ int wmain(int argc, wchar_t** argv) {
         char error[2048]{};
         const bool benchmark_pieces = job.contains("pieces");
         uint32_t options = benchmark_pieces ? 0u : DispatchProfiling;
+        if (config.value("scalar_matrices", false))
+            options |= ScalarMatrices;
+        if (kind == "vulkan" && config.value("vulkan_tiled_fallback", true))
+            options |= VulkanTiledFallback;
+        if (kind == "vulkan" && config.value("vulkan_coalesced_fallback", true))
+            options |= VulkanCoalescedFallback;
+        if (kind == "vulkan" && config.value("vulkan_scalar_attention", false))
+            options |= VulkanScalarAttention;
         if (config.value("vulkan_fp8_matrices", false))
             options |= LosslessFp8Matrices;
         if (config.value("vulkan_native_half", false))

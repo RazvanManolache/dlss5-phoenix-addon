@@ -1,0 +1,146 @@
+#version 450
+// Ordered scalar 64-token attention for devices without cooperative matrices.
+// Softmax publication and reduction order match the accelerated attention shader.
+// Resident ABI is compatible with the private Intel runtime (Apache-2.0 NOTICE).
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#include "publish.glsl"
+// Four workgroups cover one window/head, sixteen query rows each.
+#define PHX_ATTENTION_LANES 128
+layout(local_size_x = PHX_ATTENTION_LANES) in;
+layout(constant_id = 0) const bool MERGED_OUTPUT = false;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf {
+    float16_t v[];
+};
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf {
+    float v[];
+};
+// Resident packet: q/k/v are query/key/value addresses; m is rows,
+// sa/sb/sc are batch strides and lda/ldb/ldc are row strides (in elements).
+// Reserved p0..p3/unused/spare slots retain their ABI offsets.
+layout(push_constant, scalar) uniform Push {
+    HalfBuf q, k;
+    FloatBuf output_data;
+    HalfBuf v;
+    uint m, heads, unused, batches, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    FloatBuf bias;
+}
+pc;
+shared float scores[1024];
+shared float16_t probabilities[1024];
+// Add with an explicit half-precision publication boundary; the reduction
+// must retain this rounding rather than accumulate the entire row in float.
+float ha(float left, float right) {
+    return half_round(left + right);
+}
+float member(float value, uint lane) {
+    return subgroupShuffle(value, (gl_SubgroupInvocationID & ~7u) + lane);
+}
+float reciprocal(float denominator) {
+    if (isinf(denominator))
+        return 0.;
+    precise float estimate = 1. / denominator;
+    precise float error = fma(-estimate, denominator, 1.);
+    return fma(error, estimate, estimate);
+}
+// Compute Q*K^T, publish normalized weights to shared memory, then compute
+// weights*V. The two barriers make each shared tensor visible across all
+// subgroups; merged output finally restores token-major channel ordering.
+void main() {
+    uint batch = gl_WorkGroupID.y + gl_WorkGroupID.z * 65535u;
+    if (batch >= pc.batches)
+        return;
+    uint local = gl_LocalInvocationID.x;
+    uint first_query = gl_WorkGroupID.x * 16u;
+    uint offset = batch * 64u * 32u;
+    // Each thread owns eight scores, sharing its key loads across query rows.
+    // Ordered FP32 FMA matches the portable matrix reference exactly.
+    precise float sums[8];
+    for (uint slot = 0u; slot < 8u; ++slot) sums[slot] = 0.0;
+    for (uint reduction = 0u; reduction < 32u; ++reduction) {
+        float key_value = float(pc.k.v[offset + (local % 64u) * 32u + reduction]);
+        for (uint slot = 0u; slot < 8u; ++slot) {
+            uint query = first_query + (local + slot * 128u) / 64u;
+            sums[slot] = fma(float(pc.q.v[offset + query * 32u + reduction]), key_value, sums[slot]);
+        }
+    }
+    for (uint slot = 0u; slot < 8u; ++slot) scores[local + slot * 128u] = sums[slot];
+    barrier();
+    uint lane = local % 8u;
+    bool split = pc.heads == 16u;
+    for (uint query_index = local / 8u; query_index < 16u;
+         query_index += PHX_ATTENTION_LANES / 8u) {
+        float weights[8];
+        for (uint iteration_index = 0u; iteration_index < 8u; iteration_index++) {
+            uint key = lane + iteration_index * 8u;
+            float score = scores[query_index * 64u + key];
+            float position_bias =
+                pc.flags != 0u ? pc.bias.v[((batch % pc.heads) * 64u + first_query + query_index) * 64u + key]
+                               : 0.;
+            float ramp =
+                split ? half_round(fma(half_round(score + position_bias), .044921875, 1.30078125))
+                      : half_round(
+                            fma(score, .044921875, fma(position_bias, .044921875, 1.30078125)));
+            ramp = clamp(ramp, 1.03125, 1.5693359375);
+            weights[iteration_index] = phoenix_half_value((phoenix_half_bits(ramp) & 1023u) << 5u);
+        }
+        precise float total;
+        if (split) {
+            precise float even_sum = ((weights[0] + weights[2]) + weights[4]) + weights[6],
+                          odd_sum = ((weights[1] + weights[3]) + weights[5]) + weights[7];
+            precise float even_total = ((member(even_sum, 0u) + member(even_sum, 1u)) +
+                                        (member(even_sum, 2u) + member(even_sum, 3u))) +
+                                       ((member(even_sum, 4u) + member(even_sum, 5u)) +
+                                        (member(even_sum, 6u) + member(even_sum, 7u)));
+            precise float odd_total = ((member(odd_sum, 0u) + member(odd_sum, 1u)) +
+                                       (member(odd_sum, 2u) + member(odd_sum, 3u))) +
+                                      ((member(odd_sum, 4u) + member(odd_sum, 5u)) +
+                                       (member(odd_sum, 6u) + member(odd_sum, 7u)));
+            total = even_total + odd_total;
+        } else {
+            float even_sum = ha(ha(ha(weights[0], weights[2]), weights[4]), weights[6]);
+            float odd_sum = ha(ha(ha(weights[1], weights[3]), weights[5]), weights[7]);
+            float probability_tile =
+                ha(ha(ha(even_sum, member(even_sum, (lane % 4u) + 4u)), odd_sum),
+                   member(odd_sum, (lane % 4u) + 4u));
+            total = ha(ha(member(probability_tile, 0u), member(probability_tile, 1u)),
+                       ha(member(probability_tile, 2u), member(probability_tile, 3u)));
+        }
+        float inverse = reciprocal(max(total, .00006103515625));
+        for (uint iteration_index = 0u; iteration_index < 8u; iteration_index++)
+            probabilities[query_index * 64u + lane + iteration_index * 8u] =
+                float16_t(e4m3(half_round(weights[iteration_index] * inverse)));
+    }
+    barrier();
+    // Probability rows remain in this workgroup's 6 KiB shared workspace.
+    // No global score/probability tensors or separate head-merge pass are needed.
+    precise float context[4];
+    for (uint slot = 0u; slot < 4u; ++slot) context[slot] = 0.0;
+    for (uint reduction = 0u; reduction < 64u; ++reduction) {
+        float value = float(pc.v.v[offset + reduction * 32u + local % 32u]);
+        for (uint slot = 0u; slot < 4u; ++slot) {
+            uint query = (local + slot * 128u) / 32u;
+            context[slot] = fma(float(probabilities[query * 64u + reduction]), value, context[slot]);
+        }
+    }
+    for (uint slot = 0u; slot < 4u; ++slot) {
+        uint element = local + slot * 128u;
+        uint query = first_query + element / 32u, channel = element % 32u;
+        if (MERGED_OUTPUT) {
+            uint target = ((batch / pc.heads) * 64u + query) * pc.heads * 32u +
+                          (batch % pc.heads) * 32u + channel;
+            HalfBuf(uint64_t(pc.output_data)).v[target] = float16_t(e4m3(half_round(context[slot])));
+        } else {
+            pc.output_data.v[offset + query * 32u + channel] = context[slot];
+        }
+    }
+}

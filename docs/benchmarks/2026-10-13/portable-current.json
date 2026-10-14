@@ -1,292 +1,166 @@
 {
-  "schema": "phoenix-portable-current/1",
-  "date": "2026-10-13",
-  "source_commit": "118bff1391a5ceed4b495321981b5bb6c7f37a45",
-  "addon_sha256": "e2b061ed62380b6f6ac99b51969daa9316040111e81f473baf1af992f141521c",
-  "scope": "Per-row dates, process counts and motion/reset fixture are authoritative. Latest CUDA/Vulkan RTX use fractional-motion temporal history; latest CPU/HIP use reset frames. SYCL CPU/Vulkan AMD retain earlier temporal timings. Medians of process medians; full call includes host preparation, transfers, inference, resolve and broker overhead, excluding startup/file I/O. Native uses a different fixture and boundary. Offline timings, not game FPS.",
-  "hardware": {
-    "cpu": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
-    "cores": 16,
-    "threads": 32,
-    "installed_ram_bytes": 103079215104,
-    "nvidia": "NVIDIA GeForce RTX 5080, 616.64, 16303 MiB",
-    "cuda_toolkit": "13.1",
-    "nvidia_model_dll_file_version": "310.8.0.0"
-  },
-  "selected_process_observations": [
+  "schema": "phoenix-portable-current/2",
+  "date": "2026-10-14",
+  "source_commit": "c1a6d83b38c64dc5c7e7c6b03008635f63ccbf04",
+  "addon_sha256": "c04132e71517be5743cf3250210a39d7c332d8e450eb6b29a7ae4c6880253c6d",
+  "scope": "Current addon payload. Replayed saved chart fixtures and controls with exact hashes on every frame. Startup, file I/O and hashing excluded from call_ms. Serial fresh processes; GPU and CPU clocks not locked. GPU routes use GPU operator timestamps; CPU/SYCL CPU operator times are host measurements.",
+  "records": [
     {
-      "name": "0_batch512_cuda",
-      "route": "cuda",
-      "variant": "batch512",
-      "process": 0,
+      "id": "cuda",
+      "processes": 3,
       "device": "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4386
-      },
-      "gpu_after": {
-        "gpu_percent": 41,
-        "adapter_memory_mib": 4386
-      },
-      "seconds": 3.5190806000027806,
-      "frame_ms": 103.34049999999999,
-      "model_ms": 51.20844800258055,
-      "prepare_ms": 17.0931,
-      "resolve_ms": 9.0765,
-      "resident_bytes": 475404968,
+      "samples": 30,
+      "exact_frames": 36,
+      "core_ms": 56.31000000424683,
+      "wall_ms": 102.84174999999999,
+      "process_core_ms": [
+        56.81348799029365,
+        56.31000000424683,
+        54.9065280565992
+      ],
+      "process_wall_ms": [
+        105.4419,
+        102.84174999999999,
+        101.97345
+      ],
+      "owned_bytes": 475404968,
+      "weight_bytes": 151526056,
       "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 318283776,
-      "host_private_bytes": 954671104,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137108448
-      },
-      "timing_intervals": 152
+      "host_private_bytes": 954900480,
+      "host_working_set_bytes": 318070784,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
     },
     {
-      "name": "1_batch512_cuda",
-      "route": "cuda",
-      "variant": "batch512",
-      "process": 1,
-      "device": "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4386
-      },
-      "gpu_after": {
-        "gpu_percent": 54,
-        "adapter_memory_mib": 4430
-      },
-      "seconds": 3.3560324999998556,
-      "frame_ms": 101.49080000000001,
-      "model_ms": 51.20350418239832,
-      "prepare_ms": 15.9534,
-      "resolve_ms": 8.3722,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 317927424,
-      "host_private_bytes": 951926784,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137108448
-      },
-      "timing_intervals": 152
-    },
-    {
-      "name": "2_batch512_cuda",
-      "route": "cuda",
-      "variant": "batch512",
-      "process": 2,
-      "device": "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4434
-      },
-      "gpu_after": {
-        "gpu_percent": 35,
-        "adapter_memory_mib": 4434
-      },
-      "seconds": 3.54013130000385,
-      "frame_ms": 105.05484999999999,
-      "model_ms": 51.36208009067923,
-      "prepare_ms": 17.31735,
-      "resolve_ms": 9.05115,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 317812736,
-      "host_private_bytes": 952573952,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137108448
-      },
-      "timing_intervals": 152
-    },
-    {
-      "name": "0_batch512_vulkan_nvidia",
-      "route": "vulkan_nvidia",
-      "variant": "batch512",
-      "process": 0,
+      "id": "vulkan_nvidia",
+      "processes": 3,
       "device": "vulkan:1b962af4ae3f9cf1b93a70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4386
-      },
-      "gpu_after": {
-        "gpu_percent": 92,
-        "adapter_memory_mib": 4386
-      },
-      "seconds": 4.364420400001109,
-      "frame_ms": 151.4912,
-      "model_ms": 97.395568,
-      "prepare_ms": 16.47495,
-      "resolve_ms": 9.407599999999999,
-      "resident_bytes": 475404968,
+      "samples": 30,
+      "exact_frames": 36,
+      "core_ms": 104.911136,
+      "wall_ms": 158.0671,
+      "process_core_ms": [
+        104.911136,
+        105.97980799999999,
+        103.252128
+      ],
+      "process_wall_ms": [
+        158.0671,
+        158.9967,
+        156.8556
+      ],
+      "owned_bytes": 475404968,
+      "weight_bytes": 151526056,
       "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 283119616,
-      "host_private_bytes": 770207744,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137103528
-      },
-      "timing_intervals": 5
+      "host_private_bytes": 810397696,
+      "host_working_set_bytes": 328753152,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
     },
     {
-      "name": "1_batch512_vulkan_nvidia",
-      "route": "vulkan_nvidia",
-      "variant": "batch512",
-      "process": 1,
-      "device": "vulkan:1b962af4ae3f9cf1b93a70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4430
-      },
-      "gpu_after": {
-        "gpu_percent": 51,
-        "adapter_memory_mib": 4430
-      },
-      "seconds": 4.369185500007006,
-      "frame_ms": 152.2692,
-      "model_ms": 97.732688,
-      "prepare_ms": 16.4925,
-      "resolve_ms": 8.92315,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 283619328,
-      "host_private_bytes": 791191552,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137103528
-      },
-      "timing_intervals": 5
+      "id": "cpu",
+      "processes": 2,
+      "device": "cpu",
+      "samples": 2,
+      "exact_frames": 4,
+      "core_ms": 9311.581249999997,
+      "wall_ms": 9363.9729,
+      "process_core_ms": [
+        9217.6616,
+        9405.500899999995
+      ],
+      "process_wall_ms": [
+        9267.6711,
+        9460.2747
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 524881920.0,
+      "host_working_set_bytes": 575428608.0,
+      "operator_clock": "CPU wall",
+      "cpu_threads": 32
     },
     {
-      "name": "2_batch512_vulkan_nvidia",
-      "route": "vulkan_nvidia",
-      "variant": "batch512",
-      "process": 2,
-      "device": "vulkan:1b962af4ae3f9cf1b93a70efe043a13d",
-      "exact_frames": 12,
-      "gpu_before": {
-        "gpu_percent": 0,
-        "adapter_memory_mib": 4434
-      },
-      "gpu_after": {
-        "gpu_percent": 74,
-        "adapter_memory_mib": 4436
-      },
-      "seconds": 4.432024299996556,
-      "frame_ms": 154.4237,
-      "model_ms": 97.6472,
-      "prepare_ms": 17.50605,
-      "resolve_ms": 9.11055,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "command_count": 4846,
-      "host_working_set_bytes": 283693056,
-      "host_private_bytes": 791547904,
-      "host_frame_buffers": {
-        "noise_capacity_bytes": 12533760,
-        "retained_history_capacity_bytes": 24883224,
-        "scope": "Vector capacity bytes, sampled at prepare/execute/resolve boundaries; not process RAM or an allocator-wide peak. Backend allocation bytes exclude these host buffers, driver caches, stack and caller transport.",
-        "temporary_capacity_sampled_high_water_bytes": 137103528
-      },
-      "timing_intervals": 5
+      "id": "hip_amd",
+      "processes": 2,
+      "device": "hip:30303030303131363030303030303030",
+      "samples": 2,
+      "exact_frames": 4,
+      "core_ms": 14104.36713177344,
+      "wall_ms": 14784.6136,
+      "process_core_ms": [
+        14117.193998161762,
+        14091.54026538512
+      ],
+      "process_wall_ms": [
+        14795.9293,
+        14773.2979
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 100089856.0,
+      "host_working_set_bytes": 144394240.0,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
     },
     {
-      "route": "cpu",
-      "variant": "candidate",
-      "iteration": 0,
-      "model_ms": 7982.912,
-      "frame_ms": 8030.2079,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "memory": {
-        "peak_working_set_bytes": 689291264,
-        "private_bytes": 525680640,
-        "working_set_bytes": 577048576
-      },
-      "output_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a"
+      "id": "vulkan_amd",
+      "processes": 2,
+      "device": "vulkan:00000000740000000000000000000000",
+      "samples": 4,
+      "exact_frames": 6,
+      "core_ms": 11999.67029,
+      "wall_ms": 12105.860999999999,
+      "process_core_ms": [
+        12698.426080000001,
+        11300.914499999999
+      ],
+      "process_wall_ms": [
+        12807.243699999999,
+        11404.478299999999
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 617922560.0,
+      "host_working_set_bytes": 719224832.0,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
     },
     {
-      "route": "cpu",
-      "variant": "candidate",
-      "iteration": 1,
-      "model_ms": 8382.424700000001,
-      "frame_ms": 8429.5055,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "memory": {
-        "peak_working_set_bytes": 688340992,
-        "private_bytes": 525475840,
-        "working_set_bytes": 576102400
-      },
-      "output_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a"
-    },
-    {
-      "route": "hip_amd",
-      "variant": "candidate",
-      "iteration": 0,
-      "model_ms": 13188.150507220766,
-      "frame_ms": 13836.0898,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "memory": {
-        "peak_working_set_bytes": 339705856,
-        "private_bytes": 99041280,
-        "working_set_bytes": 144175104
-      },
-      "output_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a"
-    },
-    {
-      "route": "hip_amd",
-      "variant": "candidate",
-      "iteration": 1,
-      "model_ms": 13203.91565156891,
-      "frame_ms": 13855.4519,
-      "resident_bytes": 475404968,
-      "scratch_bytes": 323878912,
-      "memory": {
-        "peak_working_set_bytes": 339755008,
-        "private_bytes": 99536896,
-        "working_set_bytes": 144285696
-      },
-      "output_sha256": "7cc3cf3d004109c5997acc3245975b229c73fe1dbffc1bda5f285379c14ffc8a"
+      "id": "sycl_cpu",
+      "processes": 2,
+      "device": "sycl:cpu",
+      "samples": 4,
+      "exact_frames": 6,
+      "core_ms": 11291.047375,
+      "wall_ms": 11370.677775,
+      "process_core_ms": [
+        11250.735950000002,
+        11331.358799999998
+      ],
+      "process_wall_ms": [
+        11330.415,
+        11410.94055
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 1006649344.0,
+      "host_working_set_bytes": 833222656.0,
+      "operator_clock": "CPU queue events",
+      "cpu_threads": 32
     }
   ],
-  "receipt_sha256": {
-    "final_gpu_ab/report.json": "011e0fd734446a11bb4f591941c2fd0f4ddd7bb55fb49045695c8a8d1a3d0f26",
-    "cpu_hip_ab/report.json": "02b67b734d50df0763ece5642692680647d66facbacda35078e5a7d1642adbba",
-    "final_validation/portable_validation.json": "60edd36beeb600d5a4c4fb4ed8c48b74975fb84d4c1dd01c013bab5ba8fe0915"
-  },
-  "exact_temporal_ab_frames": 144,
-  "exact_saved_regression_frames": 42,
-  "validated_routes": [
-    "cpu",
-    "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
-    "hip:30303030303131363030303030303030",
-    "sycl:cpu",
-    "vulkan:00000000740000000000000000000000",
-    "vulkan:1b962af4ae3f9cf1b93a70efe043a13d"
-  ],
-  "unchanged_rows": "Vulkan AMD and SYCL CPU use the 12 October timings in measurements.json; validated again, not rebenchmarked."
+  "exact_frames": 92,
+  "evidence_sha256": {
+    "build\\regular_performance_20261014\\payload_receipt.json": "30348b73a49d7bb1e462388e30a5ce768977614f5b67caca1d20233e6ae144bf",
+    "build\\regular_performance_20261014\\native_results.json": "f00e3fd22e188591f7545b58fb04280c81e0b8421a5b40a5c135ca0b2c7401c9",
+    "build\\regular_performance_20261014\\portable\\report.json": "d6e0547cad5fa7caadb5029f94b4e76d858d971ae9510c6c228c7324d0029655",
+    "build\\regular_performance_20261014\\control_results.json": "d37374827e2e9f111dea3082abf62258bff27d58100d6fa973dad49651ea37be",
+    "build\\regular_performance_tools_ready_20261014\\build_report.json": "015465ff2fe9b23bbe915dc942641fb76a61742962ace6aee83cf980f3e4c73e",
+    "build\\regular_performance_runner_20261014\\build_report.json": "97e8bec4f7e9ab3d5d2aaa7893aa68628a9ca54838d404028aff6c6e7eeff399"
+  }
 }

@@ -82,7 +82,7 @@ int main() {
                 std::filesystem::remove(folder, e);
             }
         } cleanup{folder};
-        auto source = WeightSource::config({{"kind", "model_folder"}, {"path", folder.u8string()}});
+        auto source = WeightSource::config({{"kind", "model_folder"}, {"path", source_path_string(folder)}});
         check(source.external() && source.disk_model() && source.dll.empty());
         check(WeightSource::config(source.configuration()).folder == folder);
         auto read = [](const uint8_t*, size_t) { return 0; };
@@ -94,7 +94,7 @@ int main() {
         rejects([] { WeightSource::config({{"kind", "model_folder"}, {"path", ""}}); });
         rejects([&] {
             WeightSource::config({{"kind", "model_folder"},
-                                  {"path", folder.u8string()},
+                                  {"path", source_path_string(folder)},
                                   {"sha256", std::string(64, '0')}});
         });
         auto empty = source;

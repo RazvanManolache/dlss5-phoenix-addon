@@ -18,6 +18,7 @@ class VulkanBackend final : public Backend {
     size_t submission_size = 256;
     bool detailed_profile = false;
     unsigned matrix_rows = 0;
+    bool scalar_attention = false;
     bool prefer_unfused_attention = false;
     static std::mutex& global() {
         static std::mutex m;
@@ -71,7 +72,8 @@ class VulkanBackend final : public Backend {
         module = open_library(folder / library_name("phoenix_vulkan"));
         demand(module != nullptr, "Vulkan provider load failed");
         auto shader_path = [&](const char* name) { return (folder / name).string(); };
-        auto matrix_shader = shader_path("gemm_portable.spv");
+        auto matrix_shader = shader_path(options & VulkanTiledFallback
+                                            ? "gemm_portable_tiled.spv" : "gemm_portable.spv");
         auto elementwise_shader = shader_path("resident.spv");
         auto attention_shader = shader_path("attention.spv");
         auto history_shader = shader_path("history.spv");
@@ -88,6 +90,11 @@ class VulkanBackend final : public Backend {
         auto parallel_rows = shader_path("attention_rows.spv");
         check(call<int>("xmx_rows_init", parallel_rows.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
+        scalar_attention = !matrix_rows && (options & VulkanScalarAttention);
+        if (!matrix_rows && (options & VulkanTiledFallback) && (options & VulkanCoalescedFallback)) {
+            auto coalesced_shader = shader_path("gemm_portable_coalesced.spv");
+            check(call<int>("phoenix_native_coalesced_init", coalesced_shader.c_str()));
+        }
         const bool shape_matrices =
             (options & VulkanShapeMatrices) && call<unsigned>("phoenix_native_vendor") == 0x10de;
         if (shape_matrices || (options & (VulkanWideColumns32 | VulkanWideColumns64))) {
@@ -99,8 +106,9 @@ class VulkanBackend final : public Backend {
         // fused attention shader is slower than separate ordered operators.
         prefer_unfused_attention = call<unsigned>("phoenix_native_vendor") == 0x1002 &&
                                    call<unsigned>("phoenix_native_device_id") == 0x13c0;
-        if (matrix_rows) {
-            auto window = shader_path(matrix_rows == 8 ? "phoenix_window_attention8.spv"
+        if (matrix_rows || scalar_attention) {
+            auto window = shader_path(scalar_attention ? "phoenix_window_attention_scalar.spv"
+                                     : matrix_rows == 8 ? "phoenix_window_attention8.spv"
                                                        : "phoenix_window_attention.spv");
             check(call<int>("xmx_window_init", window.c_str(), 1u));
         }
@@ -126,7 +134,8 @@ class VulkanBackend final : public Backend {
     }
     uint32_t features() const {
         return DeviceFeaturePacking |
-               (matrix_rows ? FusedWindowAttention | FusedMatrixResidual : 0) |
+               (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
+               (matrix_rows ? FusedMatrixResidual : 0) |
                (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0);
     }
     const char* name() const override {
@@ -192,12 +201,15 @@ class VulkanBackend final : public Backend {
                 for (auto& command : commands) {
                     auto operation = command.operation;
                     if (operation.family == phx::MatrixMultiply) {
-                        if (operation.flags & phx::MatrixResidual)
+                        if (operation.flags & phx::MatrixResidual) {
+                            demand(matrix_rows != 0,
+                                   "Fused matrix residual requires Vulkan cooperative matrices");
                             call<void>("phoenix_native_matrix_residual",
                                        buffer_id(operation.auxiliary),
                                        buffer_id(operation.secondary_output),
                                        uint64_t(offset(operation.auxiliary, 1)),
                                        uint64_t(offset(operation.secondary_output, 1)));
+                        }
                         check(call<int>(
                             "xmx_rec_gemm", buffer_id(operation.left_input),
                             buffer_id(operation.right_input), buffer_id(operation.output),

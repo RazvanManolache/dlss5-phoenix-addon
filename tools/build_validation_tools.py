@@ -63,7 +63,8 @@ def main():
         command = [
             "cl",
             "/nologo",
-            "/std:c++17",
+            "/std:c++20",
+            "/Zc:__cplusplus",
             "/O2",
             "/EHsc",
             "/MD",

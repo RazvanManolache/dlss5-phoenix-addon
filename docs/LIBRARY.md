@@ -15,6 +15,7 @@ native RTX charts.
 | Linux x64 | C shared library; portable CPU and Vulkan build paths | Built and CPU tests/full-model frame run under Ubuntu 22.04 WSL |
 | macOS, Apple silicon | C dynamic library; Metal compute backend and portable CPU | Apple compiler/MSL and CPU suites pass in macOS 14 ARM64 CI; full-model GPU execution unvalidated |
 | Android ARM64 | NDK C shared library; portable CPU and Vulkan | Cross-compilation; no phone GPU or full-model execution certified |
+| Android x86_64 emulator | NDK library with a JNI/OpenGL game-frame harness | Full-model CPU/Vulkan execution; three Vulkan image sizes match Windows portable Vulkan byte for byte; physical phones remain untested |
 
 Metal is an initial correctness implementation, with resident buffers, ordered
 GPU dispatches, packed FP8 weight decoding and explicit half/FP8 publication.
@@ -30,6 +31,20 @@ layout, the Vulkan memory model and support for a 32-lane subgroup. Cooperative
 matrices are optional and used only when their shapes are advertised. Basic
 Vulkan availability on a phone does not guarantee these requirements. Unsupported
 devices are rejected; no hidden CPU fallback is reported as GPU inference.
+
+Devices without cooperative matrices now use an ordered 32×32 shared-memory
+matrix tile. Packed expanding projections and large 128-to-32 contractions
+use coalesced weight loads; other shapes retain the simpler tile. This changes
+data reuse, not precision or model weights. Matrix-capable devices retain their
+existing accelerated route. Status reports `vulkan_matrix_acceleration` and
+`vulkan_fallback_tile` so these paths can be distinguished.
+
+Advanced comparison overrides are `vulkan_tiled_fallback=false` (the previous
+8×16 fallback) and `vulkan_coalesced_fallback=false` (the simple 32×32 tile).
+The tested `vulkan_scalar_attention=true` alternative fuses local attention
+without matrix extensions, using 6 KiB of workgroup storage. It remains opt-in:
+operator/model output checks pass, but full-call speed gains were inconclusive.
+These options do not disable an available matrix-accelerated route.
 
 Linux CUDA and a Mac/Android game overlay are not implemented by this port.
 Applications must supply their own image/graphics integration. Host-plane

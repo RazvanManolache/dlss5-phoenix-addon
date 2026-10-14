@@ -24,6 +24,9 @@ enum BackendOption : uint32_t {
     VulkanShapeMatrices = 1u << 18,
     VulkanHardwareHalf = 1u << 19,
     VulkanGenericWide = 1u << 20,
+    VulkanTiledFallback = 1u << 21, // Shared-memory FP32 tiles; no matrix extension required.
+    VulkanCoalescedFallback = 1u << 22, // Contiguous loads for measured fallback matrix shapes.
+    VulkanScalarAttention = 1u << 23, // Shared-memory attention without matrix extensions.
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,

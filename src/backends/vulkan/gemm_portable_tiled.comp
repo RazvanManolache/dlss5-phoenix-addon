@@ -1,0 +1,111 @@
+#version 450
+// Ordered FP32 matrix multiplication for devices without cooperative matrices.
+// Reuse each decoded weight across multiple output rows. Arithmetic and the
+// resident packet remain identical to gemm_portable.comp, including tail loads.
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#include "publish.glsl"
+#ifndef TILE_ROWS
+#define TILE_ROWS 32
+#endif
+#ifndef TILE_COLUMNS
+#define TILE_COLUMNS 32
+#endif
+#ifndef TILE_REDUCTION
+#define TILE_REDUCTION 32
+#endif
+#ifndef TILE_THREADS
+#define TILE_THREADS 128
+#endif
+layout(local_size_x = TILE_THREADS) in;
+layout(buffer_reference, scalar, buffer_reference_align = 2) buffer HalfBuf { float16_t v[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer FloatBuf { float v[]; };
+// Shared resident ABI: a/b/c/d are activations, weights, output and auxiliary;
+// m/n/k are output rows, output columns and reduction width. Strides count
+// elements rather than bytes. The reserved tail preserves packet alignment.
+layout(push_constant, scalar) uniform Push {
+    HalfBuf a, b;
+    FloatBuf c, d;
+    uint m, n, k, batch, sa, sb, sc, flags;
+    float p0, p1, p2, p3;
+    uint lda, ldb, ldc, spare;
+    uint64_t residual_cos;
+    uint image_h, image_w, window_cols, window_pad;
+    uint64_t qkv_scale;
+} pc;
+#include "specialize.glsl"
+#include "packed_weight.glsl"
+shared float activation_tile[TILE_ROWS * TILE_REDUCTION];
+// Padding avoids shared-memory bank conflicts when transposed model weights
+// are loaded in contiguous reduction order and written across reduction rows.
+#ifdef COALESCED_WEIGHTS
+const uint weight_stride = TILE_COLUMNS + 1u;
+#else
+const uint weight_stride = TILE_COLUMNS;
+#endif
+shared float weight_tile[TILE_REDUCTION * weight_stride];
+const uint outputs_per_thread = TILE_ROWS * TILE_COLUMNS / TILE_THREADS;
+
+void main() {
+    uint flags = operation_flags();
+    uint left_stride = pc.lda == 0u ? pc.k : pc.lda;
+    uint right_stride = pc.ldb == 0u ? ((flags & 1u) != 0u ? pc.k : pc.n) : pc.ldb;
+    uint output_stride = pc.ldc == 0u ? pc.n : pc.ldc;
+    uint row_tiles = (pc.m + TILE_ROWS - 1u) / TILE_ROWS;
+    uint tile_index = gl_WorkGroupID.y + gl_WorkGroupID.z * gl_NumWorkGroups.y;
+    uint batch_index = tile_index / row_tiles;
+    if (batch_index >= max(pc.batch, 1u)) return;
+    uint first_row = (tile_index % row_tiles) * TILE_ROWS;
+    uint first_column = gl_WorkGroupID.x * TILE_COLUMNS;
+    uint left_batch = batch_index * pc.sa, right_batch = batch_index * pc.sb;
+    uint output_batch = batch_index * pc.sc, thread_index = gl_LocalInvocationID.x;
+    bool transposed = (flags & 1u) != 0u;
+    precise float sums[outputs_per_thread];
+    for (uint slot = 0u; slot < outputs_per_thread; ++slot) sums[slot] = 0.0;
+    for (uint first_reduction = 0u; first_reduction < pc.k; first_reduction += TILE_REDUCTION) {
+        for (uint element = thread_index; element < TILE_ROWS * TILE_REDUCTION; element += TILE_THREADS) {
+            uint row = first_row + element / TILE_REDUCTION;
+            uint reduction = first_reduction + element % TILE_REDUCTION;
+            activation_tile[element] = row < pc.m && reduction < pc.k
+                ? float(pc.a.v[left_batch + row * left_stride + reduction]) : 0.0;
+        }
+        for (uint element = thread_index; element < TILE_REDUCTION * TILE_COLUMNS; element += TILE_THREADS) {
+#ifdef COALESCED_WEIGHTS
+            uint tile_reduction = transposed ? element % TILE_REDUCTION : element / TILE_COLUMNS;
+            uint tile_column = transposed ? element / TILE_REDUCTION : element % TILE_COLUMNS;
+#else
+            uint tile_reduction = element / TILE_COLUMNS;
+            uint tile_column = element % TILE_COLUMNS;
+#endif
+            uint reduction = first_reduction + tile_reduction;
+            uint column = first_column + tile_column;
+            weight_tile[tile_reduction * weight_stride + tile_column] = reduction < pc.k && column < pc.n
+                ? matrix_b(right_batch + (transposed
+                    ? column * right_stride + reduction : reduction * right_stride + column)) : 0.0;
+        }
+        barrier();
+        // All outputs retain ascending reduction/FMA order. Wider tiles change
+        // data reuse and scheduling only, not precision or publication points.
+        for (uint reduction = 0u; reduction < min(TILE_REDUCTION, pc.k - first_reduction); ++reduction) {
+            float weight = weight_tile[reduction * weight_stride + thread_index % TILE_COLUMNS];
+            for (uint slot = 0u; slot < outputs_per_thread; ++slot) {
+                uint tile_row = (thread_index + slot * TILE_THREADS) / TILE_COLUMNS;
+                sums[slot] = fma(activation_tile[tile_row * TILE_REDUCTION + reduction], weight, sums[slot]);
+            }
+        }
+        barrier();
+    }
+    for (uint slot = 0u; slot < outputs_per_thread; ++slot) {
+        uint element = thread_index + slot * TILE_THREADS;
+        uint row = first_row + element / TILE_COLUMNS, column = first_column + element % TILE_COLUMNS;
+        if (row >= pc.m || column >= pc.n || ((flags & 0x10000u) != 0u && column >= 4u)) continue;
+        uint target = output_batch + row * output_stride + column;
+        float value = publish((flags >> 8u) & 15u, sums[slot]);
+        if ((flags & 0x1000u) != 0u) HalfBuf(uint64_t(pc.c)).v[target] = float16_t(value);
+        else pc.c.v[target] = value;
+    }
+}

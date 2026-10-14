@@ -1,0 +1,213 @@
+{
+  "schema": "phoenix-bridge-fixes/1",
+  "date": "2026-10-14",
+  "passed": true,
+  "source_commit": "474e985",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "driver": "616.64",
+    "cpu": "AMD Ryzen 9 9950X3D",
+    "cores": 16,
+    "logical_threads": 32
+  },
+  "binaries": {
+    "Phoenix.addon64": {
+      "bytes": 198256128,
+      "sha256": "6f7ff07ac9d8240109e6ceb021f12905edacf7d4847545e383164e1168fe50ce"
+    },
+    "Phoenix.addon32": {
+      "bytes": 199054336,
+      "sha256": "0fba7253b060c2cb92a3bc1fefc15069d92bd6fbabfb05079d78535bc575d387"
+    },
+    "phoenix_graphics_host.exe": {
+      "bytes": 542208,
+      "sha256": "2d4f9655e0449691b887ec5e0264ba341a29476bdd70398eb2ae6ace787e7f34"
+    }
+  },
+  "model_or_vendor_dll_included": false,
+  "checks": {
+    "cpu_suites": 15,
+    "software_d3d12_suites": 2,
+    "ipc_checks": 92,
+    "shared_ui_contexts": 48,
+    "api_static": 7,
+    "api_motion": 7,
+    "api_control_and_screenshots": 7,
+    "api_multiwindow": 1,
+    "fp16_iterations_bitnesses": [
+      32,
+      64
+    ],
+    "candidate_model_validation_bitnesses": [
+      32,
+      64
+    ]
+  },
+  "benchmark_scope": "Serial alternating helper-only benchmarks; game capture/display excluded",
+  "benchmark": [
+    {
+      "mode": "cpu_transport",
+      "width": 1920,
+      "height": 1080,
+      "output_sha256": "c522d319b391d6d3f3a6d8167db742ca9e194a733bdf29cb8345794d2fc90302",
+      "baseline": {
+        "roundtrip_ms": 4.3032,
+        "observed_peak_memory": {
+          "helper_private_bytes": 188383232,
+          "helper_working_set_bytes": 168910848,
+          "helper_dedicated_gpu_bytes": 46465024,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "candidate": {
+        "roundtrip_ms": 3.1191,
+        "observed_peak_memory": {
+          "helper_private_bytes": 190349312,
+          "helper_working_set_bytes": 169721856,
+          "helper_dedicated_gpu_bytes": 46465024,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "timing_change_percent": -27.516731734523148
+    },
+    {
+      "mode": "cpu_phoenix",
+      "width": 257,
+      "height": 255,
+      "output_sha256": "ee82aa6bc617736ca7db2d9db0dfd19a02297e6789ecb1bf45ee92b786ba7dbc",
+      "baseline": {
+        "roundtrip_ms": 7.5868,
+        "observed_peak_memory": {
+          "helper_private_bytes": 661475328,
+          "helper_working_set_bytes": 455540736,
+          "helper_dedicated_gpu_bytes": 326623232,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "candidate": {
+        "roundtrip_ms": 6.6601,
+        "observed_peak_memory": {
+          "helper_private_bytes": 660639744,
+          "helper_working_set_bytes": 456097792,
+          "helper_dedicated_gpu_bytes": 326287360,
+          "client_dedicated_gpu_bytes": 13570048
+        }
+      },
+      "timing_change_percent": -12.21463594664417
+    },
+    {
+      "mode": "cpu_phoenix",
+      "width": 1920,
+      "height": 1080,
+      "output_sha256": "5e4d923ecad7350c086fd40ee229298cf1e440ce5c1778e4e44f5e82fa4813c2",
+      "baseline": {
+        "roundtrip_ms": 15.4299,
+        "observed_peak_memory": {
+          "helper_private_bytes": 1130754048,
+          "helper_working_set_bytes": 463261696,
+          "helper_dedicated_gpu_bytes": 764977152,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "candidate": {
+        "roundtrip_ms": 11.3219,
+        "observed_peak_memory": {
+          "helper_private_bytes": 1118547968,
+          "helper_working_set_bytes": 463908864,
+          "helper_dedicated_gpu_bytes": 756527104,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "timing_change_percent": -26.623633335277617
+    },
+    {
+      "mode": "cpu_transport",
+      "width": 3840,
+      "height": 2160,
+      "output_sha256": "9dd5b4b43fc547eb6856a2896f1d52f86b1510a0e6277fd1336f143d69dc8e43",
+      "baseline": {
+        "roundtrip_ms": 19.5114,
+        "observed_peak_memory": {
+          "helper_private_bytes": 240881664,
+          "helper_working_set_bytes": 219922432,
+          "helper_dedicated_gpu_bytes": 46465024,
+          "client_dedicated_gpu_bytes": 13570048
+        }
+      },
+      "candidate": {
+        "roundtrip_ms": 14.4616,
+        "observed_peak_memory": {
+          "helper_private_bytes": 239173632,
+          "helper_working_set_bytes": 218624000,
+          "helper_dedicated_gpu_bytes": 46465024,
+          "client_dedicated_gpu_bytes": 13557760
+        }
+      },
+      "timing_change_percent": -25.881279662146216
+    }
+  ],
+  "real_game_bridge_passed": true,
+  "resize_followup": {
+    "passed": true,
+    "package": "E:\\Games\\Reshade\\dlss5-phoenix-addon\\build\\bridge_resize_cached_package_20261014",
+    "binaries": {
+      "Phoenix.addon64": {
+        "bytes": 198258176,
+        "sha256": "c04132e71517be5743cf3250210a39d7c332d8e450eb6b29a7ae4c6880253c6d"
+      },
+      "Phoenix.addon32": {
+        "bytes": 199058432,
+        "sha256": "e9eefdb48ccb765be47f1536d0d0a603894e7830ab6eefabc4ce85ad80265ffe"
+      },
+      "phoenix_graphics_host.exe": {
+        "bytes": 542208,
+        "sha256": "5d31808a282894e6afcf5b6cd1eaff94897af17a7d39ec0d74f683c0698be98b"
+      }
+    },
+    "model_or_vendor_dll_included": false,
+    "cpu_suites": 15,
+    "software_d3d12_suites": 2,
+    "checks": {
+      "cases": 7,
+      "motion_cases": 7,
+      "control_cases": 7,
+      "resize_cases": 4,
+      "multiwindow_cases": 1
+    },
+    "api_pixel_outputs_identical": true,
+    "changed_input_outputs_identical": true,
+    "x86_new_resize_fixture": "Compilation checked only; no blocked graphics execution bypass",
+    "latency": {
+      "passed": true,
+      "external_device_retention": false,
+      "before": [
+        129.9546,
+        132.161,
+        136.9439
+      ],
+      "after": [
+        5.5733,
+        4.6876,
+        4.672
+      ],
+      "scope": "Three exact DXGI ResizeBuffers calls on active D3D11; helper initialization and fresh-output waits outside timing.",
+      "before_median_ms": 132.161,
+      "after_median_ms": 4.6876,
+      "median_stall_reduction_percent": 96.45311400488798
+    },
+    "source_inputs_verified": 339,
+    "core_source_inputs_verified": 339,
+    "source_hashes": {
+      "src/integration/compatibility/controller.h": "e153739af0d1ccf54c2b95e9297872a2e15443930fae08bc540f1afef38ff2dd",
+      "src/integration/compatibility/d3d11_bridge.h": "4007d78043d6e72966e4b3bdd28bf7a82d376c44bdcb27c51bf559c7963403a5",
+      "tests/native/compatibility_graphics_matrix.cpp": "78c785deec69008379e3f3ab3332a102e18e35e98faa64ccfd5ae88f19a61d50",
+      "tools/test_graphics_apis.py": "95175f0262e024958b785d34c6805c7f2634d3943c175fe38eb7fd168c7faf8c"
+    },
+    "evidence": {
+      "build\\bridge_resize_cached_package_20261014\\report.json": "90c59078355eba012d10bd108097f404f01a03328407e2094b4ca2b1abc0473e",
+      "build\\bridge_resize_cached_core_20261014\\report.json": "c1368c52d7ea342be385ace5b80ada8c5fcf0915a7d6a1f0f78a6f076533c653",
+      "build\\bridge_resize_cached_validation_20261014\\report.json": "60abb8826848dac8cc9552153d6fa819dd9374d2dd5937be39cf57cbfe75d4de",
+      "build\\bridge_resize_verified_20261014\\resize_latency_result.json": "5fbf8612d4c1912c8fa525e205d1ea9551450c132ebb8e4fa39d23a6bcd1f871"
+    }
+  }
+}

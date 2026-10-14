@@ -9,6 +9,8 @@ links, are listed in [EXTERNAL_DEPENDENCIES.md](third_party/EXTERNAL_DEPENDENCIE
 
 | Dependency | Purpose | License and notice location |
 | --- | --- | --- |
+| DLSS5 compatibility host | 64-bit graphics helper and transport | MIT; contributor attribution in [LICENSE](third_party/compatibility_bridge/LICENSE), [NOTICE](third_party/compatibility_bridge/NOTICE), and source import manifest |
+| ReShade helper runtime (build input) | Private D3D12 helper environment | BSD-3-Clause; [license](third_party/compatibility_bridge/ReShade-LICENSE.txt), retained in embedded compatibility notices |
 | MinHook | Windows API hooks | BSD-style terms and Hacker Disassembler Engine component notices in [LICENSE.txt](third_party/minhook/LICENSE.txt) and source headers |
 | ReShade SDK headers | Addon API and overlay integration | `BSD-3-Clause OR MIT` declarations and Patrick Mours copyright notices in [the SDK headers](third_party/reshade/reshade.hpp) |
 | Dear ImGui headers for ReShade | Addon user interface | MIT; Omar Cornut attribution in [LICENSE.txt](third_party/imgui_reshade/LICENSE.txt) and source headers |

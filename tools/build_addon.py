@@ -61,14 +61,15 @@ def main():
         f'call "{visual_studio_path}/VC/Auxiliary/Build/vcvars64.bat" > "{out}/toolchain.log" 2>&1',
         "if errorlevel 1 exit /b 5",
     ]
-    common = f'/nologo /std:c++17 /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
-    libraries = "d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib"
+    common = f'/nologo /std:c++20 /Zc:__cplusplus /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
+    libraries = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib"
     minhook = " ".join(
         f'"{ROOT}/third_party/minhook/src/{source_path}"'
         for source_path in ("hook.c", "buffer.c", "trampoline.c", "hde/hde64.c")
     )
     tests = [
         ("session_tests", "tests.cpp"),
+        ("feeder_api_tests", "feeder_api_tests.cpp"),
         ("memory_tests", "memory_tests.cpp"),
         ("observer_tests", "observer_tests.cpp"),
         ("colour_bridge_tests", "colour_bridge_tests.cpp"),
@@ -79,6 +80,9 @@ def main():
         ("generated_plan_tests", "generated_plan_tests.cpp"),
         ("model_status_tests", "model_status_tests.cpp"),
         ("model_tools_tests", "model_tools_tests.cpp"),
+        ("compatibility_policy_tests", "compatibility_policy_tests.cpp"),
+        ("compatibility_ipc_tests", "compatibility_ipc_tests.cpp"),
+        ("screenshot_tests", "screenshot_tests.cpp"),
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
                       ("resolution_bridge_tests", "resolution_bridge_tests.cpp")]
@@ -95,6 +99,13 @@ def main():
                 "if errorlevel 1 exit /b 12",
             ]
         )
+    # Capture source identity before compilation; receipts must not silently
+    # bless files changed while a build/test is running.
+    source_suffixes = {'.h', '.hpp', '.c', '.cpp', '.cu', '.cuh', '.inc', '.py', '.json'}
+    source_inputs = {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for folder in ('src', 'native_runtime', 'third_party', 'tools', 'tests')
+                     for path in (ROOT / folder).rglob('*')
+                     if path.is_file() and path.suffix in source_suffixes}
     outputs = []
 
     def target(name, source, extra="", addon=False):
@@ -184,6 +195,19 @@ def main():
                     "Inspect build logs and security history if the file disappeared or is locked; "
                     "compiler completion alone does not establish a usable output."
                 ) from error
+        for name, digest in source_inputs.items():
+            if hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != digest:
+                raise RuntimeError("Source changed during compilation/tests: " + name)
+        if not set(closure).issubset(source_inputs):
+            raise RuntimeError("Compiler used source outside the pre-build identity snapshot")
+        report["source_inputs"] = source_inputs
+        if args.embed_runtime:
+            manifest = json.loads((out / 'embedded/manifest.json').read_text())
+            linked = [name + '.obj' for name in ('addon', 'hook', 'buffer', 'trampoline', 'hde64')]
+            linked += ['embedded/manifest.json']
+            linked += [f"embedded/{entry['resource']}.bin" for entry in manifest['files']]
+            report['link_inputs'] = {name: hashlib.sha256((out / name).read_bytes()).hexdigest()
+                                     for name in linked}
         report["artifact_verification_completed"] = True
         report["passed"] = True
     except BaseException as error:

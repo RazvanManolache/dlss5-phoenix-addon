@@ -1,0 +1,6 @@
+DLSS5 Phoenix compatibility host incorporates MIT-licensed code from
+DLSS5 x86/x64 Compatibility Installer contributors, copyright 2026.
+Source snapshot: DLSS5-Feeder-clean-20260901-v2, 2026-10-14.
+Phoenix adaptations: repository include paths, asynchronous game client,
+private helper packaging and lifecycle/transport validation.
+See LICENSE and import_manifest.json. No model or NVIDIA DLL is imported.

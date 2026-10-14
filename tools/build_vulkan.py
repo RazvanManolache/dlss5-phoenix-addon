@@ -46,8 +46,10 @@ def patch_runtime(source):
         "#include <vulkan/vulkan.h>",
         '#include <vulkan/vulkan.h>\n#include "phoenix_devices.h"\nstatic int phx_native_configured;\nstatic char phx_native_uuid[33];\nstatic uint64_t phx_native_view_offsets[5];\nstatic unsigned phx_native_matrix_rows, phx_native_fp8_k, phx_native_workgroup_rows;\nstatic uint64_t phx_native_skip, phx_native_gain;\nstatic VkPipeline phx_wide_pipeline;\nstatic unsigned phx_wide_columns;',
     )
-    replace("char* rpaths[12];", "char* rpaths[13];")
+    replace("char* rpaths[12];", "char* rpaths[14];")
+    replace("static VkPipeline phx_wide_pipeline;", "static VkPipeline phx_wide_pipeline, phx_coalesced_pipeline;")
     replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices, phx_wide_generic;")
+    replace("static unsigned phx_native_matrix_rows,", "static unsigned phx_native_scalar_columns, phx_native_matrix_rows,")
     replace("specialization->mapEntryCount > sizeof entries / sizeof *entries - 2",
             "specialization->mapEntryCount > sizeof entries / sizeof *entries - 3")
     replace("specialization->dataSize > sizeof data - 2 * sizeof(VkBool32)",
@@ -228,11 +230,12 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     replace(
         "else       vkCmdDispatch(g.rcb, (N + 15) / 16, (M + 7) / 8, batch ? batch : 1);",
         """else {
-            unsigned rows=wide?64u:phx_native_workgroup_rows?phx_native_workgroup_rows:g.matrix_rows?g.matrix_rows:8;
+            unsigned rows=coalesced?32u:wide?64u:phx_native_workgroup_rows?phx_native_workgroup_rows:g.matrix_rows?g.matrix_rows:8;
             uint64_t tiles=((uint64_t)M+rows-1)/rows*(batch?batch:1);
             unsigned y=tiles<65535u?(unsigned)tiles:65535u;
             if(!y||tiles>UINT32_MAX)FAIL("Portable GEMM grid exceeds indexing range",0);
-            unsigned columns=wide?phx_wide_columns:16u;
+            unsigned columns=coalesced?32u:wide?phx_wide_columns:
+                !g.matrix_rows&&phx_native_scalar_columns?phx_native_scalar_columns:16u;
             vkCmdDispatch(g.rcb, (N+columns-1)/columns, y, (tiles+y-1)/y);
         }""",
     )
@@ -249,8 +252,15 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
              (K==64u && (N==64u || N==192u || (N==256u && publication==6u))) ||
              (K>=2048u && N<=1024u);
     }
+    // Coalesced weight loads help expanding packed projections and large
+    // 128-to-32 contractions. Other shapes keep the lower-overhead tile.
+    // This choice changes memory access only; both shaders retain ordered FMA.
+    int coalesced=g.portable && !g.matrix_rows && phx_coalesced_pipeline &&
+        (bt&0x2000000u) && ((K>=128u && N>K) || (K==128u && N==32u && M>=16384u));
     VkPipeline pipeline;
-    if(wide && phx_wide_generic) {
+    if(coalesced) {
+        if(resident_pipeline(13,bt,phx_coalesced_pipeline,&pipeline))return -1;
+    } else if(wide && phx_wide_generic) {
         pipeline=phx_wide_pipeline;
     } else if(wide) {
         if(resident_pipeline(12,bt,phx_wide_pipeline,&pipeline))return -1;
@@ -339,6 +349,7 @@ def prepare_sources(out):
         "phoenix_native_operand_offsets",
         "phoenix_native_vendor",
         "phoenix_native_wide_init",
+        "phoenix_native_coalesced_init",
     ]
     (out / "provider.def").write_text("LIBRARY phoenix_vulkan\nEXPORTS\n" + "\n".join(names) + "\n")
     original_gpu = gpu
@@ -454,6 +465,7 @@ def prepare_sources(out):
             ["-DMATRIX_M=16", f"-DFP8_K={reduction_size}"],
         )
     shaders.update(
+        gemm_portable_coalesced=(gpu / "gemm_portable_tiled.comp", ["-DCOALESCED_WEIGHTS=1"]),
         gemm_wide32=(gpu / "gemm_wide.comp", ["-DWIDE_COLUMNS=32"]),
         gemm_wide64=(gpu / "gemm_wide.comp", ["-DWIDE_COLUMNS=64"]),
         gemm_tiled=(gpu / "gemm_resident.comp", ["-DRM=2", "-DRN=2"]),

@@ -1,0 +1,1450 @@
+{
+  "schema": "phoenix-regular-performance-regression/1",
+  "date": "2026-10-14",
+  "passed": true,
+  "source_checkpoint": "c1a6d83b38c64dc5c7e7c6b03008635f63ccbf04",
+  "addon_sha256": "c04132e71517be5743cf3250210a39d7c332d8e450eb6b29a7ae4c6880253c6d",
+  "hardware": {
+    "cpu": "AMD Ryzen 9 9950X3D 16-Core Processor          ",
+    "cores": 16,
+    "threads": 32,
+    "installed_ram_bytes": 103079215104,
+    "nvidia": "NVIDIA GeForce RTX 5080, 616.64, 16303 MiB",
+    "cuda_toolkit": "13.1",
+    "nvidia_model_dll_file_version": "310.8.0.0"
+  },
+  "model_dll_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "model_or_nvidia_dll_embedded": false,
+  "native_kernel_manifest_identical_to_previous": true,
+  "portable_runtime_files_identical_to_previous": [
+    "runtime/OpenCL.dll",
+    "runtime/amd_comgr.dll",
+    "runtime/amdhip64_7.dll",
+    "runtime/opencl_cpu/OpenCL.dll",
+    "runtime/opencl_cpu/cl.cfg",
+    "runtime/opencl_cpu/clbltfne9.rtl",
+    "runtime/opencl_cpu/clbltfnh8.rtl",
+    "runtime/opencl_cpu/clbltfnl9.rtl",
+    "runtime/opencl_cpu/clbltfnshared.rtl",
+    "runtime/opencl_cpu/clbltfnz0.rtl",
+    "runtime/opencl_cpu/clbltfnz1.rtl",
+    "runtime/opencl_cpu/cllibrary.rtl",
+    "runtime/opencl_cpu/cllibrarye9.o",
+    "runtime/opencl_cpu/cllibraryh8.o",
+    "runtime/opencl_cpu/cllibraryl9.o",
+    "runtime/opencl_cpu/cllibraryz0.o",
+    "runtime/opencl_cpu/cllibraryz1.o",
+    "runtime/opencl_cpu/common_clang64.dll",
+    "runtime/opencl_cpu/intelocl64.dll",
+    "runtime/opencl_cpu/libocl_svml_e9.dll",
+    "runtime/opencl_cpu/libocl_svml_h8.dll",
+    "runtime/opencl_cpu/libocl_svml_l9.dll",
+    "runtime/opencl_cpu/libocl_svml_z0.dll",
+    "runtime/opencl_cpu/libocl_svml_z1.dll",
+    "runtime/opencl_cpu/tbb12.dll",
+    "runtime/opencl_cpu/tbbbind.dll",
+    "runtime/opencl_cpu/tbbbind_2_0.dll",
+    "runtime/opencl_cpu/tbbbind_2_5.dll",
+    "runtime/opencl_cpu/tbbmalloc.dll",
+    "runtime/opencl_cpu/tbbmalloc_proxy.dll",
+    "runtime/phoenix_cpp_devices.exe",
+    "runtime/phoenix_cpu_cpp.dll",
+    "runtime/phoenix_cuda_cpp.dll",
+    "runtime/phoenix_d3d12_transport.dll",
+    "runtime/phoenix_hip_cpp.dll",
+    "runtime/phoenix_native_broker.exe",
+    "runtime/phoenix_runtime_cpp.dll",
+    "runtime/phoenix_sycl_cpp.dll",
+    "runtime/phoenix_vulkan_cpp.dll",
+    "runtime/rocm_kpack.dll",
+    "runtime/sycl9.dll",
+    "runtime/ur_adapter_opencl.dll",
+    "runtime/ur_loader.dll",
+    "runtime/ur_win_proxy_loader.dll",
+    "runtime/vulkan/attention.spv",
+    "runtime/vulkan/attention_rows.spv",
+    "runtime/vulkan/ffn_fused.spv",
+    "runtime/vulkan/frame_features.spv",
+    "runtime/vulkan/gemm_coopmat.spv",
+    "runtime/vulkan/gemm_coopmat_batched.spv",
+    "runtime/vulkan/gemm_coopmat_f16acc.spv",
+    "runtime/vulkan/gemm_coopmat_int8.spv",
+    "runtime/vulkan/gemm_fp816.spv",
+    "runtime/vulkan/gemm_fp832.spv",
+    "runtime/vulkan/gemm_fp864.spv",
+    "runtime/vulkan/gemm_matrix.spv",
+    "runtime/vulkan/gemm_matrix16.spv",
+    "runtime/vulkan/gemm_matrix16x4.spv",
+    "runtime/vulkan/gemm_matrix8.spv",
+    "runtime/vulkan/gemm_portable.spv",
+    "runtime/vulkan/gemm_resident.spv",
+    "runtime/vulkan/gemm_smallm.spv",
+    "runtime/vulkan/gemm_staged.spv",
+    "runtime/vulkan/gemm_staged32.spv",
+    "runtime/vulkan/gemm_staged32_deep.spv",
+    "runtime/vulkan/gemm_staged_int8.spv",
+    "runtime/vulkan/gemm_tiled.spv",
+    "runtime/vulkan/gemm_wide32.spv",
+    "runtime/vulkan/gemm_wide64.spv",
+    "runtime/vulkan/global_attention.spv",
+    "runtime/vulkan/history.spv",
+    "runtime/vulkan/phoenix_vulkan.dll",
+    "runtime/vulkan/phoenix_window_attention.spv",
+    "runtime/vulkan/phoenix_window_attention8.spv",
+    "runtime/vulkan/resident.spv",
+    "runtime/vulkan/window_attention.spv",
+    "runtime/vulkan/window_block.spv"
+  ],
+  "native_scope": "Current automatic native selection. Same synthetic RGBA16F/RG16F zero-motion, model, controls,8 blocks,1 pass. PNNP order;2 processes/route/extent,128 frames each,discard32;mean of process medians. GPU interval excludes uploads/readbacks. Stock clocks observed, not locked.",
+  "portable_scope": "Current addon payload. Replayed saved chart fixtures and controls with exact hashes on every frame. Startup, file I/O and hashing excluded from call_ms. Serial fresh processes; GPU and CPU clocks not locked. GPU routes use GPU operator timestamps; CPU/SYCL CPU operator times are host measurements.",
+  "native": [
+    {
+      "width": 640,
+      "height": 360,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 1.9222320000000002,
+          "process_medians_ms": [
+            1.92328,
+            1.921184
+          ],
+          "wall_ms": 2.3155,
+          "device_local_bytes": 309338112.0,
+          "host_private_bytes": 630843392.0,
+          "host_working_set_bytes": 306966528.0,
+          "telemetry": [
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2789.5,
+                "min": 2767.0,
+                "max": 2812.0
+              },
+              "temperature.gpu": {
+                "median": 40.0,
+                "min": 37.0,
+                "max": 43.0
+              },
+              "power.draw": {
+                "median": 50.12,
+                "min": 41.66,
+                "max": 58.58
+              },
+              "utilization.gpu": {
+                "median": 43.0,
+                "min": 4.0,
+                "max": 82.0
+              }
+            },
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2745.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 37.0,
+                "min": 37.0,
+                "max": 37.0
+              },
+              "power.draw": {
+                "median": 40.67,
+                "min": 40.67,
+                "max": 40.67
+              },
+              "utilization.gpu": {
+                "median": 2.0,
+                "min": 2.0,
+                "max": 2.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 2.0074,
+          "process_medians_ms": [
+            2.00784,
+            2.0069600000000003
+          ],
+          "wall_ms": 2.5946749999999996,
+          "device_local_bytes": 459497472.0,
+          "host_private_bytes": 695767040.0,
+          "host_working_set_bytes": 367857664.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2775.0,
+                "max": 2842.0
+              },
+              "temperature.gpu": {
+                "median": 37.0,
+                "min": 37.0,
+                "max": 43.0
+              },
+              "power.draw": {
+                "median": 42.68,
+                "min": 42.68,
+                "max": 63.84
+              },
+              "utilization.gpu": {
+                "median": 5.0,
+                "min": 5.0,
+                "max": 83.0
+              }
+            },
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2775.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 37.0,
+                "min": 37.0,
+                "max": 37.0
+              },
+              "power.draw": {
+                "median": 42.46,
+                "min": 42.46,
+                "max": 42.46
+              },
+              "utilization.gpu": {
+                "median": 7.0,
+                "min": 7.0,
+                "max": 7.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 854,
+      "height": 480,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 2.088304,
+          "process_medians_ms": [
+            2.089312,
+            2.0872960000000003
+          ],
+          "wall_ms": 2.6207249999999997,
+          "device_local_bytes": 334176256.0,
+          "host_private_bytes": 661567488.0,
+          "host_working_set_bytes": 310716416.0,
+          "telemetry": [
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2775.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 38.0
+              },
+              "power.draw": {
+                "median": 42.57,
+                "min": 42.57,
+                "max": 42.57
+              },
+              "utilization.gpu": {
+                "median": 7.0,
+                "min": 7.0,
+                "max": 7.0
+              }
+            },
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2782.0,
+                "min": 2782.0,
+                "max": 2782.0
+              },
+              "temperature.gpu": {
+                "median": 43.0,
+                "min": 43.0,
+                "max": 43.0
+              },
+              "power.draw": {
+                "median": 49.02,
+                "min": 49.02,
+                "max": 49.02
+              },
+              "utilization.gpu": {
+                "median": 61.0,
+                "min": 61.0,
+                "max": 61.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 2.158608,
+          "process_medians_ms": [
+            2.15832,
+            2.158896
+          ],
+          "wall_ms": 2.786675,
+          "device_local_bytes": 482762752.0,
+          "host_private_bytes": 725575680.0,
+          "host_working_set_bytes": 367685632.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2760.0,
+                "min": 2760.0,
+                "max": 2760.0
+              },
+              "temperature.gpu": {
+                "median": 37.0,
+                "min": 37.0,
+                "max": 37.0
+              },
+              "power.draw": {
+                "median": 42.11,
+                "min": 42.11,
+                "max": 42.11
+              },
+              "utilization.gpu": {
+                "median": 7.0,
+                "min": 7.0,
+                "max": 7.0
+              }
+            },
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2782.0,
+                "min": 2782.0,
+                "max": 2782.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 38.0
+              },
+              "power.draw": {
+                "median": 42.95,
+                "min": 42.95,
+                "max": 42.95
+              },
+              "utilization.gpu": {
+                "median": 6.0,
+                "min": 6.0,
+                "max": 6.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 960,
+      "height": 540,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 2.125712,
+          "process_medians_ms": [
+            2.126848,
+            2.1245760000000002
+          ],
+          "wall_ms": 2.5418250000000002,
+          "device_local_bytes": 356392960.0,
+          "host_private_bytes": 688089088.0,
+          "host_working_set_bytes": 312612864.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2775.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 38.0
+              },
+              "power.draw": {
+                "median": 42.26,
+                "min": 42.26,
+                "max": 42.26
+              },
+              "utilization.gpu": {
+                "median": 6.0,
+                "min": 6.0,
+                "max": 6.0
+              }
+            },
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2745.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 38.0
+              },
+              "power.draw": {
+                "median": 41.66,
+                "min": 41.66,
+                "max": 41.66
+              },
+              "utilization.gpu": {
+                "median": 9.0,
+                "min": 9.0,
+                "max": 9.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 2.22816,
+          "process_medians_ms": [
+            2.229872,
+            2.226448
+          ],
+          "wall_ms": 2.7965,
+          "device_local_bytes": 503472128.0,
+          "host_private_bytes": 748429312.0,
+          "host_working_set_bytes": 367953920.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2752.0,
+                "min": 2752.0,
+                "max": 2752.0
+              },
+              "temperature.gpu": {
+                "median": 44.0,
+                "min": 44.0,
+                "max": 44.0
+              },
+              "power.draw": {
+                "median": 49.97,
+                "min": 49.97,
+                "max": 49.97
+              },
+              "utilization.gpu": {
+                "median": 58.0,
+                "min": 58.0,
+                "max": 58.0
+              }
+            },
+            {
+              "samples": 2,
+              "clocks.current.sm": {
+                "median": 2737.0,
+                "min": 2737.0,
+                "max": 2737.0
+              },
+              "temperature.gpu": {
+                "median": 44.0,
+                "min": 44.0,
+                "max": 44.0
+              },
+              "power.draw": {
+                "median": 48.8,
+                "min": 48.8,
+                "max": 48.8
+              },
+              "utilization.gpu": {
+                "median": 55.0,
+                "min": 55.0,
+                "max": 55.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 2.497128,
+          "process_medians_ms": [
+            2.495568,
+            2.498688
+          ],
+          "wall_ms": 2.954675,
+          "device_local_bytes": 414326784.0,
+          "host_private_bytes": 754665472.0,
+          "host_working_set_bytes": 320712704.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2767.0,
+                "min": 2767.0,
+                "max": 2767.0
+              },
+              "temperature.gpu": {
+                "median": 49.0,
+                "min": 49.0,
+                "max": 49.0
+              },
+              "power.draw": {
+                "median": 61.94,
+                "min": 61.94,
+                "max": 61.94
+              },
+              "utilization.gpu": {
+                "median": 82.0,
+                "min": 82.0,
+                "max": 82.0
+              }
+            },
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2775.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 38.0
+              },
+              "power.draw": {
+                "median": 42.5,
+                "min": 42.5,
+                "max": 42.5
+              },
+              "utilization.gpu": {
+                "median": 6.0,
+                "min": 6.0,
+                "max": 6.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 2.5889040000000003,
+          "process_medians_ms": [
+            2.590224,
+            2.587584
+          ],
+          "wall_ms": 3.19595,
+          "device_local_bytes": 558063616.0,
+          "host_private_bytes": 797009920.0,
+          "host_working_set_bytes": 367083520.0,
+          "telemetry": [
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2812.0,
+                "min": 2805.0,
+                "max": 2812.0
+              },
+              "temperature.gpu": {
+                "median": 38.0,
+                "min": 38.0,
+                "max": 52.0
+              },
+              "power.draw": {
+                "median": 44.43,
+                "min": 44.43,
+                "max": 92.56
+              },
+              "utilization.gpu": {
+                "median": 3.0,
+                "min": 3.0,
+                "max": 82.0
+              }
+            },
+            {
+              "samples": 3,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2745.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 49.0,
+                "min": 49.0,
+                "max": 49.0
+              },
+              "power.draw": {
+                "median": 61.4,
+                "min": 61.4,
+                "max": 61.4
+              },
+              "utilization.gpu": {
+                "median": 79.0,
+                "min": 79.0,
+                "max": 79.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 3.828824,
+          "process_medians_ms": [
+            3.824592,
+            3.833056
+          ],
+          "wall_ms": 4.41625,
+          "device_local_bytes": 585965568.0,
+          "host_private_bytes": 942645248.0,
+          "host_working_set_bytes": 343826432.0,
+          "telemetry": [
+            {
+              "samples": 4,
+              "clocks.current.sm": {
+                "median": 2775.0,
+                "min": 2752.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 57.0,
+                "min": 38.0,
+                "max": 57.0
+              },
+              "power.draw": {
+                "median": 108.71,
+                "min": 41.35,
+                "max": 108.71
+              },
+              "utilization.gpu": {
+                "median": 86.0,
+                "min": 4.0,
+                "max": 86.0
+              }
+            },
+            {
+              "samples": 4,
+              "clocks.current.sm": {
+                "median": 2752.0,
+                "min": 2752.0,
+                "max": 2752.0
+              },
+              "temperature.gpu": {
+                "median": 46.0,
+                "min": 46.0,
+                "max": 46.0
+              },
+              "power.draw": {
+                "median": 47.67,
+                "min": 47.67,
+                "max": 47.67
+              },
+              "utilization.gpu": {
+                "median": 28.0,
+                "min": 28.0,
+                "max": 28.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 3.8635520000000003,
+          "process_medians_ms": [
+            3.860624,
+            3.86648
+          ],
+          "wall_ms": 4.5440249999999995,
+          "device_local_bytes": 719872000.0,
+          "host_private_bytes": 959277056.0,
+          "host_working_set_bytes": 368050176.0,
+          "telemetry": [
+            {
+              "samples": 4,
+              "clocks.current.sm": {
+                "median": 2790.0,
+                "min": 2760.0,
+                "max": 2790.0
+              },
+              "temperature.gpu": {
+                "median": 56.0,
+                "min": 39.0,
+                "max": 56.0
+              },
+              "power.draw": {
+                "median": 104.74,
+                "min": 44.55,
+                "max": 104.74
+              },
+              "utilization.gpu": {
+                "median": 86.0,
+                "min": 5.0,
+                "max": 86.0
+              }
+            },
+            {
+              "samples": 4,
+              "clocks.current.sm": {
+                "median": 2752.0,
+                "min": 2752.0,
+                "max": 2805.0
+              },
+              "temperature.gpu": {
+                "median": 39.0,
+                "min": 39.0,
+                "max": 58.0
+              },
+              "power.draw": {
+                "median": 42.47,
+                "min": 42.47,
+                "max": 142.51
+              },
+              "utilization.gpu": {
+                "median": 6.0,
+                "min": 6.0,
+                "max": 86.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 2560,
+      "height": 1440,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 6.261704,
+          "process_medians_ms": [
+            6.24128,
+            6.282128
+          ],
+          "wall_ms": 6.815125,
+          "device_local_bytes": 795877376.0,
+          "host_private_bytes": 1185869824.0,
+          "host_working_set_bytes": 376029184.0,
+          "telemetry": [
+            {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2760.0,
+                "min": 2760.0,
+                "max": 2767.0
+              },
+              "temperature.gpu": {
+                "median": 60.0,
+                "min": 39.0,
+                "max": 60.0
+              },
+              "power.draw": {
+                "median": 151.32,
+                "min": 42.56,
+                "max": 151.32
+              },
+              "utilization.gpu": {
+                "median": 91.0,
+                "min": 5.0,
+                "max": 91.0
+              }
+            },
+            {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2745.0,
+                "max": 2790.0
+              },
+              "temperature.gpu": {
+                "median": 63.0,
+                "min": 41.0,
+                "max": 63.0
+              },
+              "power.draw": {
+                "median": 176.91,
+                "min": 44.61,
+                "max": 176.91
+              },
+              "utilization.gpu": {
+                "median": 92.0,
+                "min": 8.0,
+                "max": 92.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 6.151832,
+          "process_medians_ms": [
+            6.1456,
+            6.1580639999999995
+          ],
+          "wall_ms": 6.811624999999999,
+          "device_local_bytes": 915038208.0,
+          "host_private_bytes": 1153974272.0,
+          "host_working_set_bytes": 368539648.0,
+          "telemetry": [
+            {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2790.0,
+                "min": 2775.0,
+                "max": 2790.0
+              },
+              "temperature.gpu": {
+                "median": 63.0,
+                "min": 40.0,
+                "max": 63.0
+              },
+              "power.draw": {
+                "median": 158.93,
+                "min": 44.18,
+                "max": 158.93
+              },
+              "utilization.gpu": {
+                "median": 90.0,
+                "min": 8.0,
+                "max": 90.0
+              }
+            },
+            {
+              "samples": 6,
+              "clocks.current.sm": {
+                "median": 2782.0,
+                "min": 2767.0,
+                "max": 2782.0
+              },
+              "temperature.gpu": {
+                "median": 58.0,
+                "min": 58.0,
+                "max": 64.0
+              },
+              "power.draw": {
+                "median": 85.14,
+                "min": 85.14,
+                "max": 234.68
+              },
+              "utilization.gpu": {
+                "median": 90.0,
+                "min": 90.0,
+                "max": 93.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 3840,
+      "height": 2160,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 13.9424,
+          "process_medians_ms": [
+            13.999056,
+            13.885743999999999
+          ],
+          "wall_ms": 14.519975,
+          "device_local_bytes": 1433608192.0,
+          "host_private_bytes": 1917292544.0,
+          "host_working_set_bytes": 468400128.0,
+          "telemetry": [
+            {
+              "samples": 13,
+              "clocks.current.sm": {
+                "median": 2715.0,
+                "min": 2715.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 65.0,
+                "min": 60.0,
+                "max": 66.0
+              },
+              "power.draw": {
+                "median": 257.48,
+                "min": 94.31,
+                "max": 362.08
+              },
+              "utilization.gpu": {
+                "median": 96.0,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            {
+              "samples": 13,
+              "clocks.current.sm": {
+                "median": 2715.0,
+                "min": 2700.0,
+                "max": 2782.0
+              },
+              "temperature.gpu": {
+                "median": 65.0,
+                "min": 51.0,
+                "max": 67.0
+              },
+              "power.draw": {
+                "median": 318.84,
+                "min": 50.88,
+                "max": 362.42
+              },
+              "utilization.gpu": {
+                "median": 96.0,
+                "min": 25.0,
+                "max": 96.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 13.627952,
+          "process_medians_ms": [
+            13.725344,
+            13.53056
+          ],
+          "wall_ms": 14.476625,
+          "device_local_bytes": 1518821376.0,
+          "host_private_bytes": 1759328256.0,
+          "host_working_set_bytes": 367169536.0,
+          "telemetry": [
+            {
+              "samples": 13,
+              "clocks.current.sm": {
+                "median": 2752.0,
+                "min": 2752.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 66.0,
+                "min": 65.0,
+                "max": 67.0
+              },
+              "power.draw": {
+                "median": 287.38,
+                "min": 155.01,
+                "max": 361.29
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 95.0,
+                "max": 96.0
+              }
+            },
+            {
+              "samples": 12,
+              "clocks.current.sm": {
+                "median": 2745.0,
+                "min": 2737.0,
+                "max": 2775.0
+              },
+              "temperature.gpu": {
+                "median": 67.0,
+                "min": 53.0,
+                "max": 67.0
+              },
+              "power.draw": {
+                "median": 343.73,
+                "min": 54.89,
+                "max": 361.57
+              },
+              "utilization.gpu": {
+                "median": 95.0,
+                "min": 37.0,
+                "max": 96.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 5760,
+      "height": 3240,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 32.922624,
+          "process_medians_ms": [
+            32.979392000000004,
+            32.865856
+          ],
+          "wall_ms": 33.588575000000006,
+          "device_local_bytes": 2899451904.0,
+          "host_private_bytes": 3592407040.0,
+          "host_working_set_bytes": 675674112.0,
+          "telemetry": [
+            {
+              "samples": 30,
+              "clocks.current.sm": {
+                "median": 2670.0,
+                "min": 2662.0,
+                "max": 2692.0
+              },
+              "temperature.gpu": {
+                "median": 67.5,
+                "min": 66.0,
+                "max": 69.0
+              },
+              "power.draw": {
+                "median": 359.97,
+                "min": 285.53,
+                "max": 362.3
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            {
+              "samples": 31,
+              "clocks.current.sm": {
+                "median": 2655.0,
+                "min": 2647.0,
+                "max": 2662.0
+              },
+              "temperature.gpu": {
+                "median": 71.0,
+                "min": 70.0,
+                "max": 72.0
+              },
+              "power.draw": {
+                "median": 360.18,
+                "min": 347.05,
+                "max": 360.5
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 32.512512,
+          "process_medians_ms": [
+            32.755424000000005,
+            32.2696
+          ],
+          "wall_ms": 33.407825,
+          "device_local_bytes": 2900254720.0,
+          "host_private_bytes": 3143589888.0,
+          "host_working_set_bytes": 367331328.0,
+          "telemetry": [
+            {
+              "samples": 30,
+              "clocks.current.sm": {
+                "median": 2737.0,
+                "min": 2692.0,
+                "max": 2752.0
+              },
+              "temperature.gpu": {
+                "median": 69.0,
+                "min": 68.0,
+                "max": 71.0
+              },
+              "power.draw": {
+                "median": 360.735,
+                "min": 355.3,
+                "max": 361.98
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            },
+            {
+              "samples": 29,
+              "clocks.current.sm": {
+                "median": 2700.0,
+                "min": 2670.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 71.0,
+                "min": 69.0,
+                "max": 71.0
+              },
+              "power.draw": {
+                "median": 360.11,
+                "min": 278.63,
+                "max": 364.3
+              },
+              "utilization.gpu": {
+                "median": 97.0,
+                "min": 97.0,
+                "max": 98.0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "width": 7680,
+      "height": 4320,
+      "exact_reset_and_final": true,
+      "routes": {
+        "phoenix": {
+          "gpu_ms": 62.335775999999996,
+          "process_medians_ms": [
+            63.735552,
+            60.936
+          ],
+          "wall_ms": 63.03185,
+          "device_local_bytes": 4914159616.0,
+          "host_private_bytes": 5902635008.0,
+          "host_working_set_bytes": 1165754368.0,
+          "telemetry": [
+            {
+              "samples": 58,
+              "clocks.current.sm": {
+                "median": 2722.0,
+                "min": 2700.0,
+                "max": 2745.0
+              },
+              "temperature.gpu": {
+                "median": 72.0,
+                "min": 69.0,
+                "max": 74.0
+              },
+              "power.draw": {
+                "median": 360.14,
+                "min": 359.21,
+                "max": 361.3
+              },
+              "utilization.gpu": {
+                "median": 98.5,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            {
+              "samples": 55,
+              "clocks.current.sm": {
+                "median": 2662.0,
+                "min": 2632.0,
+                "max": 2685.0
+              },
+              "temperature.gpu": {
+                "median": 75.0,
+                "min": 72.0,
+                "max": 76.0
+              },
+              "power.draw": {
+                "median": 360.13,
+                "min": 359.18,
+                "max": 361.0
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            }
+          ]
+        },
+        "nvidia": {
+          "gpu_ms": 61.039320000000004,
+          "process_medians_ms": [
+            60.996048,
+            61.082592
+          ],
+          "wall_ms": 61.956525,
+          "device_local_bytes": 4784152576.0,
+          "host_private_bytes": 5029220352.0,
+          "host_working_set_bytes": 632502272.0,
+          "telemetry": [
+            {
+              "samples": 55,
+              "clocks.current.sm": {
+                "median": 2715.0,
+                "min": 2707.0,
+                "max": 2737.0
+              },
+              "temperature.gpu": {
+                "median": 75.0,
+                "min": 71.0,
+                "max": 76.0
+              },
+              "power.draw": {
+                "median": 360.29,
+                "min": 356.74,
+                "max": 363.31
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 98.0,
+                "max": 99.0
+              }
+            },
+            {
+              "samples": 55,
+              "clocks.current.sm": {
+                "median": 2715.0,
+                "min": 2707.0,
+                "max": 2730.0
+              },
+              "temperature.gpu": {
+                "median": 75.0,
+                "min": 72.0,
+                "max": 76.0
+              },
+              "power.draw": {
+                "median": 359.91,
+                "min": 358.65,
+                "max": 361.82
+              },
+              "utilization.gpu": {
+                "median": 98.0,
+                "min": 97.0,
+                "max": 99.0
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "portable": [
+    {
+      "id": "cuda",
+      "processes": 3,
+      "device": "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
+      "samples": 30,
+      "exact_frames": 36,
+      "core_ms": 56.31000000424683,
+      "wall_ms": 102.84174999999999,
+      "process_core_ms": [
+        56.81348799029365,
+        56.31000000424683,
+        54.9065280565992
+      ],
+      "process_wall_ms": [
+        105.4419,
+        102.84174999999999,
+        101.97345
+      ],
+      "owned_bytes": 475404968,
+      "weight_bytes": 151526056,
+      "scratch_bytes": 323878912,
+      "host_private_bytes": 954900480,
+      "host_working_set_bytes": 318070784,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
+    },
+    {
+      "id": "vulkan_nvidia",
+      "processes": 3,
+      "device": "vulkan:1b962af4ae3f9cf1b93a70efe043a13d",
+      "samples": 30,
+      "exact_frames": 36,
+      "core_ms": 104.911136,
+      "wall_ms": 158.0671,
+      "process_core_ms": [
+        104.911136,
+        105.97980799999999,
+        103.252128
+      ],
+      "process_wall_ms": [
+        158.0671,
+        158.9967,
+        156.8556
+      ],
+      "owned_bytes": 475404968,
+      "weight_bytes": 151526056,
+      "scratch_bytes": 323878912,
+      "host_private_bytes": 810397696,
+      "host_working_set_bytes": 328753152,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
+    },
+    {
+      "id": "cpu",
+      "processes": 2,
+      "device": "cpu",
+      "samples": 2,
+      "exact_frames": 4,
+      "core_ms": 9311.581249999997,
+      "wall_ms": 9363.9729,
+      "process_core_ms": [
+        9217.6616,
+        9405.500899999995
+      ],
+      "process_wall_ms": [
+        9267.6711,
+        9460.2747
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 524881920.0,
+      "host_working_set_bytes": 575428608.0,
+      "operator_clock": "CPU wall",
+      "cpu_threads": 32
+    },
+    {
+      "id": "hip_amd",
+      "processes": 2,
+      "device": "hip:30303030303131363030303030303030",
+      "samples": 2,
+      "exact_frames": 4,
+      "core_ms": 14104.36713177344,
+      "wall_ms": 14784.6136,
+      "process_core_ms": [
+        14117.193998161762,
+        14091.54026538512
+      ],
+      "process_wall_ms": [
+        14795.9293,
+        14773.2979
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 100089856.0,
+      "host_working_set_bytes": 144394240.0,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
+    },
+    {
+      "id": "vulkan_amd",
+      "processes": 2,
+      "device": "vulkan:00000000740000000000000000000000",
+      "samples": 4,
+      "exact_frames": 6,
+      "core_ms": 11999.67029,
+      "wall_ms": 12105.860999999999,
+      "process_core_ms": [
+        12698.426080000001,
+        11300.914499999999
+      ],
+      "process_wall_ms": [
+        12807.243699999999,
+        11404.478299999999
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 617922560.0,
+      "host_working_set_bytes": 719224832.0,
+      "operator_clock": "GPU events",
+      "cpu_threads": null
+    },
+    {
+      "id": "sycl_cpu",
+      "processes": 2,
+      "device": "sycl:cpu",
+      "samples": 4,
+      "exact_frames": 6,
+      "core_ms": 11291.047375,
+      "wall_ms": 11370.677775,
+      "process_core_ms": [
+        11250.735950000002,
+        11331.358799999998
+      ],
+      "process_wall_ms": [
+        11330.415,
+        11410.94055
+      ],
+      "owned_bytes": 475404968.0,
+      "weight_bytes": 151526056.0,
+      "scratch_bytes": 323878912.0,
+      "host_private_bytes": 1006649344.0,
+      "host_working_set_bytes": 833222656.0,
+      "operator_clock": "CPU queue events",
+      "cpu_threads": 32
+    }
+  ],
+  "earlier_current_controls": [
+    {
+      "route": "native_3840",
+      "old_ms": 13.708608000000002,
+      "new_ms": 13.716904000000001,
+      "change_percent": 0.06051672058899893,
+      "earlier_process_medians_ms": [
+        13.705072000000001,
+        13.712144
+      ],
+      "current_process_medians_ms": [
+        13.663568000000001,
+        13.770240000000001
+      ],
+      "aggregation": "mean of two process medians"
+    },
+    {
+      "route": "native_7680",
+      "old_ms": null,
+      "new_ms": 59.652968,
+      "change_percent": null,
+      "earlier_process_medians_ms": [
+        403.262192,
+        60.998256,
+        405.140768,
+        59.753280000000004
+      ],
+      "current_process_medians_ms": [
+        59.144224,
+        59.269968,
+        59.772543999999996,
+        60.425136
+      ],
+      "aggregation": "No earlier aggregate: two fast and two stalled processes; retain full ranges"
+    },
+    {
+      "route": "cuda",
+      "old_ms": 100.68255,
+      "new_ms": 101.446725,
+      "change_percent": 0.7589944831552176
+    },
+    {
+      "route": "vulkan_nvidia",
+      "old_ms": 155.704275,
+      "new_ms": 154.597375,
+      "change_percent": -0.7108989139829269
+    },
+    {
+      "route": "cpu",
+      "old_ms": 9469.61385,
+      "new_ms": 9135.73345,
+      "change_percent": -3.525807971567918
+    }
+  ],
+  "checks": {
+    "native_timed_processes": 36,
+    "native_reset_processes": 9,
+    "native_executed_frames": 4617,
+    "native_measured_frames": 3456,
+    "native_extents": 9,
+    "portable_processes": 14,
+    "portable_exact_frames": 92,
+    "native_control_processes": 12,
+    "portable_control_processes": 12
+  },
+  "evidence_sha256": {
+    "build\\regular_performance_20261014\\payload_receipt.json": "30348b73a49d7bb1e462388e30a5ce768977614f5b67caca1d20233e6ae144bf",
+    "build\\regular_performance_20261014\\native_results.json": "f00e3fd22e188591f7545b58fb04280c81e0b8421a5b40a5c135ca0b2c7401c9",
+    "build\\regular_performance_20261014\\portable\\report.json": "d6e0547cad5fa7caadb5029f94b4e76d858d971ae9510c6c228c7324d0029655",
+    "build\\regular_performance_20261014\\control_results.json": "d37374827e2e9f111dea3082abf62258bff27d58100d6fa973dad49651ea37be",
+    "build\\regular_performance_tools_ready_20261014\\build_report.json": "015465ff2fe9b23bbe915dc942641fb76a61742962ace6aee83cf980f3e4c73e",
+    "build\\regular_performance_runner_20261014\\build_report.json": "97e8bec4f7e9ab3d5d2aaa7893aa68628a9ca54838d404028aff6c6e7eeff399"
+  }
+}

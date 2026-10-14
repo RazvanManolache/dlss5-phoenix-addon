@@ -201,7 +201,8 @@ Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture
 <p><img id="comparison" alt="Phoenix, NVIDIA and amplified difference" src="output-''' + f'{rows[0]["width"]}x{rows[0]["height"]}' + '''.png"></p></section>
 <script>document.getElementById('extent').addEventListener('change',event=>{
 document.getElementById('comparison').src='output-'+event.target.value+'.png';});</script></html>'''
-    (OUT / "resolutions.html").write_text(page, encoding="utf-8")
+    measured_date = datetime.date.fromisoformat(DATA["date"]).strftime("%d %B %Y")
+    (OUT / "resolutions.html").write_text(page.replace("13 October 2026", measured_date), encoding="utf-8")
 
 
 def portable():
@@ -231,7 +232,7 @@ def portable():
         p.draw.rectangle((620, y + 49, 620 + length, y + 58), fill=color)
     p.wrap(48, 866, "Thin bars show complete-frame latency on a shared logarithmic scale. Full frame includes preparation, transfers, inference, resolve and broker round trip. Host RAM is worker resident working set; graph allocations and host RAM overlap and must not be added.", 1500, 24)
     gpu, cpu = ROWS["cuda"], ROWS["cpu"]
-    p.wrap(48, 971, f"RTX: {gpu['processes']} × {gpu['samples'] // gpu['processes']} measured temporal frames. CPU/HIP: {cpu['processes']} × {cpu['samples'] // cpu['processes']} measured reset frames. Older SYCL/Vulkan AMD rows retain their dates. CPU uses host timing; discrete AMD/Intel GPUs untested.", 1500, 23)
+    p.wrap(48, 971, f"RTX: {gpu['processes']} × {gpu['samples'] // gpu['processes']} measured temporal frames. CPU/HIP: {cpu['processes']} × {cpu['samples'] // cpu['processes']} measured reset frames. Dates are shown per row. CPU uses host timing; discrete AMD/Intel GPUs untested.", 1500, 23)
     p.save("portable-runners.png")
 
 

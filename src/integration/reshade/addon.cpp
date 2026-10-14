@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <reshade.hpp>
 #include <atomic>
+#include "../compatibility/controller.h"
 #define PRODUCTION_GAME_PHOENIX_EXPORTS
 #include "../../native/session/session.h"
 #include "../../native/support/observer.h"
@@ -22,6 +23,7 @@
 #include "../../native/support/overrides.h"
 #include "../../native/support/control_bridge.h"
 #include "../../native/support/direct.h"
+#include "feeder_parameters.h"
 #include "../../native/support/offload.h"
 #include "../../native/support/device_catalog.h"
 #include "../../native/support/model_status.h"
@@ -171,7 +173,7 @@ struct State {
         ComPtr<ID3D12Resource> output;
         ComPtr<ID3D12Device> device;
         HMODULE nr_module = nullptr, core_module = nullptr;
-        bool inited = false, core_init_attempted = false, req_queried = false;
+        bool inited = false, nr_initialized = false, core_init_attempted = false, req_queried = false;
         unsigned feature_id = 0, in_w = 0, in_h = 0, attempts = 0;
         int requested_feature = 0;
         unsigned warmup = 0;
@@ -186,6 +188,15 @@ struct State {
     };
     SelfDrive selfdrive;
     bool direct_game = false;
+    bool direct_feeder = false;
+    std::optional<uint32_t> feeder_stream;
+    uint64_t feeder_calls = 0;
+    std::array<std::unique_ptr<phoenix::direct::Runner>, 3> feeder_parked;
+    std::array<std::unique_ptr<phoenix::GpuTiming>, 3> feeder_parked_timing;
+    std::array<unsigned, 3> feeder_last_blocks{{8, 8, 8}};
+    std::array<bool, 3> feeder_reset_pending{{true, true, true}};
+    std::array<uint64_t, 3> feeder_stream_recorded{}, feeder_stream_resets{};
+    bool feeder_applied_reset = false;
     // Self-hosted NR liveness for the current frame (panel gating) and the
     // last NR status line. Updated on every direct frame that requests NR.
     bool direct_nr_ready = false;
@@ -1660,7 +1671,7 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
         if (feature) {
             std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
             const auto* obs = addon_state.ngx_observed.find(native_feature_key(feature));
-            if (addon_state.direct_game && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
+            if (addon_state.direct_game && !addon_state.direct_feeder && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
                 obs && ngx_shim::is_direct_game_feature(obs->feature_id)) {
                 direct_game_frame(cmd, feature, params);
                 if (addon_state.panel.mode == phoenix::nvidia)
@@ -1991,13 +2002,15 @@ using NrInitExtFn = NVSDK_NGX_Result(NVSDK_CONV*)(unsigned long long, const wcha
                                                   NVSDK_NGX_Version, const NVSDK_NGX_Parameter*);
 static NVSDK_NGX_Result guarded_nr_init(NrInitExtFn init, unsigned long long app,
                                         const wchar_t* path, ID3D12Device* dev,
-                                        NVSDK_NGX_Parameter* params) {
+                                        NVSDK_NGX_Parameter* params, DWORD* caught_exception = nullptr) {
+    if(caught_exception)*caught_exception=0;
     if (!init)
         return NVSDK_NGX_Result_Fail;
     NVSDK_NGX_Result tag_row = NVSDK_NGX_Result_Fail;
     __try {
         tag_row = init(app, path, dev, NVSDK_NGX_Version_API, params);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        if(caught_exception)*caught_exception=GetExceptionCode();
         tag_row = NVSDK_NGX_Result_Fail;
     }
     return tag_row;
@@ -2152,7 +2165,12 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
               "phoenix NGX core lacks feature exports");
     } else {
         if (!selfdrive_state.nr_module) {
-            const std::wstring dll = std::wstring(dir) + L"nvngx_dlssnr.dll";
+            auto dll = std::filesystem::path(dir) / L"nvngx_dlssnr.dll";
+            // A compatibility helper and standalone host can use the externally
+            // selected DLL directly. Do not duplicate a 160 MB model into every
+            // helper session merely to satisfy a game-directory convention.
+            if(!std::filesystem::is_regular_file(dll) && !addon_state.weight_source.dll.empty())
+                dll=addon_state.weight_source.dll;
             WIN32_FILE_ATTRIBUTE_DATA fad{};
             check(GetFileAttributesExW(dll.c_str(), GetFileExInfoStandard, &fad) &&
                       !(fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY),
@@ -2160,14 +2178,21 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
             selfdrive_state.dll_bytes = (uint64_t(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
             selfdrive_state.nr_module = LoadLibraryW(dll.c_str());
             check(selfdrive_state.nr_module, "phoenix NR runtime failed to load");
+        }
+        // Loading a module is not initialization. A refused Init_Ext must not
+        // make subsequent frames skip initialization and call CreateFeature.
+        if(!selfdrive_state.nr_initialized) {
             auto init_fn = reinterpret_cast<NrInitExtFn>(
                 GetProcAddress(selfdrive_state.nr_module, "NVSDK_NGX_D3D12_Init_Ext"));
             check(init_fn, "phoenix NR runtime lacks Init_Ext");
-            check(NVSDK_NGX_SUCCEED(
-                      guarded_nr_init(init_fn, 0x1000000ULL, dir, device, selfdrive_state.params)),
-                  "phoenix NR Init refused");
-            reshade::log::message(reshade::log::level::info,
-                                  "[DLSS5 Phoenix] self-drive: NR runtime initialized");
+            DWORD caught_exception=0;
+            const auto result=guarded_nr_init(init_fn,0x1000000ULL,dir,device,selfdrive_state.params,&caught_exception);
+            if(!NVSDK_NGX_SUCCEED(result)) {
+                char reason[160]{};snprintf(reason,sizeof(reason),"phoenix NR Init refused (result=0x%08X, exception=0x%08lX)",unsigned(result),caught_exception);
+                throw std::runtime_error(reason);
+            }
+            selfdrive_state.nr_initialized=true;
+            reshade::log::message(reshade::log::level::info,"[DLSS5 Phoenix] self-drive: NR runtime initialized");
         }
         selfdrive_state.create_fn = reinterpret_cast<State::NgxCreateFn>(
             GetProcAddress(selfdrive_state.nr_module, "NVSDK_NGX_D3D12_CreateFeature"));
@@ -2654,8 +2679,8 @@ void configure() {
     auto config = phoenix_bundle::json_file(path);
     addon_state.embedded = phoenix_embedded::install(addon_state.self);
     if (!addon_state.embedded.root.empty()) {
-        config["bundle"] = addon_state.embedded.native.u8string();
-        config["portable_cpp"] = {{"runtime_root", addon_state.embedded.runtime.u8string()}};
+        config["bundle"] = phoenix_model::source_path_string(addon_state.embedded.native);
+        config["portable_cpp"] = {{"runtime_root", phoenix_model::source_path_string(addon_state.embedded.runtime)}};
         phoenix::portable::prepare_embedded_backend() =
             [module = addon_state.self, cache = addon_state.embedded.root.parent_path()](
                 const std::string& backend) { phoenix_embedded::install(module, cache, backend); };
@@ -2683,8 +2708,13 @@ void configure() {
 #endif
     if (!config.at("armed").get<bool>())
         return;
-    addon_state.direct_game =
-        config.value("input_provider", std::string("native_nr")) == "game_dlss";
+    const auto input_provider = config.value("input_provider", std::string("native_nr"));
+    check(input_provider == "native_nr" || input_provider == "game_dlss" ||
+              input_provider == "feeder_d3d12", "Unknown Phoenix input provider");
+    addon_state.direct_feeder = input_provider == "feeder_d3d12";
+    addon_state.direct_game = input_provider == "game_dlss" || addon_state.direct_feeder;
+    if (addon_state.direct_feeder)
+        addon_state.direct_status = "Waiting for a direct feeder texture (no SR/DLAA pass)";
     menu_helper::configure(addon_state.direct_game && config.value("test_menu_navigation", false));
     addon_state.direct_capture =
         addon_state.direct_game && config.value("capture_present_once", false);
@@ -2863,7 +2893,9 @@ void configure() {
     addon_state.automatic = true;
     reshade::log::message(
         reshade::log::level::info,
-        addon_state.direct_game
+        addon_state.direct_feeder
+            ? "[DLSS5 Phoenix] Armed: direct feeder textures, own network, no SR/DLAA feature"
+        : addon_state.direct_game
             ? "[DLSS5 Phoenix] Armed: direct game SR/RR input, own network, no NR feature/provider required"
             : "[DLSS5 Phoenix] Armed: native NR boundary provider");
 }
@@ -3565,8 +3597,9 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         }
         Controls controls;
         unsigned host_flags = 0;
-        if (const auto* observed = addon_state.ngx_observed.find(native_feature_key(feature)))
-            host_flags = observed->create_flags;
+        if (feature)
+            if (const auto* observed = addon_state.ngx_observed.find(native_feature_key(feature)))
+                host_flags = observed->create_flags;
         {
             unsigned flags = 0;
             if (NVSDK_NGX_SUCCEED(params->Get("DLSS.Feature.Create.Flags", &flags)))
@@ -3637,6 +3670,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                               : 8u;
         if (blocks != addon_state.last_transformer_blocks)
             controls.reset = 1;
+        if (addon_state.direct_feeder)
+            addon_state.feeder_applied_reset = controls.reset != 0;
         if (addon_state.timing_settings_dirty) {
             Json key = Json::object();
             phoenix::visit_settings(addon_state.panel,
@@ -3673,7 +3708,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         ID3D12Resource* nr_image = nullptr;
         // The feature is hosted proactively so the NVIDIA route is selectable
         // shortly after startup; only evaluation is gated on need.
-        if (!GetModuleHandleW(L"renodx-dlss5.addon64")) {
+        if ((!addon_state.direct_feeder || need_nr) && !GetModuleHandleW(L"renodx-dlss5.addon64")) {
             auto& selfdrive_state = addon_state.selfdrive;
             const auto now = GetTickCount64();
             const bool geom_changed =
@@ -4329,8 +4364,9 @@ bool set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, v
     return false; // observation only; never change what the engine asked for
 }
 
-void present(reshade::api::command_queue*, reshade::api::swapchain*, const reshade::api::rect*,
+void present(reshade::api::command_queue* queue, reshade::api::swapchain*, const reshade::api::rect*,
              const reshade::api::rect*, uint32_t, const reshade::api::rect*) {
+    if(queue && queue->get_device()->get_api()!=reshade::api::device_api::d3d12)return;
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     try {
@@ -4695,7 +4731,7 @@ void route_screenshots(reshade::api::effect_runtime* runtime) {
     const auto& folder = state().output_directory;
     if (!runtime || folder.empty())
         return;
-    const auto destination = folder.u8string();
+    const auto destination = phoenix_model::source_path_string(folder);
     char current[32768]{};
     size_t size = sizeof(current);
     if (!reshade::get_config_value(runtime, "SCREENSHOT", "SavePath", current, &size) ||
@@ -4731,9 +4767,8 @@ Json bridge_snapshot() {
          {{"kind", addon_state.weight_source.disk_model()  ? "model_folder"
                    : addon_state.weight_source.dll.empty() ? "files"
                                                            : "nvidia_dll"},
-          {"path", (addon_state.weight_source.disk_model() ? addon_state.weight_source.folder
-                                                           : addon_state.weight_source.dll)
-                       .u8string()},
+          {"path", phoenix_model::source_path_string(addon_state.weight_source.disk_model() ? addon_state.weight_source.folder
+                                                           : addon_state.weight_source.dll)},
           {"restart_required",
            addon_state.panel.model_source != addon_state.active_model_source ||
                (addon_state.panel.model_folder != addon_state.active_model_folder ||
@@ -4741,7 +4776,7 @@ Json bridge_snapshot() {
         {"embedded_runtime",
          {{"identity", addon_state.embedded.identity},
           {"files", addon_state.embedded.files},
-          {"root", addon_state.embedded.root.u8string()}}},
+          {"root", phoenix_model::source_path_string(addon_state.embedded.root)}}},
         {"model_validation",
          {{"busy", addon_state.model_validation.poll().busy},
           {"passed", addon_state.model_validation.poll().passed},
@@ -4832,6 +4867,7 @@ void poll_control_bridge(reshade::api::effect_runtime* runtime) {
                 response["id"] = request["id"];
             const auto cmd = phoenix::control_bridge::validate(
                 request, addon_state.bridge_session, GetCurrentProcessId(), now, addon_state.panel);
+            check(!cmd.enabled && !cmd.coherent_frames, "Frontend controls require a compatibility session");
             check(cmd.id != addon_state.bridge_last_id,
                   "Duplicate bridge request; inspect previous response");
             addon_state.bridge_last_id = cmd.id;
@@ -4898,9 +4934,11 @@ void poll_control_bridge(reshade::api::effect_runtime* runtime) {
     }
 }
 void live_runtime_tick(reshade::api::effect_runtime* runtime) {
+    if(phoenix_compat::applies(runtime))return;
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
+    phoenix_ui::sanitize_bindings(addon_state.hotkeys);
     if (runtime && !addon_state.output_directory.empty() &&
         addon_state.screenshot_runtime != runtime) {
         route_screenshots(runtime);
@@ -4965,18 +5003,11 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
         const auto key = runtime->last_key_pressed();
         if (!key)
             return;
-        if (key != VK_ESCAPE && key != VK_HOME && key != VK_F12 && key >= 8 && key <= 255) {
-            bool duplicate = false;
-            for (unsigned iteration_index = 0; iteration_index < addon_state.hotkeys.size();
-                 ++iteration_index)
-                if (int(iteration_index) != addon_state.capture_hotkey &&
-                    addon_state.hotkeys[iteration_index] == int(key))
-                    duplicate = true;
-            if (!duplicate)
-                addon_state.hotkeys[size_t(addon_state.capture_hotkey)] = int(key);
-        }
-        addon_state.capture_hotkey = -1;
-        save_live_controls(runtime);
+        const auto result = phoenix_ui::capture_binding(addon_state.hotkeys, addon_state.capture_hotkey, key);
+        if (result == phoenix_ui::BindingResult::Accepted || result == phoenix_ui::BindingResult::Cancelled) {
+            addon_state.capture_hotkey = -1;
+            save_live_controls(runtime);
+        } else addon_state.error = phoenix_ui::binding_error(result);
         return;
     }
     if (addon_state.hotkeys[0] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[0]))) {
@@ -5013,8 +5044,75 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
 #endif
 }
 
+phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
+                                      const std::filesystem::path& model_path, bool disk_model) {
+    auto& value = state();
+    phoenix_ui::Context ui{value.panel, value.live, value.presets, value.hotkeys,
+                           value.capture_hotkey, value.hotkey_deadline, value.model_picker,
+                           value.execution_devices, value.error, value.markers};
+    ui.direct_game = value.direct_game;
+    ui.direct_nr_ready = value.direct_nr_ready;
+    ui.model_path = model_path;
+    ui.disk_model = disk_model;
+    ui.runtime_root = phoenix::portable::native_runtime_root();
+    std::error_code file_error;
+    ui.runtime_available = std::filesystem::is_regular_file(ui.runtime_root / "phoenix_runtime_cpp.dll", file_error)
+                           && std::filesystem::is_regular_file(ui.runtime_root / "phoenix_native_cpp.json", file_error)
+                           && std::filesystem::is_regular_file(model_path, file_error);
+    ui.bundle_path = value.bundle_path;
+    ui.overrides_path = overrides_path();
+    ui.configured_weight_source = value.configured_weight_source;
+    ui.active_model_source = value.active_model_source;
+    ui.active_model_folder = value.active_model_folder;
+    ui.active_model_dll = value.active_model_dll;
+    ui.override_status = value.override_status;
+    ui.last_transformer_blocks = value.last_transformer_blocks;
+    ui.last_mode = value.last_mode;
+    ui.present_fps = value.present_fps;
+    if (value.live_timing) {
+        ui.live_timing.emplace();
+        ui.live_timing->data = value.live_timing->report();
+        const auto& history = value.live_timing->history();
+        const auto count = value.live_timing->history_count();
+        const auto offset = value.live_timing->history_offset();
+        for (size_t index = 0; index < count; ++index)
+            ui.live_timing->samples.push_back(history[(offset + index) % history.size()]);
+    }
+    ui.worker_timing.data = value.worker_timing.report();
+    ui.depth_budget.estimate = value.depth_budget.ema();
+    ui.live_resets_recorded = value.live_resets_recorded;
+    ui.switches = value.switches;
+    ui.mode_frames = value.mode_frames;
+    ui.mode_own = value.mode_own;
+    ui.mode_native = value.mode_native;
+    if (value.direct_runner)
+        ui.direct_runner = phoenix_ui::Preview{value.direct_runner->resolution(), value.direct_runner->upscale_status()};
+    ui.save = [runtime] { save_live_controls(runtime); };
+    ui.capture = [](unsigned count) { arm_input_capture(count); };
+    ui.reload = [runtime] { poll_overrides(runtime, true); };
+    ui.marker = [] {
+        auto& value = state();
+        record_event("phoenix_marker", {{"index", value.markers}, {"mode", value.panel.mode},
+                                        {"frame", value.routed_frames}});
+    };
+    ui.action = [](phoenix_ui::Action action) {
+        auto& value = state();
+        if (action == phoenix_ui::Action::ResetHistory) value.live.reset_requested = true;
+        if (action == phoenix_ui::Action::ClearTiming) {
+            if (value.live_timing) value.live_timing->restart();
+            value.worker_timing.clear();
+        }
+    };
+    ui.model_validation.poll = [] { return state().model_validation.poll(); };
+    ui.model_validation.validate = [](const phoenix_model::WeightSource& source, const std::filesystem::path& root) {
+        state().model_validation.validate(source, root);
+    };
+    return ui;
+}
+
 // UI and Evaluate share this lock; settings are immutable during recording.
 void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
+    if(phoenix_compat::applies(runtime)){phoenix_compat::panel(runtime);return;}
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
@@ -5049,7 +5147,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
             ImGui::TextWrapped("Warning: %s", phoenix::model_dll_warning(model_status));
         ImGui::PopStyleColor();
         if (!model_path.empty())
-            ImGui::TextWrapped("Configured path: %s", model_path.u8string().c_str());
+            ImGui::TextWrapped("Configured path: %s", phoenix_model::source_path_string(model_path).c_str());
         ImGui::TextWrapped(
             "Choose a model source below, or configure weight_source in Phoenix.json. The NVIDIA DLL and model files are separate local files. Restart the game after changing the model source or after a loader failure.");
         ImGui::Separator();
@@ -5071,250 +5169,9 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     ImGui::TextUnformatted("Paired DLL diagnostic | game controls locked");
 #else
     ImGui::Separator();
-    const char* route_labels[]{"Input",
-                               (addon_state.direct_game && !addon_state.direct_nr_ready)
-                                   ? "Game only (NR unavailable)"
-                                   : "NVIDIA DLL",
-                               "Comparison", "DLSS5 Phoenix"};
-    bool changed = false;
-    // All routes are always offered; an NVIDIA route without a live feature
-    // defers honestly with the reason in status instead of hiding.
-    changed = ImGui::Combo("Backend", &addon_state.panel.mode, route_labels, 4) || changed;
+    auto ui = make_panel_context(runtime, model_path, disk_model);
+    bool changed = phoenix_ui::draw_controls(ui);
     const phoenix::PanelVisibility visible{addon_state.panel};
-    if (visible.neural() && addon_state.direct_game) {
-        const char* modes[]{"Normal", "Super resolution"};
-        changed = ImGui::Combo("Resolution mode", &addon_state.panel.resolution_mode, modes, 2) ||
-                  changed;
-        if (addon_state.panel.resolution_mode) {
-            const char* upscalers[]{"Spatial", "NVIDIA DLSS Super Resolution", "Intel XeSS"};
-            changed =
-                ImGui::Combo("Upscaler", &addon_state.panel.upscaler, upscalers, 3) || changed;
-            if (addon_state.panel.upscaler) {
-                ImGui::TextWrapped(
-                    "Temporal upscaling runs on the rendering GPU and requires observed depth and motion. Unsupported runtimes or dimensions use a visible spatial fallback.");
-                ImGui::TextWrapped("Runtime beside the game: %s",
-                                   addon_state.panel.upscaler == 1
-                                       ? "nvngx_dlss.dll"
-                                       : "libxess.dll and its dependencies");
-            }
-            if (addon_state.direct_runner)
-                ImGui::TextWrapped("%s", addon_state.direct_runner->upscale_status().c_str());
-            const char* qualities[]{"Quality (2/3 scale)", "Performance (1/2 scale)",
-                                    "Ultra performance (1/3 scale)"};
-            const char* aspects[]{"Game aspect", "16:9", "16:10", "21:9", "4:3", "Custom ratio"};
-            changed = ImGui::Combo("Processing quality", &addon_state.panel.resolution_quality,
-                                   qualities, 3) ||
-                      changed;
-            changed = ImGui::Combo("Processing aspect", &addon_state.panel.resolution_aspect,
-                                   aspects, 6) ||
-                      changed;
-            if (addon_state.panel.resolution_aspect == 5) {
-                int ratio[]{addon_state.panel.resolution_ratio_width,
-                            addon_state.panel.resolution_ratio_height};
-                if (ImGui::InputInt2("Aspect width : height", ratio)) {
-                    addon_state.panel.resolution_ratio_width = std::clamp(ratio[0], 1, 100);
-                    addon_state.panel.resolution_ratio_height = std::clamp(ratio[1], 1, 100);
-                    changed = true;
-                }
-            }
-            ImGui::TextWrapped(
-                "Runs neural rendering at a smaller resolution, then uses the selected upscaler. Padding preserves the game's image aspect. Native Phoenix generates a plan for the requested resolution and pads its internal tiles.");
-        }
-        if (addon_state.direct_runner) {
-            const auto& geometry = addon_state.direct_runner->resolution();
-            ImGui::Text("Processing: %u x %u (image %u x %u) | Output: %u x %u", geometry.width,
-                        geometry.height, geometry.image_width, geometry.image_height,
-                        geometry.output_width, geometry.output_height);
-            const auto requested = phoenix::choose_resolution(
-                geometry.output_width, geometry.output_height, addon_state.panel.resolution_mode,
-                addon_state.panel.resolution_quality, addon_state.panel.resolution_aspect,
-                addon_state.panel.resolution_ratio_width, addon_state.panel.resolution_ratio_height,
-                phoenix::uses_ours(addon_state.panel.mode) &&
-                    addon_state.panel.execution_device == "native");
-            if (requested.fallback)
-                ImGui::TextWrapped(
-                    "No smaller supported canvas at this quality; using Normal resolution.");
-        }
-    }
-    if (visible.own_details()) {
-        const char* model_sources[]{"Configured source", "Model folder on disk", "NVIDIA DLL file"};
-        int model_selection = addon_state.panel.model_source == "model_folder" ? 1
-                              : addon_state.panel.model_source == "nvidia_dll" ? 2
-                                                                               : 0;
-        if (ImGui::Combo("Model source", &model_selection, model_sources, 3)) {
-            addon_state.panel.model_source = model_selection == 1   ? "model_folder"
-                                             : model_selection == 2 ? "nvidia_dll"
-                                                                    : "configured";
-            changed = true;
-        }
-        const auto picked = addon_state.model_picker.poll();
-        if (!picked.busy && !picked.picked.empty()) {
-            if (picked.key == "folder") {
-                addon_state.panel.model_folder = picked.picked;
-                addon_state.panel.model_source = "model_folder";
-                model_selection = 1;
-            } else {
-                addon_state.panel.model_dll = picked.picked;
-                addon_state.panel.model_source = "nvidia_dll";
-                model_selection = 2;
-            }
-            addon_state.model_picker.clear_pick();
-            changed = true;
-        }
-        if (model_selection) {
-            auto& selected_path =
-                model_selection == 1 ? addon_state.panel.model_folder : addon_state.panel.model_dll;
-            std::array<char, 4096> path_text{};
-            memcpy(path_text.data(), selected_path.data(),
-                   std::min(selected_path.size(), path_text.size() - 1));
-            if (ImGui::InputText(model_selection == 1 ? "Model folder" : "NVIDIA DLL",
-                                 path_text.data(), path_text.size())) {
-                selected_path = path_text.data();
-                changed = true;
-            }
-            ImGui::SameLine();
-            ImGui::BeginDisabled(picked.busy);
-            if (ImGui::Button("Browse..."))
-                addon_state.model_picker.browse(model_selection == 1, GetActiveWindow(),
-                                                std::filesystem::u8path(selected_path));
-            ImGui::EndDisabled();
-            if (picked.busy)
-                ImGui::TextUnformatted("File browser is open...");
-            else if (!picked.passed && !picked.cancelled && !picked.message.empty())
-                ImGui::TextWrapped("%s", picked.message.c_str());
-        } else
-            ImGui::TextWrapped("Model: %s", model_path.u8string().c_str());
-        const auto validation = addon_state.model_validation.poll();
-        ImGui::BeginDisabled(validation.busy);
-        if (ImGui::Button("Validate model")) {
-            try {
-                addon_state.model_validation.validate(
-                    phoenix_model_tools::selection(
-                        addon_state.panel.model_source, addon_state.panel.model_folder,
-                        addon_state.panel.model_dll, addon_state.configured_weight_source),
-                    phoenix::portable::native_runtime_root());
-            } catch (const std::exception& feature_entry) {
-                addon_state.error = feature_entry.what();
-            }
-        }
-        ImGui::EndDisabled();
-        if (validation.busy)
-            ImGui::TextUnformatted("Checking model and running 3 small CPU test frames...");
-        else if (!validation.message.empty()) {
-            bool current = false;
-            try {
-                current = validation.key ==
-                          phoenix_model_tools::selection(
-                              addon_state.panel.model_source, addon_state.panel.model_folder,
-                              addon_state.panel.model_dll, addon_state.configured_weight_source)
-                              .configuration()
-                              .dump();
-            } catch (const std::exception&) {
-            }
-            ImGui::TextWrapped("%s%s",
-                               current ? "" : "Previous selection: ", validation.message.c_str());
-        }
-        if (addon_state.panel.model_source != addon_state.active_model_source ||
-            (addon_state.panel.model_folder != addon_state.active_model_folder ||
-             addon_state.panel.model_dll != addon_state.active_model_dll))
-            ImGui::TextWrapped("Model selection saved. Restart the game to load it.");
-        ImGui::TextWrapped("Active model source: %s", disk_model ? "Model folder" : "NVIDIA DLL");
-    } else if (addon_state.panel.mode == phoenix::nvidia) {
-        ImGui::TextWrapped(
-            "NVIDIA DLL runs on the game's rendering GPU. Phoenix runner and model-folder selections apply only to Phoenix output.");
-    }
-    if (visible.neural() && ImGui::Button("Reset neural controls")) {
-        phoenix::apply_nr_reference(addon_state.panel);
-        addon_state.panel.host_bridge = 0;
-        addon_state.panel.host_unjitter = false;
-        addon_state.panel.ui_correction = 0;
-        addon_state.panel.controls.enabled = true;
-        addon_state.panel.controls.advanced = true;
-        addon_state.panel.controls.auto_mask = false;
-        changed = true;
-    }
-    if (addon_state.direct_game && phoenix::uses_ours(addon_state.panel.mode)) {
-        std::string selected = addon_state.panel.execution_device;
-        for (const auto& device_info : addon_state.execution_devices)
-            if (device_info.id == selected) {
-                selected = device_info.label;
-                break;
-            }
-        if (addon_state.panel.execution_device.find(':') != std::string::npos)
-            selected += " [" +
-                        addon_state.panel.execution_device.substr(
-                            addon_state.panel.execution_device.size() - 8) +
-                        "]";
-        const auto regular_file = [](const std::filesystem::path& path) {
-            std::error_code error;
-            return std::filesystem::is_regular_file(path, error) && !error;
-        };
-        const bool installed =
-            regular_file(phoenix::portable::native_runtime_root() / "phoenix_runtime_cpp.dll") &&
-            regular_file(phoenix::portable::native_runtime_root() / "phoenix_native_cpp.json") &&
-            regular_file(model_path);
-        if (ImGui::BeginCombo("DLSS5 Phoenix processing device", selected.c_str())) {
-            for (const auto& device_info : addon_state.execution_devices) {
-                ImGui::PushID(device_info.id.c_str());
-                const auto label = device_info.id.find(':') == std::string::npos
-                                       ? device_info.label
-                                       : device_info.label + " [" +
-                                             device_info.id.substr(device_info.id.size() - 8) + "]";
-                if (ImGui::Selectable(
-                        label.c_str(), addon_state.panel.execution_device == device_info.id,
-                        device_info.id == "native" || installed ? 0
-                                                                : ImGuiSelectableFlags_Disabled)) {
-                    addon_state.panel.execution_device = device_info.id;
-                    changed = true;
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", device_info.id.c_str());
-                ImGui::PopID();
-            }
-            ImGui::EndCombo();
-        }
-        if (!installed)
-            ImGui::TextUnformatted(
-                "C++ runtime or selected model source is missing. Configure portable_cpp and the model source.");
-        ImGui::TextWrapped(
-            "Select the card that runs DLSS5 Phoenix. The rendering GPU and NVIDIA DLL route follow the game.");
-        if (addon_state.panel.execution_device == "cpu" ||
-            addon_state.panel.execution_device == "sycl:cpu") {
-            const int available = int(phoenix_threads::available());
-            bool automatic = addon_state.panel.cpu_threads == 0;
-            if (ImGui::Checkbox("Automatic CPU threads (all available)", &automatic)) {
-                addon_state.panel.cpu_threads = automatic ? 0 : available;
-                changed = true;
-            }
-            if (!automatic) {
-                if (addon_state.panel.cpu_threads > available) {
-                    addon_state.panel.cpu_threads = available;
-                    changed = true;
-                }
-                changed =
-                    ImGui::SliderInt("CPU threads", &addon_state.panel.cpu_threads, 1, available) ||
-                    changed;
-            }
-            ImGui::Text("CPU workers: %u of %d available",
-                        phoenix_threads::resolve(unsigned(addon_state.panel.cpu_threads)),
-                        available);
-            ImGui::TextUnformatted("Thread changes restart the CPU runner.");
-        }
-        if (addon_state.panel.execution_device != "native")
-            ImGui::TextUnformatted(
-                "C++ runner: host preparation and resolve, selected-device network.");
-        if (addon_state.panel.execution_device != "native") {
-            changed = ImGui::SliderInt("Maximum result age (frames)",
-                                       &addon_state.panel.offload_age_frames, 1,
-                                       phoenix::kMaxOffloadAgeFrames) ||
-                      changed;
-            changed = ImGui::SliderInt("Maximum result age (ms)", &addon_state.panel.offload_age_ms,
-                                       1, phoenix::kMaxOffloadAgeMs) ||
-                      changed;
-            ImGui::TextWrapped(
-                "DLSS5 Phoenix runs on the selected device. The NVIDIA DLL route remains on the rendering GPU. Reference execution may miss the age limit.");
-        }
-    }
     ImGui::Text("Active: %s",
                 addon_state.last_mode >= 0 ? phoenix::names[addon_state.last_mode] : "Waiting");
 
@@ -5409,377 +5266,13 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
         if (addon_state.panel.log_level == 2)
             ImGui::TextUnformatted("Verbose tracing enabled: file writes can reduce FPS.");
     }
-    if (visible.comparison()) {
-        if (ImGui::Button("Defaults##comparison")) {
-            phoenix::reset_comparison_section(addon_state.panel);
-            changed = true;
-        }
-        if (addon_state.direct_game) {
-            int view = std::max(0, addon_state.panel.comparison - 1);
-            if (ImGui::Combo("View", &view, phoenix::comparison_names + 1, 5)) {
-                addon_state.panel.comparison = view + 1;
-                changed = true;
-            }
-        } else
-            changed |=
-                ImGui::Combo("View", &addon_state.panel.comparison, phoenix::comparison_names, 6);
-        if (visible.pair_sources()) {
-            changed |=
-                ImGui::Combo("Source A", &addon_state.panel.source_a, phoenix::source_names, 3);
-            changed |=
-                ImGui::Combo("Source B", &addon_state.panel.source_b, phoenix::source_names, 3);
-            if (ImGui::Button("Swap A / B")) {
-                std::swap(addon_state.panel.source_a, addon_state.panel.source_b);
-                changed = true;
-            }
-        }
-        if (visible.divider())
-            changed |= ImGui::SliderFloat("Split position", &addon_state.panel.divider, .1f, .9f,
-                                          "%.2f", ImGuiSliderFlags_AlwaysClamp);
-        if (visible.difference_gain())
-            changed |= ImGui::SliderFloat(
-                "Difference gain", &addon_state.panel.difference_gain, 1.f, 64.f, "%.1fx",
-                ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-        changed |= ImGui::Checkbox("Labels", &addon_state.panel.comparison_labels);
-        if (visible.divider())
-            changed |= ImGui::Checkbox("Separator lines", &addon_state.panel.comparison_lines);
-    }
-    static int preset_slot = 0;
-    const char* slots[]{"Preset 1", "Preset 2", "Preset 3", "Preset 4"};
-    ImGui::Combo("Preset", &preset_slot, slots, 4);
-    if (ImGui::Button("Load preset")) {
-        addon_state.panel = addon_state.presets[size_t(preset_slot)];
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Save preset")) {
-        addon_state.presets[size_t(preset_slot)] = addon_state.panel;
-        save_live_controls(runtime);
-    }
-    ImGui::Separator();
-    if (visible.neural()) {
-        if (ImGui::Button("Defaults##neural")) {
-            phoenix::reset_neural_section(addon_state.panel);
-            changed = true;
-        }
-        changed |= ImGui::Checkbox("Neural rendering (master switch)", &addon_state.panel.uplift);
-        if (ImGui::Button("Capture input burst"))
-            arm_input_capture(addon_state.panel.capture_burst > 0
-                                  ? unsigned(addon_state.panel.capture_burst)
-                                  : 8u);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Saves consecutive game inputs and their settings for offline replay.");
-        changed |= ImGui::Checkbox("Override strengths", &addon_state.live.enabled);
-        if (visible.strengths()) {
-            changed |= ImGui::SliderFloat("Local tone", &addon_state.live.tone, 0.f, 2.f, "%.2f",
-                                          ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.tone")) {
-                addon_state.live.tone = 1;
-                changed = true;
-            }
-            changed |= ImGui::SliderFloat("Local structure", &addon_state.live.structure, 0.f, 2.f,
-                                          "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.structure")) {
-                addon_state.live.structure = 1;
-                changed = true;
-            }
-        }
-        changed |= ImGui::Checkbox("Override guides / skin", &addon_state.live.advanced);
-        if (visible.guides()) {
-            changed |= ImGui::Checkbox("Automatic skin mask", &addon_state.live.auto_mask);
-            changed |= ImGui::SliderFloat("Skin structure", &addon_state.live.skin, -1.f, 2.f,
-                                          "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.skin")) {
-                addon_state.live.skin = -1;
-                changed = true;
-            }
-            changed |= ImGui::SliderFloat("Motion X scale", &addon_state.live.motion_x, -4.f, 4.f,
-                                          "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.motion_x")) {
-                addon_state.live.motion_x = 1;
-                changed = true;
-            }
-            changed |= ImGui::SliderFloat("Motion Y scale", &addon_state.live.motion_y, -4.f, 4.f,
-                                          "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.motion_y")) {
-                addon_state.live.motion_y = 1;
-                changed = true;
-            }
-            int depth = addon_state.live.depth + 1;
-            const char* depths[]{"Game depth", "Normal depth", "Inverted depth"};
-            if (ImGui::Combo("Depth", &depth, depths, 3)) {
-                addon_state.live.depth = depth - 1;
-                changed = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##live_depth")) {
-                addon_state.live.depth = -1;
-                changed = true;
-            }
-        }
-        if (visible.native()) {
-            if (ImGui::Button("Defaults##native")) {
-                phoenix::reset_native_section(addon_state.panel);
-                changed = true;
-            }
-            changed |= ImGui::Checkbox("NVIDIA-only overrides", &addon_state.panel.native_options);
-            if (visible.native_values()) {
-                changed |= ImGui::SliderFloat("Intensity", &addon_state.panel.intensity, 0.f, 2.f,
-                                              "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.intensity")) {
-                    addon_state.panel.intensity = 1;
-                    changed = true;
-                }
-                const char* styles[]{"Default", "Natural", "Cinematic"};
-                changed |= ImGui::Combo("Style", &addon_state.panel.style, styles, 3);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_style")) {
-                    addon_state.panel.style = 0;
-                    changed = true;
-                }
-                bool correction = addon_state.panel.ui_correction != 0;
-                if (ImGui::Checkbox("UI correction", &correction)) {
-                    addon_state.panel.ui_correction = correction ? 1 : 0;
-                    changed = true;
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_uicorr")) {
-                    addon_state.panel.ui_correction = 0;
-                    changed = true;
-                }
-                changed |= ImGui::SliderFloat("Host exposure", &addon_state.panel.host_exposure,
-                                              0.05f, 4.f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_exposure")) {
-                    addon_state.panel.host_exposure = 1;
-                    changed = true;
-                }
-                changed |= ImGui::SliderFloat("Host exposure scale",
-                                              &addon_state.panel.host_exposure_scale, 0.05f, 4.f,
-                                              "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_exposure_scale")) {
-                    addon_state.panel.host_exposure_scale = 1;
-                    changed = true;
-                }
-                changed |=
-                    ImGui::SliderFloat("Host global tone", &addon_state.panel.host_globaltone, 0.f,
-                                       2.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_globaltone")) {
-                    addon_state.panel.host_globaltone = 1;
-                    changed = true;
-                }
-                bool host_jitter = addon_state.panel.host_jitter != 0;
-                if (ImGui::Checkbox("Host forward game jitter", &host_jitter)) {
-                    addon_state.panel.host_jitter = host_jitter ? 1 : 0;
-                    changed = true;
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_hjitter")) {
-                    addon_state.panel.host_jitter = 1;
-                    changed = true;
-                }
-                int host_hdr = addon_state.panel.host_hdr;
-                const char* hdr_modes[]{"SDR declare", "HDR declare"};
-                if (ImGui::Combo("Host HDR declare", &host_hdr, hdr_modes, 2)) {
-                    addon_state.panel.host_hdr = host_hdr;
-                    changed = true;
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Experimental DLL declaration. Both proxy paths encode sRGB, so SDR is the supported setting.");
-                changed |= ImGui::Checkbox("NR auto exposure", &addon_state.panel.nr_auto_exposure);
-                ImGui::TextUnformatted("Native NR: feature 18 (DLSSNR runtime)");
-                if (addon_state.panel.nr_feature != 18) {
-                    ImGui::TextWrapped(
-                        "Saved RR experiment is unavailable: it needs pre-denoise guide inputs.");
-                    if (ImGui::Button("Use native NR")) {
-                        addon_state.panel.nr_feature = 18;
-                        changed = true;
-                    }
-                }
-            }
-        }
-        if (ImGui::Button("Restore game controls")) {
-            addon_state.live = {};
-            addon_state.panel.native_options = false;
-            addon_state.panel.uplift = false;
-            changed = true;
-        }
-        if (ImGui::Button("Reset history"))
-            addon_state.live.reset_requested = true;
-        if (ImGui::CollapsingHeader("History policy")) {
-            if (ImGui::Button("Defaults##history")) {
-                phoenix::reset_history_section(addon_state.panel);
-                changed = true;
-            }
-            changed |= ImGui::Checkbox("Force reset every frame", &addon_state.panel.force_reset);
-            if (visible.history_cadence()) {
-                changed |= ImGui::SliderInt("Reset frames after switch",
-                                            &addon_state.panel.reset_after_switch, 1, 120);
-                changed |= ImGui::SliderInt("Reset every N frames (0 = off)",
-                                            &addon_state.panel.reset_every, 0, 600);
-            }
-        }
-        ImGui::Text("History resets: %llu%s", addon_state.live_resets_recorded,
-                    addon_state.live.reset_requested ? " (pending)" : "");
-    }
-    if (visible.experiments() && ImGui::CollapsingHeader("DLSS5 Phoenix experiments")) {
-        if (addon_state.direct_game) {
-            changed |=
-                ImGui::SliderInt("Network passes per frame", &addon_state.panel.refinement_passes,
-                                 1, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::TextWrapped(
-                "Each pass refines the preceding output; each has separate previous-frame history. More passes cost GPU time and memory and may overprocess the image.");
-            if (ImGui::TreeNode("Transformer block repetitions")) {
-                for (unsigned iteration_index = 0; iteration_index < 8; ++iteration_index) {
-                    char label[32];
-                    snprintf(label, sizeof(label), "Block %u repetitions", iteration_index + 1);
-                    changed |=
-                        ImGui::SliderInt(label, &addon_state.panel.block_repeats[iteration_index],
-                                         0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
-                }
-                ImGui::TextWrapped(
-                    "0 skips a block and passes its input forward; 1 is the trained default. Higher counts repeat the block on its preceding result. Truncated blocks are not executed. Skipping or repetition changes the image and is experimental.");
-                ImGui::TreePop();
-            }
-            if (ImGui::Button("Reset repetitions to defaults")) {
-                addon_state.panel.refinement_passes = 1;
-                addon_state.panel.block_repeats.fill(1);
-                changed = true;
-            }
-        }
-        changed |= ImGui::Checkbox("Enable approximate network", &addon_state.panel.experimental);
-        if (visible.depth()) {
-            changed |= ImGui::SliderInt("Transformer blocks", &addon_state.panel.transformer_blocks,
-                                        1, 8, "%d / 8", ImGuiSliderFlags_AlwaysClamp);
-            addon_state.panel.minimum_blocks =
-                std::min(addon_state.panel.minimum_blocks, addon_state.panel.transformer_blocks);
-            changed |= ImGui::Checkbox("Adaptive blocks", &addon_state.panel.automatic_budget);
-            if (visible.budget()) {
-                changed |= ImGui::Combo("Target", &addon_state.panel.budget_mode,
-                                        "DLSS5 Phoenix GPU time\0Desired game FPS\0");
-                if (addon_state.panel.budget_mode == 0) {
-                    changed |= ImGui::SliderFloat(
-                        "DLSS5 Phoenix GPU budget (ms)", &addon_state.panel.budget_ms, .1f, 100.f,
-                        "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-                    ImGui::TextWrapped("Budget estimate: %.3f ms | target is not guaranteed",
-                                       addon_state.depth_budget.ema());
-                } else {
-                    changed |=
-                        ImGui::SliderFloat("Desired FPS", &addon_state.panel.desired_fps, 10.f,
-                                           360.f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
-                    ImGui::Text("Controller presentation rate: %.1f FPS",
-                                addon_state.depth_budget.ema() > 0
-                                    ? 1000.0 / addon_state.depth_budget.ema()
-                                    : 0);
-                    ImGui::TextWrapped(
-                        "Adjusts one block at a time from the game's presentation rate. Pauses while unfocused or inference is inactive. A frame cap or other game work can prevent reaching the target.");
-                }
-                changed |= ImGui::SliderInt("Minimum blocks", &addon_state.panel.minimum_blocks, 1,
-                                            addon_state.panel.transformer_blocks, "%d",
-                                            ImGuiSliderFlags_AlwaysClamp);
-            }
-            unsigned repeat_launches = 114;
-            for (unsigned iteration_index = 0;
-                 iteration_index < addon_state.last_transformer_blocks; ++iteration_index)
-                repeat_launches +=
-                    5 * unsigned(addon_state.direct_game
-                                     ? addon_state.panel.block_repeats[iteration_index]
-                                     : 1);
-            ImGui::Text(
-                "Depth: %u / 8 | launches per frame: %u", addon_state.last_transformer_blocks,
-                repeat_launches *
-                    unsigned(addon_state.direct_game ? addon_state.panel.refinement_passes : 1));
-            ImGui::TextWrapped("Below 8: untrained approximation, quality may deteriorate.");
-            if (ImGui::Button("Restore full network")) {
-                addon_state.panel.experimental = false;
-                addon_state.panel.transformer_blocks = 8;
-                addon_state.panel.refinement_passes = 1;
-                addon_state.panel.block_repeats.fill(1);
-                changed = true;
-            }
-            ImGui::TextUnformatted("Production scheduling: chained groups, full barriers.");
-        }
-    }
     if (visible.own_details() && addon_state.endpoint.session) {
         const auto controls = addon_state.endpoint.session->frame_controls();
         if (controls.contains("tone") && controls.contains("structure"))
             ImGui::Text("Last DLSS5 Phoenix tone %.2f | structure %.2f",
                         controls.at("tone").get<double>(), controls.at("structure").get<double>());
     }
-    if (ImGui::CollapsingHeader("Hotkeys")) {
-        const char* actions[]{"Cycle backend",    "Reset history",
-                              "Log marker",       "Cycle experimental depth",
-                              "Clear GPU timing", "Capture inputs"};
-        for (unsigned iteration_index = 0; iteration_index < addon_state.hotkeys.size();
-             ++iteration_index) {
-            if (!visible.hotkey(iteration_index)) {
-                if (addon_state.capture_hotkey == int(iteration_index))
-                    addon_state.capture_hotkey = -1;
-                continue;
-            }
-            ImGui::PushID(int(iteration_index));
-            char label[80]{};
-            const int key = addon_state.hotkeys[iteration_index];
-            if (addon_state.capture_hotkey == int(iteration_index))
-                snprintf(label, sizeof(label), "Press a key...");
-            else if (key >= VK_F1 && key <= VK_F24)
-                snprintf(label, sizeof(label), "F%d", key - VK_F1 + 1);
-            else if (key == 0)
-                snprintf(label, sizeof(label), "Unbound");
-            else
-                snprintf(label, sizeof(label), "Key %d", key);
-            if (ImGui::Button(label, ImVec2(112, 0))) {
-                addon_state.capture_hotkey = int(iteration_index);
-                addon_state.hotkey_deadline = GetTickCount64() + 10000;
-            }
-            ImGui::SameLine();
-            ImGui::TextUnformatted(actions[iteration_index]);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) {
-                addon_state.hotkeys[iteration_index] = 0;
-                save_live_controls(runtime);
-            }
-            ImGui::PopID();
-        }
-    }
-    if (ImGui::CollapsingHeader("Settings / logging")) {
-        const char* log_levels[]{"Quiet", "Normal", "Verbose"};
-        changed |= ImGui::Combo("Log level", &addon_state.panel.log_level, log_levels, 3);
-        changed |=
-            ImGui::SliderInt("Capture burst frames", &addon_state.panel.capture_burst, 0, 64);
-        changed |= ImGui::Checkbox("Live settings reload", &addon_state.panel.external_reload);
-        if (ImGui::Button("Reload overrides now"))
-            poll_overrides(runtime, true);
-        ImGui::TextWrapped("%s", addon_state.override_status.c_str());
-        ImGui::TextWrapped("%s", overrides_path().u8string().c_str());
-        if (ImGui::Button("Log marker")) {
-            ++addon_state.markers;
-            record_event("phoenix_marker", {{"index", addon_state.markers},
-                                            {"mode", addon_state.panel.mode},
-                                            {"frame", addon_state.routed_frames}});
-        }
-        ImGui::Text("Switches: %llu | markers: %llu", addon_state.switches, addon_state.markers);
-        for (unsigned iteration_index = 0; iteration_index < 4; ++iteration_index)
-            ImGui::TextWrapped(
-                "%s: %llu frames | own %llu | native %llu", phoenix::names[iteration_index],
-                addon_state.mode_frames[iteration_index], addon_state.mode_own[iteration_index],
-                addon_state.mode_native[iteration_index]);
-    }
-    if (visible.own_details() && ImGui::CollapsingHeader("DLSS5 Phoenix model")) {
-        ImGui::TextWrapped("%s", addon_state.bundle_path.u8string().c_str());
-        ImGui::Text("GPU / FP8 / 41 modules / %u transformer blocks",
-                    addon_state.last_transformer_blocks);
-    }
+
 #endif
     // Settings below the main controls also persist immediately.
 #if !CNR_PHOENIX_DIAGNOSTIC
@@ -5790,143 +5283,8 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     }
 #endif
     ImGui::Separator();
-    if (addon_state.live_timing) {
-        ImGui::Text("Presentation rate: %.1f FPS (%.2f ms between presents)",
-                    addon_state.present_fps,
-                    addon_state.present_fps > 0 ? 1000.0 / addon_state.present_fps : 0);
-        {
-            const auto recent_report = addon_state.live_timing->report();
-            bool recent_found = false;
-            for (const auto& row : recent_report.at("rows"))
-                if (row.at("mode").get<unsigned>() == unsigned(addon_state.last_mode) &&
-                    row.at("transformer_blocks").get<unsigned>() ==
-                        addon_state.last_transformer_blocks &&
-                    row.at("settings") == recent_report.at("active_settings") &&
-                    row.at("recent").at("samples").get<uint64_t>()) {
-                    const auto& recent = row.at("recent");
-                    char recent_line[192]{};
-                    snprintf(
-                        recent_line, sizeof(recent_line),
-                        "Networks last 1s: DLSS5 Phoenix %.3f ms (%llu) | NVIDIA %.3f ms (%llu)",
-                        recent.at("phoenix_ms").get<double>(),
-                        recent.at("phoenix_samples").get<uint64_t>(),
-                        recent.at("nvidia_ms").get<double>(),
-                        recent.at("nvidia_samples").get<uint64_t>());
-                    ImGui::TextUnformatted(recent_line);
-                    recent_found = true;
-                    break;
-                }
-            if (!recent_found)
-                ImGui::TextUnformatted("Networks last 1s: --");
-        }
-        if (ImGui::Button("Clear GPU timing")) {
-            addon_state.live_timing->restart();
-            addon_state.worker_timing.clear();
-        }
-        if (!addon_state.worker_timing.report().at("rows").empty()) {
-            ImGui::TextUnformatted("Other processing devices (wall time, ms)");
-            ImGui::TextWrapped(
-                "Rows retain completed results across device switches. Execute includes transfers; result age includes queueing. These are separate from the render-GPU timings below.");
-            if (ImGui::BeginTable("phoenix_workers", 8,
-                                  ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg)) {
-                for (const char* title : {"Device / method", "Results", "Worker ms", "Prepare",
-                                          "Execute", "Resolve", "Age ms", "State"})
-                    ImGui::TableSetupColumn(title);
-                ImGui::TableHeadersRow();
-                const auto workers_report = addon_state.worker_timing.report();
-                for (const auto& row : workers_report.at("rows")) {
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::TextWrapped("%s", row.at("label").get<std::string>().c_str());
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s", row.at("key").get<std::string>().c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%llu", row.at("completed").get<uint64_t>());
-                    for (const char* key : {"worker", "prepare", "execute", "resolve", "age"}) {
-                        ImGui::TableNextColumn();
-                        const auto& metric = row.at(key);
-                        if (metric.at("samples").get<uint64_t>())
-                            ImGui::Text("%.2f", metric.at("mean_ms").get<double>());
-                        else
-                            ImGui::TextUnformatted("--");
-                    }
-                    ImGui::TableNextColumn();
-                    ImGui::TextWrapped("%s", row.at("state").get<std::string>().c_str());
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Actual method: %s\nErrors: %llu\n%s",
-                                          row.at("actual_engine").get<std::string>().c_str(),
-                                          row.at("failed").get<uint64_t>(),
-                                          row.at("error").get<std::string>().c_str());
-                }
-                ImGui::EndTable();
-            }
-        }
-        ImGui::TextUnformatted(
-            (!phoenix::uses_ours(addon_state.panel.mode) ||
-             addon_state.panel.execution_device == "native")
-                ? "Render-GPU timings; retained rows identify their processing device"
-                : "Render GPU: worker capture/compose only; inference is in the table above");
-        ImGui::TextWrapped(
-            "Timing history survives route, runner and settings changes. Each row identifies its workload. Clear timing removes the retained results.");
-        ImGui::TextUnformatted("Recent render-GPU route intervals (ms)");
-        ImGui::PushItemWidth(-1);
-        ImGui::PlotLines("##GPU_route_ms", addon_state.live_timing->history().data(),
-                         int(addon_state.live_timing->history_count()),
-                         int(addon_state.live_timing->history_offset()), nullptr, 0.f, FLT_MAX,
-                         ImVec2(0, 70));
-        ImGui::PopItemWidth();
-        if (ImGui::BeginTable("phoenix_gpu", 5,
-                              ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Route");
-            ImGui::TableSetupColumn("Samples");
-            ImGui::TableSetupColumn("DLSS5 Phoenix ms");
-            ImGui::TableSetupColumn("NVIDIA ms");
-            ImGui::TableSetupColumn("Route ms");
-            ImGui::TableHeadersRow();
-            const auto live_report = addon_state.live_timing->report();
-            for (const auto& row : live_report.at("rows")) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                const char* labels[]{"Input", "NVIDIA", "Split", "DLSS5 Phoenix"};
-                ImGui::TextWrapped("%s / %s / %u blocks", labels[row.at("mode").get<unsigned>()],
-                                   row.at("execution_device").get<std::string>().c_str(),
-                                   row.at("transformer_blocks").get<unsigned>());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%u x %u\n%s", row.at("width").get<unsigned>(),
-                                      row.at("height").get<unsigned>(),
-                                      row.at("settings").dump(2).c_str());
-                const auto& context = row.at("settings");
-                ImGui::TextDisabled(
-                    "%u x %u -> %u x %u",
-                    context.value("InferenceWidth", row.at("width").get<unsigned>()),
-                    context.value("InferenceHeight", row.at("height").get<unsigned>()),
-                    row.at("width").get<unsigned>(), row.at("height").get<unsigned>());
-                ImGui::TextDisabled("%s", context.value("UpscalerStatus", std::string()).c_str());
-                ImGui::TableNextColumn();
-                ImGui::Text("%llu", row.at("route").at("samples").get<uint64_t>());
-                for (const char* key : {"phoenix", "nvidia", "route"}) {
-                    ImGui::TableNextColumn();
-                    const auto& value = row.at(key);
-                    if (value.at("samples").get<uint64_t>())
-                        ImGui::Text("%.3f", value.at("mean_ms").get<double>());
-                    else
-                        ImGui::TextUnformatted("--");
-                }
-            }
-            ImGui::EndTable();
-        }
-        if (phoenix::PanelVisibility{addon_state.panel}.own_details() &&
-            ImGui::CollapsingHeader("GPU stage breakdown")) {
-            const auto report = addon_state.live_timing->report();
-            for (const auto& row : report.at("rows"))
-                if (row.at("mode") == addon_state.last_mode &&
-                    row.at("transformer_blocks") == addon_state.last_transformer_blocks &&
-                    row.at("settings") == report.at("active_settings"))
-                    for (const auto& group : row.at("groups"))
-                        ImGui::Text("%s: %.3f ms", group.at("group").get<std::string>().c_str(),
-                                    group.at("gpu").at("mean_ms").get<double>());
-        }
-    }
+    auto timing_ui = make_panel_context(runtime, model_path, disk_model);
+    phoenix_ui::draw_timing(timing_ui);
     if (addon_state.timestamps && addon_state.endpoint.session) {
         const auto report = addon_state.timestamps->report();
         ImGui::Text("candidate %.3f ms (%llu samples)",
@@ -5952,38 +5310,20 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
 }
 
 void draw_phoenix_compact(reshade::api::effect_runtime* runtime) {
-    auto& addon_state = state();
-    std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    if (phoenix_compat::applies(runtime)) { phoenix_compat::compact(runtime); return; }
+    auto& value = state();
+    std::lock_guard<std::recursive_mutex> lock(value.mutex);
     load_live_controls(runtime);
-    ImGui::Text("Status: %s | own frames: %llu",
-                addon_state.terminal           ? "Stopped"
-                : addon_state.endpoint.session ? "Running"
-                                               : "Waiting",
-                addon_state.submitted);
-#if !CNR_PHOENIX_DIAGNOSTIC
-    const char* labels[]{"Input", "NVIDIA DLL", "Comparison", "DLSS5 Phoenix"};
-    if (ImGui::Combo("Backend##phoenix_compact", &addon_state.panel.mode, labels, 4)) {
-        addon_state.live.reset_requested = true;
-        addon_state.timing_settings_dirty = true;
+    auto ui = make_panel_context(runtime, {}, value.weight_source.disk_model());
+    ui.status = value.terminal ? "Stopped" : value.direct_runner || value.endpoint.session ? value.direct_status : "Waiting";
+    if (phoenix_ui::draw_compact(ui)) {
+        value.live.reset_requested = true;
+        value.timing_settings_dirty = true;
         save_live_controls(runtime);
     }
-#endif
-    if (phoenix::PanelVisibility{addon_state.panel}.own_details())
-        ImGui::Text("Transformer depth: %u / 8", addon_state.last_transformer_blocks);
-    if (addon_state.live_timing) {
-        const auto report = addon_state.live_timing->report();
-        for (const auto& row : report.at("rows"))
-            if (row.at("mode") == addon_state.last_mode &&
-                row.at("transformer_blocks") == addon_state.last_transformer_blocks &&
-                row.at("settings") == report.at("active_settings"))
-                ImGui::Text("%u x %u | GPU route %.3f ms", row.at("width").get<unsigned>(),
-                            row.at("height").get<unsigned>(),
-                            row.at("route").at("mean_ms").get<double>());
-    }
-    if (!addon_state.error.empty())
-        ImGui::TextWrapped("%s", addon_state.error.c_str());
 }
-void draw_comparison_hud(reshade::api::effect_runtime*) {
+void draw_comparison_hud(reshade::api::effect_runtime* runtime) {
+    if(phoenix_compat::applies(runtime))return;
 #if !CNR_PHOENIX_DIAGNOSTIC
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
@@ -6067,6 +5407,138 @@ void draw_comparison_hud(reshade::api::effect_runtime*) {
 }
 } // namespace
 
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederVersion() {
+    return CNR_PHOENIX_DIAGNOSTIC ? 0u : PhoenixFeederAbiV1;
+}
+extern "C" __declspec(dllexport) HRESULT WINAPI
+CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV1* result) {
+    if (!frame || !result || !PhoenixFeederContractV1(*frame, *result))
+        return E_INVALIDARG;
+    result->status = PhoenixFeederStatusV1::Deferred;
+    result->recorded_frames = 0;
+    auto& addon_state = state();
+    std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    try {
+        check(!CNR_PHOENIX_DIAGNOSTIC && addon_state.direct_feeder && addon_state.direct_game,
+              "Direct feeder API requires input_provider=feeder_d3d12 in a live addon");
+        check(!addon_state.terminal, "Phoenix direct feeder is terminal");
+        check(gpu_gate(), "Phoenix direct feeder is not armed");
+        const bool need_nr = addon_state.panel.mode == phoenix::nvidia ||
+            (addon_state.panel.mode == phoenix::split &&
+             (addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1));
+        if (frame->stream_id != 0 && addon_state.panel.uplift && need_nr) {
+            addon_state.direct_status =
+                "Stereo feeder supports Input/Phoenix sources only; NVIDIA comparison needs isolated NR eye features";
+            return E_NOTIMPL;
+        }
+        auto* cmd = resolve_native_list(frame->command_list);
+        check(resolve_queue(cmd) == frame->queue,
+              "Phoenix feeder queue differs from the list's observed submitting queue");
+        const auto output = frame->output->GetDesc(), motion = frame->motion->GetDesc();
+        check(output.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                  motion.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                  output.SampleDesc.Count == 1 && motion.SampleDesc.Count == 1 &&
+                  output.DepthOrArraySize == 1 && motion.DepthOrArraySize == 1 &&
+                  output.MipLevels == 1 && motion.MipLevels == 1 &&
+                  output.Width == motion.Width && output.Height == motion.Height &&
+                  output.Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
+                  phoenix::direct::motion_format(motion.Format),
+              "Phoenix feeder requires native-size float color and motion textures");
+        if (frame->depth) {
+            const auto depth = frame->depth->GetDesc();
+            check(depth.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                      depth.SampleDesc.Count == 1 && depth.DepthOrArraySize == 1 &&
+                      depth.MipLevels == 1 && depth.Width == output.Width &&
+                      depth.Height == output.Height && depth.Format == DXGI_FORMAT_R32_FLOAT,
+                  "Phoenix feeder depth requires native-size scalar R32_FLOAT");
+        }
+        ComPtr<ID3D12Device> device;
+        phoenix_native::hr(cmd->GetDevice(IID_PPV_ARGS(&device)));
+        ComPtr<IUnknown> device_identity;
+        phoenix_native::hr(device.As(&device_identity));
+        for (auto* resource : {frame->output, frame->motion, frame->depth}) {
+            if (!resource) continue;
+            ComPtr<ID3D12Device> owner;
+            phoenix_native::hr(resource->GetDevice(IID_PPV_ARGS(&owner)));
+            ComPtr<IUnknown> owner_identity;
+            phoenix_native::hr(owner.As(&owner_identity));
+            if (owner_identity != device_identity) {
+                // ReShade's resource GetDevice can report its device proxy.
+                // Compare canonical identities after the documented unwrap,
+                // rather than treating that same-device proxy as a foreign GPU.
+                ComPtr<IUnknown> unwrapped;
+                if (SUCCEEDED(owner->QueryInterface(kUnwrappedObject,
+                        reinterpret_cast<void**>(unwrapped.GetAddressOf()))) && unwrapped) {
+                    ComPtr<ID3D12Device> original;
+                    phoenix_native::hr(unwrapped.As(&original));
+                    phoenix_native::hr(original.As(&owner_identity));
+                }
+            }
+            check(owner_identity == device_identity, "Phoenix feeder texture belongs to another device");
+            D3D12_RESOURCE_STATES observed{};
+            check(observation::epoch_state(cmd, resource, observed) &&
+                      observed == D3D12_RESOURCE_STATE_COMMON &&
+                      observation::current_provider_resource(cmd, resource),
+                  "Phoenix feeder texture requires fresh observed COMMON state");
+        }
+        ++addon_state.feeder_calls;
+        if (addon_state.feeder_stream && *addon_state.feeder_stream != frame->stream_id &&
+            addon_state.direct_runner && !addon_state.direct_runner->idle())
+            return S_FALSE;
+        if (addon_state.live.reset_requested || addon_state.last_mode != addon_state.panel.mode)
+            addon_state.feeder_reset_pending.fill(true);
+        if (!addon_state.feeder_stream || *addon_state.feeder_stream != frame->stream_id) {
+            // Park only a retired executor; each eye retains its own history.
+            if (addon_state.feeder_stream) {
+                addon_state.feeder_last_blocks[*addon_state.feeder_stream] = addon_state.last_transformer_blocks;
+                addon_state.feeder_parked[*addon_state.feeder_stream] = std::move(addon_state.direct_runner);
+                if (addon_state.live_timing) addon_state.live_timing->budget(nullptr);
+                addon_state.feeder_parked_timing[*addon_state.feeder_stream] = std::move(addon_state.live_timing);
+            }
+            addon_state.direct_runner = std::move(addon_state.feeder_parked[frame->stream_id]);
+            addon_state.live_timing = std::move(addon_state.feeder_parked_timing[frame->stream_id]);
+            if (addon_state.live_timing) addon_state.live_timing->budget(&addon_state.depth_budget);
+            addon_state.last_transformer_blocks = addon_state.feeder_last_blocks[frame->stream_id];
+            addon_state.timing_settings_dirty = true;
+            addon_state.feeder_stream = frame->stream_id;
+        }
+        const bool reset_history = frame->reset || addon_state.feeder_reset_pending[frame->stream_id];
+        addon_state.live.reset_requested = reset_history;
+        // No fake feature is registered: the direct renderer needs only the
+        // borrowed frame resources and controls, carried by this local adapter.
+        const phoenix_addon::FeederParameters parameters(*frame);
+        const auto before = addon_state.recorded;
+        addon_state.feeder_applied_reset = false;
+        direct_game_frame(cmd, nullptr, &parameters);
+        result->recorded_frames = addon_state.recorded;
+        if (addon_state.terminal) return E_FAIL;
+        if (addon_state.panel.mode == phoenix::input || !addon_state.panel.uplift) {
+            result->status = PhoenixFeederStatusV1::Bypass;
+            return S_OK;
+        }
+        if (addon_state.recorded > before) {
+            addon_state.feeder_reset_pending[frame->stream_id] = false;
+            ++addon_state.feeder_stream_recorded[frame->stream_id];
+            if (addon_state.feeder_applied_reset) ++addon_state.feeder_stream_resets[frame->stream_id];
+            result->status = PhoenixFeederStatusV1::Recorded;
+            return S_OK;
+        }
+        if (addon_state.direct_runner && addon_state.direct_runner->pending(cmd)) {
+            addon_state.direct_runner->invalidate();
+            addon_state.terminal = true;
+            error("Phoenix feeder refused after claiming its command list; abandon the recording");
+            return E_FAIL;
+        }
+        return S_FALSE;
+    } catch (const std::exception& exception) {
+        addon_state.direct_status = exception.what();
+        addon_state.live.reset_requested = true;
+        return E_FAIL;
+    } catch (...) {
+        return E_FAIL;
+    }
+}
+
 // Optional explicit engine registration. The environment-driven first-live
 // path uses the built-in observed-state resolver instead.
 extern "C" __declspec(dllexport) BOOL WINAPI
@@ -6129,6 +5601,106 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXUnregister() {
     return TRUE;
 }
 
+// UI metadata is queried at most once a second by the helper's pipe worker.
+// It is separate from the deliberately small per-frame completion snapshot.
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederUiJson(char* destination,
+                                                                    uint32_t capacity) {
+    auto& value = state();
+    std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    try {
+        auto info = bridge_snapshot();
+        info["schema"] = "phoenix-panel/1";
+        info["model_validation"]["key"] = value.model_validation.poll().key;
+        info["runtime_root"] = phoenix_model::source_path_string(phoenix::portable::native_runtime_root());
+        info["bundle_path"] = phoenix_model::source_path_string(value.bundle_path);
+        info["overrides_path"] = phoenix_model::source_path_string(overrides_path());
+        info["override_status"] = value.override_status;
+        info["error"] = value.error;
+        info["last_mode"] = value.last_mode;
+        info["transformer_blocks"] = value.last_transformer_blocks;
+        info["budget_estimate_ms"] = value.depth_budget.ema();
+        info["history_resets"] = value.live_resets_recorded;
+        info["markers"] = value.markers;
+        if (value.direct_runner) {
+            const auto& geometry = value.direct_runner->resolution();
+            info["resolution"] = {{"width", geometry.width}, {"height", geometry.height},
+                {"image_width", geometry.image_width}, {"image_height", geometry.image_height},
+                {"output_width", geometry.output_width}, {"output_height", geometry.output_height}};
+            info["upscaler_status"] = value.direct_runner->upscale_status();
+        }
+        info["gpu_history"] = Json::array();
+        if (value.live_timing) {
+            const auto& history = value.live_timing->history();
+            const auto count = value.live_timing->history_count();
+            const auto offset = value.live_timing->history_offset();
+            for (size_t index = 0; index < count; ++index)
+                info["gpu_history"].push_back(history[(offset + index) % history.size()]);
+        }
+        const auto text = info.dump();
+        if (text.size() >= 1024u * 1024u) return 0;
+        const auto required = uint32_t(text.size() + 1);
+        if (destination && capacity >= required) std::memcpy(destination, text.c_str(), required);
+        return required;
+    } catch (...) { return 0; }
+}
+
+extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederUiAction(uint32_t command,
+                                                                  uint32_t argument) {
+    if (!phoenix_ui::valid_action(command)) return FALSE;
+    auto& value = state();
+    std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    try {
+        switch (phoenix_ui::Action(command)) {
+        case phoenix_ui::Action::ResetHistory: value.live.reset_requested = true; break;
+        case phoenix_ui::Action::CaptureInputs:
+            if (argument > 64) return FALSE;
+            arm_input_capture(argument ? argument : 8); break;
+        case phoenix_ui::Action::ReloadOverrides: poll_overrides(nullptr, true); break;
+        case phoenix_ui::Action::Marker:
+            ++value.markers;
+            record_event("phoenix_marker", {{"index", value.markers}, {"mode", value.panel.mode},
+                                            {"frame", value.routed_frames}}); break;
+        case phoenix_ui::Action::ClearTiming:
+            if (value.live_timing) value.live_timing->restart();
+            value.worker_timing.clear(); break;
+        case phoenix_ui::Action::ValidateModel:
+            value.model_validation.validate(value.weight_source, phoenix::portable::native_runtime_root()); break;
+        }
+        return TRUE;
+    } catch (const std::exception& error) { value.error = error.what(); return FALSE; }
+}
+
+// A narrow, in-memory completion snapshot for the compatibility helper. The
+// full diagnostic report remains available, but filesystem writes, GPU memory
+// sampling and timing-history serialization do not belong in every frame call.
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederProgressJson(char* destination,
+                                                                          uint32_t capacity) {
+    auto& addon_state = state();
+    std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    try {
+        uint64_t completed = addon_state.completed_retired;
+        if (addon_state.direct_runner) completed += addon_state.direct_runner->completed();
+        for (const auto& runner : addon_state.feeder_parked)
+            if (runner) completed += runner->completed();
+        if (addon_state.endpoint.session) completed += addon_state.endpoint.session->completed();
+        for (const auto& session : addon_state.retired)
+            completed += session->completed();
+        const Json progress{
+            {"schema", "production-game-phoenix/2"},
+            {"input_provider", addon_state.direct_feeder ? "feeder_d3d12" : "game_dlss"},
+            {"terminal", addon_state.terminal},
+            {"completed_frames", completed},
+            {"phoenix_routing", {{"frames", addon_state.routed_frames}, {"active_mode", addon_state.last_mode}}},
+            {"direct_game", {{"enabled", addon_state.direct_game}, {"status", addon_state.direct_status}}},
+            {"worker_execution", addon_state.direct_runner ? addon_state.direct_runner->execution_status()
+                                                          : Json{{"kind", "not_started"}}}};
+        const auto text = progress.dump();
+        const auto required = uint32_t(text.size() + 1);
+        if (destination && capacity >= required) std::memcpy(destination, text.c_str(), required);
+        return required;
+    } catch (...) { return 0; }
+}
+
 extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* path) {
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
@@ -6139,6 +5711,11 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
             launches += addon_state.direct_runner->launches();
             completed_frames += addon_state.direct_runner->completed();
         }
+        for (const auto& runner : addon_state.feeder_parked)
+            if (runner) {
+                launches += runner->launches();
+                completed_frames += runner->completed();
+            }
         if (addon_state.endpoint.session)
             launches += addon_state.endpoint.session->candidate_launches();
         if (addon_state.endpoint.session)
@@ -6151,6 +5728,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
             {"schema", "production-game-phoenix/2"},
             {"claimed_frames", addon_state.claimed},
             {"recorded_frames", addon_state.recorded},
+            {"feeder_calls", addon_state.feeder_calls},
+            {"feeder_stream_recorded", addon_state.feeder_stream_recorded},
+            {"feeder_stream_resets", addon_state.feeder_stream_resets},
+            {"input_provider", addon_state.direct_feeder ? "feeder_d3d12" : addon_state.direct_game ? "game_dlss" : "native_nr"},
             {"input_captures", addon_state.captures_taken},
             {"capture_base", addon_state.capture_base},
             {"submitted_frames", addon_state.submitted},
@@ -6498,7 +6079,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
             {"gpu_recording_allowed", gpu_gate()},
             {"requires_gpu_ready_file", addon_state.require_gpu_ready_file},
             {"gpu_ready_file", addon_state.require_gpu_ready_file
-                                   ? Json(addon_state.gate.u8string())
+                                   ? Json(phoenix_model::source_path_string(addon_state.gate))
                                    : Json(nullptr)},
             {"terminal", addon_state.terminal},
             {"frames", addon_state.frames},
@@ -6520,7 +6101,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
         report["production_candidate_only"] = false;
         report["benchmark_eligible"] = false;
         report["comparison_failed"] = addon_state.comparison_failed;
-        report["capture_directory"] = addon_state.capture_directory.u8string();
+        report["capture_directory"] = phoenix_model::source_path_string(addon_state.capture_directory);
         report["pairs"] = Json::array();
         size_t completed = 0, exact = 0;
         for (const auto& pair : addon_state.pairs) {
@@ -6596,6 +6177,7 @@ bool addon_attach(HMODULE module) {
     reshade::log::message(reshade::log::level::info, "[DLSS5 Phoenix] addon build " PHOENIX_STR(
                                                          PHOENIX_BUILD_TAG) " attached");
     state().self = module;
+    phoenix_compat::attach(module);
     phoenix::direct::phoenix_crumb = phoenix_crumb;
     // Earliest install wins the inner hook position (see install_ngx_exports):
     // ReShade loads us before renodx, so hooking whatever NGX copies are
@@ -6641,6 +6223,7 @@ void addon_detach(HMODULE module) {
     bool expected = true;
     if (!addon_registered.compare_exchange_strong(expected, false))
         return;
+    phoenix_compat::detach();
     menu_helper::detach();
     // An active sidecar is pinned; process teardown releases the driver.
     reshade::unregister_overlay("DLSS5 Phoenix", draw_phoenix_overlay);
