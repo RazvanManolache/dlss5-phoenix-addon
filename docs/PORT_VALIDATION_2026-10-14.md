@@ -22,6 +22,11 @@ performance charts. No Mac or Android GPU performance is measured.
   matrix tails/layouts/strides, fused residuals, attention/head transforms,
   local/global row normalization, frame packing and **1,354,743** finite conversion
   comparisons. This validates reuse on desktop, not on a phone GPU.
+- Installed SDK frame clients also ran the same full-model fixture on Windows
+  CPU, Windows Vulkan and Linux CPU. All three outputs matched byte-for-byte:
+  SHA-256 `9b1f084f227995f363d4df12eebc18fb197c2cb92277eb2b48ecc3805db59939`.
+  Vulkan executes **1,317** commands with its supported fusions; CPU executes
+  **1,673**. Resident weight/scratch totals agree for this fixture.
 - Android ARM64, NDK **27.3.13750724**, Clang 18.0.4, API 28: CPU/runtime/client
   and Vulkan provider/backend cross-compile. This is not an APK or device run.
 - Linux Vulkan provider/backend build against the Linux loader. WSL's available
@@ -31,7 +36,17 @@ performance charts. No Mac or Android GPU performance is measured.
   **not** execute Metal. Separately, macOS 14 ARM64 GitHub CI successfully compiles
   both the Objective-C++ backend and MSL with Apple's compiler, and passes the
   C API/platform/CPU operator suites. A device suite is provided; CI only executes
-  it if enumeration finds a supported GPU. No full-model Metal result is certified.
+  it if enumeration finds a supported GPU. This run exposed no supported Metal
+  GPU, so device tests were explicitly **not executed**. No full-model Metal
+  result is certified.
+
+[All five CI jobs passed](https://github.com/RazvanManolache/dlss5-phoenix-addon/actions/runs/38491922392)
+for binary checkpoint `a78569df208b5eabfc2d0b70032c519b4055be35`: Windows,
+Linux, macOS, Android ARM64, and a separate Linux/Android Vulkan build. Vulkan's
+host compiler was built from pinned glslang 16.6.0 and Vulkan-Headers 1.4.365.
+Local release builds were made from a clean tracked-source archive, without
+other in-progress changes in the checkout. SDK packages contain neither model
+data nor NVIDIA's model DLL.
 
 No model files, DLLs or private frame jobs are included in the published source.
 The supplied NVIDIA DLL is authenticated/read as PE resource data by the portable
