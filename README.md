@@ -9,8 +9,8 @@ portability side quest.
 **For developers:** an [experimental standalone C library](docs/LIBRARY.md)
 exposes model selection, block repeats, passes, conditioning, history and
 timing/memory status without ReShade. Windows/Linux builds and an Android ARM64
-cross-build are available; Apple silicon Metal support is implemented but still
-needs Mac validation. These portable runners do not inherit the native RTX
+cross-build are available; Apple silicon Metal compiles in Mac CI and still
+needs GPU/model validation. These portable runners do not inherit the native RTX
 performance shown below.
 
 I dislike how much of the software we add to our games is closed source. We

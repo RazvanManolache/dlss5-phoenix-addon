@@ -22,6 +22,9 @@ jobs:
       - name: Test portable components
         # Hosted macOS runners do not provide a certified Apple GPU test device.
         run: ctest --test-dir build/standalone -C Release --output-on-failure -E metal_operators
+      - name: Test Metal if an Apple GPU is exposed
+        if: runner.os == 'macOS'
+        run: python tools/test_metal_available.py build/standalone
       - name: Stage SDK
         run: cmake --install build/standalone --config Release --prefix build/sdk
       - uses: actions/upload-artifact@v4

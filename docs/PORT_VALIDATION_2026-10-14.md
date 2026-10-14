@@ -28,8 +28,10 @@ performance charts. No Mac or Android GPU performance is measured.
   Vulkan devices are not equivalent to testing a native Linux desktop GPU.
 - Generated Metal arithmetic passes host checks over all non-NaN binary16 inputs
   and eight publication modes. This checks the source adaptation only; it does
-  **not** compile MSL or execute Metal. The build and CI include an Apple compiler
-  step, and an opt-in/local Apple silicon operator suite is provided.
+  **not** execute Metal. Separately, macOS 14 ARM64 GitHub CI successfully compiles
+  both the Objective-C++ backend and MSL with Apple's compiler, and passes the
+  C API/platform/CPU operator suites. A device suite is provided; CI only executes
+  it if enumeration finds a supported GPU. No full-model Metal result is certified.
 
 No model files, DLLs or private frame jobs are included in the published source.
 The supplied NVIDIA DLL is authenticated/read as PE resource data by the portable

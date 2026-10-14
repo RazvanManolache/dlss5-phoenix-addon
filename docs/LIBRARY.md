@@ -13,7 +13,7 @@ native RTX charts.
 | --- | --- | --- |
 | Windows x64 | C DLL; portable CPU and Vulkan; existing optional CUDA/HIP/SYCL provider ABI retained | CPU/operator/C-interface tests and full-model frame |
 | Linux x64 | C shared library; portable CPU and Vulkan build paths | Built and CPU tests/full-model frame run under Ubuntu 22.04 WSL |
-| macOS, Apple silicon | C dynamic library; Metal compute backend and portable CPU | Source implemented; no local Apple compiler or Mac GPU available |
+| macOS, Apple silicon | C dynamic library; Metal compute backend and portable CPU | Apple compiler/MSL and CPU suites pass in macOS 14 ARM64 CI; full-model GPU execution unvalidated |
 | Android ARM64 | NDK C shared library; portable CPU and Vulkan | Cross-compilation; no phone GPU or full-model execution certified |
 
 Metal is an initial correctness implementation, with resident buffers, ordered
@@ -73,7 +73,8 @@ cmake --install build/metal --prefix build/sdk
 The Mac build compiles the generated MSL with `xcrun metal` as a build check.
 `metal_operators` also executes it on an Apple silicon GPU and compares with
 the shared arithmetic reference. Run it before treating a Mac build as usable.
-CI compiles Metal but excludes GPU execution on hosted runners.
+CI compiles Metal and enumerates devices. It runs GPU operator tests only if the
+host exposes a supported Metal device; otherwise it reports them as not executed.
 
 Android cross-build (substitute your NDK path):
 
