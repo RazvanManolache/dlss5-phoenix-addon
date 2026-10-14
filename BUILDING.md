@@ -1,5 +1,9 @@
 # Build DLSS5 Phoenix
 
+For the standalone C library, Linux/Android builds and experimental Apple silicon
+Metal backend, see [the library build and integration guide](docs/LIBRARY.md).
+The instructions below build the Windows ReShade addon and its existing runners.
+
 Build from this repository with Python 3.11 or newer, Visual Studio C++ x64 build tools and Windows SDK 10.0.26100 or newer. Python is used for building; the compiled runners do not require it at runtime.
 
 Provide NVIDIA NGX SDK headers separately. They are not included here. Native RTX kernels also require a CUDA toolkit supporting the architecture in `src/native/model/production_kernel_contracts.json` (currently `sm_120`).

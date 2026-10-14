@@ -2,8 +2,11 @@
 // Resource parsing checks lengths and digests before a runner receives tensor payloads.
 
 #pragma once
+#ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#endif
+#include "portable_model_io.h"
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -76,7 +79,8 @@ struct WeightSource {
     void validate() const {
         if (disk_model()) {
             if (folder.empty() || !dll.empty() || !dll_sha256.empty() || !folder.is_absolute() ||
-                folder.native().find(L'\0') != std::wstring::npos)
+                folder.native().find(std::filesystem::path::value_type(0)) !=
+                    std::filesystem::path::string_type::npos)
                 throw std::runtime_error("Model folder needs an absolute path and no DLL fields");
             return;
         }
@@ -88,8 +92,9 @@ struct WeightSource {
     }
 };
 inline std::string weight_digest(const uint8_t* data, size_t bytes) {
-    if (bytes > ULONG_MAX)
+    if (bytes > UINT32_MAX)
         throw std::runtime_error("Weight hash extent");
+#ifdef _WIN32
     unsigned char hash[32]{};
     if (BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, const_cast<PUCHAR>(data), ULONG(bytes),
                    hash, 32) < 0)
@@ -101,6 +106,9 @@ inline std::string weight_digest(const uint8_t* data, size_t bytes) {
         result[iteration_index * 2 + 1] = hex[hash[iteration_index] & 15];
     }
     return result;
+#else
+    return portable_sha256(data, bytes);
+#endif
 }
 // Bounds are checked before every record access. The output remains packed;
 // only the already authenticated catalogue supplies native offsets/padding.
@@ -156,7 +164,7 @@ inline std::vector<uint8_t> reconstruct_weights(const uint8_t* data, size_t byte
                                                 const Json& catalogue) {
     const auto records = resource_records(data, bytes);
     const auto extent = catalogue.at("bytes").get<uint64_t>();
-    if (extent > ULONG_MAX || records.size() != catalogue.at("records").size() ||
+    if (extent > UINT32_MAX || records.size() != catalogue.at("records").size() ||
         records.size() != 153 || catalogue.at("unknown_gap_bytes") != 0)
         throw std::runtime_error("DLL weights do not match the complete native catalogue");
     std::vector<uint8_t> result(size_t(extent), 0);
@@ -189,7 +197,7 @@ inline PackedModel pack_resource(const uint8_t* data, size_t size) {
         {"records", Json::array()}, {"unknown_gap_bytes", 0}, {"source", "dll_resource"}};
     size_t extent = 0;
     for (const auto& item : records) {
-        if (item.second.bytes > ULONG_MAX - extent - 511)
+        if (item.second.bytes > UINT32_MAX - extent - 511)
             throw std::runtime_error("Native packed model extent");
         result.catalogue["records"].push_back(
             {{"name", item.first},
@@ -216,6 +224,7 @@ with_dll_resource(const WeightSource& source,
     source.validate();
     if (source.dll.empty() || file_digest(source.dll) != source.dll_sha256)
         throw std::runtime_error("DLL weight source SHA-256 mismatch");
+#ifdef _WIN32
     // Resource-only mapping never executes DllMain or NVIDIA inference code.
     struct Mapping {
         HMODULE handle;
@@ -236,6 +245,14 @@ with_dll_resource(const WeightSource& source,
     if (!data || !bytes)
         throw std::runtime_error("DLL weight resource unavailable");
     return read(data, size_t(bytes));
+#else
+    ReadOnlyModelFile mapping(source.dll);
+    const auto resource = pe_weight_resource(mapping.bytes());
+    // Authenticate the exact mapped bytes too, closing the hash/open race.
+    if (weight_digest(mapping.bytes().data(), mapping.bytes().size()) != source.dll_sha256)
+        throw std::runtime_error("Mapped DLL weight source SHA-256 mismatch");
+    return read(resource.data(), resource.size());
+#endif
 }
 inline std::vector<uint8_t>
 dll_weights(const WeightSource& source, const Json& catalogue,
@@ -291,7 +308,13 @@ inline std::filesystem::path folder_resource_path(const std::filesystem::path& f
     const auto path = std::filesystem::canonical(root / relative);
     auto child = path.begin();
     for (auto parent = root.begin(); parent != root.end(); ++parent, ++child)
-        if (child == path.end() || _wcsicmp(child->c_str(), parent->c_str()) != 0)
+        if (child == path.end() ||
+#ifdef _WIN32
+            _wcsicmp(child->c_str(), parent->c_str()) != 0
+#else
+            *child != *parent
+#endif
+        )
             throw std::runtime_error("Model resource resolves outside the model folder");
     if (child == path.end() || !std::filesystem::is_regular_file(path))
         throw std::runtime_error("Model resource is not a regular file");
@@ -314,6 +337,7 @@ template <class Read> inline auto with_folder_resource(const WeightSource& sourc
     const auto path = folder_resource_path(source.folder, resource);
     // Read-only mapping avoids another full-size host allocation. The mapping
     // and file handle live until all decoders have finished reading the bytes.
+#ifdef _WIN32
     struct Mapping {
         HANDLE file = INVALID_HANDLE_VALUE, section = nullptr;
         const uint8_t* data = nullptr;
@@ -339,10 +363,17 @@ template <class Read> inline auto with_folder_resource(const WeightSource& sourc
             static_cast<const uint8_t*>(MapViewOfFile(mapping.section, FILE_MAP_READ, 0, 0, bytes));
     if (!mapping.data)
         throw std::runtime_error("Model resource read-only mapping failed");
-    if (weight_digest(mapping.data, bytes) != checksum)
+    const auto* data = mapping.data;
+#else
+    ReadOnlyModelFile mapping(path);
+    if (mapping.bytes().size() != bytes)
+        throw std::runtime_error("Model resource byte count differs from model.json");
+    const auto* data = mapping.bytes().data();
+#endif
+    if (weight_digest(data, bytes) != checksum)
         throw std::runtime_error("Model resource SHA-256 mismatch");
-    validate_model_layout(mapping.data, bytes);
-    return read(mapping.data, bytes);
+    validate_model_layout(data, bytes);
+    return read(data, bytes);
 }
 template <class Read>
 inline auto

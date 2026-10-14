@@ -4,24 +4,29 @@
 #include "../../native_runtime/backend_options.h"
 #include "../../native_runtime/host_math.h"
 #include "../../native_runtime/frame.h"
-#include <windows.h>
+#include "../../native_runtime/platform.h"
 #include <filesystem>
 #include <iostream>
 #include <cstring>
 using namespace phoenix_cpp;
 #include "window_block_contract.h"
+#ifdef _WIN32
 int wmain(int argc, wchar_t** argv) {
+#else
+int main(int argc, char** argv) {
+#endif
     try {
         demand(argc >= 4 && argc <= 6,
                "Usage: backend_operator_tests RUNTIME BACKEND DEVICE [OPTION_BITS] [fp8-only]");
         const auto extra_options = argc >= 5 ? uint32_t(std::stoul(argv[4])) : 0u;
-        const bool fp8_only = argc == 6 && std::wstring(argv[5]) == L"fp8-only";
+        const bool fp8_only = argc == 6 && std::filesystem::path(argv[5]) == "fp8-only";
         demand(argc != 6 || fp8_only, "Unknown conversion subset");
         auto root = std::filesystem::absolute(argv[1]);
         std::string kind = std::filesystem::path(argv[2]).string();
         std::string device = std::filesystem::path(argv[3]).string();
         // Match the broker's process-local CPU ICD setup for SYCL tests.
         // No driver is registered or installed on the machine.
+#ifdef _WIN32
         struct PrivateCpuOpenCl {
             DLL_DIRECTORY_COOKIE directory = nullptr;
             HMODULE module = nullptr;
@@ -41,31 +46,34 @@ int wmain(int argc, wchar_t** argv) {
             demand(private_cpu.module, "Private CPU OpenCL forwarding library unavailable");
             SetEnvironmentVariableW(L"CL_CONFIG_CPU_TBB_NUM_WORKERS", L"8");
         }
-        auto module =
-            LoadLibraryExW((root / ("phoenix_" + kind + "_cpp.dll")).c_str(), nullptr,
-                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        const auto shader_folder = (root / "vulkan").wstring();
+        const wchar_t* shader_folder_argument = shader_folder.c_str();
+#else
+        const wchar_t* shader_folder_argument = nullptr;
+#endif
+        auto module = open_library(root / library_name("phoenix_" + kind + "_cpp"));
         demand(module, "Backend DLL missing");
         using Create = Backend* (*)(const char*, const wchar_t*, uint32_t, char*, size_t);
         auto create =
-            reinterpret_cast<Create>(GetProcAddress(module, "phoenix_backend_create_configured"));
+            reinterpret_cast<Create>(library_symbol(module, "phoenix_backend_create_configured"));
         auto destroy =
-            reinterpret_cast<DestroyBackend>(GetProcAddress(module, "phoenix_backend_destroy"));
+            reinterpret_cast<DestroyBackend>(library_symbol(module, "phoenix_backend_destroy"));
         using BasicCreate = Backend* (*)(const char*, const wchar_t*, char*, size_t);
         auto basic_create =
-            reinterpret_cast<BasicCreate>(GetProcAddress(module, "phoenix_backend_create"));
+            reinterpret_cast<BasicCreate>(library_symbol(module, "phoenix_backend_create"));
         using Features = uint32_t (*)(Backend*);
         auto features =
-            reinterpret_cast<Features>(GetProcAddress(module, "phoenix_backend_features"));
+            reinterpret_cast<Features>(library_symbol(module, "phoenix_backend_features"));
         demand((create || basic_create) && destroy, "Backend factory ABI missing");
         char error[2048]{};
         auto backend = std::unique_ptr<Backend, DestroyBackend>(
-            create ? create(device.c_str(), (root / "vulkan").c_str(),
+            create ? create(device.c_str(), shader_folder_argument,
                             ((extra_options & CudaFusedWindowBlock)
                                  ? 0u
                                  : DispatchProfiling | OrderedAttention) |
                                 extra_options,
                             error, sizeof(error))
-                   : basic_create(device.c_str(), (root / "vulkan").c_str(), error, sizeof(error)),
+                   : basic_create(device.c_str(), shader_folder_argument, error, sizeof(error)),
             destroy);
         demand(bool(backend), error);
         if (kind == "cuda" && (extra_options & CudaFusedWindowBlock))
@@ -548,7 +556,7 @@ int wmain(int argc, wchar_t** argv) {
         for (auto allocation : owned)
             backend->release(allocation);
         backend.reset();
-        FreeLibrary(module);
+        close_library(module);
         std::cout << "Backend fused operator contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

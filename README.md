@@ -6,6 +6,13 @@ inference speed in the matched 1080p test, with useful controls and lower
 measured GPU residency. The alternate backends are our slightly obsessive
 portability side quest.
 
+**For developers:** an [experimental standalone C library](docs/LIBRARY.md)
+exposes model selection, block repeats, passes, conditioning, history and
+timing/memory status without ReShade. Windows/Linux builds and an Android ARM64
+cross-build are available; Apple silicon Metal support is implemented but still
+needs Mac validation. These portable runners do not inherit the native RTX
+performance shown below.
+
 I dislike how much of the software we add to our games is closed source. We
 rush for the best experience, often giving code access to our systems without
 being able to inspect what it does—or what that means for our privacy. I'd

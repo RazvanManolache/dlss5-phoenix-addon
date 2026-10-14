@@ -1,0 +1,163 @@
+cmake_minimum_required(VERSION 3.22)
+project(PhoenixStandalone VERSION 0.8 LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include(CTest)
+find_package(Threads REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PHOENIX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+option(PHOENIX_ENABLE_METAL "Build Apple silicon Metal backend" ${APPLE})
+option(PHOENIX_ENABLE_VULKAN "Build resident Vulkan backend (Linux/Android/Windows)" OFF)
+set(PHOENIX_VULKAN_HEADERS "" CACHE PATH "Vulkan-Headers include directory, version 1.4.365 or newer")
+set(PHOENIX_GLSLANG "" CACHE FILEPATH "Host glslang compiler (not a target Android executable)")
+set(PHOENIX_VULKAN_TEST_DEVICE "" CACHE STRING "Explicit vulkan:<UUID> for device operator tests")
+
+# This portable baseline is separate from the optimized Windows CPU target.
+# Apple/ARM ports must not accidentally inherit AVX compiler flags.
+add_library(phoenix_cpu_cpp SHARED backend_reference.cpp)
+add_library(phoenix_runtime_cpp SHARED runtime.cpp)
+foreach(target phoenix_cpu_cpp phoenix_runtime_cpp)
+    target_link_libraries(${target} PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /fp:strict /EHsc /bigobj)
+        target_compile_definitions(${target} PRIVATE NOMINMAX)
+        target_link_libraries(${target} PRIVATE bcrypt)
+    else()
+        target_compile_options(${target} PRIVATE -ffp-contract=off -fno-fast-math)
+    endif()
+endforeach()
+
+set(METAL_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/phoenix_reference.metal")
+set(METAL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/metal_shader_source.h")
+add_custom_command(OUTPUT "${METAL_SOURCE}" "${METAL_HEADER}"
+    COMMAND Python3::Interpreter "${PHOENIX_ROOT}/tools/generate_metal_operators.py" --output "${METAL_SOURCE}"
+    COMMAND Python3::Interpreter "${PHOENIX_ROOT}/tools/embed_metal_source.py" "${METAL_SOURCE}" "${METAL_HEADER}"
+    DEPENDS "${PHOENIX_ROOT}/tools/generate_metal_operators.py"
+            "${PHOENIX_ROOT}/tools/embed_metal_source.py"
+            "${PHOENIX_ROOT}/src/backends/hip_sycl/compute_ops.h"
+    VERBATIM)
+add_custom_target(phoenix_metal_source DEPENDS "${METAL_SOURCE}" "${METAL_HEADER}")
+if(PHOENIX_ENABLE_METAL)
+    if(NOT APPLE OR NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        message(FATAL_ERROR "Metal runner currently targets macOS; configure on a Mac")
+    endif()
+    enable_language(OBJCXX)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+    add_library(phoenix_metal_cpp SHARED backend_metal.mm "${METAL_HEADER}")
+    target_include_directories(phoenix_metal_cpp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_options(phoenix_metal_cpp PRIVATE -fobjc-arc -ffp-contract=off -fno-fast-math)
+    target_link_libraries(phoenix_metal_cpp PRIVATE "-framework Foundation" "-framework Metal")
+    # Compile MSL with Apple's compiler during the build too. The runner embeds
+    # source for device-specific compilation; this AIR is only a validation artifact.
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/phoenix_reference.air"
+        COMMAND xcrun -sdk macosx metal -std=metal3.0 -fno-fast-math -c "${METAL_SOURCE}"
+                -o "${CMAKE_CURRENT_BINARY_DIR}/phoenix_reference.air"
+        DEPENDS "${METAL_SOURCE}" VERBATIM)
+    add_custom_target(phoenix_metal_compile ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/phoenix_reference.air")
+    add_dependencies(phoenix_metal_cpp phoenix_metal_compile)
+endif()
+if(PHOENIX_ENABLE_VULKAN)
+    find_library(PHOENIX_VULKAN_LOADER NAMES vulkan vulkan-1 REQUIRED)
+    if(NOT PHOENIX_VULKAN_HEADERS)
+        find_path(PHOENIX_FOUND_VULKAN_HEADERS vulkan/vulkan.h REQUIRED)
+        set(PHOENIX_VULKAN_HEADERS "${PHOENIX_FOUND_VULKAN_HEADERS}")
+    endif()
+    if(NOT PHOENIX_GLSLANG)
+        find_program(PHOENIX_FOUND_GLSLANG NAMES glslang glslangValidator REQUIRED)
+        set(PHOENIX_GLSLANG "${PHOENIX_FOUND_GLSLANG}")
+    endif()
+    set(VULKAN_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/vulkan")
+    set(VULKAN_PLATFORM_ARGUMENT)
+    if(ANDROID)
+        list(APPEND VULKAN_PLATFORM_ARGUMENT --android)
+    endif()
+    file(GLOB VULKAN_INPUTS CONFIGURE_DEPENDS
+         "${PHOENIX_ROOT}/src/backends/vulkan/*"
+         "${PHOENIX_ROOT}/third_party/intel_nr/src/gpu/*"
+         "${PHOENIX_ROOT}/third_party/amd_nr/import_manifest.json")
+    add_custom_command(OUTPUT "${VULKAN_OUTPUT}/phoenix_vulkan.c" "${VULKAN_OUTPUT}/standalone_manifest.json"
+        COMMAND Python3::Interpreter "${PHOENIX_ROOT}/tools/generate_standalone_vulkan.py"
+                --output "${VULKAN_OUTPUT}" --compiler "${PHOENIX_GLSLANG}" ${VULKAN_PLATFORM_ARGUMENT}
+        DEPENDS ${VULKAN_INPUTS} "${PHOENIX_ROOT}/tools/generate_standalone_vulkan.py"
+                "${PHOENIX_ROOT}/tools/build_vulkan.py" "${PHOENIX_ROOT}/tools/vulkan_phoenix_math.py"
+                "${PHOENIX_ROOT}/tools/source_patches.py" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_lifetime.inc"
+        VERBATIM)
+    add_library(phoenix_vulkan SHARED "${VULKAN_OUTPUT}/phoenix_vulkan.c")
+    set_target_properties(phoenix_vulkan PROPERTIES C_STANDARD 11 WINDOWS_EXPORT_ALL_SYMBOLS ON
+        LIBRARY_OUTPUT_DIRECTORY "${VULKAN_OUTPUT}" RUNTIME_OUTPUT_DIRECTORY "${VULKAN_OUTPUT}")
+    # Provider sits with its SPIR-V files even for multi-config generators.
+    foreach(configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set_target_properties(phoenix_vulkan PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${configuration} "${VULKAN_OUTPUT}")
+    endforeach()
+    target_include_directories(phoenix_vulkan PRIVATE "${PHOENIX_VULKAN_HEADERS}" "${PHOENIX_ROOT}/src/backends/vulkan")
+    target_link_libraries(phoenix_vulkan PRIVATE "${PHOENIX_VULKAN_LOADER}")
+    add_library(phoenix_vulkan_cpp SHARED backend_vulkan.cpp)
+    add_dependencies(phoenix_vulkan_cpp phoenix_vulkan)
+    target_link_libraries(phoenix_vulkan_cpp PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    if(MSVC)
+        target_compile_options(phoenix_vulkan_cpp PRIVATE /EHsc)
+        target_compile_definitions(phoenix_vulkan_cpp PRIVATE NOMINMAX)
+        target_compile_definitions(phoenix_vulkan PRIVATE _CRT_SECURE_NO_WARNINGS)
+        add_custom_command(TARGET phoenix_vulkan_cpp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${VULKAN_OUTPUT}" "$<TARGET_FILE_DIR:phoenix_vulkan_cpp>/vulkan")
+    endif()
+    install(TARGETS phoenix_vulkan LIBRARY DESTINATION lib/vulkan RUNTIME DESTINATION bin/vulkan)
+    install(TARGETS phoenix_vulkan_cpp LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+    if(WIN32)
+        set(VULKAN_INSTALL bin/vulkan)
+    else()
+        set(VULKAN_INSTALL lib/vulkan)
+    endif()
+    install(DIRECTORY "${VULKAN_OUTPUT}/" DESTINATION "${VULKAN_INSTALL}"
+        FILES_MATCHING PATTERN "*.spv")
+endif()
+
+add_executable(phoenix_frame "${PHOENIX_ROOT}/tools/portable_frame.cpp")
+target_link_libraries(phoenix_frame PRIVATE ${CMAKE_DL_LIBS})
+if(MSVC)
+    target_compile_options(phoenix_frame PRIVATE /EHsc)
+    target_compile_definitions(phoenix_frame PRIVATE NOMINMAX)
+endif()
+set_target_properties(phoenix_runtime_cpp PROPERTIES EXPORT_NAME Runtime)
+target_include_directories(phoenix_runtime_cpp PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>)
+install(TARGETS phoenix_runtime_cpp phoenix_cpu_cpp phoenix_frame EXPORT PhoenixTargets
+    RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+if(PHOENIX_ENABLE_METAL)
+    install(TARGETS phoenix_metal_cpp RUNTIME DESTINATION bin LIBRARY DESTINATION lib)
+endif()
+install(FILES phoenix.h DESTINATION include)
+install(EXPORT PhoenixTargets NAMESPACE Phoenix:: DESTINATION lib/cmake/Phoenix)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/PhoenixConfig.cmake" DESTINATION lib/cmake/Phoenix)
+if(BUILD_TESTING)
+    add_executable(portable_c_api_tests "${PHOENIX_ROOT}/tests/portable_cpp/c_api_tests.c")
+    target_link_libraries(portable_c_api_tests PRIVATE phoenix_runtime_cpp)
+    add_test(NAME portable_c_api COMMAND portable_c_api_tests)
+    add_executable(portable_platform_tests "${PHOENIX_ROOT}/tests/portable_cpp/platform_tests.cpp" "${METAL_SOURCE}")
+    set_source_files_properties("${METAL_SOURCE}" PROPERTIES HEADER_FILE_ONLY TRUE)
+    target_include_directories(portable_platform_tests PRIVATE "${PHOENIX_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(portable_platform_tests PRIVATE ${CMAKE_DL_LIBS})
+    add_executable(portable_backend_tests "${PHOENIX_ROOT}/tests/portable_cpp/backend_operator_tests.cpp")
+    target_link_libraries(portable_backend_tests PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+    foreach(target portable_platform_tests portable_backend_tests)
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /EHsc /fp:strict /bigobj)
+            target_compile_definitions(${target} PRIVATE NOMINMAX)
+            target_link_libraries(${target} PRIVATE bcrypt)
+        else()
+            target_compile_options(${target} PRIVATE -ffp-contract=off -fno-fast-math)
+        endif()
+    endforeach()
+    add_test(NAME portable_platform COMMAND portable_platform_tests)
+    add_test(NAME portable_cpu_operators COMMAND portable_backend_tests "$<TARGET_FILE_DIR:phoenix_cpu_cpp>" cpu cpu)
+    if(PHOENIX_ENABLE_METAL)
+        add_test(NAME metal_operators COMMAND portable_backend_tests "$<TARGET_FILE_DIR:phoenix_metal_cpp>" metal metal:default)
+    endif()
+    if(PHOENIX_ENABLE_VULKAN AND PHOENIX_VULKAN_TEST_DEVICE)
+        add_test(NAME vulkan_operators COMMAND portable_backend_tests "$<TARGET_FILE_DIR:phoenix_vulkan_cpp>"
+                 vulkan "${PHOENIX_VULKAN_TEST_DEVICE}")
+    endif()
+endif()

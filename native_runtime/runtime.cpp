@@ -1,6 +1,7 @@
 // Owns one selected backend, immutable graph, frame preparation and per-pass history.
 // A frame commits its new histories only after inference/resolve and finite-value checks complete.
 
+#include "platform.h"
 #include "graph.h"
 #include "frame.h"
 #include "thread_config.h"
@@ -14,7 +15,7 @@ double elapsed(Clock::time_point started) {
     return std::chrono::duration<double, std::milli>(Clock::now() - started).count();
 }
 struct Runtime {
-    HMODULE module = nullptr;
+    LibraryHandle module = nullptr;
     Backend* backend = nullptr;
     DestroyBackend destroy = nullptr;
     std::unique_ptr<Model> model;
@@ -41,7 +42,7 @@ struct Runtime {
                     if (runtime.backend && runtime.destroy)
                         runtime.destroy(runtime.backend);
                     if (runtime.module)
-                        FreeLibrary(runtime.module);
+                        close_library(runtime.module);
                 }
             }
         } rollback{*this};
@@ -55,25 +56,31 @@ struct Runtime {
         demand(root.is_absolute(), "Native runtime root must be absolute");
         std::string kind = config.at("backend"), device = config.at("device");
         demand(kind == "cpu" || kind == "cuda" || kind == "vulkan" || kind == "hip" ||
-                   kind == "sycl",
+                   kind == "sycl" || kind == "metal",
                "Unknown backend");
-        module =
-            LoadLibraryExW((root / ("phoenix_" + kind + "_cpp.dll")).c_str(), nullptr,
-                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        module = open_library(root / library_name("phoenix_" + kind + "_cpp"));
         demand(module != nullptr, "Compiled backend library unavailable");
         const bool cpu_device = device == "cpu" || device == "sycl:cpu";
         const unsigned requested_threads = cpu_thread_request(config),
                        cpu_threads = phoenix_threads::resolve(requested_threads);
         auto create =
-            reinterpret_cast<CreateBackend>(GetProcAddress(module, "phoenix_backend_create"));
+            reinterpret_cast<CreateBackend>(library_symbol(module, "phoenix_backend_create"));
         destroy =
-            reinterpret_cast<DestroyBackend>(GetProcAddress(module, "phoenix_backend_destroy"));
+            reinterpret_cast<DestroyBackend>(library_symbol(module, "phoenix_backend_destroy"));
         demand(create && destroy, "Backend ABI unavailable");
         char message[2048]{};
+        // The wide shader-folder argument belongs to the Windows Vulkan ABI.
+        // Metal embeds its shader library; Unix CPU/Metal do not consume it.
+#ifdef _WIN32
+        const auto shader_folder = (root / "vulkan").wstring();
+        const wchar_t* shader_folder_argument = shader_folder.c_str();
+#else
+        const wchar_t* shader_folder_argument = nullptr;
+#endif
         if (kind == "cpu") {
             using CreateThreads = Backend* (*)(const char*, unsigned, char*, size_t);
             auto create_threads = reinterpret_cast<CreateThreads>(
-                GetProcAddress(module, "phoenix_backend_create_threads"));
+                library_symbol(module, "phoenix_backend_create_threads"));
             demand(create_threads != nullptr,
                    "CPU thread control requires the matching CPU backend build");
             backend = create_threads(device.c_str(), cpu_threads, message, sizeof(message));
@@ -81,7 +88,7 @@ struct Runtime {
             using ConfiguredCreate =
                 Backend* (*)(const char*, const wchar_t*, uint32_t, char*, size_t);
             auto configured_create = reinterpret_cast<ConfiguredCreate>(
-                GetProcAddress(module, "phoenix_backend_create_configured"));
+                library_symbol(module, "phoenix_backend_create_configured"));
             uint32_t options = 0;
             if (config.value("cuda_direct_fp8", true))
                 options |= CudaDirectFp8;
@@ -137,16 +144,21 @@ struct Runtime {
                 options |= MatrixColumns32;
             if (matrix_columns == 64)
                 options |= MatrixColumns64;
-            backend =
-                configured_create
-                    ? configured_create(device.c_str(), (root / "vulkan").c_str(), options, message,
+            using Utf8Create = Backend* (*)(const char*, const char*, uint32_t, char*, size_t);
+            auto utf8_create = reinterpret_cast<Utf8Create>(
+                library_symbol(module, "phoenix_backend_create_utf8"));
+            const auto shader_folder_utf8 = phoenix_model::source_path_string(root / "vulkan");
+            backend = utf8_create
+                ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options, message, sizeof(message))
+                : configured_create
+                    ? configured_create(device.c_str(), shader_folder_argument, options, message,
                                         sizeof(message))
-                    : create(device.c_str(), (root / "vulkan").c_str(), message, sizeof(message));
+                    : create(device.c_str(), shader_folder_argument, message, sizeof(message));
         }
         demand(backend != nullptr, message);
         using Features = uint32_t (*)(Backend*);
         auto features =
-            reinterpret_cast<Features>(GetProcAddress(module, "phoenix_backend_features"));
+            reinterpret_cast<Features>(library_symbol(module, "phoenix_backend_features"));
         fused_residual = config.value("fused_residual", true) && features &&
                          (features(backend) & FusedMatrixResidual);
         device_features = config.value("device_features", true) && features &&
@@ -205,7 +217,7 @@ struct Runtime {
         if (backend && destroy)
             destroy(backend);
         if (module)
-            FreeLibrary(module);
+            close_library(module);
     }
     // Execute sampling passes against separate histories. Stage timings include host
     // preparation and transfers; operator events alone do not describe game frame time.
@@ -439,7 +451,7 @@ struct Runtime {
              {"command_count", graph->commands.size()},
              {"timing_intervals", events.size()},
              {"operator_ms", total},
-             {"operator_clock", std::string(backend->name()) == "cpu-cpp" ? "CPU wall"
+             {"operator_clock", status.value("device", std::string()) == "cpu" ? "CPU wall"
                                 : status.value("device", std::string()) == "sycl:cpu"
                                     ? "CPU queue events"
                                     : "GPU events"},
@@ -469,9 +481,10 @@ struct Runtime {
 };
 thread_local std::string last_error;
 }
-extern "C" __declspec(dllexport) void* phoenix_runtime_create(const char* json, unsigned width,
+extern "C" PHOENIX_EXPORT void* phoenix_runtime_create(const char* json, unsigned width,
                                                               unsigned height) {
     try {
+        demand(json != nullptr, "Missing runtime configuration");
         auto runtime = std::make_unique<Runtime>(Json::parse(json), width, height);
         last_error.clear();
         return runtime.release();
@@ -480,27 +493,29 @@ extern "C" __declspec(dllexport) void* phoenix_runtime_create(const char* json, 
         return nullptr;
     }
 }
-extern "C" __declspec(dllexport) void phoenix_runtime_destroy(void* runtime) {
+extern "C" PHOENIX_EXPORT void phoenix_runtime_destroy(void* runtime) {
     delete static_cast<Runtime*>(runtime);
 }
-extern "C" __declspec(dllexport) int phoenix_runtime_frame(void* runtime, const float* color,
+extern "C" PHOENIX_EXPORT int phoenix_runtime_frame(void* runtime, const float* color,
                                                            const float* motion, const float* depth,
                                                            const float* validity,
                                                            const char* metadata, float* output) {
     try {
         demand(runtime, "Missing runtime");
+        demand(metadata != nullptr, "Missing frame metadata");
         static_cast<Runtime*>(runtime)->run(color, motion, depth, validity, Json::parse(metadata),
                                             output);
+        last_error.clear();
         return 0;
     } catch (const std::exception& exception) {
         last_error = exception.what();
         return -1;
     }
 }
-extern "C" __declspec(dllexport) const char* phoenix_runtime_error() {
+extern "C" PHOENIX_EXPORT const char* phoenix_runtime_error() {
     return last_error.c_str();
 }
-extern "C" __declspec(dllexport) size_t phoenix_runtime_status(void* handle, char* destination,
+extern "C" PHOENIX_EXPORT size_t phoenix_runtime_status(void* handle, char* destination,
                                                                size_t capacity) {
     if (!handle)
         return 0;

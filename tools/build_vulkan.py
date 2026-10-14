@@ -279,16 +279,9 @@ static uint64_t phx_resident_bytes, phx_resident_peak;""",
     )
 
 
-def main():
-    argument_parser = argparse.ArgumentParser()
-    argument_parser.add_argument("output")
-    argument_parser.add_argument("deps", type=Path)
-    args = argument_parser.parse_args()
-    if not re.fullmatch(r"[a-zA-Z0-9_]+", args.output):
-        raise ValueError("build name")
-    out = ROOT / "build" / args.output
-    out.mkdir(parents=True, exist_ok=False)
-    deps = args.deps.resolve()
+def prepare_sources(out):
+    """Generate the same provider/shaders for Windows, Linux and Android builds."""
+    out.mkdir(parents=True, exist_ok=True)
     gpu = IMPORTED / "src/gpu"
     own = ROOT / "src/backends/vulkan"
     manifest = json.loads((IMPORTED / "import_manifest.json").read_text())
@@ -327,44 +320,9 @@ def main():
         "phoenix_native_wide_init",
     ]
     (out / "provider.def").write_text("LIBRARY phoenix_vulkan\nEXPORTS\n" + "\n".join(names) + "\n")
-    # Generate an import library for the installed Vulkan loader using its exports.
-    vswhere = (
-        Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
-    )
-    visual_studio_path = subprocess.check_output(
-        [
-            str(vswhere),
-            "-latest",
-            "-products",
-            "*",
-            "-requires",
-            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-property",
-            "installationPath",
-        ],
-        text=True,
-    ).strip()
-    loader = Path(os.environ["WINDIR"]) / "System32/vulkan-1.dll"
-    cmd = f'''@echo off
-call "{visual_studio_path}\\VC\\Auxiliary\\Build\\vcvars64.bat" > "{out}/toolchain.log" 2>&1
-if errorlevel 1 exit /b 1
-dumpbin /exports "{loader}" > "{out}/loader_exports.txt"
-"{os.sys.executable}" "{ROOT}/tools/build_vulkan.py" --loader-def "{out}"
-if errorlevel 1 exit /b 1
-lib /nologo /def:"{out}/loader.def" /machine:x64 /out:"{out}/vulkan-1.lib"
-if errorlevel 1 exit /b 1
-cl /nologo /O2 /std:c11 /TC /MD /D_CRT_SECURE_NO_WARNINGS /I"{deps}/headers/include" /I"{own}" /Fo:"{out}/provider.obj" /Fe:"{out}/phoenix_vulkan.dll" /LD "{out}/phoenix_vulkan.c" /link /DEF:"{out}/provider.def" "{out}/vulkan-1.lib"
-exit /b %ERRORLEVEL%
-'''
-    (out / "build.cmd").write_text(cmd)
-    with (out / "build.log").open("w") as log:
-        subprocess.run(
-            ["cmd", "/c", str(out / "build.cmd")], stdout=log, stderr=subprocess.STDOUT, check=True
-        )
-    compiler = deps / "glslang/bin/glslang.exe"
     original_gpu = gpu
     gpu = out / "shader_sources"
-    gpu.mkdir()
+    gpu.mkdir(exist_ok=True)
     for source_path in [
         *original_gpu.glob("*.comp"),
         *original_gpu.glob("*.glsl"),
@@ -486,6 +444,57 @@ exit /b %ERRORLEVEL%
         gemm_staged32_deep=(gpu / "gemm_staged.comp", ["-DSTAGED_BM=32", "-DSTAGED_BK=64"]),
         attention_rows=(gpu / "attention.comp", ["-DROW_LANES=256"]),
     )
+    return shaders, manifest, amd_manifest
+
+
+def main():
+    argument_parser = argparse.ArgumentParser()
+    argument_parser.add_argument("output")
+    argument_parser.add_argument("deps", type=Path)
+    args = argument_parser.parse_args()
+    if not re.fullmatch(r"[a-zA-Z0-9_]+", args.output):
+        raise ValueError("build name")
+    out = ROOT / "build" / args.output
+    out.mkdir(parents=True, exist_ok=False)
+    deps = args.deps.resolve()
+    shaders, manifest, amd_manifest = prepare_sources(out)
+    own = ROOT / "src/backends/vulkan"
+    gpu = out / "shader_sources"
+    # Generate an import library for the installed Vulkan loader using its exports.
+    vswhere = (
+        Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
+    )
+    visual_studio_path = subprocess.check_output(
+        [
+            str(vswhere),
+            "-latest",
+            "-products",
+            "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property",
+            "installationPath",
+        ],
+        text=True,
+    ).strip()
+    loader = Path(os.environ["WINDIR"]) / "System32/vulkan-1.dll"
+    cmd = f'''@echo off
+call "{visual_studio_path}\\VC\\Auxiliary\\Build\\vcvars64.bat" > "{out}/toolchain.log" 2>&1
+if errorlevel 1 exit /b 1
+dumpbin /exports "{loader}" > "{out}/loader_exports.txt"
+"{os.sys.executable}" "{ROOT}/tools/build_vulkan.py" --loader-def "{out}"
+if errorlevel 1 exit /b 1
+lib /nologo /def:"{out}/loader.def" /machine:x64 /out:"{out}/vulkan-1.lib"
+if errorlevel 1 exit /b 1
+cl /nologo /O2 /std:c11 /TC /MD /D_CRT_SECURE_NO_WARNINGS /I"{deps}/headers/include" /I"{own}" /Fo:"{out}/provider.obj" /Fe:"{out}/phoenix_vulkan.dll" /LD "{out}/phoenix_vulkan.c" /link /DEF:"{out}/provider.def" "{out}/vulkan-1.lib"
+exit /b %ERRORLEVEL%
+'''
+    (out / "build.cmd").write_text(cmd)
+    with (out / "build.log").open("w") as log:
+        subprocess.run(
+            ["cmd", "/c", str(out / "build.cmd")], stdout=log, stderr=subprocess.STDOUT, check=True
+        )
+    compiler = deps / "glslang/bin/glslang.exe"
     with (out / "shaders.log").open("w") as log:
         for name, (path, defs) in shaders.items():
             subprocess.run(

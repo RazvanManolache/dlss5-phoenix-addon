@@ -4,13 +4,13 @@
 #include "backend.h"
 #include "command_cache.h"
 #include "backend_options.h"
-#include <windows.h>
+#include "platform.h"
 #include <filesystem>
 #include <cstring>
 #include <mutex>
 using namespace phoenix_cpp;
 class VulkanBackend final : public Backend {
-    HMODULE module = nullptr;
+    LibraryHandle module = nullptr;
     std::vector<int> live;
     std::unique_lock<std::mutex> ownership;
     std::vector<int> graphs;
@@ -24,7 +24,7 @@ class VulkanBackend final : public Backend {
         return m;
     }
     template <class R, class... A> R call(const char* name, A... args) {
-        auto callback = reinterpret_cast<R (*)(A...)>(GetProcAddress(module, name));
+        auto callback = reinterpret_cast<R (*)(A...)>(library_symbol(module, name));
         demand(callback != nullptr, name);
         return callback(args...);
     }
@@ -55,22 +55,20 @@ class VulkanBackend final : public Backend {
         demand(ownership.owns_lock(), "Vulkan provider is single-session until context migration");
         demand(device.starts_with("vulkan:") && device.size() == 39, "Vulkan UUID required");
         struct Rollback {
-            HMODULE& library_handle;
+            LibraryHandle& library_handle;
             bool done = false;
             ~Rollback() {
                 if (library_handle && !done) {
                     auto stop = reinterpret_cast<void (*)()>(
-                        GetProcAddress(library_handle, "xmx_shutdown"));
+                        library_symbol(library_handle, "xmx_shutdown"));
                     if (stop)
                         stop();
-                    FreeLibrary(library_handle);
+                    close_library(library_handle);
                     library_handle = nullptr;
                 }
             }
         } rollback{module};
-        module =
-            LoadLibraryExW((folder / "phoenix_vulkan.dll").c_str(), nullptr,
-                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        module = open_library(folder / library_name("phoenix_vulkan"));
         demand(module != nullptr, "Vulkan provider load failed");
         auto shader_path = [&](const char* name) { return (folder / name).string(); };
         auto matrix_shader = shader_path("gemm_portable.spv");
@@ -120,10 +118,10 @@ class VulkanBackend final : public Backend {
                 clear_graphs();
             } catch (...) {
             }
-            auto stop = reinterpret_cast<void (*)()>(GetProcAddress(module, "xmx_shutdown"));
+            auto stop = reinterpret_cast<void (*)()>(library_symbol(module, "xmx_shutdown"));
             if (stop)
                 stop();
-            FreeLibrary(module);
+            close_library(module);
         }
     }
     uint32_t features() const {
@@ -267,9 +265,9 @@ class VulkanBackend final : public Backend {
             demand(event_count == (detailed_profile ? commands.size() : graphs.size()),
                    "Incomplete Vulkan profiling");
             auto kind = reinterpret_cast<unsigned (*)(unsigned)>(
-                GetProcAddress(module, "xmx_profile_each_kind"));
+                library_symbol(module, "xmx_profile_each_kind"));
             auto milliseconds = reinterpret_cast<double (*)(unsigned)>(
-                GetProcAddress(module, "xmx_profile_each_ms"));
+                library_symbol(module, "xmx_profile_each_ms"));
             demand(kind && milliseconds, "Vulkan profiling ABI");
             for (unsigned event_index = 0; event_index < event_count; ++event_index)
                 events.push_back({detailed_profile ? commands[event_index].block : UINT32_MAX,
@@ -282,29 +280,51 @@ class VulkanBackend final : public Backend {
         }
     }
 };
-extern "C" __declspec(dllexport) Backend*
+// Existing Windows factories keep their wide path ABI. Unix callers can use
+// the explicit UTF-8 factory; tests find shaders beside this backend library.
+static std::filesystem::path shader_folder(const wchar_t* root) {
+#ifdef _WIN32
+    demand(root != nullptr, "Vulkan shader folder required");
+    return root;
+#else
+    Dl_info info{};
+    demand(dladdr(reinterpret_cast<const void*>(&shader_folder), &info) != 0,
+           "Vulkan backend location unavailable");
+    return std::filesystem::path(info.dli_fname).parent_path() / "vulkan";
+#endif
+}
+extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_utf8(
+    const char* device_id, const char* root, uint32_t options, char* error, size_t size) {
+    try {
+        demand(root != nullptr, "Vulkan shader folder required");
+        return new VulkanBackend(device_id ? device_id : "", std::filesystem::u8path(root), options);
+    } catch (const std::exception& exception) {
+        copy_error(error,size,exception.what()); return nullptr;
+    }
+}
+extern "C" PHOENIX_EXPORT Backend*
 phoenix_backend_create(const char* device_id, const wchar_t* root, char* error, size_t size) {
     try {
-        return new VulkanBackend(device_id ? device_id : "", root);
+        return new VulkanBackend(device_id ? device_id : "", shader_folder(root));
     } catch (const std::exception& exception) {
-        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        copy_error(error, size, exception.what());
         return nullptr;
     }
 }
-extern "C" __declspec(dllexport) void phoenix_backend_destroy(Backend* backend) {
+extern "C" PHOENIX_EXPORT void phoenix_backend_destroy(Backend* backend) {
     delete backend;
 }
 
-extern "C" __declspec(dllexport) Backend*
+extern "C" PHOENIX_EXPORT Backend*
 phoenix_backend_create_configured(const char* device_id, const wchar_t* root, uint32_t options,
                                   char* error, size_t size) {
     try {
-        return new VulkanBackend(device_id ? device_id : "", root, options);
+        return new VulkanBackend(device_id ? device_id : "", shader_folder(root), options);
     } catch (const std::exception& exception) {
-        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        copy_error(error, size, exception.what());
         return nullptr;
     }
 }
-extern "C" __declspec(dllexport) uint32_t phoenix_backend_features(Backend* backend) {
+extern "C" PHOENIX_EXPORT uint32_t phoenix_backend_features(Backend* backend) {
     return static_cast<VulkanBackend*>(backend)->features();
 }
