@@ -14,6 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPORTED = ROOT / "third_party/intel_nr"
 
 
+def imported_source_matches(path, expected):
+    """Preserve import pins across Git's LF/CRLF checkout conversion.
+
+    These manifests describe text sources/notices, not executable/model bytes.
+    Accept only byte-exact content or its line-ending equivalent; never bypass
+    verification for edits to code, whitespace within lines or notice wording.
+    """
+    raw = path.read_bytes()
+    candidates = [raw]
+    if b"\0" not in raw:
+        try:
+            raw.decode("utf-8")
+            normalized = raw.replace(b"\r\n", b"\n")
+            candidates += [normalized, normalized.replace(b"\n", b"\r\n")]
+        except UnicodeDecodeError:
+            pass
+    return any(hashlib.sha256(candidate).hexdigest() == expected for candidate in candidates)
+
+
 def patch_runtime(source):
     def replace(old, new):
         nonlocal source
@@ -288,10 +307,10 @@ def prepare_sources(out):
     amd = ROOT / "third_party/amd_nr"
     amd_manifest = json.loads((amd / "import_manifest.json").read_text())
     for entry in amd_manifest["files"]:
-        if hashlib.sha256((amd / entry["path"]).read_bytes()).hexdigest() != entry["sha256"]:
+        if not imported_source_matches(amd / entry["path"], entry["sha256"]):
             raise RuntimeError("Imported AMD file changed: " + entry["path"])
     for entry in manifest["files"]:
-        if hashlib.sha256((IMPORTED / entry["path"]).read_bytes()).hexdigest() != entry["sha256"]:
+        if not imported_source_matches(IMPORTED / entry["path"], entry["sha256"]):
             raise RuntimeError("Imported file changed: " + entry["path"])
     runtime_source = (
         patch_runtime((gpu / "libxmx.c").read_text())
