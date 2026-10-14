@@ -4,22 +4,26 @@
     {
       "path": "LICENSE",
       "sha256": "81eb5968d10a98b1b62a1681e017734a6da3028a2ea645b05c449b924c4cdb7b",
-      "pre_readability_sha256": "81eb5968d10a98b1b62a1681e017734a6da3028a2ea645b05c449b924c4cdb7b"
+      "pre_readability_sha256": "81eb5968d10a98b1b62a1681e017734a6da3028a2ea645b05c449b924c4cdb7b",
+      "normalized_lf_sha256": "729c77c3b5ca38587835df4c18803dcfa1dff7ab5c207e22d88aa333a5703592"
     },
     {
       "path": "NOTICE",
       "sha256": "afff44d52f7060e24d7bd0f1c5a9d0575022faf2c7a884e2e070c8f95e59eceb",
-      "pre_readability_sha256": "fe7c632367d4f779ef93603c4c71504a12acad8d12d457758f6bf6b506c0ff4a"
+      "pre_readability_sha256": "fe7c632367d4f779ef93603c4c71504a12acad8d12d457758f6bf6b506c0ff4a",
+      "normalized_lf_sha256": "cbedee159a26f8e7ba2db0446322514a6ee936a19ea3ab2e37b41c5acd2c7f01"
     },
     {
       "path": "windows/shaders/rdna4/include/coherent_act.glsl",
       "sha256": "a881f9a512e05f087ec66d82d263ceeecb924646682abd4a7df58eeb10c162b9",
-      "pre_readability_sha256": "5345c789ce9b564b3cce2e0ded441c4fbab6e5726fb58f6f4e44d28fafa354a2"
+      "pre_readability_sha256": "5345c789ce9b564b3cce2e0ded441c4fbab6e5726fb58f6f4e44d28fafa354a2",
+      "normalized_lf_sha256": "391204eb7c19edb6c66cb0f5ad063d28e3c963bec7d5383e415f9e3d5ff165b5"
     },
     {
       "path": "windows/shaders/rdna4/include/coopmm.glsl",
       "sha256": "421f7541a9d74ae18a1261e714fbcbd9ace20b55edf3f2c2f1657bcb39b46f46",
-      "pre_readability_sha256": "78994a54bfd0f99103e6bc7f73243bd9785747f49c3aece590922e60042ced0f"
+      "pre_readability_sha256": "78994a54bfd0f99103e6bc7f73243bd9785747f49c3aece590922e60042ced0f",
+      "normalized_lf_sha256": "01404e374d73da227f92a0f954a6f7d00a7571ca18a6bcb17a6b34aca374156b"
     }
   ],
   "commit": "9e4574e1812d7d0632d6db02721a20c9617be434",

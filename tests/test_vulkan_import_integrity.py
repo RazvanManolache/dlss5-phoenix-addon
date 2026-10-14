@@ -34,5 +34,18 @@ class ImportIntegrity(unittest.TestCase):
             path.write_bytes(b"\0\n")
             self.assertFalse(imported_source_matches(path,digest))
 
+    def test_mixed_import_with_explicit_normalized_pin(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"notice"
+            original=b"first\r\nsecond\nthird\r\n"
+            normalized=original.replace(b"\r\n",b"\n")
+            raw_pin=hashlib.sha256(original).hexdigest()
+            normalized_pin=hashlib.sha256(normalized).hexdigest()
+            for candidate in (original,normalized,normalized.replace(b"\n",b"\r\n")):
+                path.write_bytes(candidate)
+                self.assertTrue(imported_source_matches(path,raw_pin,normalized_pin))
+                path.write_bytes(candidate.replace(b"second",b"changed"))
+                self.assertFalse(imported_source_matches(path,raw_pin,normalized_pin))
+
 
 if __name__=="__main__": unittest.main()
