@@ -1,0 +1,72 @@
+{
+  "device": "Adreno 735 / SM8635",
+  "width": 320,
+  "height": 144,
+  "working_surface": [
+    320,
+    320
+  ],
+  "passes": 1,
+  "repeats": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "history": false,
+  "profiling": "7 submission spans; first call excluded from warm medians",
+  "scope": "Serial headless phone runs, same input and native libraries, baseline versus optimized compatibility shaders. Not sustained thermal or app presentation FPS.",
+  "results": {
+    "baseline": {
+      "cold_call_ms": 31003.33603,
+      "warm_call_ms": [
+        2141.00703,
+        2213.303802,
+        2212.420416,
+        1872.109323,
+        1878.361979,
+        1876.111093
+      ],
+      "warm_gpu_ms": [
+        1914.5809949239651,
+        1915.1504219933965,
+        1917.873494843582,
+        1850.0717777488978,
+        1849.9225069192084,
+        1849.7778715060726
+      ],
+      "median_call_ms": 2009.6845045,
+      "median_gpu_ms": 1882.3263863364314,
+      "output_sha256": "8c6bb14d3e2198dadf68f314ba44afd1a52a633d5f4bba582d338c6f020d6eee"
+    },
+    "optimized": {
+      "cold_call_ms": 30087.454832,
+      "warm_call_ms": [
+        1603.002031,
+        1121.29099,
+        1133.519426,
+        1262.779114,
+        2034.748593,
+        1231.389531
+      ],
+      "warm_gpu_ms": [
+        1284.9409582127037,
+        1100.366796052242,
+        1100.9722127041282,
+        1101.364035611229,
+        1415.3179341963387,
+        1099.2564835793496
+      ],
+      "median_call_ms": 1247.0843224999999,
+      "median_gpu_ms": 1101.1681241576784,
+      "output_sha256": "8c6bb14d3e2198dadf68f314ba44afd1a52a633d5f4bba582d338c6f020d6eee"
+    }
+  },
+  "warm_call_speedup": 1.611506510218358,
+  "warm_gpu_speedup": 1.7093905508537017,
+  "cpu_reference_bit_exact": true
+}

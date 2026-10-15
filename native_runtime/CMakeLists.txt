@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 # Backend plugins exchange C++ objects with the runtime. Android must use one
 # shared C++ runtime rather than an independent static runtime in each DSO.
 set(ANDROID_STL c++_shared CACHE STRING "Android C++ runtime for backend plugins")
-project(PhoenixStandalone VERSION 0.8 LANGUAGES C CXX)
+project(PhoenixStandalone VERSION 0.8.1 LANGUAGES C CXX)
 if(ANDROID AND NOT ANDROID_STL STREQUAL "c++_shared")
     message(FATAL_ERROR "Phoenix backend plugins require -DANDROID_STL=c++_shared")
 endif()
@@ -126,6 +126,7 @@ if(PHOENIX_ENABLE_VULKAN)
                 --output "${VULKAN_OUTPUT}" --compiler "${PHOENIX_GLSLANG}" ${VULKAN_PLATFORM_ARGUMENT}
         DEPENDS ${VULKAN_INPUTS} "${PHOENIX_ROOT}/tools/generate_standalone_vulkan.py"
                 "${PHOENIX_ROOT}/tools/build_vulkan.py" "${PHOENIX_ROOT}/tools/vulkan_phoenix_math.py"
+                "${PHOENIX_ROOT}/tools/vulkan_compatibility.py"
                 "${PHOENIX_ROOT}/tools/source_patches.py" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_lifetime.inc"
         VERBATIM)
     add_library(phoenix_vulkan SHARED "${VULKAN_OUTPUT}/phoenix_vulkan.c")
@@ -186,7 +187,15 @@ if(BUILD_TESTING)
     target_link_libraries(portable_platform_tests PRIVATE ${CMAKE_DL_LIBS})
     add_executable(portable_backend_tests "${PHOENIX_ROOT}/tests/portable_cpp/backend_operator_tests.cpp")
     target_link_libraries(portable_backend_tests PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
-    foreach(target portable_platform_tests portable_backend_tests)
+    set(PORTABLE_TEST_TARGETS portable_platform_tests portable_backend_tests)
+    if(PHOENIX_ENABLE_VULKAN)
+        foreach(contract vulkan_normalization_contract vulkan_workgroup_contract vulkan_mobile_benchmark)
+            add_executable(${contract} "${PHOENIX_ROOT}/tests/portable_cpp/${contract}.cpp")
+            target_link_libraries(${contract} PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+            list(APPEND PORTABLE_TEST_TARGETS ${contract})
+        endforeach()
+    endif()
+    foreach(target ${PORTABLE_TEST_TARGETS})
         if(MSVC)
             target_compile_options(${target} PRIVATE /EHsc /fp:strict /bigobj)
             target_compile_definitions(${target} PRIVATE NOMINMAX)
@@ -203,5 +212,7 @@ if(BUILD_TESTING)
     if(PHOENIX_ENABLE_VULKAN AND PHOENIX_VULKAN_TEST_DEVICE)
         add_test(NAME vulkan_operators COMMAND portable_backend_tests "$<TARGET_FILE_DIR:phoenix_vulkan_cpp>"
                  vulkan "${PHOENIX_VULKAN_TEST_DEVICE}")
+        add_test(NAME vulkan_workgroup_normalization COMMAND vulkan_normalization_contract
+                 "$<TARGET_FILE_DIR:phoenix_vulkan_cpp>" "${PHOENIX_VULKAN_TEST_DEVICE}")
     endif()
 endif()

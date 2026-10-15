@@ -94,14 +94,24 @@ jobs:
         run: python update_glslang_sources.py
       - name: Build host shader compiler
         run: |
-          cmake -S build/dependencies/glslang -B build/glslang -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DGLSLANG_TESTS=OFF
+          cmake -S build/dependencies/glslang -B build/glslang -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=ON -DGLSLANG_TESTS=OFF
           cmake --build build/glslang --parallel 4
       - name: Build Linux Vulkan provider and run portable tests
         run: |
           cmake -S native_runtime -B build/linux-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
           cmake --build build/linux-vulkan --parallel 4
           ctest --test-dir build/linux-vulkan --output-on-failure
+          cmake --install build/linux-vulkan --prefix build/sdk-linux-vulkan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phoenix-sdk-linux-vulkan
+          path: build/sdk-linux-vulkan
       - name: Cross-build Android Vulkan provider
         run: |
           cmake -S native_runtime -B build/android-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
           cmake --build build/android-vulkan --parallel 4
+          cmake --install build/android-vulkan --prefix build/sdk-android-vulkan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phoenix-sdk-android-arm64-vulkan
+          path: build/sdk-android-vulkan

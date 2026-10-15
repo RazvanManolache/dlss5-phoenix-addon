@@ -49,6 +49,7 @@ def patch_runtime(source):
     replace("char* rpaths[12];", "char* rpaths[14];")
     replace("static VkPipeline phx_wide_pipeline;", "static VkPipeline phx_wide_pipeline, phx_coalesced_pipeline, phx_matrix2_pipeline, phx_matrix2_wide_pipeline;")
     replace("static int phx_native_configured;", "static unsigned phx_native_matrix2, phx_native_matrix2_shapes;\nstatic int phx_native_configured;")
+    replace("static int phx_native_configured;", "static unsigned phx_native_workgroup_compatibility;\nstatic int phx_native_configured;")
     replace("static int phx_native_configured;", "static int phx_native_configured, phx_native_hardware_half, phx_shape_matrices, phx_wide_generic;")
     replace("static unsigned phx_native_matrix_rows,", "static unsigned phx_native_scalar_columns, phx_native_matrix_rows,")
     replace("specialization->mapEntryCount > sizeof entries / sizeof *entries - 2",
@@ -152,7 +153,9 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
     )
     replace(
         "if (!(g.pin32 & 1))\n\t\tfprintf",
-        'if (!(g.pin32 & 1)) FAIL("32-lane compute subgroup control required",0);\n\tif (!(g.pin32 & 1))\n\t\tfprintf',
+        'if (phx_native_workgroup_compatibility) g.pin32=0;\n'
+        '    if (!(g.pin32 & 1) && !phx_native_workgroup_compatibility) FAIL("32-lane compute subgroup control required; opt in to vulkan_workgroup_compatibility for subgroup-independent shaders",0);\n'
+        '    if (!(g.pin32 & 1) && !phx_native_workgroup_compatibility)\n\t\tfprintf',
     )
     replace(
         "float prio = 1.0f;",
@@ -193,6 +196,10 @@ unsigned long long xmx_phoenix_memory(unsigned field) {
             !have12.vulkanMemoryModelDeviceScope) FAIL("Missing portable Vulkan compute features",0);
     }
     float prio = 1.0f;""",
+    )
+    replace(
+        'if (!g.preserve16 && !(denorm && !strcmp(denorm, "driver")))',
+        'if (!phx_native_workgroup_compatibility && !g.preserve16 && !(denorm && !strcmp(denorm, "driver")))',
     )
     replace(
         "r = vkCreateDevice(g.pd, &dci, NULL, &g.dev);",
@@ -364,6 +371,7 @@ def prepare_sources(out):
         "phoenix_native_matrix2",
         "phoenix_device_count",
         "phoenix_device_info",
+        "phoenix_device_info_options",
         "phoenix_matrix_shapes",
         "phoenix_fp8_capabilities",
         "phoenix_native_init",
@@ -459,10 +467,11 @@ def prepare_sources(out):
             text = replace_code(
                 text,
                 "#extension GL_KHR_shader_subgroup_basic : require",
-                "#extension GL_KHR_shader_subgroup_basic : require\n#extension GL_KHR_shader_subgroup_shuffle : require",
+                "#ifndef PHX_WORKGROUP_COMPAT\n#extension GL_KHR_shader_subgroup_basic : require\n#extension GL_KHR_shader_subgroup_shuffle : require\n#endif",
             )
             text = replace_code(
-                text, "void main() {", (own / "phoenix_rows.glsl").read_text() + "\nvoid main() {"
+                text, "void main() {", "#ifndef PHX_WORKGROUP_COMPAT\n" +
+                (own / "phoenix_rows.glsl").read_text() + "\n#endif\nvoid main() {"
             )
             # Place after main's kind declaration, never inside gather_part.
             text = replace_code(
@@ -472,6 +481,16 @@ def prepare_sources(out):
                 + "\n#if ROW_LANES == 256\n    if(kind==VIT_SOFTMAX) {\n        uint r=(gl_WorkGroupID.x+gl_WorkGroupID.z*gl_NumWorkGroups.x)*32u+local/8u;\n        if(r<pc.m)phx_vit_parallel(r,local%8u);\n        return;\n    }\n    if((kind==COSINE_PUBLISH&&pc.batch!=16u&&(operation_flags()&0x80000u)==0u)||\n       (kind==SOFTMAX&&pc.n==64u&&(pc.sa==0u||pc.sa==64u))) {\n        uint r=(gl_WorkGroupID.x+gl_WorkGroupID.z*gl_NumWorkGroups.x)*32u+local/8u;\n        if(r<pc.m){if(kind==COSINE_PUBLISH)phx_norm_parallel(r,local%8u);else phx_softmax_parallel(r,local%8u);}\n        return;\n    }\n#endif",
             )
         path.write_text(text)
+    # Scalar row workgroups use local invocation IDs, never hardware subgroup IDs.
+    # Workgroup barriers make their shared gathers/scatters safe even when the
+    # hardware subgroup is larger than this 32-invocation workgroup. Keep the
+    # existing ordered arithmetic; no subgroup shuffles or matrix collectives.
+    attention = gpu / "attention.comp"
+    text = attention.read_text()
+    text = text.replace("subgroupMemoryBarrierShared();\n    subgroupBarrier();",
+                        "#ifdef PHX_WORKGROUP_COMPAT\n    barrier();\n#else\n"
+                        "    subgroupMemoryBarrierShared();\n    subgroupBarrier();\n#endif")
+    attention.write_text(text)
     for source_path in [*gpu.glob("*.comp"), *gpu.glob("*.glsl")]:
         if source_path.name == "publish.glsl":
             continue
@@ -485,7 +504,10 @@ def prepare_sources(out):
         if '#include "publish.glsl"' in text:
             text = re.sub(r"float16_t\(([^()]+)\)", r"float16_t(half_round(\1))", text)
         source_path.write_text(text)
-    shaders = {source_path.stem: (source_path, []) for source_path in gpu.glob("*.comp")}
+    # Generated compatibility sources from an earlier incremental build are
+    # re-created below, never discovered as additional standard entry points.
+    shaders = {source_path.stem: (source_path, []) for source_path in gpu.glob("*.comp")
+               if not source_path.stem.endswith('_workgroup') and source_path.stem != 'gemm_mobile'}
     shaders["phoenix_matrix2_wide"] = (gpu / "phoenix_matrix2.comp", ["-DBLOCK_ROWS=64"])
     shaders.pop("gemm_wide", None)  # Only the named 32/64-column variants are loaded.
     for reduction_size in (16, 32, 64):
@@ -506,6 +528,8 @@ def prepare_sources(out):
         gemm_staged32_deep=(gpu / "gemm_staged.comp", ["-DSTAGED_BM=32", "-DSTAGED_BK=64"]),
         attention_rows=(gpu / "attention.comp", ["-DROW_LANES=256"]),
     )
+    from vulkan_compatibility import add_shaders
+    add_shaders(gpu, shaders)
     return shaders, manifest, amd_manifest
 
 
@@ -581,6 +605,7 @@ exit /b %ERRORLEVEL%
         for source_path in [
             Path(__file__),
             Path(__file__).with_name("vulkan_phoenix_math.py"),
+            Path(__file__).with_name("vulkan_compatibility.py"),
             *own.glob("*"),
             *out.glob("*.dll"),
             *out.glob("*.spv"),

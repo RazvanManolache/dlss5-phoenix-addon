@@ -64,7 +64,8 @@ the chart shows their mean, not a fixed performance guarantee.
 
 [Latest regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
-[Download 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
+[Download ReShade addon 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
+[Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta) ·
 [Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
 [Resolution report (HTML)](docs/benchmarks/2026-10-13/resolutions.html)

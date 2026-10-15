@@ -4,7 +4,23 @@ import argparse
 import hashlib
 import json
 import subprocess
+import struct
 from build_vulkan import prepare_sources
+
+
+def check_workgroup_shader(path):
+    """Reject accidental subgroup or native half arithmetic in the opt-in path."""
+    words = struct.unpack('<%dI' % (path.stat().st_size // 4), path.read_bytes())
+    cursor = 5
+    while cursor < len(words):
+        length, opcode = words[cursor] >> 16, words[cursor] & 65535
+        if not length or cursor + length > len(words):
+            raise RuntimeError('Malformed SPIR-V: ' + path.name)
+        # OpCapability: Float16, Int16 arithmetic, GroupNonUniform and its operations.
+        # StorageBuffer16BitAccess is intentional; half bits live in uint16 storage.
+        if opcode == 17 and words[cursor + 1] in (9, 22, *range(61, 69)):
+            raise RuntimeError('Nonportable capability in ' + path.name + ': ' + str(words[cursor + 1]))
+        cursor += length
 
 if __name__ == "__main__":
     parser=argparse.ArgumentParser(description=__doc__)
@@ -28,12 +44,20 @@ static VkDeviceAddress phx_buffer_device_address(VkDevice device, const VkBuffer
 '''
         source=source.replace('#include "phoenix_devices.h"','#include "phoenix_devices.h"\n'+adapter,1)
         path.write_text(source)
+    # Drop obsolete generated binaries so incremental packaging matches a clean
+    # build. This directory contains generated shaders, never original sources.
+    expected = {name + '.spv' for name in shaders}
+    for path in args.output.glob('*.spv'):
+        if path.name not in expected:
+            path.unlink()
     with (args.output/"shaders.log").open("w") as log:
         for name,(source,defines) in shaders.items():
             subprocess.run([str(args.compiler),"--target-env","vulkan1.3",
                             "-I"+str(args.output/"shader_sources"),*defines,
                             "-o",str(args.output/(name+".spv")),str(source)],
                            stdout=log,stderr=subprocess.STDOUT,check=True)
+            if name.endswith('_workgroup'):
+                check_workgroup_shader(args.output/(name+".spv"))
     (args.output/"standalone_manifest.json").write_text(json.dumps({
         "schema":"phoenix-vulkan-build/1",
         "sha256":{path.name:hashlib.sha256(path.read_bytes()).hexdigest()

@@ -194,8 +194,8 @@ int phoenix_device_count(void) {
     vkDestroyInstance(instance, NULL);
     return result ? -1 : (int)device_count;
 }
-int phoenix_device_info(unsigned index, char* uuid, char* name, unsigned* vendor,
-                        unsigned* portable) {
+int phoenix_device_info_options(unsigned index, unsigned options, char* uuid, char* name,
+                                unsigned* vendor, unsigned* portable) {
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                              .apiVersion = VK_API_VERSION_1_3};
     VkInstanceCreateInfo instance_create_info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -236,9 +236,14 @@ int phoenix_device_info(unsigned index, char* uuid, char* name, unsigned* vendor
         props.properties.apiVersion >= VK_API_VERSION_1_3 && features.features.shaderInt64 &&
         f11.storageBuffer16BitAccess && f12.shaderFloat16 && f12.bufferDeviceAddress &&
         f12.scalarBlockLayout && f12.vulkanMemoryModel && f12.vulkanMemoryModelDeviceScope &&
-        f13.subgroupSizeControl && sizes.minSubgroupSize <= 32 && sizes.maxSubgroupSize >= 32 &&
-        (sizes.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT);
+        ((options & (1u << 30)) ||
+         (f13.subgroupSizeControl && sizes.minSubgroupSize <= 32 && sizes.maxSubgroupSize >= 32 &&
+          (sizes.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT)));
     vkDestroyInstance(instance, NULL);
     return 0;
+}
+int phoenix_device_info(unsigned index, char* uuid, char* name, unsigned* vendor,
+                        unsigned* portable) {
+    return phoenix_device_info_options(index, 0, uuid, name, vendor, portable);
 }
 #include "phoenix_matrix2.h"

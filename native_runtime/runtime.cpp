@@ -135,6 +135,8 @@ struct Runtime {
                 options |= VulkanCoalescedFallback;
             if (kind == "vulkan" && config.value("vulkan_scalar_attention", false))
                 options |= VulkanScalarAttention;
+            if (kind == "vulkan" && config.value("vulkan_workgroup_compatibility", false))
+                options |= VulkanWorkgroupCompatibility;
             const auto vulkan_columns = config.value("vulkan_matrix_columns", 16u);
             demand(vulkan_columns == 16 || vulkan_columns == 32 || vulkan_columns == 64,
                    "Vulkan matrix columns must be 16, 32 or 64");
@@ -227,6 +229,8 @@ struct Runtime {
                   {"inference_validated", tested},
                   {"python_required", false}};
         if (kind == "vulkan") {
+            const bool compatibility = features && (features(backend) & WorkgroupCompatibility);
+            status["vulkan_workgroup_compatibility"] = compatibility;
             status["vulkan_fused_qkv"] = features && (features(backend) & FusedQkvPreparation);
             status["vulkan_workgroup_fp8"] = features && (features(backend) & WorkgroupFp8Matrices);
             status["vulkan_workgroup_shape_tiles"] =
@@ -245,7 +249,7 @@ struct Runtime {
                                                   config.value("vulkan_tiled_fallback", true) &&
                                                   config.value("vulkan_coalesced_fallback", true);
             status["vulkan_scalar_attention"] =
-                !matrix_acceleration && config.value("vulkan_scalar_attention", false);
+                !compatibility && !matrix_acceleration && config.value("vulkan_scalar_attention", false);
         }
         if (cpu_device)
             status.update({{"cpu_threads", cpu_threads},
@@ -482,6 +486,20 @@ struct Runtime {
                               {"ms", milliseconds},
                               {"percent", total ? 100 * milliseconds / total : 0}});
         }
+        Json operator_kinds = Json::array();
+        if (status.value("backend", std::string()) == "vulkan-cpp") {
+            std::map<unsigned, std::pair<double, unsigned>> kinds;
+            for (const auto& event : events) {
+                if (event.gpu && event.block != UINT32_MAX) {
+                    kinds[event.operation].first += event.milliseconds;
+                    ++kinds[event.operation].second;
+                }
+            }
+            for (auto [code, timing] : kinds)
+                operator_kinds.push_back({{"kind", code}, {"family", code / 32},
+                                         {"subkind", code % 32}, {"calls", timing.second},
+                                         {"gpu_ms", timing.first}});
+        }
         status.update(
             {{"state", "completed"},
              {"fused_attention", fused_attention},
@@ -497,6 +515,7 @@ struct Runtime {
              {"worker_ms", elapsed(start)},
              {"command_count", graph->commands.size()},
              {"timing_intervals", events.size()},
+             {"operator_kinds",operator_kinds},
              {"operator_ms", total},
              {"operator_clock", status.value("device", std::string()) == "cpu" ? "CPU wall"
                                 : status.value("device", std::string()) == "sycl:cpu"

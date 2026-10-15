@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <chrono>
 using Json = nlohmann::json;
 using namespace phoenix_cpp;
 std::vector<float> plane(const Json &job, const char *name, size_t count, bool required) {
@@ -52,6 +53,8 @@ int main(int argc, char **argv) {
                 reinterpret_cast<int (*)()>(library_symbol(module, "phoenix_device_count"));
             auto info = reinterpret_cast<int (*)(unsigned, char *, char *, unsigned *, unsigned *)>(
                 library_symbol(module, "phoenix_device_info"));
+            auto optional = reinterpret_cast<int (*)(unsigned, unsigned, char *, char *, unsigned *, unsigned *)>(
+                library_symbol(module, "phoenix_device_info_options"));
             if (!count || !info)
                 throw std::runtime_error("Vulkan enumeration unavailable");
             const auto size = count();
@@ -60,13 +63,16 @@ int main(int argc, char **argv) {
             Json list = Json::array();
             for (int index = 0; index < size; ++index) {
                 char uuid[33]{}, name[256]{};
-                unsigned vendor = 0, supported = 0;
+                unsigned vendor = 0, supported = 0, compatibility = 0;
                 if (info(unsigned(index), uuid, name, &vendor, &supported))
                     throw std::runtime_error("Vulkan device query failed");
+                if (optional && optional(unsigned(index), 1u << 30, uuid, name, &vendor, &compatibility))
+                    throw std::runtime_error("Vulkan compatibility query failed");
                 list.push_back({{"id", "vulkan:" + std::string(uuid)},
                                 {"name", name},
                                 {"vendor", vendor},
                                 {"supported", bool(supported)},
+                                {"compatibility_supported", bool(compatibility)},
                                 {"inference_validated", false}});
             }
             std::cout << list.dump() << '\n';
@@ -118,17 +124,33 @@ int main(int argc, char **argv) {
         metadata["has_history_validity"] = !validity.empty();
         metadata["reset"] = true;
         const auto text = metadata.dump();
-        if (frame(session.get(), color.data(), motion.empty() ? nullptr : motion.data(),
-                  depth.empty() ? nullptr : depth.data(),
-                  validity.empty() ? nullptr : validity.data(), text.c_str(), output.data()))
-            throw std::runtime_error(error());
+        const unsigned iterations = job.value("benchmark_iterations", 1u);
+        if (!iterations || iterations > 100)
+            throw std::runtime_error("Benchmark iterations must be 1..100");
+        std::vector<char> report;
+        for (unsigned iteration = 0; iteration < iterations; ++iteration) {
+            const auto started = std::chrono::steady_clock::now();
+            if (frame(session.get(), color.data(), motion.empty() ? nullptr : motion.data(),
+                      depth.empty() ? nullptr : depth.data(),
+                      validity.empty() ? nullptr : validity.data(), text.c_str(), output.data()))
+                throw std::runtime_error(error());
+            const double call_ms = std::chrono::duration<double, std::milli>(
+                                       std::chrono::steady_clock::now() - started).count();
+            report.resize(status(session.get(), nullptr, 0));
+            status(session.get(), report.data(), report.size());
+            if (iterations > 1) {
+                auto row = Json::parse(report.data());
+                row["benchmark_iteration"] = iteration;
+                row["call_ms"] = call_ms;
+                std::cout << row.dump() << std::endl;
+            }
+        }
         std::ofstream file(output_path, std::ios::binary);
         if (!file.write(reinterpret_cast<const char *>(output.data()),
                         std::streamsize(output.size() * sizeof(float))))
             throw std::runtime_error("Output write failed");
-        std::vector<char> report(status(session.get(), nullptr, 0));
-        status(session.get(), report.data(), report.size());
-        std::cout << report.data() << '\n';
+        if (iterations == 1)
+            std::cout << report.data() << std::endl;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

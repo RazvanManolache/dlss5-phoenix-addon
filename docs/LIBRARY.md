@@ -7,6 +7,10 @@ host-plane frame boundary; its performance must not be inferred from native RTX
 charts. Windows x64 also has a separate [native RTX and spatial extension](NATIVE_LIBRARY.md)
 with D3D12 textures, owned/borrowed devices and optional host-buffer transfers.
 
+[Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta)
+includes the Windows native extension and optional mobile Vulkan compatibility.
+See the [Adreno validation and timings](VULKAN_MOBILE_2026-10-15.md).
+
 ## Platform status
 
 | Platform | Implementation | Validation available here |
@@ -14,8 +18,8 @@ with D3D12 textures, owned/borrowed devices and optional host-buffer transfers.
 | Windows x64 | C DLL; portable CPU and Vulkan; existing optional CUDA/HIP/SYCL provider ABI retained | CPU/operator/C-interface tests and full-model frame |
 | Linux x64 | C shared library; portable CPU and Vulkan build paths | Built and CPU tests/full-model frame run under Ubuntu 22.04 WSL |
 | macOS, Apple silicon | C dynamic library; Metal compute backend and portable CPU | Apple compiler/MSL and CPU suites pass in macOS 14 ARM64 CI; full-model GPU execution unvalidated |
-| Android ARM64 | NDK C shared library; portable CPU and Vulkan | Cross-compilation; no phone GPU or full-model execution certified |
-| Android x86_64 emulator | NDK library with a JNI/OpenGL game-frame harness | Full-model CPU/Vulkan execution; three Vulkan image sizes match Windows portable Vulkan byte for byte; physical phones remain untested |
+| Android ARM64 | NDK C shared library; portable CPU and optional workgroup Vulkan compatibility | Adreno 735 operator/normalization contracts and 320×144 museum model output match CPU exactly; this is a bounded device test |
+| Android x86_64 emulator | NDK library with a JNI/OpenGL game-frame harness | Full-model CPU/Vulkan execution; three Vulkan image sizes match Windows portable Vulkan byte for byte; emulator timing does not predict phone performance |
 
 Metal is an initial correctness implementation, with resident buffers, ordered
 GPU dispatches, packed FP8 weight decoding and explicit half/FP8 publication.
@@ -31,6 +35,31 @@ layout, the Vulkan memory model and support for a 32-lane subgroup. Cooperative
 matrices are optional and used only when their shapes are advertised. Basic
 Vulkan availability on a phone does not guarantee these requirements. Unsupported
 devices are rejected; no hidden CPU fallback is reported as GPU inference.
+
+An optional `vulkan_workgroup_compatibility=true` configuration uses scalar
+matrix/row shaders with workgroup barriers and integer FP16 storage. This route
+does not require 32-lane subgroups and supports testing drivers such as the
+Adreno 735's 64–128-lane implementation. It disables subgroup-dependent matrix,
+attention and QKV fusions, retains the same model and ordered arithmetic, and
+preserves half subnormals without native float16 conversions. Other baseline
+Vulkan compute requirements still apply. The default route is unchanged.
+The compatibility shaders also reproduce fused FP32 normalization/publication
+rounding with integer significands, avoiding the Adreno driver's one-ULP FMA
+differences at quantization boundaries. This increases compute cost; measure
+completed calls on the target phone rather than inferring real-time throughput.
+`phoenix_device_info_options` accepts option bit 30 for capability discovery;
+`phoenix_device_info` retains the original strict check. Runtime status reports
+`vulkan_workgroup_compatibility` for the path actually created. Capability
+discovery alone is not a numerical or performance validation result.
+
+The compatibility tile uses 4x4 per-thread register blocks inside each 32x32
+matrix tile. Eligible row reductions use eight local invocations and shared
+workgroup exchanges, preserving the original reduction tree without hardware
+subgroup assumptions. The portable `phoenix_frame` runner accepts an optional
+top-level `benchmark_iterations` (1..100) to distinguish cold setup from warm
+calls in one session. Each iteration resets history; repeated-input measurements
+are not a motion/temporal validation. `profiling="dispatches"` additionally
+reports GPU time grouped by operator kind.
 
 Devices without cooperative matrices now use an ordered 32×32 shared-memory
 matrix tile. Packed expanding projections and large 128-to-32 contractions
@@ -115,7 +144,9 @@ Install [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) version
 [glslang](https://github.com/KhronosGroup/glslang) **16.6.0** or newer. The NDK's
 bundled headers alone are older than declarations used by the existing provider;
 pass the separately installed headers. `PHOENIX_GLSLANG` must run on the build
-computer, including during Android cross-compilation.
+computer, including during Android cross-compilation. Build glslang with
+`ENABLE_OPT=ON` and its SPIRV-Tools dependencies: the mobile register tile uses
+the compiler's `-Os` optimisation. CI builds this pinned configuration.
 
 Add these options to the relevant configure command:
 

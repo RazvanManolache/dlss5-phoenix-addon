@@ -152,6 +152,7 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
                                    const char* wide_matrix) {
     if (!uuid || strlen(uuid) != 32 || g.ready)
         return -1;
+    phx_native_workgroup_compatibility = (options & (1u << 30)) != 0;
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                              .apiVersion = VK_API_VERSION_1_3};
     VkInstanceCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -175,7 +176,7 @@ int phoenix_native_init_configured(const char* uuid, const char* gemm, const cha
                     selected_integrated =
                         properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
                 }
-                if (selected && !(options & 1u)) {
+                if (selected && !(options & 1u) && !phx_native_workgroup_compatibility) {
                     shapes = phx_matrix_shapes(instance, selected);
                     if ((options & (1u << 26)) && (shapes & 2))
                         phx_native_matrix2 = phx_matrix2_caps(instance, selected);
@@ -376,6 +377,7 @@ void xmx_shutdown(void) {
     specialized_count = 0;
     xmx_profile_reset();
     phx_native_configured = 0;
+    phx_native_workgroup_compatibility = 0;
     phx_native_hardware_half = 0;
     phx_shape_matrices = 0;
     phx_wide_generic = 0;
