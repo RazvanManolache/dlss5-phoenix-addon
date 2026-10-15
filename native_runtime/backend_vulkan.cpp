@@ -27,6 +27,7 @@ class VulkanBackend final : public Backend {
     bool workgroup_fp8 = false, fused_feed_forward = false, projected_qkv = false;
     bool shape_tiles = false;
     bool workgroup_compatibility = false;
+    bool fast_math = false;
     std::unordered_map<int, uint64_t> allocation_extents;
     std::unordered_set<int> native_fp8_weights;
     bool packed_weights_supported(void* address) const {
@@ -84,18 +85,24 @@ class VulkanBackend final : public Backend {
         module = open_library(folder / library_name("phoenix_vulkan"));
         demand(module != nullptr, "Vulkan provider load failed");
         auto shader_path = [&](const char* name) { return (folder / name).string(); };
-        workgroup_compatibility = (options & VulkanWorkgroupCompatibility) != 0;
+        fast_math = (options & VulkanFastMath) != 0;
+        workgroup_compatibility = fast_math || (options & VulkanWorkgroupCompatibility) != 0;
         if (workgroup_compatibility)
             options = (options & (DispatchProfiling | OrderedAttention | VulkanTiledFallback |
                                   VulkanCoalescedFallback)) |
                       ScalarMatrices | VulkanWorkgroupCompatibility;
-        auto matrix_shader = shader_path(workgroup_compatibility
+        auto matrix_shader = shader_path(fast_math
+            ? (options & VulkanTiledFallback ? "gemm_portable_tiled_fast_workgroup.spv"
+                                            : "gemm_portable_fast_workgroup.spv")
+            : workgroup_compatibility
             ? (options & VulkanTiledFallback ? "gemm_portable_tiled_workgroup.spv"
                                             : "gemm_portable_workgroup.spv")
             : (options & VulkanTiledFallback ? "gemm_portable_tiled.spv" : "gemm_portable.spv"));
-        auto elementwise_shader = shader_path(workgroup_compatibility ? "resident_workgroup.spv"
+        auto elementwise_shader = shader_path(fast_math ? "resident_fast_workgroup.spv"
+                                            : workgroup_compatibility ? "resident_workgroup.spv"
                                                                     : "resident.spv");
-        auto attention_shader = shader_path(workgroup_compatibility ? "attention_workgroup.spv"
+        auto attention_shader = shader_path(fast_math ? "attention_fast_workgroup.spv"
+                                          : workgroup_compatibility ? "attention_workgroup.spv"
                                                                   : "attention.spv");
         auto history_shader = shader_path("history.spv");
         auto matrix8 = shader_path("gemm_matrix8.spv"), matrix16 = shader_path("gemm_matrix16.spv");
@@ -108,14 +115,16 @@ class VulkanBackend final : public Backend {
         // The provider routes cooperative row reductions only after this
         // optional pipeline is initialized. Merely shipping the SPIR-V leaves
         // g.rrows null and silently selects the 32-lane scalar fallback.
-        auto parallel_rows = shader_path(workgroup_compatibility ? "attention_parallel_workgroup.spv"
+        auto parallel_rows = shader_path(fast_math ? "attention_parallel_fast_workgroup.spv"
+                                       : workgroup_compatibility ? "attention_parallel_workgroup.spv"
                                                                : "attention_rows.spv");
         check(call<int>("xmx_rows_init", parallel_rows.c_str()));
         matrix_rows = call<unsigned>("phoenix_native_matrix");
         scalar_attention = !matrix_rows && (options & VulkanScalarAttention);
         if (!matrix_rows && (options & VulkanTiledFallback) &&
             (options & VulkanCoalescedFallback)) {
-            auto coalesced_shader = shader_path(workgroup_compatibility
+            auto coalesced_shader = shader_path(fast_math
+                ? "gemm_portable_coalesced_fast_workgroup.spv" : workgroup_compatibility
                 ? "gemm_portable_coalesced_workgroup.spv" : "gemm_portable_coalesced.spv");
             check(call<int>("phoenix_native_coalesced_init", coalesced_shader.c_str()));
         }
@@ -136,7 +145,8 @@ class VulkanBackend final : public Backend {
                                                          : "phoenix_window_attention.spv");
             check(call<int>("xmx_window_init", window.c_str(), 1u));
         }
-        auto features_shader = shader_path(workgroup_compatibility ? "frame_features_workgroup.spv"
+        auto features_shader = shader_path(fast_math ? "frame_features_fast_workgroup.spv"
+                                         : workgroup_compatibility ? "frame_features_workgroup.spv"
                                                                  : "frame_features.spv");
         check(call<int>("phoenix_native_features_init", features_shader.c_str()));
         // Other vendors retain their measured scheduling and memory policy.
@@ -185,7 +195,8 @@ class VulkanBackend final : public Backend {
                (fused_feed_forward && !detailed_profile ? FusedFeedForward : 0) |
                (projected_qkv && !detailed_profile ? ProjectedQkvPreparation : 0) |
                (shape_tiles ? WorkgroupShapeTiles : 0) |
-               (workgroup_compatibility ? WorkgroupCompatibility : 0);
+               (workgroup_compatibility ? WorkgroupCompatibility : 0) |
+               (fast_math ? ApproximateMath : 0);
     }
     const char* name() const override {
         return "vulkan-cpp";

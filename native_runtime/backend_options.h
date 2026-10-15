@@ -34,6 +34,7 @@ enum BackendOption : uint32_t {
     VulkanProjectedQkv = 1u << 28,     // Project and normalize eligible 32-channel Q/K/V together.
     VulkanWorkgroupShapeTiles = 1u << 29, // Select 32/64-row tiles by the measured matrix shape.
     VulkanWorkgroupCompatibility = 1u << 30, // Subgroup-independent scalar shaders; explicit opt-in.
+    VulkanFastMath = 1u << 31, // Explicit approximate mobile arithmetic; never selected by default.
 };
 enum BackendFeature : uint32_t {
     FusedWindowAttention = 1u << 0,
@@ -46,6 +47,7 @@ enum BackendFeature : uint32_t {
     FusedFeedForward = 1u << 7,
     ProjectedQkvPreparation = 1u << 8,
     WorkgroupShapeTiles = 1u << 9,
-    WorkgroupCompatibility = 1u << 10
+    WorkgroupCompatibility = 1u << 10,
+    ApproximateMath = 1u << 11
 };
 }

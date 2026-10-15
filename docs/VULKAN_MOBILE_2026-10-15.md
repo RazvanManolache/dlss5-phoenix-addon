@@ -1,5 +1,7 @@
 # Optional mobile Vulkan compatibility — 15 October 2026
 
+For the separately selected approximate path, see [Fast GPU arithmetic](VULKAN_FAST_MOBILE.md). The exact compatibility measurements below remain unchanged.
+
 The portable library accepts `vulkan_workgroup_compatibility: true` for devices
 such as the tested Adreno 735 (SM8635, Android API 37), whose controlled subgroup
 range is 64–128 rather than 32. The option defaults off. Standard and optional

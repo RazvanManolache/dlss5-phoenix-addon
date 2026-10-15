@@ -8,8 +8,8 @@ import struct
 from build_vulkan import prepare_sources
 
 
-def check_workgroup_shader(path):
-    """Reject accidental subgroup or native half arithmetic in the opt-in path."""
+def check_workgroup_shader(path, allow_half=False):
+    """Reject subgroup arithmetic; only approximate shaders may use native half."""
     words = struct.unpack('<%dI' % (path.stat().st_size // 4), path.read_bytes())
     cursor = 5
     while cursor < len(words):
@@ -18,7 +18,8 @@ def check_workgroup_shader(path):
             raise RuntimeError('Malformed SPIR-V: ' + path.name)
         # OpCapability: Float16, Int16 arithmetic, GroupNonUniform and its operations.
         # StorageBuffer16BitAccess is intentional; half bits live in uint16 storage.
-        if opcode == 17 and words[cursor + 1] in (9, 22, *range(61, 69)):
+        rejected = (22, *range(61, 69)) if allow_half else (9, 22, *range(61, 69))
+        if opcode == 17 and words[cursor + 1] in rejected:
             raise RuntimeError('Nonportable capability in ' + path.name + ': ' + str(words[cursor + 1]))
         cursor += length
 
@@ -57,7 +58,7 @@ static VkDeviceAddress phx_buffer_device_address(VkDevice device, const VkBuffer
                             "-o",str(args.output/(name+".spv")),str(source)],
                            stdout=log,stderr=subprocess.STDOUT,check=True)
             if name.endswith('_workgroup'):
-                check_workgroup_shader(args.output/(name+".spv"))
+                check_workgroup_shader(args.output/(name+".spv"), allow_half=name.endswith('_fast_workgroup'))
     (args.output/"standalone_manifest.json").write_text(json.dumps({
         "schema":"phoenix-vulkan-build/1",
         "sha256":{path.name:hashlib.sha256(path.read_bytes()).hexdigest()

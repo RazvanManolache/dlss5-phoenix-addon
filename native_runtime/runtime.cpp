@@ -137,6 +137,8 @@ struct Runtime {
                 options |= VulkanScalarAttention;
             if (kind == "vulkan" && config.value("vulkan_workgroup_compatibility", false))
                 options |= VulkanWorkgroupCompatibility;
+            if (kind == "vulkan" && config.value("vulkan_fast_math", false))
+                options |= VulkanFastMath | VulkanWorkgroupCompatibility;
             const auto vulkan_columns = config.value("vulkan_matrix_columns", 16u);
             demand(vulkan_columns == 16 || vulkan_columns == 32 || vulkan_columns == 64,
                    "Vulkan matrix columns must be 16, 32 or 64");
@@ -231,6 +233,9 @@ struct Runtime {
         if (kind == "vulkan") {
             const bool compatibility = features && (features(backend) & WorkgroupCompatibility);
             status["vulkan_workgroup_compatibility"] = compatibility;
+            const bool approximate = features && (features(backend) & ApproximateMath);
+            status["vulkan_fast_math"] = approximate;
+            status["arithmetic"] = approximate ? "approximate-hardware" : "reference";
             status["vulkan_fused_qkv"] = features && (features(backend) & FusedQkvPreparation);
             status["vulkan_workgroup_fp8"] = features && (features(backend) & WorkgroupFp8Matrices);
             status["vulkan_workgroup_shape_tiles"] =

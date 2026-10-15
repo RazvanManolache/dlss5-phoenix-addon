@@ -142,3 +142,5 @@ def add_shaders(gpu, shaders):
     parallel = gpu / 'attention_parallel_workgroup.comp'
     parallel.write_text(parallel_rows((gpu / 'attention_workgroup.comp').read_text()))
     shaders['attention_parallel_workgroup'] = (parallel, ['-DPHX_WORKGROUP_COMPAT=1', '-DROW_LANES=256'])
+    from vulkan_fast_math import add_fast_shaders
+    add_fast_shaders(gpu, shaders)

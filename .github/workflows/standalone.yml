@@ -24,6 +24,8 @@ jobs:
         run: ctest --test-dir build/standalone -C Release --output-on-failure -E metal_operators
       - name: Test source integrity handling
         run: python -m unittest discover -s tests -p test_vulkan_import_integrity.py
+      - name: Test exact and approximate shader capability boundaries
+        run: python -m unittest discover -s tests -p test_vulkan_workgroup_spirv.py
       - name: Test Metal if an Apple GPU is exposed
         if: runner.os == 'macOS'
         run: python tools/test_metal_available.py build/standalone

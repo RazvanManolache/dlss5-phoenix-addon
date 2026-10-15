@@ -127,6 +127,7 @@ if(PHOENIX_ENABLE_VULKAN)
         DEPENDS ${VULKAN_INPUTS} "${PHOENIX_ROOT}/tools/generate_standalone_vulkan.py"
                 "${PHOENIX_ROOT}/tools/build_vulkan.py" "${PHOENIX_ROOT}/tools/vulkan_phoenix_math.py"
                 "${PHOENIX_ROOT}/tools/vulkan_compatibility.py"
+                "${PHOENIX_ROOT}/tools/vulkan_fast_math.py"
                 "${PHOENIX_ROOT}/tools/source_patches.py" "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_lifetime.inc"
         VERBATIM)
     add_library(phoenix_vulkan SHARED "${VULKAN_OUTPUT}/phoenix_vulkan.c")
@@ -178,6 +179,8 @@ install(FILES phoenix.h DESTINATION include)
 install(EXPORT PhoenixTargets NAMESPACE Phoenix:: DESTINATION lib/cmake/Phoenix)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/PhoenixConfig.cmake" DESTINATION lib/cmake/Phoenix)
 if(BUILD_TESTING)
+    add_executable(fp8_weights_tests "${PHOENIX_ROOT}/tests/portable_cpp/fp8_weights_tests.cpp")
+    add_test(NAME fp8_weight_predecode COMMAND fp8_weights_tests)
     add_executable(portable_c_api_tests "${PHOENIX_ROOT}/tests/portable_cpp/c_api_tests.c")
     target_link_libraries(portable_c_api_tests PRIVATE phoenix_runtime_cpp)
     add_test(NAME portable_c_api COMMAND portable_c_api_tests)
@@ -189,7 +192,7 @@ if(BUILD_TESTING)
     target_link_libraries(portable_backend_tests PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
     set(PORTABLE_TEST_TARGETS portable_platform_tests portable_backend_tests)
     if(PHOENIX_ENABLE_VULKAN)
-        foreach(contract vulkan_normalization_contract vulkan_workgroup_contract vulkan_mobile_benchmark)
+        foreach(contract vulkan_normalization_contract vulkan_workgroup_contract vulkan_mobile_benchmark vulkan_fast_contract)
             add_executable(${contract} "${PHOENIX_ROOT}/tests/portable_cpp/${contract}.cpp")
             target_link_libraries(${contract} PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
             list(APPEND PORTABLE_TEST_TARGETS ${contract})
