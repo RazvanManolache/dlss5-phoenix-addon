@@ -6,94 +6,7 @@ inference speed in the matched 1080p test, with useful controls and lower
 measured GPU residency. The alternate backends are our slightly obsessive
 portability side quest.
 
-**For developers:** an [experimental standalone C library](docs/LIBRARY.md)
-exposes model selection, block repeats, passes, conditioning, history and
-timing/memory status without ReShade. Windows/Linux builds and an Android ARM64
-cross-build are available; Apple silicon Metal compiles in Mac CI and still
-needs GPU/model validation. These portable runners do not inherit the native RTX
-performance shown below. A separate [Windows native RTX library](docs/NATIVE_LIBRARY.md)
-now reuses the optimized executor and spatial resizing without ReShade, with
-D3D12 texture and host-buffer interfaces.
-
-I dislike how much of the software we add to our games is closed source. We
-rush for the best experience, often giving code access to our systems without
-being able to inspect what it does—or what that means for our privacy. I'd
-rather let you look under the hood. Better pixels shouldn't require blind trust.
-
-## New in 0.81: More Ways To Run Phoenix
-
-**[Download add-on 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81)**
-includes **both x86 and x64 ReShade add-ons**, the retained x64 helper, and
-optional experimental in-process runtimes. Models and NVIDIA DLLs stay external.
-
-- **Choose where rendering runs.** Automatic, native in-process D3D12, external
-  x64 helper, or the experimental portable runtime. The x86 add-on also offers
-  **x64 library inside x86** for Phoenix/NVIDIA and **x86 Phoenix + native driver**
-  for Phoenix. The helper stays available; automatic selection remains conservative.
-- **Renderer first, transport second.** Choose Phoenix, NVIDIA or comparison
-  first; **Advanced transport** is underneath, with descriptive names instead of
-  experiment numbers. Unsupported renderer/transport combinations explain their
-  helper fallback without discarding your saved choice.
-- **Change the look live.** Tone, structure, skin and mask strengths update
-  without restarting the model on every slider movement. Experimental native x86
-  paths support refinement passes with FP16 intermediate inputs. The x64-library
-  path supports block repetitions; the x86-host path currently uses all eight
-  blocks once. Unsupported controls are disabled or explicitly rejected.
-- **Compare the same frame.** Split and difference views use the input snapshot
-  belonging to that evaluation, rather than a newer game frame. Diagnostics
-  distinguish game presentations, completed model outputs, execution location,
-  inference PID, helper PID and processing round-trip time.
-- **Broader capture compatibility.** D3D9 MSAA resolve, separate Vulkan graphics
-  and presentation queues, and capture integration for D3D9/10/11/12, OpenGL and
-  Vulkan. Portable x86 fixes preserve full-width GPU handles and C API exports.
-- **Safer worker lifecycle.** Model loading and inference stay off the game
-  presentation thread, retirement does not join a worker there, native TLS is
-  initialized for replacement workers, and x64 dependencies cannot accidentally
-  resolve to a game's x86 DXGI proxy.
-- **Android work preserved.** The standalone SDK source retains the explicit
-  approximate mobile Vulkan arithmetic and tiled fast-kernel options from the
-  separate [Android preview](docs/VULKAN_FAST_MOBILE.md). These are not native RTX
-  performance claims or new Android binaries in this add-on release.
-
-**Experimental means opt-in.** The two native x86 paths passed packaged-client
-inference, live-control, switching and worker tests on the local Windows/driver
-profile. **Actual game presentation, resize and device-loss behavior for those
-new paths are not yet validated.** Their bootstrap profile is Windows/driver
-specific, not a portable compatibility catalogue; mismatch rejects the route
-and uses the helper when fallback is enabled. They still copy CPU pixels and
-are not zero-copy or crash-isolated. Current native kernels target **sm_120**.
-
-[Execution choices, installation and limits](docs/EXECUTION_MECHANISMS.md) |
-[0.81 release notes](docs/RELEASE_0.81.md) |
-[Current benchmark data and methodology](docs/benchmarks/0.81/README.md)
-
-### Updated Execution Benchmarks
-
-**RTX 5080, driver 616.64, 1920 x 1080, 1:1, full network, reset frames.**
-Each case used 5 seconds of warmup followed by 20 seconds of measurement.
-These are measured per-output times, **not game FPS** or a promise of faster games.
-
-| Execution | Phoenix GPU / wall (ms) | NVIDIA GPU / wall (ms) | Wall-time scope |
-| --- | ---: | ---: | --- |
-| Native x64 | 4.007 / 4.391 | 4.027 / 4.455 | Resident-input synchronized API call |
-| x64 library inside x86 | 4.037 / 4.508 | 4.004 / 4.465 | Resident-input call; worker entered once |
-| x86 Phoenix + native driver | 4.009 / 4.464 | Not available | Resident input plus per-frame dispatch handoff |
-| External x64 helper | 4.338 / 12.358 | 4.472 / 13.071 | DX12 fixture capture, IPC, processing and return |
-
-![Measured GPU processing time by execution path; capture and return are excluded from these bars](docs/benchmarks/0.81/execution-gpu-time.png)
-
-The helper row uses a different fixture image and sampled latency. The other
-rows use isolated synthetic resident inputs; their timing does **not** measure
-the new add-on routes' CPU capture/upload cost. One serial run per case cannot
-establish architectural speed differences. The x86 Phoenix graph-host mechanism
-has no NVIDIA equivalent; NVIDIA's complete x64 library works through the other
-x86 in-process option. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
-
 ## Native RTX: the main event
-
-The following resolution and memory study is the **14 October historical
-benchmark**, with a different sampling protocol from the execution tests above.
-Its VRAM figures have not been remeasured for 0.81.
 
 ![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
@@ -123,6 +36,9 @@ register choices and switches two stages at 18.66 million neural input pixels
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
 At 8K the two Phoenix process medians span 60.94–63.74 ms;
 the chart shows their mean, not a fixed performance guarantee.
+
+This resolution and memory study uses a different sampling protocol from the
+0.81 execution tests below. Its VRAM figures have not been remeasured for 0.81.
 
 [Automatic kernel selection and memory tuning: measurements and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
 
@@ -159,6 +75,115 @@ per-eye render targets can differ from panel resolution. Separate eye histories
 are necessary even if execution is batched together.
 
 [Assumptions, calculations and stereo batching explained](docs/benchmarks/2026-10-13/VR_ESTIMATES.md)
+
+</details>
+
+## 32-bit Games: x86 Compatibility
+
+**Yes, Phoenix also has a 32-bit game add-on.** Use `Phoenix.addon32` for an
+x86 game and `Phoenix.addon64` for an x64 game. Both are in the
+**[0.81 download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81)**.
+This is support for 32-bit games on **64-bit Windows**, not 32-bit Windows or
+older GPUs without the required rendering capabilities.
+
+**Start with Automatic.** For an x86 game, the retained compatibility route
+captures the game image, sends it to a separate x64 helper running Phoenix or
+NVIDIA, and displays the processed result back in the game. The game stays
+32-bit; the neural renderer runs in the helper. No game EXE patch is needed.
+The extra image transfers add overhead, even when model inference is fast.
+
+0.81 also adds two **optional experiments** that keep native processing inside
+the x86 game's process instead of using that separate helper:
+
+| x86 execution choice | What happens | Renderers |
+| --- | --- | --- |
+| External x64 helper | The game sends frames to a separate 64-bit processing program | Phoenix and NVIDIA |
+| x64 library inside x86 (experimental) | A native 64-bit worker runs the complete renderer inside the 32-bit game's process | Phoenix and NVIDIA |
+| x86 Phoenix + native driver (experimental) | A 32-bit Phoenix host prepares the network work; a native 64-bit executor submits it to the GPU | Phoenix only; NVIDIA views use the helper |
+
+The experiments passed packaged-client inference, controls and switching tests
+on the verified Windows/driver profile. **Game presentation, resize and
+device-loss behavior for these new paths are not yet validated.** They require
+the separate experimental runtime package and a matching Windows/driver profile;
+they are never enabled automatically. Leave helper fallback on. The x86 Phoenix
+host also requires an already large-address-aware game EXE and does not patch it.
+Both native experiments still stage CPU pixels: in-process is not zero-copy,
+crash isolation or a guaranteed performance improvement.
+
+[Installation, configuration and exact limits](docs/EXECUTION_MECHANISMS.md)
+
+## New in 0.81: More Ways To Run Phoenix
+
+The release includes **both x86 and x64 ReShade add-ons**, the retained x64
+helper, and optional experimental runtimes. Models and NVIDIA DLLs stay external.
+
+- **Choose where rendering runs.** Automatic, native in-process D3D12, external
+  x64 helper, or experimental portable/native x86 execution. Automatic selection
+  remains conservative; the helper stays available.
+- **Renderer first, transport second.** Choose Phoenix, NVIDIA or comparison
+  first; **Advanced transport** is underneath, with descriptive names instead of
+  experiment numbers. Unsupported combinations explain their helper fallback
+  without discarding your saved choice.
+- **Change the look live.** Tone, structure, skin and mask strengths update
+  without restarting the model on every slider movement. Experimental native x86
+  paths support refinement passes with FP16 intermediate inputs. The x64-library
+  path supports block repetitions; the x86-host path currently uses all eight
+  blocks once. Unsupported controls are disabled or explicitly rejected.
+- **Compare the same frame.** Split and difference views use the input snapshot
+  belonging to that evaluation, rather than a newer game frame. Diagnostics
+  distinguish game presentations, completed model outputs, execution location,
+  inference PID, helper PID and processing round-trip time.
+- **Broader capture compatibility.** D3D9 MSAA resolve, separate Vulkan graphics
+  and presentation queues, and capture integration for D3D9/10/11/12, OpenGL and
+  Vulkan. Portable x86 fixes preserve full-width GPU handles and C API exports.
+- **Safer worker lifecycle.** Model loading and inference stay off the game
+  presentation thread, retirement does not join a worker there, native TLS is
+  initialized for replacement workers, and x64 dependencies cannot accidentally
+  resolve to a game's x86 DXGI proxy.
+- **Android work preserved.** The standalone SDK source retains the explicit
+  approximate mobile Vulkan arithmetic and tiled fast-kernel options from the
+  separate [Android preview](docs/VULKAN_FAST_MOBILE.md). These are not native RTX
+  performance claims or new Android binaries in this add-on release.
+
+[0.81 release notes](docs/RELEASE_0.81.md) |
+[Current benchmark data and methodology](docs/benchmarks/0.81/README.md)
+
+<details>
+<summary>Detailed execution benchmarks: in-process versus helper</summary>
+
+**RTX 5080, driver 616.64, 1920 x 1080, 1:1, full network, reset frames.**
+Each case used 5 seconds of warmup followed by 20 seconds of measurement.
+These are measured per-output times, **not game FPS** or a promise of faster games.
+
+| Execution | Phoenix GPU / wall (ms) | NVIDIA GPU / wall (ms) | Wall-time scope |
+| --- | ---: | ---: | --- |
+| Native x64 | 4.007 / 4.391 | 4.027 / 4.455 | Resident-input synchronized API call |
+| x64 library inside x86 | 4.037 / 4.508 | 4.004 / 4.465 | Resident-input call; worker entered once |
+| x86 Phoenix + native driver | 4.009 / 4.464 | Not available | Resident input plus per-frame dispatch handoff |
+| External x64 helper | 4.338 / 12.358 | 4.472 / 13.071 | DX12 fixture capture, IPC, processing and return |
+
+![Measured GPU processing time by execution path; capture and return are excluded from these bars](docs/benchmarks/0.81/execution-gpu-time.png)
+
+The helper row uses a different fixture image and sampled latency. The other
+rows use isolated synthetic resident inputs; their timing does **not** measure
+the new add-on routes' CPU capture/upload cost. One serial run per case cannot
+establish architectural speed differences. The x86 Phoenix graph-host mechanism
+has no NVIDIA equivalent; NVIDIA's complete x64 library works through the other
+x86 in-process option. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
+
+</details>
+
+<details>
+<summary>Standalone libraries for developers</summary>
+
+An [experimental standalone C library](docs/LIBRARY.md) exposes model selection,
+block repeats, passes, conditioning, history and timing/memory status without
+ReShade. Windows/Linux builds and an Android ARM64 cross-build are available;
+Apple silicon Metal compiles in Mac CI and still needs GPU/model validation.
+These portable runners do not inherit the native RTX performance shown above.
+A separate [Windows native RTX library](docs/NATIVE_LIBRARY.md) reuses the
+optimized executor and spatial resizing without ReShade, with D3D12 texture and
+host-buffer interfaces.
 
 </details>
 
@@ -210,6 +235,11 @@ benchmark results.
 [Build instructions](#build-from-source)
 
 ## Why I'm making this
+
+I dislike how much of the software we add to our games is closed source. We
+rush for the best experience, often giving code access to our systems without
+being able to inspect what it does—or what that means for our privacy. I'd
+rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 - **Credit where it's due:** NVIDIA built something impressive. Their model,
   Tensor Cores and native execution set a very high bar; optimized RTX is easily
