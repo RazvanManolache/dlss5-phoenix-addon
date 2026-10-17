@@ -23,6 +23,11 @@ def generate():
         raise ValueError("Update Metal adaptation for changed optional Math hooks")
     source = source.replace("namespace phx {", "namespace phoenix_metal {")
     source = source.replace("phx::", "phoenix_metal::")
+    # Logical x86 GPU handles never enter Metal. Its bound buffers reconstruct
+    # real device pointers, just as the host arithmetic test uses CPU pointers.
+    source, addresses = re.subn(r"\bOperandAddress\b", "void*", source)
+    if addresses != 5:
+        raise ValueError("Update Metal adaptation for changed operand address fields")
     source = source.replace("void*", "device void*")
     source = re.sub(r"static_cast<((?:const )?(?:uint16_t|uint8_t|float))\*>",
                     r"static_cast<device \1*>", source)

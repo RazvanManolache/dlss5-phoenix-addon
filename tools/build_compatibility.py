@@ -1,4 +1,4 @@
-"""Package x64 and x86 addons with the private x64 graphics helper (no model DLL).
+"""Package full x64/x86 addons with an optional x64 helper (no model DLL).
 
 First build a validated embedded x64 core with build_addon.py. ReShade x64 is
 an explicit external build input; the resulting addon carries it for the helper.
@@ -18,7 +18,7 @@ LIBRARIES = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib 
 CORE_ABI = {"AddonInit", "AddonUninit", "CnrPHOENIXCompatibilityStatus",
             "CnrPHOENIXFeederVersion", "CnrPHOENIXFeederEvaluate",
             "CnrPHOENIXFeederProgressJson", "CnrPHOENIXFeederUiJson",
-            "CnrPHOENIXFeederUiAction"}
+            "CnrPHOENIXFeederUiAction", "CnrPHOENIXFeederLiveSettings"}
 
 
 def file_sha256(path):
@@ -109,6 +109,7 @@ def main():
     parser.add_argument("name")
     parser.add_argument("--core-build", type=Path, required=True)
     parser.add_argument("--reshade64", type=Path, required=True)
+    parser.add_argument("--ngx-sdk", type=Path, required=True)
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_]+", args.name):
         parser.error("Use a simple output name")
@@ -146,9 +147,10 @@ def main():
         folder.mkdir()
         manifest = {**original, "files": []}
         paths = {}
-        if arch == "64":
-            manifest["files"] = list(original["files"])
-            paths = {entry["resource"]: core / "embedded" / (str(entry["resource"]) + ".bin") for entry in manifest["files"]}
+        # Native GPU kernels are architecture-neutral. The x64 portable plugins
+        # stay available to the helper, never loaded by the x86 native executor.
+        manifest["files"] = list(original["files"])
+        paths = {entry["resource"]: core / "embedded" / (str(entry["resource"]) + ".bin") for entry in manifest["files"]}
         additions = {"compatibility/phoenix_graphics_host.exe": out / "phoenix_graphics_host.exe",
                      "compatibility/dxgi.dll": reshade,
                      "compatibility/ReShade-LICENSE.txt": ROOT / "third_party/compatibility_bridge/ReShade-LICENSE.txt",
@@ -184,9 +186,25 @@ def main():
     objects = " ".join(f'"{core}/{name}.obj"' for name in ("addon", "hook", "buffer", "trampoline", "hde64"))
     run("addon64", "64", f'link /DLL /INCREMENTAL:NO /OUT:"{out}/Phoenix.addon64" {objects} "{resource64}" {LIBRARIES}')
     resource32 = resources("32")
-    run("addon32", "32", f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX /DImTextureID=ImU64 '
-        f'{includes} /I"{ROOT}/third_party/imgui_reshade" /LD "{ROOT}/src/integration/compatibility/addon32.cpp" '
-        f'/Fo:"{out}/addon32.obj" /Fe:"{out}/Phoenix.addon32" /link /INCREMENTAL:NO "{resource32}" {LIBRARIES}')
+    hooks32 = ' '.join(f'"{ROOT}/third_party/minhook/src/{name}"'
+        for name in ('hook.c', 'buffer.c', 'trampoline.c', 'hde/hde32.c'))
+    run("addon32", "32", f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /bigobj /DNOMINMAX /DImTextureID=ImU64 '
+        f'{includes} /I"{args.ngx_sdk.resolve()}" /I"{ROOT}/third_party/nvapi" '
+        f'/I"{ROOT}/third_party/minhook/include" /I"{ROOT}/third_party/imgui_reshade" '
+        f'/LD "{ROOT}/src/integration/reshade/addon.cpp" {hooks32} '
+        f'/Fo:"{out}\\\\" /Fe:"{out}/Phoenix.addon32" /link /INCREMENTAL:NO "{resource32}" {LIBRARIES}')
+    # WINAPI exports are decorated on x86. Preserve the public undecorated ABI
+    # used by scanners, the feeder API and compatibility control clients.
+    aliases = []
+    for name in sorted(pe_exports(out / 'Phoenix.addon32')):
+        match = re.fullmatch(r'_(.+)@(\d+)', name)
+        if match:
+            aliases.append(f'    {match[1]}={name}')
+    definition = out / 'addon32.def'
+    definition.write_text('EXPORTS\n' + '\n'.join(aliases) + '\n')
+    objects32 = ' '.join(f'"{out}/{name}.obj"' for name in ('addon','hook','buffer','trampoline','hde32'))
+    run('addon32_exports', '32', f'link /DLL /INCREMENTAL:NO /DEF:"{definition}" '
+        f'/OUT:"{out}/Phoenix.addon32" {objects32} "{resource32}" {LIBRARIES}')
     binaries = {}
     for name, machine in (("Phoenix.addon64", 0x8664), ("Phoenix.addon32", 0x14c), ("phoenix_graphics_host.exe", 0x8664)):
         path = out / name
@@ -194,13 +212,22 @@ def main():
             raise ValueError("Wrong binary architecture: " + name)
         if name.endswith((".addon32", ".addon64")) and not {"AddonInit", "AddonUninit", "CnrPHOENIXCompatibilityStatus"}.issubset(pe_exports(path)):
             raise ValueError("Missing addon/bridge entry points: " + name)
-        if name == 'Phoenix.addon64' and not CORE_ABI.issubset(pe_exports(path)):
-            raise ValueError('Packaged x64 addon is missing the required helper ABI')
+        if name.endswith(('.addon32','.addon64')) and not (CORE_ABI | {'CnrPHOENIXInProcessBackbufferVersion'}).issubset(pe_exports(path)):
+            raise ValueError('Packaged addon is missing the required full-runtime ABI: ' + name)
         binaries[name] = dict(bytes=path.stat().st_size, sha256=file_sha256(path))
+    run('embedded_test', '64', f'cl /nologo /std:c++20 /EHsc /MT /DNOMINMAX '
+        f'"{ROOT}/tests/native/embedded_runtime_tests.cpp" /Fo:"{out}/embedded_test.obj" '
+        f'/Fe:"{out}/embedded_test.exe" /link bcrypt.lib cabinet.lib shell32.lib ole32.lib')
+    run('verify_embedded', '64', f'"{out}/embedded_test.exe" "{out}/Phoenix.addon64" '
+        f'"{out}/payload-cache" "{out}/embedded-check.json"')
+    embedded_check = json.loads((out / 'embedded-check.json').read_text())
+    if embedded_check.get('passed') is not True:
+        raise ValueError('Packaged core and companion extraction failed')
     (out / "report.json").write_text(json.dumps(dict(schema="phoenix-compatibility-build/1", passed=True,
         binaries=binaries, model_data_included=False, nvidia_dll_included=False,
         gpu_inference_validated=False, core_source_build=str(core),
         link_inputs=linked_inputs, source_inputs=source_inputs,
+        embedded_payload_verification=embedded_check,
         required_core_exports=sorted(CORE_ABI)), indent=2) + "\n")
     print(json.dumps(dict(passed=True, build=str(out), binaries=list(binaries))))
 

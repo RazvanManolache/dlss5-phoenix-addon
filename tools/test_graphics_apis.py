@@ -26,7 +26,14 @@ def main():
     parser.add_argument('--reshade64', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--vulkan-headers', type=Path)
+    parser.add_argument('--vulkan-secondary', action='store_true', help='Use a separate presentation queue for base Vulkan cases')
+    parser.add_argument('--vulkan-compute-present', action='store_true', help='Present from a compute-only queue family in base Vulkan cases')
+    parser.add_argument('--d3d9-msaa', action='store_true', help='Use the highest supported windowed D3D9 multisampling (8x, 4x or 2x)')
+    parser.add_argument('--d3d12-rgb10', action='store_true', help='Exercise packed 10-bit SDR capture and final-frame presentation')
+    parser.add_argument('--execution-mode', choices=['auto', 'in_process', 'helper'], default='auto',
+                        help='Require an in-process route or explicitly exercise the helper fallback')
     parser.add_argument('--control-checks', action='store_true', help='Exercise writable game-control and screenshot commands')
+    parser.add_argument('--thin-d3d12', action='store_true', help='Use the test-only thin frontend instead of testing the shipped x64 addon')
     parser.add_argument('--multiwindow-check', action='store_true', help='Verify two OpenGL windows sharing one device stay isolated')
     parser.add_argument('--resize-checks', action='store_true', help='Cycle DXGI resolutions and verify processed output after each resize')
     parser.add_argument('--motion-checks', action='store_true',
@@ -37,6 +44,8 @@ def main():
     parser.add_argument('--apis', nargs='+', choices=['d3d9', 'd3d10', 'd3d10_1', 'd3d11', 'd3d12', 'opengl', 'vulkan'],
                         default=['d3d9', 'd3d10', 'd3d10_1', 'd3d11', 'd3d12', 'opengl'])
     args = parser.parse_args()
+    if args.vulkan_secondary and args.vulkan_compute_present:
+        parser.error('Choose one Vulkan separate-queue scenario per run')
     if 'vulkan' in args.apis and not args.vulkan_headers:
         parser.error('Vulkan test requires --vulkan-headers pointing to an include directory')
     package = args.package.resolve()
@@ -67,9 +76,9 @@ def main():
             build(f'layout{bits}', bits, f'{common} "{ROOT}/tests/native/graphics_transport_tests.cpp" '
                   f'/Fo:"{output}/layout{bits}.obj" /Fe:"{output}/layout{bits}.exe" /link bcrypt.lib cabinet.lib shell32.lib ole32.lib')
             report['layouts'].append(json.loads(subprocess.check_output([str(output / f'layout{bits}.exe')], text=True)))
-            # Exercise the x86 D3D12 bridge with a thin x64 frontend too. The
-            # shipped x64 addon uses the existing in-process D3D12 integration.
-            if bits == 64 and 'd3d12' in args.apis:
+            # The thin frontend always exercises helper transport. Test the
+            # actual shipped x64 addon by default, including its route decision.
+            if args.thin_d3d12 and bits == 64 and 'd3d12' in args.apis:
                 build('thin64', bits, f'{common} /DNOMINMAX /DPHOENIX_COMPATIBILITY_ONLY /DImTextureID=ImU64 '
                       f'/I"{ROOT}/third_party" /I"{ROOT}/third_party/imgui_reshade" /LD '
                       f'"{ROOT}/src/integration/compatibility/addon32.cpp" /Fo:"{output}/thin64.obj" /Fe:"{output}/thin.addon64" '
@@ -78,17 +87,29 @@ def main():
             for api in args.apis:
                 case = output / f'{bits}_{api}'
                 case.mkdir()
-                addon = output / 'thin.addon64' if bits == 64 and api == 'd3d12' else package / f'Phoenix.addon{bits}'
+                addon = output / 'thin.addon64' if args.thin_d3d12 and bits == 64 and api == 'd3d12' else package / f'Phoenix.addon{bits}'
                 for source, name in ((output / f'api{bits}.exe', f'api{bits}.exe'),
                                      (addon, f'Phoenix.addon{bits}'),
                                      ((args.reshade32 if bits == 32 else args.reshade64).resolve(),
                                       'opengl32.dll' if api == 'opengl' else 'dxgi.dll')):
                     os.link(source, case / name)
-                (case / 'Phoenix.json').write_text(json.dumps({'weight_source': model}))
+                (case / 'Phoenix.json').write_text(json.dumps({
+                    'schema': 'phoenix-live/1', 'armed': True, 'input_provider': 'feeder_d3d12',
+                    'direct_transfer': 'srgb', 'color_domain': 'game_nr_sdr_proxy',
+                    'sandbox': str(case), 'in_place_game_directory': str(case),
+                    'in_place_approval': 'I approve driving this installed game in place',
+                    'frame_limit': 4000000, 'weight_source': model}))
                 (case / 'ReShade.ini').write_text('[GENERAL]\nEffectSearchPaths=\nPresetPath=ReShadePreset.ini\n'
-                                                f'[Phoenix]\nBackend={args.display}\n[Phoenix.Compatibility]\nEnabled=1\n'
-                                                'OffloadAgeFrames=6000\nOffloadAgeMs=120000\n')
+                                                f'[Phoenix]\nBackend={args.display}\nComparison=1\nSourceA=0\nSourceB=2\nDivider=0.5\nForceReset=1\n'
+                                                f'[Phoenix.Compatibility]\nEnabled=1\nExecutionMode={args.execution_mode}\n'
+                                                'StandaloneInput=1\nOffloadAgeFrames=6000\nOffloadAgeMs=120000\n')
                 environment = os.environ.copy()
+                environment.pop('PHOENIX_TEST_RGB10', None)
+                environment.pop('PHOENIX_EXPECT_INPROCESS', None)
+                if args.execution_mode == 'in_process':
+                    environment['PHOENIX_EXPECT_INPROCESS'] = '1'
+                if api == 'd3d12' and args.d3d12_rgb10:
+                    environment['PHOENIX_TEST_RGB10'] = '1'
                 if api == 'vulkan':
                     (case / 'VkLayer_phoenix_test.json').write_text(json.dumps({
                         'file_format_version': '1.0.0', 'layer': {
@@ -99,9 +120,14 @@ def main():
                     environment['VK_LAYER_PATH'] = str(case)
                 evidence = {'bits': bits, 'fixture_api': api, 'passed': False,
                             'addon_sha256': hashlib.sha256(addon.read_bytes()).hexdigest(),
-                            'thin_d3d12_frontend': bits == 64 and api == 'd3d12'}
+                            'thin_d3d12_frontend': args.thin_d3d12 and bits == 64 and api == 'd3d12'}
+                evidence['d3d9_multisampling_requested'] = api == 'd3d9' and args.d3d9_msaa
                 try:
-                    completed = subprocess.run([str(case / f'api{bits}.exe'), api], cwd=case,
+                    command = [str(case / f'api{bits}.exe'), api]
+                    if api == 'vulkan' and args.vulkan_secondary: command.append('--secondary-queue')
+                    if api == 'vulkan' and args.vulkan_compute_present: command.append('--compute-present')
+                    if api == 'd3d9' and args.d3d9_msaa: command.append('--msaa-control' if args.control_checks else '--msaa')
+                    completed = subprocess.run(command, cwd=case,
                                                capture_output=True, text=True, timeout=110, env=environment)
                     (case / 'stdout.log').write_text(completed.stdout)
                     (case / 'stderr.log').write_text(completed.stderr)

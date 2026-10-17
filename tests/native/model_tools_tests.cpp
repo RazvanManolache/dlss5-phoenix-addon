@@ -20,6 +20,22 @@ int main(int argc, char** argv) {
         for (const auto* path : {"../escape", "C:/absolute", "a/../b", "a:file", "", "/absolute"})
             rejects([&] { phoenix_embedded::relative_path(path); });
         check(phoenix_embedded::relative_path("runtime/opencl_cpu/Intel.dll").is_relative());
+        check(phoenix_embedded::relative_path("native/optimized/kernel.bin").native().find(L'/') == std::wstring::npos);
+        const auto cache = phoenix_embedded::default_cache();
+        check(cache.is_absolute() && std::filesystem::is_directory(cache));
+        check(cache.wstring().rfind(L"\\\\?\\", 0) == 0);
+        // Discovering the writable root must be stable in packaged launchers too.
+        check(phoenix_embedded::default_cache() == cache);
+        const auto long_directory = cache / (L".long-path-test-" + std::to_wstring(GetCurrentProcessId())) /
+            std::wstring(100, L'a') / std::wstring(100, L'b');
+        const auto long_root = long_directory.parent_path().parent_path();
+        struct CleanupLongPath {
+            std::filesystem::path path;
+            ~CleanupLongPath() { std::error_code error; std::filesystem::remove_all(path, error); }
+        } cleanup_long_path{long_root};
+        std::filesystem::create_directories(long_directory);
+        { std::ofstream test_file(long_directory / "test.bin", std::ios::binary); test_file << "test"; check(bool(test_file)); }
+        check(phoenix_embedded::file_digest(long_directory / "test.bin").size() == 64);
         using phoenix_model_tools::selection;
         phoenix_model::WeightSource configured;
         check(!selection("configured", "", "", configured).external());

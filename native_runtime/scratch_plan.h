@@ -8,15 +8,15 @@ namespace phoenix_cpp {
 // Logical tensor addresses exist only during graph construction. They never
 // reach a backend; the immutable command list is relocated before execution.
 class ScratchPlan {
-    static constexpr uintptr_t logical_address_base = uintptr_t(1) << 62;
+    static constexpr uint64_t logical_address_base = uint64_t(1) << 62;
     static constexpr unsigned logical_address_stride_bits = 34;
     struct TensorLifetime {
         uint64_t bytes, offset = 0;
         size_t first = SIZE_MAX, last = 0;
     };
     std::vector<TensorLifetime> lifetimes_;
-    size_t index(void* address) const {
-        return size_t((uintptr_t(address) - logical_address_base) >> logical_address_stride_bits);
+    size_t index(phx::OperandAddress address) const {
+        return size_t((phx::address_bits(address) - logical_address_base) >> logical_address_stride_bits);
     }
 
   public:
@@ -25,14 +25,14 @@ class ScratchPlan {
                "Logical scratch extent");
         demand(lifetimes_.size() < (uint64_t(1) << 20), "Logical scratch capacity");
         auto address =
-            logical_address_base + (uintptr_t(lifetimes_.size()) << logical_address_stride_bits);
+            logical_address_base + (uint64_t(lifetimes_.size()) << logical_address_stride_bits);
         lifetimes_.push_back({bytes});
-        return {reinterpret_cast<void*>(address), bytes, 0};
+        return {phx::address_from_bits(address), bytes, 0};
     }
-    bool contains(void* address) const {
-        return uintptr_t(address) >= logical_address_base && index(address) < lifetimes_.size();
+    bool contains(phx::OperandAddress address) const {
+        return phx::address_bits(address) >= logical_address_base && index(address) < lifetimes_.size();
     }
-    void touch(void* address, size_t command) {
+    void touch(phx::OperandAddress address, size_t command) {
         if (!contains(address))
             return;
         auto& range = lifetimes_[index(address)];
@@ -159,20 +159,22 @@ class ScratchPlan {
         }
         return peak_extent;
     }
-    uint64_t offset(void* address) const {
+    uint64_t offset(phx::OperandAddress address) const {
         demand(contains(address), "Scratch relocation address");
         auto tensor_index = index(address);
         const auto& range = lifetimes_[tensor_index];
         demand(range.first != SIZE_MAX, "Unused scratch relocation");
-        auto subview_offset = (uintptr_t(address) - logical_address_base) &
-                              ((uintptr_t(1) << logical_address_stride_bits) - 1);
+        auto subview_offset = (phx::address_bits(address) - logical_address_base) &
+                              ((uint64_t(1) << logical_address_stride_bits) - 1);
         demand(subview_offset < range.bytes, "Scratch relocation bounds");
         return range.offset + subview_offset;
     }
-    void* relocate(void* address, const Allocation& arena) const {
-        return contains(address)
-                   ? reinterpret_cast<void*>(uintptr_t(arena.address) + offset(address))
-                   : address;
+    phx::OperandAddress relocate(phx::OperandAddress address, const Allocation& arena) const {
+        if (!contains(address)) return address;
+        const auto byte_offset = offset(address);
+        demand(byte_offset < arena.bytes && phx::address_bits(arena.address) <= UINT64_MAX - byte_offset,
+               "Scratch arena relocation overflow");
+        return phx::address_from_bits(phx::address_bits(arena.address) + byte_offset);
     }
 };
 }

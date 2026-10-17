@@ -25,7 +25,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 python -m unittest discover -s tests -p '*tests.py'
 ```
 
-Use fresh output names on each build. The addon builder runs 11 C++ contract suites and a D3D12 WARP capture test before compiling `build/addon_release/phoenix.addon64`. WARP tests capture allocation and fence retirement without loading a model or running neural inference. `--production-only` explicitly omits the separate diagnostic addon. When its source is absent, the default also builds only the production addon.
+Use a fresh temporary output directory for a requested build. Keep only the requested current deliverables in `artifacts/current` and remove the temporary build afterwards; do not accumulate dated builds or duplicate packages. The addon builder runs 11 C++ contract suites and a D3D12 WARP capture test before compiling `build/addon_release/phoenix.addon64`. WARP tests capture allocation and fence retirement without loading a model or running neural inference. `--production-only` explicitly omits the separate diagnostic addon. When its source is absent, the default also builds only the production addon.
 
 ## Native RTX kernels
 
@@ -72,6 +72,13 @@ python tools/build_portable_cpp.py runners_release --only cpu runtime broker run
 Additional targets are `cuda`, `hip`, `sycl`, `vulkan_adapter`, `d3d12_transport` and `vulkan_shaders`. Select them with `--only` alongside the core targets. CUDA uses `--cuda-compiler` and `--cuda-arch`; HIP requires `--hip-sdk` and the intended `--hip-arch`; SYCL requires `--sycl-compiler`. Vulkan shaders require `--vulkan-deps` pointing to a directory containing `headers/include/vulkan/vulkan.h` and `glslang/bin/glslang.exe`. Vendor toolchains and runtime dependencies are supplied separately.
 
 ## Runtime packaging
+
+For the optional NVIDIA NR comparison, install the x64 addon as
+`Phoenix_nvngx.dll.addon64`. This NVIDIA runtime checks its calling module's
+path for `nvngx.dll`; installing the same bytes as `Phoenix.addon64` allows
+Phoenix inference but makes NVIDIA NR initialization return `0xBAD00002`.
+Keep only one active copy of the addon. Renaming NVIDIA's model DLL does not
+satisfy this calling-module requirement.
 
 A successful compilation does not establish inference correctness or make a
 self-contained game install. The validation tools and synthetic input recipes
@@ -199,3 +206,39 @@ package: the final addon must be readable and pass the embedded-resource test.
 The game also needs compatible ReShade with addon support and a `Phoenix.json` configuration. Without configuration the panel can appear while inference remains inactive. The addon supports selecting a compatible NVIDIA DLL or a local model folder; model selection does not replace the runner/kernel package.
 
 Normal gameplay does not require a readiness marker and performs no marker-file checks. Processing uses the existing configuration, enable controls and runtime initialization checks. For externally controlled tests, set `"require_gpu_ready_file": true` in `Phoenix.json`; this requires `production_game_phoenix_gpu.ready` in the configured sandbox directory, and removing that marker pauses processing. Diagnostic builds retain marker control by default; set the option to `false` to disable it explicitly. The marker is only an external test switch, not model validation.
+
+## Local storage and relocation
+
+One current set of addon binaries, native kernels and platform SDKs is retained in `artifacts/current`; retained outputs are not automatically newly validated builds. The Vulkan import definition used by the sibling test bench is `third_party/vulkan-loader.def`. Follow `AGENTS.md`: no automatic build/test history, repeated model copies or unsolicited runtime tests.
+
+## Add-on 0.81 Release Assembly
+
+The add-on release number `0.81` is distinct from the standalone SDK version
+`0.8.1-beta`. See [release notes](docs/RELEASE_0.81.md) for package contents.
+
+`tools/validate_portable_bridge.py --build-addons --ngx-sdk <NGX include>`
+builds both add-ons and runs focused CPU contracts, retaining the current
+embedded helper payload. `tools/package_portable_candidate.py` verifies and
+assembles the matching optional runtime files. These commands require the
+current retained build/validation inputs; they do not create inference evidence.
+Use the full source-build instructions above to create those inputs on a fresh
+checkout. The optional native x86 package also needs the pinned external
+WOW64Ext source and locally verified Windows/driver bootstrap evidence; a clean
+checkout alone cannot certify that private-ABI profile for another machine.
+
+After committing maintained source and reviewing the publication tree:
+
+```powershell
+python tools/audit_release.py --git-visible
+python tools/prepare_addon_release.py --wow64ext <WOW64Ext source> --ref <publication ref>
+python tools/publish_addon_release.py --ref <publication ref>
+```
+
+Preparation writes one final asset set under `artifacts/current/release-0.81`.
+It refuses existing output, changed compile inputs or a publication ref with a
+different tree, inspects embedded resources, includes dependency licenses/source,
+and checks archive contents/hashes. No models, games, GPU calls or downloads are
+needed for this packaging step. The publisher's default is a read-only preflight;
+`--publish` explicitly pushes a clean public-identity snapshot/tag and creates
+a release. It uses existing Git Credential Manager authentication and verifies
+public downloads without writing credentials to files or logs.

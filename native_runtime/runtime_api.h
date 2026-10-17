@@ -39,7 +39,8 @@ struct RuntimeApi {
             LoadLibraryExW((root / L"phoenix_runtime_cpp.dll").c_str(), nullptr,
                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         if (!module)
-            throw std::runtime_error("Native runtime library unavailable");
+            throw std::runtime_error("Native runtime library unavailable (Windows error " +
+                std::to_string(GetLastError()) + "); use a runtime matching the game's bitness");
         create =
             reinterpret_cast<decltype(create)>(GetProcAddress(module, "phoenix_runtime_create"));
         destroy =

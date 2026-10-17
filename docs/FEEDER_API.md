@@ -1,5 +1,16 @@
 # Direct D3D12 Feeder API
 
+The full x64 addon also exports `CnrPHOENIXInProcessBackbufferVersion()` (version
+1). This identifies the standalone same-device frontend, not merely the presence
+of an evaluator. `[Phoenix.Compatibility] StandaloneInput=1` selects final-color
+input; `ExecutionMode=auto` chooses same-device Native RTX processing when its
+layout/device/queue capabilities allow it, otherwise the packaged helper.
+`in_process` forbids helper fallback and `helper` explicitly selects it. See
+[graphics routing](GRAPHICS_COMPATIBILITY.md#automatic-processing-location) for
+the limits and validation boundary. This capability does not require or create
+a game SR/DLAA feature. An installed older addon is not upgraded by changing an
+INI entry.
+
 The live add-on exposes `CnrPHOENIXFeederVersion()` (ABI 1) and
 `CnrPHOENIXFeederEvaluate(frame, result)`. The public layout is
 [`feeder_api.h`](../src/integration/reshade/feeder_api.h).
@@ -36,6 +47,16 @@ for device, validation, geometry and timing metadata, and
 actions. Query metadata at most once per second from a background worker; it is
 larger than the frame-completion snapshot. Action values are declared in
 `panel_contract.h`. No process-local UI or inference objects cross this boundary.
+
+`CnrPHOENIXFeederLiveSettings(const char* json, uint32_t bytes)` accepts a
+nonempty JSON object of at most 8192 bytes containing only the per-frame keys
+listed by `visit_live_tuning` in `routing.h`. It returns BOOL acceptance, applies
+valid controls atomically under the evaluation lock, and rejects model paths,
+executor/geometry/create-time settings, unknown fields and invalid values without
+changing the current controls. No model reload, feature recreation, disk write
+or helper restart is performed. The next processed frame uses the new values.
+Compatibility IPC v11 coalesces these updates on its existing pipe worker; the
+host still accepts v10 clients using the unchanged frame-packet layout.
 
 Stream 0 is mono; 1 and 2 are left/right. Phoenix retains separate executors,
 timing and history and switches only after the previous stream retires. Global

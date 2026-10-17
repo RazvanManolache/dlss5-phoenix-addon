@@ -22,6 +22,11 @@ cbuffer Size : register(b0) { uint width, height, pitch, bgra; }
     float4 v = source.Load(int3(p.xy,0));
     v = float4(isfinite(v.x)?saturate(v.x):0, isfinite(v.y)?saturate(v.y):0,
                isfinite(v.z)?saturate(v.z):0, isfinite(v.w)?saturate(v.w):0);
+    if (bgra == 2) {
+        uint4 b = (uint4)(v * float4(1023,1023,1023,3) + 0.5);
+        target.Store(p.y*pitch+p.x*4, b.x | (b.y<<10) | (b.z<<20) | (b.w<<30));
+        return;
+    }
     uint4 b = (uint4)(v*255.0+0.5);
     if (bgra) b = b.zyxw;
     target.Store(p.y*pitch+p.x*4, b.x | (b.y<<8) | (b.z<<16) | (b.w<<24));
@@ -77,7 +82,9 @@ class PhoenixFormatAdapter {
         if (FAILED(hr)) { root_.Reset(); return hr; }
         D3D12_DESCRIPTOR_HEAP_DESC heap{};
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap.NumDescriptors = 2;
+        // Input and output dispatches may share one recording. Never overwrite
+        // a descriptor still referenced by an earlier dispatch in that list.
+        heap.NumDescriptors = 4;
         heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&heap_));
         if (FAILED(hr)) { root_.Reset(); return hr; }
@@ -92,6 +99,7 @@ class PhoenixFormatAdapter {
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srv.Texture2D.MipLevels = 1;
         auto cpu = heap_->GetCPUDescriptorHandleForHeapStart();
+        if (pack) cpu.ptr += 2 * increment_;
         device->CreateShaderResourceView(source, &srv, cpu);
         cpu.ptr += increment_;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
@@ -110,19 +118,23 @@ class PhoenixFormatAdapter {
         list->SetComputeRootSignature(root_.Get());
         list->SetPipelineState(pack ? pack_.Get() : unpack_.Get());
         auto gpu = heap_->GetGPUDescriptorHandleForHeapStart();
+        if (pack) gpu.ptr += 2 * increment_;
         list->SetComputeRootDescriptorTable(0, gpu);
         gpu.ptr += increment_;
         list->SetComputeRootDescriptorTable(1, gpu);
-        const UINT constants[]{width_, height_, pitch_, format_ == DXGI_FORMAT_B8G8R8A8_UNORM ? 1u : 0u};
+        const UINT constants[]{width_, height_, pitch_, format_ == DXGI_FORMAT_R10G10B10A2_UNORM ? 2u :
+            format_ == DXGI_FORMAT_B8G8R8A8_UNORM ? 1u : 0u};
         list->SetComputeRoot32BitConstants(2, 4, constants, 0);
         list->Dispatch((width_ + 7) / 8, (height_ + 7) / 8, 1);
     }
 public:
     ID3D12Resource* Color() const { return color_.Get(); }
     ID3D12Resource* Output() const { return output_.Get(); }
-    HRESULT Ensure(ID3D12Device* device, UINT width, UINT height, DXGI_FORMAT format) {
+    HRESULT Ensure(ID3D12Device* device, UINT width, UINT height, DXGI_FORMAT format,
+                   bool allow_rgb10 = false) {
         if (!width || !height || width > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
-            height > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION || !PhoenixByteFormat(format)) return E_INVALIDARG;
+            height > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
+            (!PhoenixByteFormat(format) && !(allow_rgb10 && format == DXGI_FORMAT_R10G10B10A2_UNORM))) return E_INVALIDARG;
         HRESULT hr = Initialize(device);
         if (FAILED(hr)) return hr;
         if (color_ && output_ && bytes_ && width_ == width && height_ == height && format_ == format) return S_OK;

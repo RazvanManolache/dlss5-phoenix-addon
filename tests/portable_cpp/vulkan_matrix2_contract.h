@@ -76,7 +76,7 @@ void test_vulkan_matrix2_contract(phoenix_cpp::Backend& backend, Allocate& alloc
                 if (encoding == 2) {
                     uint8_t code = 0xff; // Invalidate a previously compatible allocation.
                     auto view = expansion;
-                    view.address = reinterpret_cast<void*>(uintptr_t(view.address) + 1);
+                    view.address = phx::address_from_bits(phx::address_bits(view.address) + 1);
                     view.bytes = 1;
                     backend.upload(view, &code, 1);
                 }
@@ -137,7 +137,7 @@ void test_vulkan_matrix2_contract(phoenix_cpp::Backend& backend, Allocate& alloc
             if (encoding == 2) {
                 uint8_t code = 0xff;
                 auto view = projection;
-                view.address = reinterpret_cast<void*>(uintptr_t(view.address) + 1);
+                view.address = phx::address_from_bits(phx::address_bits(view.address) + 1);
                 view.bytes = 1;
                 backend.upload(view, &code, 1);
             }

@@ -4,9 +4,14 @@
 #include "../../native/support/embedded_runtime.h"
 #include "../../native/support/model_tools.h"
 #include "../../native/support/routing.h"
+#include "session_policy.h"
 #include "../reshade/panel_contract.h"
 #include "protocol.h"
 #include "owned_worker.h"
+#include "portable_policy.h"
+#include "wow64/bridge_policy.h"
+#include "wow64/graph32.h"
+#include "../../../native_runtime/runtime_api.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -98,6 +103,9 @@ class HostState : public std::enable_shared_from_this<HostState> {
     Ptr<ID3D11Fence> output_fence_;
     FeedBuildAck acknowledgement_{};
     std::atomic<DWORD> child_pid_{0};
+    bool portable_ = false;
+    bool native_ = false;
+    std::string native_mode_;
     FeedFrameMsg request_{};
     std::vector<uint8_t> input_, output_;
     std::string error_;
@@ -106,10 +114,210 @@ class HostState : public std::enable_shared_from_this<HostState> {
     Json ui_snapshot_ = Json::object();
     std::deque<FeedUiAction> ui_actions_;
     bool model_enabled_ = true;
+    Settings tuning_settings_;
+    std::optional<std::string> pending_tuning_;
+    uint64_t tuning_revision_ = 0, applied_tuning_revision_ = 0,
+             completed_tuning_revision_ = 0, taken_tuning_revision_ = 0;
     uint64_t session_id_ = 0, ui_clear_revision_ = 0;
     bool capture_requested_ = false;
     fs::path session_parent_;
     std::string session_name_;
+
+    void serve_portable(phoenix_model::WeightSource source, Settings settings,
+                        FeedBuild build, PortableOptions options) {
+        try {
+            // Providers retain process-global device state. A cancelled worker
+            // must finish before a new canvas is allowed to initialize it.
+            static std::mutex provider_owner;
+            std::unique_lock provider_lock(provider_owner, std::defer_lock);
+            const auto retirement_deadline = GetTickCount64() + 30000;
+            while (!provider_lock.try_lock()) {
+                require(!stopping_, "Portable execution cancelled while waiting for the previous session");
+                require(GetTickCount64() < retirement_deadline, "Previous portable session did not retire within 30 seconds");
+                Sleep(5);
+            }
+            require(!stopping_, "Portable execution cancelled");
+            require(build.cpu_bridge && build.width == build.output_width &&
+                        build.height == build.output_height,
+                    "Portable execution requires same-size pixel transport");
+            require(!needs_nvidia_dll(settings), "NVIDIA evaluation requires the helper");
+            require(settings.resolution_mode == 0 && !settings.host_unjitter &&
+                        !settings.automatic_budget,
+                    "Portable backbuffer execution requires normal resolution, no unjitter and fixed blocks");
+            require(options.root.is_absolute(), "Portable runtime path must be absolute");
+            source = phoenix_model_tools::selection(settings.model_source, settings.model_folder,
+                                                    settings.model_dll, source);
+            require(source.external(), "No model selected for portable execution");
+            Json config = Json::object();
+            std::ifstream file(options.root / "phoenix_native_cpp.json");
+            if (file) file >> config;
+            require(config.is_object(), "Invalid portable runtime configuration");
+            Json devices = Json::array();
+            // Optional SDKs and device enumeration stay off the presentation thread.
+            if (options.device == "auto") {
+                const auto provider = options.root / "vulkan" / "phoenix_vulkan.dll";
+                struct Library {
+                    HMODULE value;
+                    ~Library() { if (value) FreeLibrary(value); }
+                } library{LoadLibraryExW(provider.c_str(), nullptr,
+                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)};
+                require(library.value != nullptr, "Matching-bitness Vulkan provider unavailable");
+                using Count = int(__cdecl*)();
+                using Info = int(__cdecl*)(unsigned, char*, char*, unsigned*, unsigned*);
+                const auto count = reinterpret_cast<Count>(GetProcAddress(library.value, "phoenix_device_count"));
+                const auto info = reinterpret_cast<Info>(GetProcAddress(library.value, "phoenix_device_info"));
+                require(count && info, "Portable Vulkan discovery ABI unavailable");
+                const int total = count();
+                require(total >= 0 && total <= 64, "Invalid portable device count");
+                for (int index = 0; index < total; ++index) {
+                    char uuid[33]{}, name[256]{};
+                    unsigned vendor = 0, capable = 0;
+                    if (info(unsigned(index), uuid, name, &vendor, &capable) || !capable) continue;
+                    uuid[32] = 0; name[255] = 0;
+                    auto id = "vulkan:" + std::string(uuid);
+                    if (phoenix_addon::phoenix::valid_execution_device(id))
+                        devices.push_back({{"id", id}, {"label", std::string(name) + " (portable Vulkan)"}});
+                }
+                require(!devices.empty(), "No capable portable Vulkan device found");
+                options.device = devices.front().at("id").get<std::string>();
+            }
+            config["runtime_root"] = phoenix_model::source_path_string(options.root);
+            config["backend"] = portable_backend(options.device);
+            config["device"] = options.device;
+            config["weight_source"] = source.configuration();
+            config["cpu_threads"] = settings.cpu_threads;
+            if (options.allow_unvalidated) config["allow_unvalidated"] = true;
+            phoenix_cpp::RuntimeApi runtime;
+            runtime.open(options.root, config.dump(), build.width, build.height);
+            auto snapshot = [&](Json status) {
+                return Json{{"schema", "phoenix-panel/1"}, {"runtime", status},
+                    {"runtime_root", phoenix_model::source_path_string(options.root)},
+                    {"processing_location", "in_process_portable"},
+                    {"inference_pid", GetCurrentProcessId()}, {"device", options.device},
+                    {"execution_devices", devices}, {"ui_clear_revision", ui_clear_revision_},
+                    {"nvidia", {{"ready", false}, {"status", "NVIDIA modes use the retained helper"}}}};
+            };
+            std::unique_lock lock(mutex_);
+            ui_snapshot_ = snapshot(Json::parse(runtime.status_json()));
+            phase_ = Phase::Ready;
+            while (!stopping_) {
+                changed_.wait(lock, [&] { return stopping_ || phase_ == Phase::Busy ||
+                    pending_tuning_ || !ui_actions_.empty(); });
+                if (stopping_) break;
+                if (pending_tuning_) {
+                    settings = tuning_settings_;
+                    pending_tuning_.reset();
+                    applied_tuning_revision_ = tuning_revision_;
+                }
+                for (const auto action : ui_actions_) {
+                    if (action.action == uint32_t(phoenix_ui::Action::ClearTiming)) {
+                        ++ui_clear_revision_;
+                        ui_snapshot_["ui_clear_revision"] = ui_clear_revision_;
+                        ui_snapshot_["frame_wall_ms"] = 0;
+                        roundtrip_ms_ = 0;
+                    } else if (action.action == uint32_t(phoenix_ui::Action::Marker))
+                        ui_snapshot_["markers"] = ui_snapshot_.value("markers", uint64_t(0)) + 1;
+                    // Backbuffer frames always reset history: no invented motion guides.
+                }
+                ui_actions_.clear();
+                if (phase_ != Phase::Busy) continue;
+                const auto request = request_;
+                const auto revision = applied_tuning_revision_;
+                const auto frame_settings = settings;
+                auto pixels = std::move(input_);
+                lock.unlock();
+                require(pixels.size() == size_t(build.width) * build.height * 4,
+                        "Portable input extent mismatch");
+                const auto started = std::chrono::steady_clock::now();
+                auto color = portable_color(pixels);
+                std::vector<float> enhanced(color.size());
+                auto metadata = portable_metadata(frame_settings, true);
+                for (unsigned iteration = 0; iteration < request.iterations; ++iteration) {
+                    require(!stopping_, "Portable execution cancelled");
+                    if (iteration) color = enhanced;
+                    if (runtime.frame(runtime.instance, color.data(), nullptr, nullptr,
+                                nullptr, metadata.dump().c_str(), enhanced.data()) != 0)
+                        throw std::runtime_error(runtime.error());
+                }
+                auto result = portable_compose(pixels, enhanced, build.width, frame_settings);
+                auto status = snapshot(Json::parse(runtime.status_json()));
+                const auto wall_ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - started).count();
+                status["frame_wall_ms"] = wall_ms;
+                lock.lock();
+                output_ = std::move(result);
+                ui_snapshot_ = std::move(status);
+                roundtrip_ms_ = wall_ms;
+                completed_at_ = GetTickCount64();
+                completed_tuning_revision_ = revision;
+                phase_ = Phase::Finished;
+            }
+            phase_ = Phase::Stopped;
+        } catch (const std::exception& error) {
+            std::lock_guard lock(mutex_);
+            error_ = std::string("In-process portable: ") + error.what();
+            phase_ = stopping_ ? Phase::Stopped : Phase::Failed;
+        }
+    }
+
+    void serve_native(phoenix_model::WeightSource source,Settings settings,FeedBuild build,NativeOptions options) {
+        try {
+#ifdef _WIN64
+            throw std::runtime_error("WOW64 execution is available only in the x86 addon");
+#else
+            // Process-local native export/compatibility state must have one owner.
+            // Retiring workers retain their packets and keep the addon pinned.
+            static std::mutex native_owner;
+            std::unique_lock owner(native_owner,std::defer_lock);
+            const auto deadline=GetTickCount64()+30000;
+            while(!owner.try_lock()) {require(!stopping_&&GetTickCount64()<deadline,"Previous native session is still retiring");Sleep(5);}
+            require(!stopping_,"Native execution cancelled");
+            require(build.cpu_bridge&&build.width==build.output_width&&build.height==build.output_height,"Native execution requires same-size pixel transport");
+            validate_native_settings(settings,options.driver_host);
+            source=phoenix_model_tools::selection(settings.model_source,settings.model_folder,settings.model_dll,source);
+            require(source.external(),"No model selected for native execution");
+            const auto bundle=options.root/"native";
+            phoenix_wow64::FrameSession renderer(options.root,bundle,source,build.width,build.height,settings,options.driver_host);
+            std::unique_lock lock(mutex_);
+            auto snapshot=[&](double wall) {return Json{{"schema","phoenix-panel/1"},{"processing_location",native_mode_},
+                {"inference_pid",GetCurrentProcessId()},{"helper_pid",0},{"frame_wall_ms",wall},{"ui_clear_revision",ui_clear_revision_},
+                {"runtime",{{"backend",native_mode_},{"gpu_processing_ms",renderer.gpu_ms()}}}};};
+            ui_snapshot_=snapshot(0);phase_=Phase::Ready;
+            while(!stopping_) {
+                changed_.wait(lock,[&]{return stopping_||phase_==Phase::Busy||pending_tuning_||!ui_actions_.empty();});
+                if(stopping_) break;
+                if(pending_tuning_) {settings=tuning_settings_;pending_tuning_.reset();applied_tuning_revision_=tuning_revision_;}
+                for(const auto& action:ui_actions_) {
+                    if(action.action==uint32_t(phoenix_ui::Action::ClearTiming)) {++ui_clear_revision_;roundtrip_ms_=0;}
+                }
+                ui_actions_.clear();
+                if(phase_!=Phase::Busy) continue;
+                const auto request=request_; const auto revision=applied_tuning_revision_; const auto frame_settings=settings;
+                auto pixels=std::move(input_);lock.unlock();
+                const auto started=std::chrono::steady_clock::now();
+                auto phi=portable_color(pixels);std::vector<float> nv;
+                auto evaluate=[&](unsigned backend) {
+                    std::vector<float> result;
+                    const unsigned passes=request.iterations*(backend==3?unsigned(frame_settings.refinement_passes):1u);
+                    for(unsigned i=0;i<passes;++i) {
+                        require(!stopping_,"Native execution cancelled");
+                        result=renderer.evaluate(pixels,frame_settings,backend,i?&result:nullptr);
+                    }
+                    return result;
+                };
+                if(phoenix_addon::phoenix::uses_ours(frame_settings.mode)) phi=evaluate(3);
+                if(needs_nvidia_dll(frame_settings)) nv=evaluate(1);
+                auto result=portable_compose(pixels,phi,build.width,frame_settings,nv.empty()?nullptr:&nv);
+                const auto wall=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+                auto status=snapshot(wall);lock.lock();output_=std::move(result);ui_snapshot_=std::move(status);
+                roundtrip_ms_=wall;completed_at_=GetTickCount64();completed_tuning_revision_=revision;phase_=Phase::Finished;
+            }
+            lock.unlock();
+            renderer.retire();
+            phase_=Phase::Stopped;
+#endif
+        } catch(const std::exception& error) {std::lock_guard lock(mutex_);error_=std::string("Native x86 processing: ")+error.what();phase_=stopping_?Phase::Stopped:Phase::Failed;}
+    }
 
     void transfer(void* data, size_t bytes, bool write) {
         auto* cursor = static_cast<uint8_t*>(data);
@@ -221,8 +429,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                                                     settings.model_dll, source);
             require(source.external(),
                     "No model selected. Browse to your NVIDIA DLL or a compatible model folder.");
-            if (settings.mode == phoenix_addon::phoenix::split)
-                settings.mode = phoenix_addon::phoenix::ours;
+            phoenix_addon::phoenix::normalize_direct_comparison(settings);
             stage = "embedded helper installation";
             prepare(addon, source, settings, folder);
             stage = "helper process startup";
@@ -301,10 +508,27 @@ class HostState : public std::enable_shared_from_this<HostState> {
             uint64_t ui_tick = 0;
             while (!stopping_) {
                 changed_.wait_for(lock, std::chrono::milliseconds(100), [&] {
-                    return stopping_ || phase_ == Phase::Busy || !ui_actions_.empty();
+                    return stopping_ || phase_ == Phase::Busy || !ui_actions_.empty() || pending_tuning_;
                 });
                 if (stopping_)
                     break;
+                if (pending_tuning_) {
+                    auto patch = std::move(*pending_tuning_);
+                    pending_tuning_.reset();
+                    const auto revision = tuning_revision_;
+                    lock.unlock();
+                    tag = 'S';
+                    FeedSettingsPatch message{uint32_t(patch.size())};
+                    transfer(&tag, 1, true);
+                    transfer(&message, sizeof(message), true);
+                    transfer(patch.data(), patch.size(), true);
+                    uint32_t accepted = 0;
+                    transfer(&accepted, sizeof(accepted), false);
+                    require(accepted == 1, "Graphics helper rejected live controls");
+                    lock.lock();
+                    applied_tuning_revision_ = revision;
+                    continue; // Coalesce edits received during the transfer before the next frame.
+                }
                 // Query at most once per second. Never serialize histories or
                 // wait on pipe I/O inside the game/UI thread.
                 if (!ui_actions_.empty() || GetTickCount64() - ui_tick >= 1000) {
@@ -349,6 +573,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     continue;
                 }
                 auto request = request_;
+                const auto frame_tuning_revision = applied_tuning_revision_;
                 auto pixels = std::move(input_);
                 auto fence = output_fence_;
                 lock.unlock();
@@ -383,6 +608,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                                     std::chrono::steady_clock::now() - started)
                                     .count();
                 completed_at_ = GetTickCount64();
+                completed_tuning_revision_ = frame_tuning_revision;
                 phase_ = Phase::Finished;
             }
         } catch (const std::exception& error) {
@@ -406,6 +632,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
   public:
     HostState(const phoenix_addon::phoenix::Settings& settings) {
         model_enabled_ = settings.uplift;
+        tuning_settings_ = settings;
         require(BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&session_id_),
                                 sizeof(session_id_), BCRYPT_USE_SYSTEM_PREFERRED_RNG) >= 0 &&
                     session_id_ != 0,
@@ -423,21 +650,30 @@ class HostState : public std::enable_shared_from_this<HostState> {
         require(fence_event_.value != nullptr, "Cannot create bridge fence event");
     }
     void start(HMODULE addon, phoenix_model::WeightSource source,
-               phoenix_addon::phoenix::Settings settings, FeedBuild build) {
+               phoenix_addon::phoenix::Settings settings, FeedBuild build,
+               std::optional<PortableOptions> portable = std::nullopt,
+               std::optional<NativeOptions> native = std::nullopt) {
         // Only shared state is captured: destroying HostClient cannot leave a
         // worker referring to freed transport, fences, mutexes or UI buffers.
+        portable_ = portable.has_value();
+        native_=native.has_value();
+        native_mode_=native&&native->driver_host?"in_process_x86_driver":"in_process_x64_library";
         auto self = shared_from_this();
         start_owned_worker(
             std::move(self),
             [addon, source = std::move(source), settings = std::move(settings),
-             build](HostState& state) { state.serve(addon, source, settings, build); });
+             build, portable,native](HostState& state) {
+                if(native) state.serve_native(source,settings,build,*native);
+                else if (portable) state.serve_portable(source, settings, build, *portable);
+                else state.serve(addon, source, settings, build);
+            });
     }
     void stop() {
         stopping_ = true;
         changed_.notify_all();
     }
     DWORD process_id() const {
-        return child_pid_.load();
+        return native_?GetCurrentProcessId():child_pid_.load();
     }
     Phase phase() const {
         return phase_.load();
@@ -466,6 +702,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         std::lock_guard lock(mutex_);
         require(phase() == Phase::Finished, "No completed graphics frame");
         auto result = std::move(output_);
+        taken_tuning_revision_ = completed_tuning_revision_;
         phase_ = Phase::Ready;
         return result;
     }
@@ -475,10 +712,34 @@ class HostState : public std::enable_shared_from_this<HostState> {
     }
     Json ui_snapshot() {
         std::lock_guard lock(mutex_);
-        return ui_snapshot_;
+        auto snapshot = ui_snapshot_;
+        snapshot["live_tuning"] = {{"requested_revision", tuning_revision_},
+            {"applied_revision", applied_tuning_revision_}, {"presented_revision", taken_tuning_revision_},
+            {"pending", pending_tuning_.has_value()}};
+        return snapshot;
+    }
+    bool update_tuning(const Settings& settings) {
+        if (!settings.valid()) return false;
+        std::lock_guard lock(mutex_);
+        if (stopping_) return false;
+        if (phase() == Phase::Failed || phase() == Phase::Stopped)
+            return live_tuning_json(settings) == live_tuning_json(tuning_settings_);
+        if (phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings)) {
+            pending_tuning_ = live_tuning_json(tuning_settings_).dump();
+            ++tuning_revision_;
+            changed_.notify_all();
+        }
+        return true;
+    }
+    bool tuning_current_output() {
+        std::lock_guard lock(mutex_);
+        return taken_tuning_revision_ == tuning_revision_;
     }
     bool ui_action(phoenix_ui::Action action, unsigned value = 0) {
         std::lock_guard lock(mutex_);
+        if ((portable_||native_) && action != phoenix_ui::Action::ResetHistory &&
+            action != phoenix_ui::Action::ClearTiming && action != phoenix_ui::Action::Marker)
+            return false;
         if (!phoenix_ui::valid_action(uint32_t(action)) || phase() == Phase::Failed ||
             phase() == Phase::Stopped || ui_actions_.size() >= 16)
             return false;
@@ -500,12 +761,16 @@ class HostState : public std::enable_shared_from_this<HostState> {
 // its HostState until pipe I/O, helper termination and handle cleanup finish.
 class HostClient {
     std::shared_ptr<HostState> state_;
+    bool portable_ = false;
+    std::optional<NativeOptions> native_;
 
   public:
     HostClient(HMODULE addon, const phoenix_model::WeightSource& source,
-               const phoenix_addon::phoenix::Settings& settings, const FeedBuild& build)
-        : state_(std::make_shared<HostState>(settings)) {
-        state_->start(addon, source, settings, build);
+               const phoenix_addon::phoenix::Settings& settings, const FeedBuild& build,
+               std::optional<PortableOptions> portable = std::nullopt,
+               std::optional<NativeOptions> native = std::nullopt)
+        : state_(std::make_shared<HostState>(settings)), portable_(portable.has_value()),native_(native) {
+        state_->start(addon, source, settings, build, portable,native);
     }
     ~HostClient() {
         state_->stop();
@@ -513,6 +778,9 @@ class HostClient {
     DWORD process_id() const {
         return state_->process_id();
     }
+    bool in_process_portable() const { return portable_; }
+    bool in_process() const {return portable_||native_.has_value();}
+    const char* native_execution() const {return !native_?nullptr:native_->driver_host?"in_process_x86_driver":"in_process_x64_library";}
     Phase phase() const {
         return state_->phase();
     }
@@ -535,6 +803,8 @@ class HostClient {
     Json ui_snapshot() {
         return state_->ui_snapshot();
     }
+    bool update_tuning(const Settings& settings) { return state_->update_tuning(settings); }
+    bool tuning_current_output() { return state_->tuning_current_output(); }
     bool ui_action(phoenix_ui::Action action, unsigned value = 0) {
         return state_->ui_action(action, value);
     }

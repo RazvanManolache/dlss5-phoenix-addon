@@ -44,6 +44,11 @@ int main() {
     canvas.texture.format = format::r8g8b8a8_unorm;
     canvas.texture.samples = 4;
     refused([&] { screenshot_layout(device_api::d3d11, canvas); });
+    for (auto samples : {2, 4, 8}) {
+        canvas.texture.samples = uint16_t(samples);
+        const auto layout = screenshot_layout(device_api::d3d9, canvas);
+        check(layout.width == 257 && layout.height == 193 && !layout.buffers);
+    }
     canvas.texture.samples = 1;
     canvas.texture.width = 0;
     refused([&] { screenshot_layout(device_api::d3d12, canvas); });

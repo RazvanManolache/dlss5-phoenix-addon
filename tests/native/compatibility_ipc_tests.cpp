@@ -19,6 +19,31 @@ int main() try {
                                      std::to_string(checks));
     };
     using namespace phoenix_compat;
+    check(!feed_protocol_compatible(9));
+    check(feed_protocol_compatible(10));
+    check(feed_protocol_compatible(11));
+    check(!feed_protocol_compatible(12));
+    {
+        Settings tuning;
+        auto state = std::make_shared<HostState>(tuning); // No start: no helper, GPU or pipe.
+        check(state->tuning_current_output());
+        check(state->update_tuning(tuning));
+        check(state->ui_snapshot()["live_tuning"]["requested_revision"] == 0);
+        tuning.controls.enabled = true;
+        for (float tone : {.3f, .6f, 1.2f}) {
+            tuning.controls.tone = tone;
+            check(state->update_tuning(tuning));
+        }
+        auto snapshot = state->ui_snapshot()["live_tuning"];
+        check(snapshot["requested_revision"] == 3 && snapshot["applied_revision"] == 0 && snapshot["pending"] == true);
+        check(!state->tuning_current_output()); // Old frame cannot acknowledge new slider settings.
+        check(state->update_tuning(tuning));
+        check(state->ui_snapshot()["live_tuning"]["requested_revision"] == 3); // Coalesces unchanged frames.
+        tuning.controls.skin = 100;
+        check(!state->update_tuning(tuning));
+        check(state->ui_snapshot()["live_tuning"]["requested_revision"] == 3);
+        state->stop();
+    }
     // A hung fence or failed queue signal must retain the resource and deny
     // resize/reuse. Later proven completion is the only release permission.
     unsigned allocations = 0, releases = 0;

@@ -1,24 +1,171 @@
 # Graphics API and 32-bit game compatibility
 
-The normal x64 D3D12 addon continues to process directly in the game. The
-compatibility addon bridges **every ReShade API** to a private **64-bit D3D12 helper**:
-D3D9, D3D10/10.1, D3D11, D3D12, OpenGL and Vulkan. The x86 addon uses the helper
-for every API, including D3D12.
-The helper uses the same Phoenix implementation, rather than a second model runner.
+The full D3D12 addon can process either engine DLSS input or standalone final-color
+input inside the game. Standalone processing chooses a same-device GPU route
+when its runtime capabilities permit it, rather than equating missing game DLSS
+calls with a need for a helper. Other APIs currently use the compatibility bridge
+to a private 64-bit D3D12 helper. Full x86 builds now include the Phoenix
+evaluator instead of only the transport frontend. However, local x86 native
+execution is currently gated off: live D3D11-on-12 validation faulted inside the
+32-bit NVAPI/graphics driver despite successful compilation and entry-point
+inspection. Automatic x86 processing therefore uses the safe x64 helper. This
+gate must not be removed based on compilation or function availability alone.
+Both paths call the same direct Phoenix evaluator without synthetic SR/DLAA calls.
 
 | Game | Addon file | Frame transport |
 | --- | --- | --- |
-| 64-bit D3D12 | `Phoenix.addon64` | Existing direct route; no compatibility helper |
+| 64-bit D3D12 with engine DLSS input | `Phoenix.addon64` | Existing in-process engine route |
+| 64-bit D3D12 standalone input | `Phoenix.addon64` | Same-device GPU conversion, direct Phoenix and same-frame presentation; capability-based helper fallback |
 | 64-bit D3D11 | `Phoenix.addon64` | Shared GPU textures and fences |
 | 32-bit D3D11 | `Phoenix.addon32` | Shared GPU textures and fences; inference stays 64-bit |
 | 32/64-bit D3D9 | Matching addon bitness | Staging surfaces; GPU composition of matched input/output |
 | 32/64-bit D3D10/10.1 | Matching addon bitness | Staging textures and asynchronous helper |
-| 32-bit D3D12 | `Phoenix.addon32` | Pixel buffers with 256-byte row alignment |
+| 32-bit D3D12, Phoenix only | Full `Phoenix.addon32` | Safe x64 helper until native x86 execution passes runtime validation |
+| 32-bit D3D12, NVIDIA DLL or NVIDIA comparison | `Phoenix.addon32` | Pixel buffers with 256-byte row alignment to x64 helper |
 | 32/64-bit OpenGL | Matching addon bitness | Pixel buffers; explicit framebuffer row and texture byte-order handling |
 | 32/64-bit Vulkan | Matching addon bitness | Pixel buffers; submission respects the game's presentation wait semaphores |
 
 D3D11 falls back to staging if shared NT textures/fences are unavailable.
 DirectX 8 and earlier need a separate wrapper to a ReShade-supported API.
+
+## Automatic processing location
+
+For standalone input, `[Phoenix.Compatibility] ExecutionMode=auto` is the default.
+`in_process` explicitly forbids helper fallback; `helper` explicitly selects the
+companion. `StandaloneInput=1` still selects final-color capture independently
+of the processing location. Native engine DLSS input remains a separate route.
+Full x86/x64 addons advertise `CnrPHOENIXInProcessBackbufferVersion` (version 1);
+thin frontends and older builds without this capability use the helper.
+
+The initial in-process implementation supports the Native RTX executor with
+single-sample, single-layer SDR RGBA8, BGRA8 and RGB10A2 backbuffers on the game's
+DIRECT queue. Conversion uses FP16 textures and GPU packing, retaining 10-bit
+code values on RGB10A2 rather than passing them through the helper's RGBA8 pipe.
+Capture/conversion/evaluation/presentation stay on that device. Motion is zero
+and depth is absent: this route does not invent engine guides. Phoenix, NVIDIA
+DLL and supported pair comparisons use this same in-process renderer on x64.
+On x86, the driver-validation gate currently keeps all processing in the helper;
+a comparison that uses NVIDIA output also requires the x64 NVIDIA DLL. Selecting a backend
+re-evaluates the route without requiring an off/on cycle. The NVIDIA
+feature stays resident across backend switches at unchanged geometry and
+create-time settings. Its first use still loads and initializes the runtime;
+switching back does not start a new renderer or repeat feature warmup. Portable
+Phoenix executors retain their isolated helper route; NVIDIA-only rendering
+ignores the saved Phoenix executor without changing it. Other color spaces,
+protected surfaces and unsupported layouts are refused, not silently downscaled
+or reinterpreted. Only one window owns the native evaluator; other windows can
+fall back to isolated helpers.
+
+Initialization or safely abandoned evaluation failures select the helper once,
+with a concrete `fallback_reason`. An unretired GPU submission stops processing:
+it must never be followed by freeing its in-flight resources or starting another
+route over uncertain work. The in-process route waits for completed inference
+proof before recording final writeback, then retires that writeback before
+counting a presented result. It currently synchronizes the CPU to GPU completion;
+eliminating the companion does not imply a fully asynchronous or zero-stall path.
+
+Disabling the in-process effect or selecting the original image retains its
+initialized model and textures. Re-enable resets history without starting a
+process. Geometry/model/architecture changes still rebuild the affected resources
+after retirement. Compatibility helper toggles retain their existing lifecycle.
+
+Read-only diagnostics and the control mailbox report `execution_mode`,
+`execution_preference`, `helper_pid` (zero in-process), and `fallback_reason`.
+The installer writes automatic selection and accepts older helper-only payloads.
+The existing packaged binaries are not automatically replaced by source edits.
+
+Focused compile/CPU verification (does not launch a game, model or GPU):
+
+```powershell
+python tools/check_backbuffer_routing.py --ngx-sdk C:/SDKs/ngx/include
+```
+
+Live verification remains explicit. Tests must require the actual route,
+not count a successful helper fallback as an in-process pass:
+
+```powershell
+python tools/test_graphics_apis.py --package C:/PhoenixPackage --weight-source C:/model-source.json --reshade32 C:/ReShade32.dll --reshade64 C:/ReShade64.dll --bits 64 --apis d3d12 --execution-mode in_process --motion-checks --resize-checks --output C:/ExplicitTestOutput
+```
+
+**In-process validation on 2026-10-16 (RTX 5080, driver 616.64):** the real
+installer deployed the packaged addon to the museum DX12 x64 fixture. Automatic
+selection used `in_process`, with `helper_pid=0`, no spawned graphics helper and
+no fallback, at 1280 x 720 and maximized 2560 x 989. Final-present PNG captures
+from the same frozen scene differ from disabled captures: central RGB mean
+absolute differences are 10.18 and 8.76 out of 255 respectively. This establishes
+delivered pixels, not a visual-quality score. Both runs completed three off/on
+cycles without reconstructing the network. Control polling observed resumed
+frames within approximately 0.49 seconds; its 250 ms polling cadence is included
+and this is not per-frame latency. First observed output took about 10.2 seconds
+from process launch, including fixture/ReShade/model initialization. Native model
+GPU intervals averaged about 2.56 ms at 720p and 4.47 ms maximized; these exclude
+game rendering, conversions and CPU synchronization. Both fixtures were closed.
+The compact current receipt is `artifacts/current/addon/runtime-check.json`.
+HDR, RGB10 runtime conversion, resize/device loss and automatic failure fallback
+were not exercised by these museum runs. Historical validation below predates
+this route and is not proof of its behavior.
+The CPU-only checkpoint compiled both addon architectures and the integration
+fixture, passed 61 routing checks, 21 session-policy checks, 32 feeder-contract
+cases, 14,537 graphics-layout checks and two conversion-shader compiles per
+architecture. The installer/evidence integration also passed 43 focused tests.
+The full package build also passed 18 CPU suites and two software-DX12 suites.
+The working DX12 fixture now has the tested addon; the clean set is untouched.
+
+**Normal-startup correction on 2026-10-16:** the earlier controlled mode tests
+temporarily enabled processing and restored a saved `Enabled=0`. They validated
+the renderers, not enabled startup. The installed fixture now saves `Enabled=1`.
+A normal maximized launch at 2560 x 989 started the saved NVIDIA mode without
+control overrides. Foreground desktop captures with the camera frozen showed
+central RGB mean differences of 8.25/255 (NVIDIA) and 7.68/255 (Phoenix) against
+disabled processing. The Input/Phoenix split matched its standalone sources with
+mean errors of 0.00 and 0.20/255. These are displayed-pixel checks, not FPS or
+quality claims. The fixture was closed with enabled startup preserved. The mode
+test now rejects disabled startup unless explicitly requested for diagnostics.
+
+**Interaction follow-up on 2026-10-16:** the full and compact controls now share
+one enable switch. Backend/comparison choices apply without toggling processing;
+expensive tuning remains pending until Apply. Backbuffer routes consistently
+reset spatial history because they have no engine motion vectors. This also
+removes a previously measured mismatch between the in-process Phoenix output
+and a fresh helper's Phoenix half. The final automatic-route run passed all
+four pair checks byte-for-byte, all four Input/Phoenix difference views, gain,
+Off/select/On and rapid-selection checks. A normal visible launch confirmed
+comparison labels/divider. See [interaction contract](ADDON_USABILITY.md) for
+the tested scenarios and limitations. NVIDIA difference views remain unavailable.
+
+**NVIDIA/comparison follow-up on 2026-10-16:** the updated package passes 19 CPU
+suites, both software-DX12 suites, and extraction/hash verification of all 101
+packaged core/companion resources. Cache discovery now resolves the actual
+writable AppData location under packaged launchers, retaining extended paths and
+native separators for deep kernel directories. Containment checks remain active.
+The project's embedded `phoenix-nvngx.dll` is a small call wrapper compiled from
+`nr_forwarder.cpp`, not NVIDIA code or a model. It provides the caller-module
+identity expected by the externally supplied NR runtime. An isolated probe
+measured direct initialization returning `0xBAD00002` and wrapped initialization
+returning success. Feeder warm-up submits feature-creation work as an unchanged
+frame, without claiming processed output. Helper comparisons now retain their
+requested sources and are composed once, instead of returning Phoenix-only
+output and replacing the left half during transport. The legacy three-way value
+is normalized to the two-way view offered by the direct panel. Failures retain
+their reason instead of becoming a generic disabled message.
+
+The real DX12 x64 museum was rerun hidden, frozen, at 960 x 540, with both forced
+helper and automatic routing. NVIDIA feature 18 initialized and evaluated
+successfully; Input/Phoenix stayed in-process under automatic routing. After at
+least 20 NVIDIA evaluations, Input/Phoenix, NVIDIA/Phoenix, Phoenix/NVIDIA and
+Input/NVIDIA pairs matched their respective standalone captures byte-for-byte
+away from the divider, placed at 37% rather than 50%. Input/Phoenix absolute
+difference view also rendered. Manual camera movement invalidated an earlier
+visible comparison attempt; it is not counted as a renderer failure. These are
+presentation-resource readbacks from a hidden window, not visible-game FPS or
+VR validation. NVIDIA-source difference views remain unsupported; this check
+covers NVIDIA pair wipes, not three-way output or every difference visualization.
+The fixture and helper processes were closed and its INI restored.
+
+```powershell
+python tools/test_museum_modes.py --background
+python tools/test_museum_modes.py --background --helper
+```
 
 ## Shared panel
 
@@ -28,16 +175,19 @@ browsing/validation, device and CPU-thread selection, resolution/aspect/upscalin
 neural controls, network experiments and logging are shared. Runtime adapters
 provide metadata and actions; the UI does not own inference libraries.
 
-The bridge applies an edited profile with **Save configuration / apply** at the
-top. Its helper returns actual available devices, model-validation results,
+Per-frame strength, skin/mask and NVIDIA tuning changes apply live, including
+while dragging, without restarting the helper. Model/executor/resource edits
+reload automatically once editing ends. There is no manual Apply button.
+The helper returns actual available devices, model-validation results,
 processing geometry and timing rows over bounded background IPC. The larger UI
 snapshot is queried at most once a second, separately from per-frame completion
 checks. Rows survive helper restarts (up to 64 prior workloads per timing table).
 No UI pipe operation waits on the game's render thread.
 
-Engine-guide/history controls and NVIDIA/difference comparison views remain
-visible but disabled where the final-color bridge cannot supply their inputs.
-The bridge's comparison is a matching original/processed split. GPU-time adaptive
+Only actual engine motion/depth and temporal-guide controls are disabled when
+final-color capture cannot supply their inputs. Skin overrides and automatic
+skin masking remain editable. Pair comparison supports Input, NVIDIA and Phoenix;
+NVIDIA difference views remain unavailable. GPU-time adaptive
 depth is available; the hidden helper's presentation rate cannot supply a
 whole-game FPS controller, so that target is disabled there. These capability
 limits are independent of addon bitness.
@@ -103,9 +253,10 @@ neural feed.
   this mode; expired output falls back to the live game. Other APIs still use
   delayed full images. ReShade deferred lists without proven submission ordering
   are refused.
-- NVIDIA DLL execution in the helper remains experimental. Local tests reach
-  the runtime but currently fail NGX initialization with `0xBAD00002`
-  (`PlatformError`). Phoenix is the verified compatibility route.
+- NVIDIA feature 18 and NVIDIA pair comparisons now pass the DX12 x64 museum
+  check above using the embedded call wrapper and external model DLL. Historical
+  `0xBAD00002` results predate that wrapper. Other APIs/architectures, NVIDIA-source
+  difference views and game-specific HDR/guide contracts are not certified by it.
 
 ## Transport latency
 
@@ -140,9 +291,10 @@ prevents mixed-frame masks but does not supply missing engine motion vectors.
 3. Keep your NVIDIA model DLL separate, or select a supported external model
    folder. No NVIDIA DLL or model weights are embedded in these addon files.
 4. Open ReShade's **DLSS5 Phoenix** panel, choose the model with **Browse...**,
-   enable **graphics bridge**, and use **Save configuration / apply** at the top.
+   turn on **Enable neural rendering**. Controls apply automatically.
 5. The panel reports startup/model validation, completed frames, round-trip
-   latency and errors. Model/device/settings changes restart the helper.
+   latency and errors. Model/device/resource changes reload the renderer;
+   per-frame tuning does not restart it.
 
 The helper executable, its ReShade runtime and required x64 Phoenix code are
 embedded. They unpack into `%LOCALAPPDATA%\DLSS5Phoenix\runtime`; private session
@@ -169,6 +321,7 @@ python tools/build_addon.py compatibility_core --production-only `
 
 python tools/build_compatibility.py compatibility_package `
   --core-build build/compatibility_core `
+  --ngx-sdk "C:/SDKs/ngx/include" `
   --reshade64 "C:/SDKs/ReShade/ReShade64.dll"
 ```
 
@@ -177,6 +330,14 @@ Outputs are `build/compatibility_package/Phoenix.addon64` and
 architecture, the complete helper ABI, and source/object/resource hashes from
 the successful core build. Changing those inputs requires rebuilding the core;
 an old binary's successful test report cannot approve different linked objects.
+Both addons compile the full evaluator. The x86 build uses MinHook's x86
+decoder and the system `nvapi.dll`, rather than trying to load `nvapi64.dll`.
+It exports undecorated public aliases for WINAPI entry points so component
+inspection and control clients can recognize the same ABI on both architectures.
+Its embedded native GPU kernels are shared with the x64 build; the embedded
+x64 portable plugins and NVIDIA helper remain isolated from x86 native execution.
+Compilation, driver entry-point inspection and CPU route tests do not establish
+live x86 inference or presented pixels. Those require a separate explicit run.
 It rejects arbitrary DXGI
 proxy DLLs. It embeds licenses for the MIT compatibility host and BSD ReShade
 runtime. All generated outputs remain ignored by Git.

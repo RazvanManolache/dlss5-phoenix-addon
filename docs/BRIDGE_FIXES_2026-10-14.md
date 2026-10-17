@@ -83,6 +83,6 @@ The final peer pass also made best-effort session cleanup non-throwing. Screensh
 
 See [graphics compatibility instructions](GRAPHICS_COMPATIBILITY.md) and [machine-readable summary](BRIDGE_FIXES_2026-10-14.json). Run `test_compatibility.py`, `test_graphics_apis.py`, `test_compatibility_cpu_iterations.py`, `test_model_validation.py`, `test_shared_panel.py`, `test_compatibility_ipc.py` and `benchmark_compatibility.py` with independently supplied SDK/model inputs.
 
-Local full receipts: `E:\Games\Reshade\dlss5-phoenix-addon\build\bridge_fixes_20261014`. Final addon package: `E:\Games\Reshade\dlss5-phoenix-addon\build\bridge_fixes_acceptance_package_20261014`. No model or NVIDIA DLL was embedded.
+Historical local receipt directory: `build/bridge_fixes_20261014`. Historical package directory: `build/bridge_fixes_acceptance_package_20261014`. These local outputs are not included in the source repository. No model or NVIDIA DLL was embedded.
 
 Resize follow-up receipts: `build/bridge_resize_cached_validation_20261014/report.json` and `build/bridge_resize_verified_20261014/resize_latency_result.json`. The latest rebuilt package is `build/bridge_resize_cached_package_20261014`; its binary hashes are recorded separately in the accompanying summary. It contains no model or NVIDIA DLL and has not yet replaced the real-game installation.

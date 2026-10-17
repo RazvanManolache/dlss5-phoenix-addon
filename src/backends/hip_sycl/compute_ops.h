@@ -3,6 +3,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include "operand_address.h"
 namespace phx {
 using u32 = uint32_t;
 using u64 = uint64_t;
@@ -73,11 +74,11 @@ enum OperationFlag : u32 {
     LeftInputFp8Grid = 0x10000000
 };
 struct Operation {
-    void* left_input = nullptr;       // A: activations, scores or source image.
-    void* right_input = nullptr;      // B: weights, second input or attention bias.
-    void* output = nullptr;           // C: primary destination.
-    void* auxiliary = nullptr;        // D: scales, inverse sums or extra input.
-    void* secondary_output = nullptr; // Optional second destination (pooled/full output).
+    OperandAddress left_input = nullptr;       // A: activations, scores or source image.
+    OperandAddress right_input = nullptr;      // B: weights, second input or attention bias.
+    OperandAddress output = nullptr;           // C: primary destination.
+    OperandAddress auxiliary = nullptr;        // D: scales, inverse sums or extra input.
+    OperandAddress secondary_output = nullptr; // Optional second destination (pooled/full output).
     u32 family = Elementwise;
     u32 flags = 0;           // Low byte: operator; bits 8..11: publication.
     u32 row_count = 0;       // GEMM M; otherwise rows or output elements.

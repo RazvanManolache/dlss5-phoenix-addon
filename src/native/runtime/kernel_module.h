@@ -4,6 +4,7 @@
 #pragma once
 #include "device_recovery.h"
 #include "../support/kernel_resolution.h"
+#include "../support/module_capability.h"
 #include "../../../third_party/nvapi/nvapi.h"
 #include <bcrypt.h>
 #include <filesystem>
@@ -28,6 +29,7 @@ struct Api {
     decltype(&NvAPI_D3D12_CreateCuFunction) create_function = nullptr;
     decltype(&NvAPI_D3D12_DestroyCuFunction) destroy_function = nullptr;
     decltype(&NvAPI_D3D12_DestroyCuModule) destroy_module = nullptr;
+    decltype(&NvAPI_D3D12_IsFatbinPTXSupported) fatbin_supported = nullptr;
     void validate() const {
         if (!create_module || !create_function || !destroy_function || !destroy_module)
             throw std::invalid_argument("Lifecycle37 requires original NVAPI entry points");
@@ -139,6 +141,11 @@ class Network {
         return catalog_;
     }
     Lease rebind(ID3D12Device* device) {
+        require_native_module_capability(sizeof(void*), [&] {
+            bool supported = false;
+            return api_.fatbin_supported &&
+                   api_.fatbin_supported(device, &supported) == NVAPI_OK && supported;
+        });
         return binding_.rebind(
             device,
             [&](ID3D12Device* rebound_device,

@@ -50,9 +50,9 @@ Validation
 
 Source backup: `backup/memory-gap-audit-20261011`. Fixes are committed separately for direct ownership/sharing, portable buffers, transport accounting and staged sharing. Historical source folders and alternatives were retained.
 
-Built addon: [phoenix.addon64](E:/Games/Reshade/dlss5-phoenix-addon/build/memory_gap_final_embedded/phoenix.addon64). SHA256 `7e50aab59fc2cd18ce59a5a7bf47a570bab337ce8da8cbe376e9732d45d65474`.
+Historical local addon: `build/memory_gap_final_embedded/phoenix.addon64`. SHA256 `7e50aab59fc2cd18ce59a5a7bf47a570bab337ce8da8cbe376e9732d45d65474`.
 
-Evidence: [native](E:/Games/Reshade/dlss5-phoenix-addon/build/memory_gap_shared_staging_validation/result.json), [portable](E:/Games/Reshade/dlss5-phoenix-addon/build/memory_gap_portable_validation/result.json), [offload](E:/Games/Reshade/dlss5-phoenix-addon/build/memory_gap_offload_validation_v2/report.json).
+Historical local evidence directories under `build/`: `memory_gap_shared_staging_validation`, `memory_gap_portable_validation` and `memory_gap_offload_validation_v2`. Raw local receipts are not release contents.
 
 ## Optional resolution bridge and temporal upscalers
 

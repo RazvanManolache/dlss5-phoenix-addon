@@ -1515,12 +1515,12 @@ static int Serve(DWORD game_pid)
     if(!GetNamedPipeClientProcessId(pipe,&client_pid) || client_pid!=game_pid || hello.pid!=game_pid) {
         Log("[host] Rejected unexpected pipe client");CloseHandle(pipe);return 1;
     }
-    if (hello.version != FEED_IPC_VERSION)
+    if (!feed_protocol_compatible(hello.version))
     {
         Log("[host] protocol mismatch: game v%u, host v%u", hello.version, FEED_IPC_VERSION);
         return 1;
     }
-    FeedHelloAck ack = { FEED_IPC_MAGIC, FEED_IPC_VERSION };
+    FeedHelloAck ack = { FEED_IPC_MAGIC, hello.version };
     WriteFull(pipe, &ack, sizeof(ack));
     Log("[host] game pid %u connected (protocol v%u)", hello.pid, hello.version);
 
@@ -1597,6 +1597,17 @@ static int Serve(DWORD game_pid)
             }
             FeedUiReply reply{uint32_t(text.size())};
             if (!WriteFull(pipe, &reply, sizeof(reply)) || !WriteFull(pipe, text.data(), text.size())) break;
+        }
+        else if (tag == 'S') {
+            FeedSettingsPatch patch{};
+            if (!ReadFull(pipe, &patch, sizeof(patch)) || !patch.bytes || patch.bytes > 8192) break;
+            std::string text(patch.bytes, '\0');
+            if (!ReadFull(pipe, text.data(), text.size())) break;
+            using Apply = BOOL (WINAPI *)(const char*, uint32_t);
+            auto module = GetModuleHandleW(L"Phoenix.addon64");
+            auto apply = module ? reinterpret_cast<Apply>(GetProcAddress(module, "CnrPHOENIXFeederLiveSettings")) : nullptr;
+            const uint32_t accepted = apply && apply(text.data(), patch.bytes) ? 1u : 0u;
+            if (!WriteFull(pipe, &accepted, sizeof(accepted))) break;
         }
         else if (tag == 'A') {
             FeedUiAction command{};

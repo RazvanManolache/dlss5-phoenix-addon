@@ -36,4 +36,4 @@ The defaults apply to the tested NVIDIA Vulkan route. Noise caching regenerates 
 
 Hardware: RTX 5080 16 GiB, NVIDIA driver 616.64, Ryzen 9 9950X3D (16 cores / 32 threads), 96 GiB RAM. AMD checks use the integrated gfx1036 GPU, not a discrete Radeon card. Tests are synthetic library/runner tests; no new game-rendering or physical Android/Intel-GPU claim is made.
 
-Local experiment receipts are under `build/vulkan_fusions_20261014`. Frozen sources, recipes and selected alternative binaries are also preserved outside build cleanup at `E:\Games\Reshade\experiments\vulkan_fusions_20261014`; this archive is about 3.5 MB and contains no model or NVIDIA DLL. The accepted runtime is `build/vulkan_fusions_20261014/final_runtime`.
+Historical local experiment receipts used `build/vulkan_fusions_20261014`. Frozen sources, recipes and selected alternative binaries were also preserved in an external local archive of about 3.5 MB, without a model or NVIDIA DLL. The accepted runtime was `build/vulkan_fusions_20261014/final_runtime`. These paths describe the historical experiment, not release contents.

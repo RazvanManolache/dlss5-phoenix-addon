@@ -129,6 +129,8 @@ static D3D12_RESOURCE_DESC* STDMETHODCALLTYPE description(ID3D12Resource* resour
 static MH_STATUS g_mh_create_result = MH_OK;
 static MH_STATUS g_mh_enable_result = MH_OK;
 static unsigned g_mh_remove_calls = 0;
+static unsigned g_mh_queue_calls = 0, g_mh_apply_calls = 0;
+static MH_STATUS g_mh_queue_result = MH_OK, g_mh_apply_result = MH_OK;
 MH_STATUS WINAPI MH_Initialize(void) {
     return MH_OK;
 }
@@ -140,6 +142,14 @@ MH_STATUS WINAPI MH_CreateHook(LPVOID target, LPVOID, LPVOID* original) {
 }
 MH_STATUS WINAPI MH_EnableHook(LPVOID) {
     return g_mh_enable_result;
+}
+MH_STATUS WINAPI MH_QueueEnableHook(LPVOID) {
+    ++g_mh_queue_calls;
+    return g_mh_queue_result;
+}
+MH_STATUS WINAPI MH_ApplyQueued() {
+    ++g_mh_apply_calls;
+    return g_mh_apply_result;
 }
 MH_STATUS WINAPI MH_RemoveHook(LPVOID) {
     ++g_mh_remove_calls;
@@ -158,6 +168,41 @@ template <class F> void rejected(F action) {
 }
 int main() {
     try {
+        {
+            void *first = nullptr, *first_original = nullptr, *second = nullptr, *second_original = nullptr;
+            const auto target = reinterpret_cast<void*>(uintptr_t(0x1000));
+            const auto other = reinterpret_cast<void*>(uintptr_t(0x2000));
+            {
+                HookBatch hooks;
+                hooks.add(target, other, &first_original, &first);
+                hooks.add(other, target, &second_original, &second);
+                check(g_mh_queue_calls == 2 && g_mh_apply_calls == 0, "Hooks activated before batch commit");
+                hooks.commit();
+                check(g_mh_apply_calls == 1, "Hook activation did not use one batch");
+            }
+            check(first == target && second == other && g_mh_remove_calls == 0, "Committed hooks were rolled back");
+            first = first_original = second = second_original = nullptr;
+            {
+                HookBatch hooks;
+                hooks.add(target, other, &first_original, &first);
+                hooks.add(other, target, &second_original, &second);
+            }
+            check(!first && !first_original && !second && !second_original && g_mh_remove_calls == 2,
+                  "Uncommitted hooks retained stale target/trampoline pointers");
+            g_mh_queue_result = MH_ERROR_MEMORY_PROTECT;
+            rejected([&] { HookBatch hooks; hooks.add(target, other, &first_original, &first); });
+            check(!first && !first_original && g_mh_remove_calls == 3, "Queue failure did not roll back its created hook");
+            g_mh_queue_result = MH_OK;
+            g_mh_apply_result = MH_ERROR_MEMORY_PROTECT;
+            rejected([&] { HookBatch hooks; hooks.add(target, other, &first_original, &first); hooks.commit(); });
+            check(!first && !first_original && g_mh_remove_calls == 4, "Activation failure retained a half-installed hook");
+            g_mh_apply_result = MH_OK;
+            const auto applies = g_mh_apply_calls;
+            { HookBatch empty; empty.commit(); }
+            check(g_mh_apply_calls == applies, "Empty hook batch enumerated threads");
+            g_mh_remove_calls = 0;
+            cases += 6;
+        }
         std::array<void*, 81> vt{};
         vt[1] = reinterpret_cast<void*>(add_ref);
         vt[2] = reinterpret_cast<void*>(release_ref);

@@ -16,8 +16,11 @@ struct Tensor {
     unsigned height = 1, width = 1, channels = 1, element_bytes = 2;
     bool fp8_grid = false; // Proven publication, not a per-frame value scan.
 
-    void* ptr() const {
-        return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(memory->address) + byte_offset);
+    phx::OperandAddress ptr() const {
+        demand(memory && byte_offset < memory->bytes &&
+                   phx::address_bits(memory->address) <= UINT64_MAX - byte_offset,
+               "Tensor address overflow");
+        return phx::address_from_bits(phx::address_bits(memory->address) + byte_offset);
     }
 
     size_t size() const {
@@ -57,6 +60,7 @@ class Graph {
         uint64_t bytes = uint64_t(height) * width * channels * element_bytes;
         demand(bytes && bytes <= uint64_t(16) * 1024 * 1024 * 1024,
                "Tensor exceeds allocation budget");
+        demand(bytes <= SIZE_MAX, "Tensor exceeds host addressable extent");
         Allocation allocation;
         if (recyclable) {
             allocation = scratch_.reserve(bytes);
@@ -73,7 +77,7 @@ class Graph {
         // Mark every use before choosing which lifetimes can share storage.
         for (size_t index = 0; index < commands.size(); ++index) {
             auto& operation = commands[index].operation;
-            for (void* address : {operation.left_input, operation.right_input, operation.output,
+            for (phx::OperandAddress address : {operation.left_input, operation.right_input, operation.output,
                                   operation.auxiliary, operation.secondary_output})
                 scratch_.touch(address, index + 1);
         }
@@ -81,7 +85,7 @@ class Graph {
         scratch_.touch(output.ptr(), commands.size() + 1);
         for (const auto& point : checkpoints)
             scratch_.touch(
-                reinterpret_cast<void*>(uintptr_t(point.allocation.address) + point.offset),
+                phx::address_from_bits(phx::address_bits(point.allocation.address) + point.offset),
                 point.after + 1);
 
         for (const auto& plane : frame_planes_)

@@ -126,7 +126,11 @@ class D3D11Bridge {
         game->GetImmediateContext(&immediate);
         hr(immediate.As(&context_));
         D3D_FEATURE_LEVEL levels[] = {game->GetFeatureLevel()}, chosen{};
-        hr(device_->CreateDeviceContextState(0, levels, 1, D3D11_SDK_VERSION,
+        // Context states must match a SINGLETHREADED game device. Passing zero
+        // for such a device is invalid and unnecessarily forces CPU transport.
+        const UINT state_flags = game->GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED
+            ? D3D11_1_CREATE_DEVICE_CONTEXT_STATE_SINGLETHREADED : 0;
+        hr(device_->CreateDeviceContextState(state_flags, levels, 1, D3D11_SDK_VERSION,
                                              __uuidof(ID3D11Device), &chosen, &clean_state_));
         Ptr<IDXGIDevice> dxgi;
         hr(game->QueryInterface(IID_PPV_ARGS(&dxgi)));
@@ -319,7 +323,7 @@ class D3D11Bridge {
               GetTickCount64() - delivered_tick_ <= uint64_t(settings.offload_age_ms)))) {
             ID3D11ShaderResourceView* views[] = {current_view_.Get(), input_view_.Get(),
                                                  output_view_.Get()};
-            draw(target, compose_.Get(), views, 3, settings.mode, settings.intensity,
+            draw(target, compose_.Get(), views, 3, helper_presentation_mode(settings), settings.intensity,
                  coherent_frames);
             ++presented_;
         }

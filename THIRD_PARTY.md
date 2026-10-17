@@ -26,6 +26,17 @@ Keep the applicable license text, copyright notices and disclaimers when
 redistributing these sources. Consult each component's terms for binary
 distribution requirements; this summary does not replace those terms.
 
+## Optional WOW64 Runtime
+
+The optional experimental x86 transport binary package dynamically links an
+unmodified [WOW64Ext by rewolf](https://github.com/rwfpl/rewolf-wow64ext), pinned
+to revision `82045488f48c8641609d9a5d8bb832937b9b5acd`. WOW64Ext is **LGPL-3.0**;
+its license and source/revision notice accompany `wow64ext.dll` in the package.
+Corresponding source is available at that immutable upstream revision. The
+project's Apache-2.0 license does not replace WOW64Ext's terms. Rebuild instructions
+are in [Execution Mechanisms](docs/EXECUTION_MECHANISMS.md); no Windows, CUDA
+driver, NVIDIA model DLL or model weights are included.
+
 ## Scope of this source subset
 
 The AMD and Intel dependency subsets are included with their licenses,

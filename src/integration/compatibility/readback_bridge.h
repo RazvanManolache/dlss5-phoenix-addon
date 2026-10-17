@@ -13,7 +13,7 @@ class ReadbackBridge {
     std::unique_ptr<HostClient> host_;
     std::unique_ptr<D3D9Compositor> compositor9_;
     unsigned width_, height_, row_pitch_;
-    bool bgra_, upload_bgra_, buffer_readback_, flip_rows_, d3d9_upload_, pending_ = false,
+    bool bgra_, rgb10_, upload_bgra_, buffer_readback_, flip_rows_, d3d9_upload_, pending_ = false,
                                                                           delivered_image_ = false;
     uint64_t serial_ = 0, capture_serial_ = 0, upload_serial_ = 0, queued_signal_ = 0;
     uint64_t capture_frame_ = 0, submitted_frame_ = 0, delivered_frame_ = 0;
@@ -43,7 +43,9 @@ class ReadbackBridge {
     ReadbackBridge(reshade::api::effect_runtime* runtime,
                    const reshade::api::resource_desc& description, HMODULE addon,
                    const phoenix_model::WeightSource& source,
-                   const phoenix_addon::phoenix::Settings& settings)
+                   const phoenix_addon::phoenix::Settings& settings,
+                   std::optional<PortableOptions> portable = std::nullopt,
+                   std::optional<NativeOptions> native = std::nullopt)
         : device_(runtime->get_device()), queue_(runtime->get_command_queue()),
           width_(description.texture.width), height_(description.texture.height),
           row_pitch_(transfer_row_pitch(device_->get_api(), width_)),
@@ -51,22 +53,30 @@ class ReadbackBridge {
           flip_rows_(device_->get_api() == reshade::api::device_api::opengl),
           d3d9_upload_(device_->get_api() == reshade::api::device_api::d3d9) {
         using namespace reshade::api;
-        require(height_ && height_ <= 8192 && description.texture.samples == 1 &&
+        require(height_ && height_ <= 8192 &&
+                    (description.texture.samples == 1 || d3d9_upload_ && description.texture.samples > 1) &&
                     description.texture.depth_or_layers == 1 && description.texture.levels == 1,
-                "Unsupported readback canvas (single-sample SDR required)");
+                "Unsupported readback canvas (multisampling currently requires D3D9)");
         bgra_ = description.texture.format == format::b8g8r8a8_typeless ||
                 description.texture.format == format::b8g8r8x8_typeless ||
                 description.texture.format == format::b8g8r8a8_unorm ||
                 description.texture.format == format::b8g8r8x8_unorm ||
                 description.texture.format == format::b8g8r8a8_unorm_srgb ||
                 description.texture.format == format::b8g8r8x8_unorm_srgb;
-        require(bgra_ || description.texture.format == format::r8g8b8a8_typeless ||
+        rgb10_ = device_->get_api() == device_api::d3d12 &&
+                 (description.texture.format == format::r10g10b10a2_unorm ||
+                  description.texture.format == format::r10g10b10a2_typeless);
+        require(rgb10_ || bgra_ || description.texture.format == format::r8g8b8a8_typeless ||
                     description.texture.format == format::r8g8b8a8_unorm ||
                     description.texture.format == format::r8g8b8a8_unorm_srgb ||
                     description.texture.format == format::r8g8b8x8_unorm ||
                     description.texture.format == format::r8g8b8x8_unorm_srgb,
-                "Readback compatibility currently requires SDR 8-bit color");
+                "Readback compatibility requires SDR RGBA8/BGRA8 or D3D12 RGB10A2");
         auto read = description;
+        // D3D9Compositor captures via StretchRect, which resolves the game's
+        // multisampled render target. CPU staging and sampled upload textures
+        // always contain the resulting single-sample image.
+        read.texture.samples = 1;
         read.heap = memory_heap::readback;
         read.usage = resource_usage::copy_dest;
         read.flags = resource_flags::none;
@@ -74,10 +84,12 @@ class ReadbackBridge {
             read = resource_desc(uint64_t(row_pitch_) * height_, memory_heap::readback,
                                  resource_usage::copy_dest);
         auto write = description;
+        write.texture.samples = 1;
         // Mutable Vulkan swapchain images are described as typeless. Their
         // memory still contains four UNORM bytes; private upload textures use
         // a concrete view format so no implicit gamma conversion is introduced.
-        write.texture.format = bgra_ ? format::b8g8r8a8_unorm : format::r8g8b8a8_unorm;
+        write.texture.format = rgb10_ ? format::r10g10b10a2_unorm
+                                     : bgra_ ? format::b8g8r8a8_unorm : format::r8g8b8a8_unorm;
         if (d3d9_upload_ && (description.texture.format == format::b8g8r8x8_unorm ||
                              description.texture.format == format::b8g8r8x8_unorm_srgb))
             write.texture.format = format::b8g8r8x8_unorm;
@@ -111,6 +123,7 @@ class ReadbackBridge {
                         "API cannot create upload pixel buffer");
             } else if (d3d9_upload_) {
                 auto staging = description;
+                staging.texture.samples = 1;
                 staging.type = resource_type::surface;
                 staging.heap = memory_heap::upload;
                 staging.usage = resource_usage::copy_source;
@@ -133,7 +146,7 @@ class ReadbackBridge {
             build.color_fmt = build.output_fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
             build.cpu_bridge = 1;
             build.mv_scale_x = build.mv_scale_y = 1;
-            host_ = std::make_unique<HostClient>(addon, source, settings, build);
+            host_ = std::make_unique<HostClient>(addon, source, settings, build, portable,native);
         } catch (...) {
             release();
             throw;
@@ -196,14 +209,6 @@ class ReadbackBridge {
             auto pixels = host_->take();
             require(pixels.size() == size_t(width_) * height_ * 4,
                     "Helper returned an incomplete image");
-            if (settings.mode == phoenix_addon::phoenix::split && !compositor9_) {
-                require(submitted_pixels_.size() == pixels.size(),
-                        "Split comparison has no matching input");
-                for (unsigned row = 0; row < height_; ++row)
-                    std::memcpy(pixels.data() + size_t(row) * width_ * 4,
-                                submitted_pixels_.data() + size_t(row) * width_ * 4,
-                                size_t(width_ / 2) * 4);
-            }
             if (buffer_readback_) {
                 void* mapped = nullptr;
                 require(device_->map_buffer_region(upload_buffer_, 0,
@@ -212,8 +217,12 @@ class ReadbackBridge {
                         "Cannot map upload pixel buffer");
                 {
                     MappedResource mapping{device_, upload_buffer_, true};
-                    copy_pixel_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixels.data(),
-                                    width_ * 4, width_, height_, false, upload_bgra_);
+                    if (rgb10_)
+                        copy_rgb10a2_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixels.data(),
+                                         width_ * 4, width_, height_, false);
+                    else
+                        copy_pixel_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixels.data(),
+                                        width_ * 4, width_, height_, false, upload_bgra_);
                 }
                 // ReShade's texture-to-default-framebuffer blit already flips
                 // OpenGL Y. Upload textures therefore keep helper row order;
@@ -276,8 +285,12 @@ class ReadbackBridge {
                         "Cannot map retired texture readback");
             {
                 MappedResource mapping{device_, readback_, buffer_readback_};
-                copy_pixel_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
-                                mapped.row_pitch, width_, height_, flip_rows_, bgra_);
+                if (rgb10_)
+                    copy_rgb10a2_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                                     mapped.row_pitch, width_, height_, true);
+                else
+                    copy_pixel_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                                    mapped.row_pitch, width_, height_, flip_rows_, bgra_);
             }
             pending_ = false;
             if (settings.mode == phoenix_addon::phoenix::split && !compositor9_)
@@ -317,7 +330,7 @@ class ReadbackBridge {
             if (compositor9_)
                 compositor9_->draw(reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle)),
                                    reinterpret_cast<IDirect3DTexture9*>(uintptr_t(upload_.handle)),
-                                   settings.mode, coherent_frames);
+                                   helper_presentation_mode(settings), coherent_frames);
             else
                 command->copy_resource(upload_, back);
             command->barrier(back, resource_usage::copy_dest, resource_usage::present);

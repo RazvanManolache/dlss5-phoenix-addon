@@ -47,3 +47,5 @@ using PhoenixFeederEvaluateProc = HRESULT(WINAPI*)(const PhoenixFeederFrameV1*, 
 // Optional read-only progress export: buffer size includes the trailing NUL.
 // Completion still requires the caller's submitted GPU fence to retire.
 using PhoenixFeederProgressJsonProc = uint32_t(WINAPI*)(char*, uint32_t);
+// Optional live-only tuning transaction (bounded JSON, no model/resource edits).
+using PhoenixFeederLiveSettingsProc = BOOL(WINAPI*)(const char*, uint32_t);

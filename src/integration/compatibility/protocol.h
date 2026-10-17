@@ -10,9 +10,13 @@
 #include <cstdint>
 
 #define FEED_IPC_MAGIC   0x35534C44u  // 'DLS5'
-#define FEED_IPC_VERSION 10u
+#define FEED_IPC_VERSION 11u
+#define FEED_IPC_MIN_VERSION 10u // Unchanged frame layout; older clients omit live tuning.
 #define FEED_SESSION_PIPE_FMT "\\\\.\\pipe\\dlss5-feed.%lu.%llu" // game PID and per-session nonce
 #define FEED_PIPE_FMT    "\\\\.\\pipe\\dlss5-feed.%lu"   // %lu = game PID
+inline constexpr bool feed_protocol_compatible(uint32_t version) {
+    return version >= FEED_IPC_MIN_VERSION && version <= FEED_IPC_VERSION;
+}
 
 enum FeedSlot { FEED_COLOR = 0, FEED_OUTPUT, FEED_DEPTH, FEED_MV, FEED_MASK, FEED_SLOTS };
 
@@ -76,6 +80,7 @@ struct FeedCpuFrameAck   // host -> game after a CPU-bridge frame
 // Optional UI traffic runs on the pipe worker, separately from frame packets.
 struct FeedUiAction { uint32_t action, value; };
 struct FeedUiReply { uint32_t bytes; }; // Bounded UTF-8 JSON follows (at most 1 MiB).
+struct FeedSettingsPatch { uint32_t bytes; }; // 'S': live-only JSON, <= 8192 bytes; uint32 acceptance reply.
 
 #pragma pack(pop)
 

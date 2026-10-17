@@ -532,6 +532,20 @@ static void routing_defaults_tests() {
     {
         phoenix::Settings settings;
         settings.force_reset = true;
+        settings.mode = phoenix::split;
+        check(phoenix::normalize_direct_comparison(settings) && settings.comparison == 1,
+              "direct comparison cannot retain hidden legacy three-way mode");
+        check(!phoenix::normalize_direct_comparison(settings), "direct comparison normalization is idempotent");
+        for (int view = 1; view <= 5; ++view) {
+            settings.comparison = view;
+            check(!phoenix::normalize_direct_comparison(settings) && settings.comparison == view,
+                  "explicit pair and difference views remain unchanged");
+        }
+        settings.mode = phoenix::ours;
+        settings.comparison = 0;
+        check(!phoenix::normalize_direct_comparison(settings) && settings.comparison == 0,
+              "inactive comparison profile is not rewritten");
+        ++cases;
         settings.reset_after_switch = 120;
         settings.reset_every = 600;
         phoenix::reset_history_section(settings);

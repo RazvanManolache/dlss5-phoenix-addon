@@ -14,6 +14,7 @@ class VulkanFixture {
     VkSurfaceKHR surface_ = 0;
     VkSwapchainKHR swapchain_ = 0;
     VkQueue queue_ = nullptr;
+    VkQueue present_queue_ = nullptr;
     VkSemaphore acquired_ = 0, rendered_ = 0;
     VkCommandPool pool_ = 0;
     VkCommandBuffer command_ = nullptr;
@@ -39,7 +40,7 @@ class VulkanFixture {
     }
 
   public:
-    VulkanFixture(HWND window, unsigned width, unsigned height) {
+    VulkanFixture(HWND window, unsigned width, unsigned height, bool secondary_queue = false, bool compute_present = false) {
         auto loader = LoadLibraryW(L"vulkan-1.dll");
         if (!loader)
             throw std::runtime_error("Vulkan loader unavailable");
@@ -98,25 +99,49 @@ class VulkanFixture {
         }
         if (family == UINT32_MAX)
             throw std::runtime_error("No graphics/presentation queue");
-        float priority = 1;
+        uint32_t presentation_family = family;
+        if (compute_present) {
+            presentation_family = UINT32_MAX;
+            for (uint32_t index = 0; index < count; ++index) {
+                VkBool32 supports = VK_FALSE;
+                require(instance_function<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(
+                    "vkGetPhysicalDeviceSurfaceSupportKHR")(selected, index, surface_, &supports));
+                if (supports && (queues[index].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(queues[index].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+                    presentation_family = index;
+                    break;
+                }
+            }
+            if (presentation_family == UINT32_MAX) throw std::runtime_error("No compute-only presentation family");
+        }
+        if (secondary_queue && queues[family].queueCount < 2)
+            throw std::runtime_error("Separate-queue Vulkan fixture requires two graphics queues");
+        float priorities[] = {1, 1};
         VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         queue.queueFamilyIndex = family;
-        queue.queueCount = 1;
-        queue.pQueuePriorities = &priority;
+        queue.queueCount = secondary_queue ? 2 : 1;
+        queue.pQueuePriorities = priorities;
+        std::vector<VkDeviceQueueCreateInfo> requested_queues{queue};
+        if (compute_present) {
+            auto presentation = queue;
+            presentation.queueFamilyIndex = presentation_family;
+            presentation.queueCount = 1;
+            requested_queues.push_back(presentation);
+        }
         VkPhysicalDeviceVulkan12Features features{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
         features.timelineSemaphore = VK_TRUE;
         const char* swap_extension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
         VkDeviceCreateInfo device{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         device.pNext = &features;
-        device.queueCreateInfoCount = 1;
-        device.pQueueCreateInfos = &queue;
+        device.queueCreateInfoCount = uint32_t(requested_queues.size());
+        device.pQueueCreateInfos = requested_queues.data();
         device.enabledExtensionCount = 1;
         device.ppEnabledExtensionNames = &swap_extension;
         require(instance_function<PFN_vkCreateDevice>("vkCreateDevice")(selected, &device, nullptr,
                                                                         &device_));
         device_proc_ = instance_function<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
         device_function<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(device_, family, 0, &queue_);
+        device_function<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(device_, presentation_family, secondary_queue ? 1 : 0, &present_queue_);
         VkSurfaceCapabilitiesKHR capabilities{};
         require(instance_function<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(
             "vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, surface_, &capabilities));
@@ -142,9 +167,15 @@ class VulkanFixture {
         swap.imageColorSpace = format.colorSpace;
         swap.imageExtent = {width, height};
         swap.imageArrayLayers = 1;
-        swap.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                          VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        // The addon must request the transfer-destination usage it needs.
+        swap.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         swap.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        const uint32_t image_families[] = {family, presentation_family};
+        if (compute_present) {
+            swap.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            swap.queueFamilyIndexCount = 2;
+            swap.pQueueFamilyIndices = image_families;
+        }
         swap.preTransform = capabilities.currentTransform;
         swap.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         swap.presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -220,10 +251,10 @@ class VulkanFixture {
         present.swapchainCount = 1;
         present.pSwapchains = &swapchain_;
         present.pImageIndices = &image_;
-        require(device_function<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(queue_, &present));
+        require(device_function<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(present_queue_, &present));
         // The harness serializes acquisition only to reuse its one binary
         // semaphore; the addon's own transport stays asynchronous.
-        require(device_function<PFN_vkQueueWaitIdle>("vkQueueWaitIdle")(queue_));
+        require(device_function<PFN_vkQueueWaitIdle>("vkQueueWaitIdle")(present_queue_));
         ready_ = false;
     }
     ~VulkanFixture() {

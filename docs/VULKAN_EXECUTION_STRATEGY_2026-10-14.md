@@ -134,8 +134,8 @@ The ignored workbench is `build/vulkan_architecture_20261014`. It contains the
 candidate sources, recipes and fresh reports, including `strategy_full_summary.json`,
 `*_strategies_result.json`, `*_full_results.json`, and both `cuda_launch_*probe`
 folders. Each CUDA launch proof has a receipt binding its source and artifact
-hashes. All alternatives are preserved with content deduplication under
-`E:/Games/Reshade/experiments/vulkan_architecture_20261014`.
+hashes. Alternatives were preserved with content deduplication in an external
+local experiment archive; these private receipts are not release contents.
 
 No experimental route from this pass has replaced the qualified addon packages.
 No NVIDIA model DLL or extracted model is included in the preservation process.

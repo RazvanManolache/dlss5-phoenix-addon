@@ -1,0 +1,118 @@
+{
+  "schema": "phoenix-public-execution-benchmarks/1",
+  "gpu": "NVIDIA GeForce RTX 5080, 616.64",
+  "width": 1920,
+  "height": 1080,
+  "warmup_seconds": 5,
+  "measured_seconds": 20,
+  "rows": [
+    {
+      "backend": "phoenix",
+      "available": true,
+      "gpu_mean_ms": 4.006981818867927,
+      "wall_mean_ms": 4.3913621226415165,
+      "completed_outputs_per_second": 211.95407167220935,
+      "wall_scope": "Resident-input synchronized API call.",
+      "gpu_p95_ms": 4.444544,
+      "wall_p95_ms": 4.8355,
+      "samples": 4240,
+      "execution": "Native x64"
+    },
+    {
+      "backend": "phoenix",
+      "available": true,
+      "gpu_mean_ms": 4.037328757812487,
+      "wall_mean_ms": 4.508288452148462,
+      "completed_outputs_per_second": 204.78134441952338,
+      "wall_scope": "Resident-input synchronized API call; x64 worker entered once, not per-frame x86 handoff.",
+      "gpu_p95_ms": 4.494272,
+      "wall_p95_ms": 4.9731,
+      "samples": 4096,
+      "execution": "x64 library inside x86"
+    },
+    {
+      "backend": "phoenix",
+      "available": true,
+      "gpu_mean_ms": 4.009073521428573,
+      "wall_mean_ms": 4.464025290178572,
+      "completed_outputs_per_second": 223.990742462614,
+      "wall_scope": "Resident processing plus per-frame x86/native dispatch handoff; no host image transfer.",
+      "gpu_p95_ms": 4.467776,
+      "wall_p95_ms": 4.9159,
+      "samples": 4480,
+      "execution": "x86 Phoenix + native driver"
+    },
+    {
+      "backend": "phoenix",
+      "available": true,
+      "gpu_mean_ms": 4.338069853658537,
+      "wall_mean_ms": 12.358346341463415,
+      "completed_outputs_per_second": 63.65,
+      "wall_scope": "Real x86 DX12 fixture + external x64 helper; sampled processing round-trip includes readback/IPC/return.",
+      "gpu_p95_ms": 5.036544,
+      "wall_p95_ms": 13.6606,
+      "samples": 41,
+      "execution": "External x64 helper"
+    },
+    {
+      "backend": "nvidia",
+      "available": true,
+      "gpu_mean_ms": 4.026672994874096,
+      "wall_mean_ms": 4.454665923779816,
+      "completed_outputs_per_second": 224.33508508186836,
+      "wall_scope": "Resident-input synchronized API call.",
+      "gpu_p95_ms": 4.529216,
+      "wall_p95_ms": 4.9588,
+      "samples": 4487,
+      "execution": "Native x64"
+    },
+    {
+      "backend": "nvidia",
+      "available": true,
+      "gpu_mean_ms": 4.004325317700117,
+      "wall_mean_ms": 4.465138782412635,
+      "completed_outputs_per_second": 221.6970454437253,
+      "wall_scope": "Resident-input synchronized API call; x64 worker entered once, not per-frame x86 handoff.",
+      "gpu_p95_ms": 4.474432,
+      "wall_p95_ms": 4.9306,
+      "samples": 4435,
+      "execution": "x64 library inside x86"
+    },
+    {
+      "backend": "nvidia",
+      "available": false,
+      "reason": "No x86 NVIDIA graph host source; use the complete x64 library inside x86 or the helper.",
+      "execution": "x86 Phoenix + native driver",
+      "wall_scope": "Resident processing plus per-frame x86/native dispatch handoff; no host image transfer."
+    },
+    {
+      "backend": "nvidia",
+      "available": true,
+      "gpu_mean_ms": 4.472216975609756,
+      "wall_mean_ms": 13.070626829268292,
+      "completed_outputs_per_second": 60.8,
+      "wall_scope": "Real x86 DX12 fixture + external x64 helper; sampled processing round-trip includes readback/IPC/return.",
+      "gpu_p95_ms": 4.858368,
+      "wall_p95_ms": 13.8574,
+      "samples": 41,
+      "execution": "External x64 helper"
+    }
+  ],
+  "game_fps": false,
+  "gpu_timing_scope": "GPU model/route processing; Phoenix native probes include output copy.",
+  "limitations": [
+    "Wall-time scopes differ; do not treat the helper/resident ratio as architectural overhead.",
+    "Resident tests use synthetic pixels; the helper uses a different DX12 fixture image.",
+    "Resident calls are collected individually; helper latency uses 41 status-poll samples.",
+    "Single serial run per case; no confidence interval or statistical overhead claim.",
+    "Completed output throughput is not game FPS.",
+    "New add-on native x86 paths also stage CPU pixels; their end-to-end latency is not measured here."
+  ],
+  "source_receipt_sha256": {
+    "wow64-method-benchmark.json": "d33dad459276a9f462510d784c9f2b0cd8cef7fc1d7634954805de7c477513fa",
+    "wow64-x86-host-benchmark.json": "da2239a2f26fb749a468642baf106bc244735df4d82420dc0c7c2b2b92c1993f",
+    "dx12-method-benchmark.json": "354f11a3e43efbaa90c193bff98d31dd0806bd6c2bfb550e9323331b17bb0be3"
+  },
+  "release": "0.81",
+  "measurement_context": "Pre-release execution experiments; not a rerun of release binaries."
+}

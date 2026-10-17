@@ -1,6 +1,7 @@
 #pragma once
 #include "../session/session.h"
 #include "../../../third_party/minhook/include/MinHook.h"
+#include "hook_batch.h"
 #include <string>
 #include <cstdio>
 #include <atomic>
@@ -696,15 +697,12 @@ inline HRESULT STDMETHODCALLTYPE create_committed_resource(
     }
     return result;
 }
-inline void install_device(ID3D12Device* device) {
+inline void install_device(ID3D12Device* device, HookBatch& hooks) {
     if (!device)
         return;
     auto& observer_state = observer();
     std::lock_guard<std::recursive_mutex> lock(observer_state.mutex);
     auto* vtable = *reinterpret_cast<void***>(device);
-    auto init = MH_Initialize();
-    check(init == MH_OK || init == MH_ERROR_ALREADY_INITIALIZED,
-          "phoenix observer hook initialization");
     auto add = [&](unsigned slot, auto detour, const char* what) {
         auto* target = vtable[slot];
         if (observer_state.device_targets[slot]) {
@@ -712,14 +710,18 @@ inline void install_device(ID3D12Device* device) {
                   "phoenix device implementation changed");
             return;
         }
-        check(MH_CreateHook(target, reinterpret_cast<void*>(detour),
-                            &observer_state.device_originals[slot]) == MH_OK,
-              what);
-        check(MH_EnableHook(target) == MH_OK, what);
-        observer_state.device_targets[slot] = target;
+        hooks.add(target, reinterpret_cast<void*>(detour), &observer_state.device_originals[slot],
+                  &observer_state.device_targets[slot]);
     };
     add(27, create_committed_resource, "phoenix committed resource hook");
     add(41, create_command_signature, "phoenix command signature hook");
+}
+inline void install_device(ID3D12Device* device) {
+    auto& observer_state = observer();
+    std::lock_guard<std::recursive_mutex> lock(observer_state.mutex);
+    HookBatch hooks;
+    install_device(device, hooks);
+    hooks.commit();
 }
 inline void STDMETHODCALLTYPE begin_pass(ID3D12GraphicsCommandList4* cmd, UINT count,
                                          const D3D12_RENDER_PASS_RENDER_TARGET_DESC* render_targets,
@@ -755,6 +757,9 @@ inline void install(ID3D12GraphicsCommandList* cmd, bool freshly_created = false
     std::lock_guard<std::recursive_mutex> lock(observer_state.mutex);
     check(cmd && cmd->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT,
           "phoenix observer requires DIRECT command list");
+    check(observer_state.commands.size() < 512 || observer_state.commands.count(cmd),
+          "phoenix command observation limit");
+    HookBatch hooks;
     auto* vtable = *reinterpret_cast<void***>(cmd);
     auto add = [&](unsigned slot, auto detour, void** table_ptr) {
         auto* target = table_ptr[slot];
@@ -762,14 +767,8 @@ inline void install(ID3D12GraphicsCommandList* cmd, bool freshly_created = false
             check(observer_state.targets[slot] == target, "phoenix command implementation changed");
             return;
         }
-        auto init = MH_Initialize();
-        check(init == MH_OK || init == MH_ERROR_ALREADY_INITIALIZED,
-              "phoenix observer hook initialization");
-        check(MH_CreateHook(target, reinterpret_cast<void*>(detour),
-                            &observer_state.originals[slot]) == MH_OK,
-              "phoenix observer hook creation");
-        check(MH_EnableHook(target) == MH_OK, "phoenix observer hook enable");
-        observer_state.targets[slot] = target;
+        hooks.add(target, reinterpret_cast<void*>(detour), &observer_state.originals[slot],
+                  &observer_state.targets[slot]);
     };
     add(2, command_release, vtable);
     add(9, close, vtable);
@@ -815,9 +814,8 @@ inline void install(ID3D12GraphicsCommandList* cmd, bool freshly_created = false
     // separately so "hooked too late" never reads as "rejected".
     ComPtr<ID3D12Device> device;
     if (SUCCEEDED(cmd->GetDevice(IID_PPV_ARGS(&device))))
-        install_device(device.Get());
-    check(observer_state.commands.size() < 512 || observer_state.commands.count(cmd),
-          "phoenix command observation limit");
+        install_device(device.Get(), hooks);
+    hooks.commit();
     auto entry = observer_state.commands.try_emplace(cmd);
     if (entry.second)
         entry.first->second.epoch_known = freshly_created;

@@ -30,7 +30,7 @@ class VulkanBackend final : public Backend {
     bool fast_math = false;
     std::unordered_map<int, uint64_t> allocation_extents;
     std::unordered_set<int> native_fp8_weights;
-    bool packed_weights_supported(void* address) const {
+    bool packed_weights_supported(phx::OperandAddress address) const {
         return workgroup_fp8 && native_fp8_weights.contains(buffer_id(address));
     }
     static std::mutex& global() {
@@ -46,11 +46,11 @@ class VulkanBackend final : public Backend {
         if (code < 0)
             throw std::runtime_error(call<const char*>("xmx_error"));
     }
-    static int buffer_id(void* logical_address) {
-        return int(uintptr_t(logical_address) >> 40);
+    static int buffer_id(phx::OperandAddress logical_address) {
+        return int(phx::address_bits(logical_address) >> 40);
     }
-    static uint32_t offset(void* logical_address, unsigned element_bytes) {
-        auto byte_offset = uintptr_t(logical_address) & ((uint64_t(1) << 40) - 1);
+    static uint32_t offset(phx::OperandAddress logical_address, unsigned element_bytes) {
+        auto byte_offset = phx::address_bits(logical_address) & ((uint64_t(1) << 40) - 1);
         demand(byte_offset % element_bytes == 0 && byte_offset / element_bytes <= UINT32_MAX,
                "Vulkan operand offset");
         return uint32_t(byte_offset / element_bytes);
@@ -208,7 +208,7 @@ class VulkanBackend final : public Backend {
         live.push_back(key);
         allocation_extents[key] = byte_count;
         check(call<int>("xmx_buf_zero", key));
-        return {reinterpret_cast<void*>(uint64_t(key) << 40), byte_count, uint64_t(key)};
+        return {phx::address_from_bits(uint64_t(key) << 40), byte_count, uint64_t(key)};
     }
     void release(Allocation allocation) override {
         clear_graphs();
@@ -321,12 +321,12 @@ class VulkanBackend final : public Backend {
                             value.column_count == 32 && query.reduction_count == 1 &&
                             key.reduction_count == 0 && query.auxiliary == key.auxiliary &&
                             value.left_batch_stride == 64 && value.right_batch_stride == 2) {
-                            uint64_t args[] = {uintptr_t(operation.left_input),
-                                               uintptr_t(operation.right_input),
-                                               uintptr_t(query.output),
-                                               uintptr_t(key.output),
-                                               uintptr_t(value.output),
-                                               uintptr_t(query.auxiliary),
+                            uint64_t args[] = {phx::address_bits(operation.left_input),
+                                               phx::address_bits(operation.right_input),
+                                               phx::address_bits(query.output),
+                                               phx::address_bits(key.output),
+                                               phx::address_bits(value.output),
+                                               phx::address_bits(query.auxiliary),
                                                operation.row_count};
                             check(call<int>("xmx_matrix2_fused_record", 2u, args));
                             command_index += 3;
@@ -403,12 +403,12 @@ class VulkanBackend final : public Backend {
                             ((contract.flags >> 8) & 15u) == phx::KeepFloat &&
                             !(contract.flags & phx::StoreHalf) &&
                             contract.output_row_stride == 32) {
-                            uint64_t args[] = {uintptr_t(operation.left_input),
-                                               uintptr_t(operation.right_input),
-                                               uintptr_t(contract.output),
-                                               uintptr_t(contract.right_input),
-                                               uintptr_t(contract.auxiliary),
-                                               uintptr_t(contract.secondary_output),
+                            uint64_t args[] = {phx::address_bits(operation.left_input),
+                                               phx::address_bits(operation.right_input),
+                                               phx::address_bits(contract.output),
+                                               phx::address_bits(contract.right_input),
+                                               phx::address_bits(contract.auxiliary),
+                                               phx::address_bits(contract.secondary_output),
                                                operation.row_count,
                                                operation.left_row_stride,
                                                contract.output_row_stride,

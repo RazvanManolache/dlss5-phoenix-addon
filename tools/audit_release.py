@@ -17,6 +17,7 @@ IGNORED = {
     "settings",
     "output",
     "dist",
+    "artifacts",
     "validation",
     "models",
     ".git",
@@ -49,11 +50,17 @@ FORBIDDEN = {
     ".npz",
     ".zip",
     ".7z",
+    ".log",
+    ".dmp",
 }
 
 
 def candidates():
-    for path in ROOT.rglob("*"):
+    names = subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT
+    ).decode("utf-8").split("\0")
+    for name in sorted(set(filter(None, names))):
+        path = ROOT / name
         rel = path.relative_to(ROOT)
         # Local runtime DLLs and source annotations never enter publication.
         if rel.parts[0] in {"runtime", "source_maps"}:
@@ -71,8 +78,11 @@ def candidates():
             or path.suffix == ".pyc"
         ):
             continue
-        if path.is_symlink():
-            raise ValueError("Publication symlink is not allowed: " + rel.as_posix())
+        for component in (path, *path.parents):
+            if component == ROOT.parent:
+                break
+            if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+                raise ValueError("Publication redirect is not allowed: " + rel.as_posix())
         if path.is_file():
             yield path
 
@@ -107,7 +117,21 @@ def validate_payload(name, path):
     raw = path.read_bytes()
     if raw[:2] == b"MZ" or raw[:4] == b"\x7fELF":
         raise ValueError("Binary executable payload: " + name)
+    validate_public_content(name, raw)
     return hashlib.sha256(raw).hexdigest()
+
+
+def validate_public_content(name, raw):
+    """Reject host-specific paths and credential formats without echoing matches."""
+    patterns = (
+        rb"(?i)[a-z]:[/\\\\]Users[/\\\\](?!Public(?:[/\\\\]|$))[^/\\\\\s]+",
+        rb"(?i)[ed]:[/\\\\](?:Games|Kit)(?:[/\\\\]|$)",
+        rb"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})",
+        rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    )
+    for pattern in patterns:
+        if re.search(pattern, raw):
+            raise ValueError("Private path or credential pattern in publication file: " + name)
 
 
 def audit():

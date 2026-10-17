@@ -46,7 +46,7 @@ def compress(data):
         cabinet.CloseCompressor(handle)
 
 
-def prepare(runtime, native, output):
+def prepare(runtime, native, output, nr_forwarder=None):
     runtime, native, output = map(
         lambda source_path: Path(source_path).resolve(), (runtime, native, output)
     )
@@ -109,6 +109,8 @@ def prepare(runtime, native, output):
         if digest(data) != kernel["binary_sha256"]:
             raise ValueError("Native kernel changed since validation")
         files["native/" + relative.as_posix()] = data
+    if nr_forwarder is not None:
+        files['runtime/phoenix-nvngx.dll'] = Path(nr_forwarder).read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     entries, resources = [], []
     for index, (name, data) in enumerate(sorted(files.items()), 1100):

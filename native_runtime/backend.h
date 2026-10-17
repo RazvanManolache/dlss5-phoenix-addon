@@ -14,7 +14,7 @@
 #include "../src/backends/hip_sycl/compute_ops.h"
 namespace phoenix_cpp {
 struct Allocation {
-    void* address = nullptr;
+    phx::OperandAddress address = nullptr;
     uint64_t bytes = 0;
     uint64_t token = 0;
 };

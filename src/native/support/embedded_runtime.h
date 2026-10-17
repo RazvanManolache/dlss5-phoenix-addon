@@ -38,7 +38,7 @@ inline fs::path relative_path(const std::string& text) {
             "Invalid embedded runtime path");
     for (const auto& part : path)
         require(part != ".." && part != ".", "Embedded runtime path traversal");
-    return path;
+    return path.make_preferred();
 }
 // Explicit Win32 calls do not inherit std::filesystem's long-path handling.
 // Normalize separators before applying the extended local/UNC path prefix.
@@ -118,7 +118,27 @@ inline fs::path default_cache() {
             "DLSS5 Phoenix cannot locate the local runtime cache");
     fs::path result(path);
     CoTaskMemFree(path);
-    return result / L"DLSS5Phoenix" / L"runtime";
+    const auto logical = result / L"DLSS5Phoenix" / L"runtime";
+    fs::create_directories(logical);
+    // Packaged launchers can merge existing AppData with redirected new files.
+    // Resolve a newly created file, not the merged parent, before choosing the
+    // cache root. Explicit caller-supplied caches retain strict containment.
+    static std::atomic<uint64_t> probe_sequence{0};
+    const auto probe = logical / (L".location-" + std::to_wstring(GetCurrentProcessId()) +
+        L"-" + std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++probe_sequence));
+    HANDLE file = CreateFileW(native_path(probe).c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+        FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    require(file != INVALID_HANDLE_VALUE, "Cannot resolve the writable runtime cache");
+    struct CloseProbe { HANDLE file; ~CloseProbe() { CloseHandle(file); } } close{file};
+    std::wstring physical(32768, L'\0');
+    const auto count = GetFinalPathNameByHandleW(file, physical.data(), DWORD(physical.size()),
+                                                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    require(count && count < physical.size(), "Cannot resolve the physical runtime cache");
+    physical.resize(count);
+    // Keep the extended prefix: redirected package caches are substantially
+    // deeper and optimized kernel filenames can exceed MAX_PATH.
+    return fs::path(native_path(fs::canonical(fs::path(physical).parent_path())));
 }
 inline const char* dependency_group(const std::string& path) {
     if (path.rfind("compatibility/", 0) == 0)

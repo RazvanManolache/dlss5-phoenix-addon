@@ -10,6 +10,7 @@ using Json = nlohmann::json;
 struct Command {
     std::string id, op;
     Settings settings;
+    std::vector<std::string> settings_keys;
     unsigned frames = 0;
     std::optional<bool> enabled, coherent_frames;
 };
@@ -86,6 +87,7 @@ inline Command validate(const Json& request, const std::string& session, unsigne
                       "Setting is out of range");
             });
             check(found, "Unknown bridge setting");
+            cmd.settings_keys.push_back(lookup_iterator.key());
         }
         check(cmd.settings.valid(), "Bridge settings rejected; current settings retained");
     }

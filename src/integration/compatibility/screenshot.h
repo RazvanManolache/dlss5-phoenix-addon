@@ -18,9 +18,10 @@ inline ScreenshotLayout screenshot_layout(reshade::api::device_api api,
             "Screenshot requires a 2D presentation surface");
     const auto width = description.texture.width, height = description.texture.height;
     require(width && width <= 8192 && height && height <= 8192 &&
-                description.texture.samples == 1 && description.texture.depth_or_layers == 1 &&
+                (description.texture.samples == 1 || api == device_api::d3d9 && description.texture.samples > 1) &&
+                description.texture.depth_or_layers == 1 &&
                 description.texture.levels == 1,
-            "Screenshot requires a single-sample SDR canvas up to 8192 pixels per side");
+            "Screenshot requires SDR up to 8192 pixels per side; multisampling requires D3D9");
     const auto pixel_format = description.texture.format;
     const bool bgra =
         pixel_format == format::b8g8r8a8_typeless || pixel_format == format::b8g8r8x8_typeless ||
@@ -144,6 +145,7 @@ class Snapshot {
         bgra_ = layout.bgra;
         flip_rows_ = layout.flip_rows;
         auto read = description;
+        read.texture.samples = 1;
         read.heap = memory_heap::readback;
         read.usage = resource_usage::copy_dest;
         read.flags = resource_flags::none;
@@ -156,6 +158,7 @@ class Snapshot {
                 "Cannot create screenshot readback storage");
         if (device_->get_api() == device_api::d3d9) {
             auto snapshot = description;
+            snapshot.texture.samples = 1;
             snapshot.type = resource_type::surface;
             snapshot.heap = memory_heap::gpu_only;
             snapshot.usage = resource_usage::render_target | resource_usage::copy_source |

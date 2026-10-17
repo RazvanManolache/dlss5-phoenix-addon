@@ -6,6 +6,7 @@
 #include <variant>
 #include <array>
 #include <vector>
+#include <tuple>
 
 namespace phoenix_addon::phoenix {
 inline constexpr int kMaxOffloadAgeFrames = 6000, kMaxOffloadAgeMs = 120000;
@@ -152,6 +153,57 @@ struct Settings {
                capture_burst >= 0 && capture_burst <= 64;
     }
 };
+inline bool normalize_direct_comparison(Settings& settings) {
+    if (settings.mode != split || settings.comparison != 0) return false;
+    settings.comparison = 1; // Direct feeds expose pairs, not the legacy three-way view.
+    return true;
+}
+// Presentation choices apply independently of pending model/quality edits.
+inline bool copy_live_selection(Settings& target, const Settings& source) {
+    auto fields = [](auto& value) {
+        return std::tie(value.mode, value.comparison, value.source_a, value.source_b,
+                        value.divider, value.difference_gain,
+                        value.comparison_labels, value.comparison_lines);
+    };
+    const bool changed = fields(target) != fields(source);
+    fields(target) = fields(source);
+    return changed;
+}
+// Per-frame controls only: never include model, executor or feature-create settings.
+template <class Visitor> void visit_live_tuning(Settings& settings, Visitor visit) {
+    visit("OverrideStrengths", settings.controls.enabled);
+    visit("Tone", settings.controls.tone);
+    visit("Structure", settings.controls.structure);
+    visit("Advanced", settings.controls.advanced);
+    visit("AutoMask", settings.controls.auto_mask);
+    visit("Skin", settings.controls.skin);
+    visit("MotionX", settings.controls.motion_x);
+    visit("MotionY", settings.controls.motion_y);
+    visit("Depth", settings.controls.depth);
+    visit("NativeOptions", settings.native_options);
+    visit("Intensity", settings.intensity);
+    visit("Style", settings.style);
+    visit("UICorrection", settings.ui_correction);
+    visit("HostExposure", settings.host_exposure);
+    visit("HostExposureScale", settings.host_exposure_scale);
+    visit("HostGlobalTone", settings.host_globaltone);
+    visit("HostJitter", settings.host_jitter);
+    visit("HostWhiteNits", settings.host_white_nits);
+    visit("HostUnjitter", settings.host_unjitter);
+}
+inline bool copy_live_tuning(Settings& target, const Settings& source) {
+    auto fields = [](auto& s) {
+        return std::tie(s.controls.enabled, s.controls.tone, s.controls.structure,
+                        s.controls.advanced, s.controls.auto_mask, s.controls.skin,
+                        s.controls.motion_x, s.controls.motion_y, s.controls.depth,
+                        s.native_options, s.intensity, s.style, s.ui_correction,
+                        s.host_exposure, s.host_exposure_scale, s.host_globaltone,
+                        s.host_jitter, s.host_white_nits, s.host_unjitter);
+    };
+    const bool changed = fields(target) != fields(source);
+    fields(target) = fields(source);
+    return changed;
+}
 template <class Visitor> void visit_settings(Settings& settings, Visitor visit) {
     visit("ModelSource", settings.model_source);
     visit("ModelFolder", settings.model_folder);
@@ -168,32 +220,14 @@ template <class Visitor> void visit_settings(Settings& settings, Visitor visit) 
     visit("ResolutionRatioWidth", settings.resolution_ratio_width);
     visit("ResolutionRatioHeight", settings.resolution_ratio_height);
     visit("Backend", settings.mode);
-    visit("OverrideStrengths", settings.controls.enabled);
-    visit("Tone", settings.controls.tone);
-    visit("Structure", settings.controls.structure);
-    visit("Advanced", settings.controls.advanced);
-    visit("AutoMask", settings.controls.auto_mask);
-    visit("Skin", settings.controls.skin);
-    visit("MotionX", settings.controls.motion_x);
-    visit("MotionY", settings.controls.motion_y);
-    visit("Depth", settings.controls.depth);
-    visit("NativeOptions", settings.native_options);
-    visit("Intensity", settings.intensity);
-    visit("Style", settings.style);
-    visit("UICorrection", settings.ui_correction);
+    visit_live_tuning(settings, visit);
     visit("Divider", settings.divider);
     visit("NeuralUplift", settings.uplift);
-    visit("HostExposure", settings.host_exposure);
-    visit("HostExposureScale", settings.host_exposure_scale);
-    visit("HostGlobalTone", settings.host_globaltone);
-    visit("HostJitter", settings.host_jitter);
     visit("HostBridge", settings.host_bridge);
-    visit("HostWhiteNits", settings.host_white_nits);
     visit("HostHdr", settings.host_hdr);
     visit("NRAutoExposure", settings.nr_auto_exposure);
     visit("NrFeature", settings.nr_feature);
     visit("ScreenshotRequest", settings.screenshot_request);
-    visit("HostUnjitter", settings.host_unjitter);
     visit("ResetAfterSwitch", settings.reset_after_switch);
     visit("ResetEvery", settings.reset_every);
     visit("Experimental", settings.experimental);

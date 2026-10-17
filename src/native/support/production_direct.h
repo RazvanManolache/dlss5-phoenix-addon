@@ -1660,6 +1660,17 @@ class Runner {
         for (auto& refinement_runner : refinement_)
             refinement_runner->invalidate();
     }
+    // Only an owner that has proven retirement of prior submissions may drop
+    // this unsubmitted recording. A recycled list pointer must not retain a
+    // failed claim and accidentally match an unrelated game submission.
+    void abandon_unsubmitted(ID3D12GraphicsCommandList* cmd) {
+        if (pending_ == cmd) {
+            invalidate();
+            pending_ = nullptr;
+            network_recorded_ = false;
+        }
+        if (claimed_ == cmd) claimed_ = nullptr;
+    }
     void validate_submit(ID3D12CommandQueue* queue, UINT count,
                          ID3D12CommandList* const* lists) const {
         unsigned hits = 0;

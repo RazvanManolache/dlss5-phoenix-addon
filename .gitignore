@@ -21,3 +21,15 @@ __pycache__/
 *.spv
 *.bin
 *.zip
+
+# One retained current deliverable set (generated, local only)
+/artifacts/
+
+# Local maintenance tools, captures and diagnostic output
+/Clean-And-Move.ps1
+/Remove-Local-Examples.cmd
+/tools/Remove-LocalExamples.ps1
+/screenshot-encoder-test.png
+*.log
+*.dmp
+*.pdb

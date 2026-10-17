@@ -32,7 +32,9 @@ struct Runtime {
     phoenix_model::WeightSource weight_source;
     std::mutex lock;
     std::string error;
+    bool validation_stage_hashes = false;
     Runtime(const Json& config, unsigned width, unsigned height) {
+        validation_stage_hashes = config.value("validation_stage_hashes", false);
         struct Rollback {
             Runtime& runtime;
             bool done = false;
@@ -382,6 +384,7 @@ struct Runtime {
         const float* current_color = color;
         std::vector<Event> events;
         double prepare_ms = 0, execute_ms = 0, resolve_ms = 0;
+        Json validation_stages = Json::array();
         bool history_used = false;
         size_t pre_pixels = 0, post_pixels = 0;
         uint64_t temporary_capacity_high_water = 0;
@@ -435,6 +438,19 @@ struct Runtime {
                                            conditioning_valid);
             sample_temporary_capacity(features.capacity() * sizeof(uint16_t));
             prepare_ms += elapsed(stage_started);
+            Json validation = Json::object();
+            auto digest = [](const auto& buffer) {
+                return phoenix_model::weight_digest(reinterpret_cast<const uint8_t*>(buffer.data()),
+                    buffer.size() * sizeof(typename std::remove_reference_t<decltype(buffer)>::value_type));
+            };
+            if (validation_stage_hashes) {
+                validation["color"] = phoenix_model::weight_digest(reinterpret_cast<const uint8_t*>(current_color), pixel_count * 3 * sizeof(float));
+                validation["conditioning_history"] = digest(*conditioning_source);
+                validation["conditioning_validity"] = digest(conditioning_valid);
+                validation["resolve_history"] = digest(*resolve_source);
+                validation["resolve_validity"] = digest(*resolve_mask);
+                validation["noise"] = digest(frame->noise);
+            }
             stage_started = Clock::now();
             if (device_features)
                 graph->run_from_planes(current_color, pixel_count * 3, *conditioning_source,
@@ -448,11 +464,26 @@ struct Runtime {
                 std::vector<uint16_t>().swap(frame->noise);
             sample_temporary_capacity();
             execute_ms += elapsed(stage_started);
+            if (validation_stage_hashes) validation["network_head"] = digest(head);
             stage_started = Clock::now();
             current =
                 frame->resolve(current_color, head, controls, *resolve_source, *resolve_mask, next);
             current_color = current.data();
             resolve_ms += elapsed(stage_started);
+            if (validation_stage_hashes) {
+                validation["display_output"] = digest(current);
+                validation["next_history"] = digest(next);
+                std::vector<float> gates(pixel_count);
+                for (unsigned y = 0; y < frame->height; ++y)
+                    for (unsigned x = 0; x < frame->width; ++x) {
+                        const size_t pixel = size_t(y) * frame->width + x;
+                        gates[pixel] = (*resolve_mask)[pixel]
+                            ? 1.f / (1.f + std::exp(-head[(size_t(y) * frame->padded_width + x) * 4 + 3])) * controls.history_strength
+                            : 0;
+                    }
+                validation["resolve_gate"] = digest(gates);
+                validation_stages.push_back(std::move(validation));
+            }
             auto validation_started = Clock::now();
             std::atomic<unsigned> result_errors{0};
             frame->rows.run(frame->height, [&](unsigned row) {
@@ -548,6 +579,7 @@ struct Runtime {
               device_features
                   ? "GPU feature packing; C++ history warp and resolve; host-plane transfers"
                   : "C++ host preparation and resolve; host-plane transfers"}});
+        if (validation_stage_hashes) status["validation_stages"] = std::move(validation_stages);
     }
 };
 thread_local std::string last_error;

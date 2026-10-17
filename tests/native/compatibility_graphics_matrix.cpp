@@ -29,7 +29,9 @@ effect_runtime* runtime = nullptr;
 std::map<void*, effect_runtime*> window_runtimes;
 HWND first_window = nullptr;
 bool multiwindow = false, verify_disabled_window = false;
-resource input{}, download{};
+bool secondary_queue_seen = false;
+resource input{}, download{}, resolved_download{};
+unsigned d3d9_samples = 1;
 Json evidence;
 bool capture = false, complete = false;
 uint64_t capture_min_delivered = 3;
@@ -41,6 +43,38 @@ void check(bool value, const char* message) {
 }
 void hr(HRESULT result) {
     check(SUCCEEDED(result), "Native API creation failed");
+}
+void draw_d3d9_input(IDirect3DDevice9* device, resource texture, resource target) {
+    // A texture copy cannot populate a multisampled render target. Draw the
+    // known image exactly as a game would, with point samples at pixel centers.
+    hr(device->SetRenderTarget(0, reinterpret_cast<IDirect3DSurface9*>(uintptr_t(target.handle))));
+    hr(device->SetDepthStencilSurface(nullptr));
+    D3DVIEWPORT9 viewport{0, 0, width, height, 0, 1};
+    hr(device->SetViewport(&viewport));
+    hr(device->SetVertexShader(nullptr));
+    hr(device->SetPixelShader(nullptr));
+    hr(device->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1));
+    hr(device->SetTexture(0, reinterpret_cast<IDirect3DTexture9*>(uintptr_t(texture.handle))));
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    device->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    for (auto state : {D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE,
+                       D3DRS_ALPHABLENDENABLE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE})
+        device->SetRenderState(state, FALSE);
+    device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE, 15);
+    struct Vertex { float x, y, z, rhw, u, v; };
+    const Vertex vertices[] = {{-.5f, -.5f, 0, 1, 0, 0}, {float(width)-.5f, -.5f, 0, 1, 1, 0},
+        {-.5f, float(height)-.5f, 0, 1, 0, 1}, {float(width)-.5f, float(height)-.5f, 0, 1, 1, 1}};
+    hr(device->BeginScene());
+    hr(device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(Vertex)));
+    hr(device->EndScene());
 }
 template <class Function> Function function(HMODULE module, const char* name) {
     auto result = reinterpret_cast<Function>(GetProcAddress(module, name));
@@ -103,6 +137,7 @@ void observe(command_queue* queue, swapchain* chain, const rect*, const rect*, u
     if (multiwindow && !verify_disabled_window && chain->get_hwnd() == first_window)
         return;
     try {
+        secondary_queue_seen = secondary_queue_seen || runtime->get_command_queue() != queue;
         evidence = status();
         if (verify_disabled_window)
             check(!evidence.value("enabled", true), "Disabled window inherited another session");
@@ -117,6 +152,8 @@ void observe(command_queue* queue, swapchain* chain, const rect*, const rect*, u
         auto* device = queue->get_device();
         auto back = chain->get_current_back_buffer();
         auto description = device->get_resource_desc(back);
+        const auto sample_count = description.texture.samples;
+        description.texture.samples = 1;
         description.heap = memory_heap::readback;
         description.usage = resource_usage::copy_dest;
         description.flags = resource_flags::none;
@@ -126,12 +163,19 @@ void observe(command_queue* queue, swapchain* chain, const rect*, const rect*, u
                                         resource_usage::copy_dest);
         check(device->create_resource(description, nullptr, resource_usage::copy_dest, &download),
               "Cannot create test download");
-        auto* command = queue->get_immediate_command_list();
+        auto* command = runtime->get_command_queue()->get_immediate_command_list();
         command->barrier(back, resource_usage::present, resource_usage::copy_source);
         if (description.type == resource_type::buffer)
             command->copy_texture_to_buffer(back, 0, nullptr, download, 0, pitch / 4, height);
-        else
-            command->copy_resource(back, download);
+        else if (sample_count > 1) {
+            auto resolved = description;
+            resolved.heap = memory_heap::gpu_only;
+            resolved.usage = resource_usage::render_target | resource_usage::resolve_dest | resource_usage::copy_source;
+            check(device->create_resource(resolved, nullptr, resource_usage::resolve_dest, &resolved_download),
+                  "Cannot create test resolve target");
+            command->resolve_texture_region(back, 0, nullptr, resolved_download, 0, 0, 0, 0, resolved.texture.format);
+            command->copy_resource(resolved_download, download);
+        } else command->copy_resource(back, download);
         command->barrier(back, resource_usage::copy_source, resource_usage::present);
         capture = true;
     } catch (const std::exception& error) {
@@ -145,7 +189,7 @@ void finish(command_queue* queue, swapchain* chain) {
     try {
         // This is the validation harness, not the addon render path. Wait only
         // to inspect a screenshot after the API's ordered present submission.
-        queue->wait_idle();
+        runtime->get_command_queue()->wait_idle();
         auto* device = queue->get_device();
         auto description = device->get_resource_desc(chain->get_current_back_buffer());
         bool buffers = phoenix_compat::uses_buffer_readback(device->get_api());
@@ -168,9 +212,16 @@ void finish(command_queue* queue, swapchain* chain) {
                 const auto* native = static_cast<uint8_t*>(mapped.data) +
                                      size_t(flip ? height - 1 - y : y) * mapped.row_pitch + x * 4;
                 auto* pixel = output.data() + (size_t(y) * width + x) * 4;
-                pixel[0] = native[bgra ? 2 : 0];
-                pixel[1] = native[1];
-                pixel[2] = native[bgra ? 0 : 2];
+                if (description.texture.format == format::r10g10b10a2_unorm ||
+                    description.texture.format == format::r10g10b10a2_typeless) {
+                    uint32_t packed = 0; std::memcpy(&packed, native, 4);
+                    for (unsigned channel = 0; channel < 3; ++channel)
+                        pixel[channel] = uint8_t((double((packed >> (channel * 10)) & 1023u) / 1023.0 * 255.0) + 0.5);
+                } else {
+                    pixel[0] = native[bgra ? 2 : 0];
+                    pixel[1] = native[1];
+                    pixel[2] = native[bgra ? 0 : 2];
+                }
                 pixel[3] = 255;
             }
         if (buffers)
@@ -179,6 +230,8 @@ void finish(command_queue* queue, swapchain* chain) {
             device->unmap_texture_region(download, 0);
         device->destroy_resource(download);
         download = {};
+        if (resolved_download.handle) device->destroy_resource(resolved_download);
+        resolved_download = {};
         complete = true;
     } catch (const std::exception& error) {
         failure = error.what();
@@ -239,6 +292,14 @@ void bind_gl_window(HMODULE module, HDC dc, HGLRC context) {
     check(make_current(nullptr, nullptr) && make_current(dc, context),
           "Cannot bind OpenGL context to the requested window");
 }
+void upload_known_input(device* graphics, std::vector<uint8_t>& rgba) {
+    if (graphics->get_resource_desc(input).texture.format == format::r10g10b10a2_unorm) {
+        std::vector<uint8_t> packed(rgba.size());
+        phoenix_compat::copy_rgb10a2_rows(packed.data(), width * 4, rgba.data(), width * 4, width, height, false);
+        graphics->update_texture_region({packed.data(), width * 4, width * height * 4}, input, 0);
+    } else
+        graphics->update_texture_region({rgba.data(), width * 4, width * height * 4}, input, 0);
+}
 int main(int argc, char** argv) {
     HWND window = nullptr;
     HWND second_window = nullptr;
@@ -246,11 +307,17 @@ int main(int argc, char** argv) {
         check(argc == 2 || argc == 3,
               "Specify a graphics API and optional --dynamic, --multiwindow, --control or --resize");
         const std::string api = argv[1];
+        const bool rgb10 = api == "d3d12" && GetEnvironmentVariableA("PHOENIX_TEST_RGB10", nullptr, 0) != 0;
         const bool dynamic = argc == 3 && std::string(argv[2]) == "--dynamic";
         multiwindow = argc == 3 && std::string(argv[2]) == "--multiwindow";
-        const bool control_test = argc == 3 && std::string(argv[2]) == "--control";
+        const bool control_test = argc == 3 && (std::string(argv[2]) == "--control" || std::string(argv[2]) == "--msaa-control");
         const bool resize_test = argc == 3 && std::string(argv[2]) == "--resize";
-        check(argc == 2 || dynamic || multiwindow || control_test || resize_test, "Unknown fixture option");
+        const bool secondary_queue = argc == 3 && std::string(argv[2]) == "--secondary-queue";
+        const bool compute_present = argc == 3 && std::string(argv[2]) == "--compute-present";
+        const bool multisample = argc == 3 && (std::string(argv[2]) == "--msaa" || std::string(argv[2]) == "--msaa-control");
+        check(argc == 2 || dynamic || multiwindow || control_test || resize_test || secondary_queue || compute_present || multisample, "Unknown fixture option");
+        check(!multisample || api == "d3d9", "The multisample fixture currently exercises D3D9");
+        check(!(secondary_queue || compute_present) || api == "vulkan", "Separate queues require Vulkan");
         check(!multiwindow || api == "opengl", "Multiwindow scenario currently requires OpenGL");
         check(!resize_test || api == "d3d10" || api == "d3d10_1" || api == "d3d11" || api == "d3d12",
               "Resize scenario currently requires a DXGI swapchain");
@@ -288,7 +355,7 @@ int main(int argc, char** argv) {
         DXGI_SWAP_CHAIN_DESC swap{};
         swap.BufferDesc.Width = width;
         swap.BufferDesc.Height = height;
-        swap.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        swap.BufferDesc.Format = rgb10 ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
         swap.SampleDesc.Count = 1;
         swap.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swap.BufferCount = 2;
@@ -307,6 +374,18 @@ int main(int argc, char** argv) {
             swap9.BackBufferWidth = width;
             swap9.BackBufferHeight = height;
             swap9.BackBufferFormat = D3DFMT_X8R8G8B8;
+            swap9.BackBufferCount = 1;
+            if (multisample) {
+                for (auto samples : {D3DMULTISAMPLE_8_SAMPLES, D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_2_SAMPLES}) {
+                    DWORD quality = 0;
+                    if (SUCCEEDED(d9->CheckDeviceMultiSampleType(0, D3DDEVTYPE_HAL, swap9.BackBufferFormat, TRUE, samples, &quality)) && quality) {
+                        swap9.MultiSampleType = samples;
+                        d3d9_samples = unsigned(samples);
+                        break;
+                    }
+                }
+                check(d3d9_samples > 1, "Windowed D3D9 multisampling is unsupported by this device");
+            }
             swap9.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
             hr(d9->CreateDevice(0, D3DDEVTYPE_HAL, window, D3DCREATE_HARDWARE_VERTEXPROCESSING,
                                 &swap9, &device9));
@@ -364,7 +443,7 @@ int main(int argc, char** argv) {
         }
 #ifdef PHOENIX_TEST_VULKAN
         else if (api == "vulkan") {
-            auto fixture = std::make_shared<VulkanFixture>(window, width, height);
+            auto fixture = std::make_shared<VulkanFixture>(window, width, height, secondary_queue, compute_present);
             begin_frame = [fixture] { fixture->acquire(); };
             present = [fixture] { fixture->present(); };
             release_api = [&, fixture] {
@@ -412,6 +491,10 @@ int main(int argc, char** argv) {
                                                                        : device_api::vulkan;
         check(device->get_api() == expected_api,
               "The test initialized a different API than requested");
+        if (api == "vulkan")
+            check((device->get_resource_desc(runtime->get_current_back_buffer()).usage & resource_usage::copy_dest)
+                    == resource_usage::copy_dest,
+                  "The addon did not request transfer-destination usage for its Vulkan output");
         resource_desc image(resource_type::texture_2d, width, height, 1, 1, format::r8g8b8a8_unorm,
                             1, memory_heap::gpu_only,
                             resource_usage::copy_source | resource_usage::copy_dest |
@@ -421,14 +504,14 @@ int main(int argc, char** argv) {
         int display_mode = 3;
         reshade::get_config_value(runtime, "Phoenix", "Backend", display_mode);
         const bool bgra_input = api == "vulkan" && back_format == format::b8g8r8a8_unorm;
-        if (bgra_input)
+        if (bgra_input || rgb10)
             image.texture.format = back_format;
         check(device->create_resource(image, nullptr, resource_usage::copy_source, &input),
               "Cannot create known input texture");
         // ReShade normalizes OpenGL texture-to-backbuffer copies internally.
         // Pre-flipping here would hide an upside-down neural input/output pair.
         auto pixels = pattern(false, bgra_input);
-        device->update_texture_region({pixels.data(), width * 4, width * height * 4}, input, 0);
+        upload_known_input(device, pixels);
         const auto deadline = GetTickCount64() + 90000;
         const auto pump_frame = [&] {
             if (multiwindow) {
@@ -452,7 +535,8 @@ int main(int argc, char** argv) {
             auto back = runtime->get_current_back_buffer();
             auto* command = queue->get_immediate_command_list();
             command->barrier(back, resource_usage::present, resource_usage::copy_dest);
-            command->copy_resource(input, back);
+            if (multisample) draw_d3d9_input(device9.Get(), input, back);
+            else command->copy_resource(input, back);
             command->barrier(back, resource_usage::copy_dest, resource_usage::present);
             if (api != "vulkan")
                 queue->flush_immediate_command_list();
@@ -469,8 +553,7 @@ int main(int argc, char** argv) {
                         pixels[pixel + 1] = uint8_t((std::min)(255, int(pixels[pixel + 1]) + 23));
                         pixels[pixel + 2] = uint8_t((std::max)(0, int(pixels[pixel + 2]) - 10));
                     }
-                    device->update_texture_region({pixels.data(), width * 4, width * height * 4},
-                                                  input, 0);
+                    upload_known_input(device, pixels);
                     current_changed = true;
                 }
             }
@@ -488,14 +571,29 @@ int main(int argc, char** argv) {
             changed += output[index] != original[index];
         check(changed > output.size() / 100,
               "Bridge completed but presented the unprocessed input");
+        // ReShade may bind directly to a second graphics-capable queue. A
+        // compute-only presenter must instead cross to its graphics queue.
+        check(!compute_present || secondary_queue_seen,
+              "Compute presentation did not exercise a separate runtime graphics queue");
+        evidence["two_graphics_queues_requested"] = secondary_queue;
+        evidence["secondary_present_queue"] = secondary_queue_seen;
+        evidence["compute_presentation_family"] = compute_present;
         evidence["passed"] = true;
+        evidence["d3d9_samples"] = d3d9_samples;
         evidence["fixture_api"] = api;
+        evidence["rgb10_sdr"] = rgb10;
         evidence["bits"] = sizeof(void*) * 8;
         evidence["output_sha256"] = phoenix_model::weight_digest(output.data(), output.size());
+        const bool in_process = evidence.value("execution_mode", std::string()) == "in_process";
+        if (GetEnvironmentVariableA("PHOENIX_EXPECT_INPROCESS", nullptr, 0)) {
+            check(in_process && evidence.value("helper_pid", 1) == 0 &&
+                  evidence.value("composition", std::string()) == "same_frame_gpu",
+                  "In-process test silently used a helper or unproven composition");
+        }
         evidence["changed_bytes"] = changed;
         evidence["dynamic_current_changed"] = current_changed;
         evidence["display_mode"] = display_mode;
-        check(!dynamic || current_changed, "Dynamic frame was never injected");
+        check(!dynamic || current_changed || in_process, "Dynamic frame was never injected");
         if (resize_test) {
             const auto initial_evidence = evidence;
             const auto initial_hash = evidence.at("output_sha256").get<std::string>();
@@ -526,7 +624,7 @@ int main(int argc, char** argv) {
                 check(device->create_resource(image, nullptr, resource_usage::copy_source, &input),
                       "Cannot create resized input texture");
                 pixels = pattern(false, bgra_input);
-                device->update_texture_region({pixels.data(), width * 4, width * height * 4}, input, 0);
+                upload_known_input(device, pixels);
                 complete = capture = false;
                 capture_min_delivered = 3;
                 failure.clear();
@@ -556,6 +654,17 @@ int main(int argc, char** argv) {
             evidence["resize_cycle_processed_and_exact_on_return"] = true;
         }
         if (dynamic) {
+            if (in_process && !current_changed) {
+                for (size_t pixel = 0; pixel < pixels.size(); pixel += 4) {
+                    pixels[pixel] = uint8_t((std::min)(255, int(pixels[pixel]) + 17));
+                    pixels[pixel + 1] = uint8_t((std::min)(255, int(pixels[pixel + 1]) + 23));
+                    pixels[pixel + 2] = uint8_t((std::max)(0, int(pixels[pixel + 2]) - 10));
+                }
+                upload_known_input(device, pixels);
+                current_changed = true;
+                evidence["dynamic_current_changed"] = true;
+                evidence["composition"] = "same_frame_gpu";
+            }
             // Holding the old pair once is only half of the contract. Keep the
             // changed input on screen long enough to pass through capture,
             // inference and presentation; a permanently frozen bridge must fail.

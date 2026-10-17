@@ -1,7 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <fstream>
-#include <nlohmann/json.hpp>
+#include "../../../../third_party/nlohmann/json.hpp"
 
 inline uint32_t PhoenixHostIterations(uint32_t requested, unsigned configured) {
     if (configured > 10) throw std::runtime_error("Invalid host FrameIterations; expected 0..10");

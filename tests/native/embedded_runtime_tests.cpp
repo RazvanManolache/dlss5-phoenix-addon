@@ -14,14 +14,15 @@ int wmain(int argc, wchar_t **argv) {
         require(!manifest.at("model_data_included").get<bool>() &&
                     !manifest.at("nvidia_dll_included").get<bool>(),
                 "Model payload unexpectedly present");
-        auto installed = install(module, fs::absolute(argv[2]), "core");
+        const auto cache = fs::path(native_path(fs::absolute(argv[2])));
+        auto installed = install(module, cache, "core");
         require(!installed.root.empty(), "Core runtime did not install");
         uint64_t total_bytes = 0;
         size_t checked = 0, compressed_files = 0;
         for (const auto &entry : manifest.at("files")) {
             auto name = entry.at("path").get<std::string>();
             relative_path(name);
-            require(name.find("nvngx") == std::string::npos &&
+            require((name == "runtime/phoenix-nvngx.dll" || name.find("nvngx") == std::string::npos) &&
                         name.find("weights") == std::string::npos,
                     "Model filename in payload");
             const auto [packed, packed_bytes] =
@@ -66,13 +67,22 @@ int wmain(int argc, wchar_t **argv) {
             ++checked;
         }
         // Reopening a populated cache must preserve the same verified package.
-        auto reopened = install(module, fs::absolute(argv[2]), "core");
+        auto reopened = install(module, cache, "core");
         require(reopened.identity == installed.identity, "Cache identity changed on reopen");
+        const auto companion = install(module, cache, "compatibility");
+        require(companion.identity == installed.identity, "Companion changed cache identity");
+        for (const auto& entry : manifest.at("files")) {
+            const auto name = entry.at("path").get<std::string>();
+            if (std::strcmp(dependency_group(name), "compatibility") == 0)
+                require(file_digest(companion.root / relative_path(name)) == entry.at("sha256").get<std::string>(),
+                        "Companion payload checksum differs");
+        }
         Json report{{"passed", true},
                     {"payload_files_verified", checked},
                     {"compressed_files_verified", compressed_files},
                     {"payload_bytes_verified", total_bytes},
                     {"core_files_installed", installed.files},
+                    {"companion_files_installed", companion.files},
                     {"optional_vendor_dependencies_lazy", true},
                     {"model_data_included", false},
                     {"nvidia_dll_included", false},

@@ -80,7 +80,12 @@ def main():
         ("generated_plan_tests", "generated_plan_tests.cpp"),
         ("model_status_tests", "model_status_tests.cpp"),
         ("model_tools_tests", "model_tools_tests.cpp"),
+        ("module_capability_tests", "module_capability_tests.cpp"),
+        ("nr_forwarder_tests", "nr_forwarder_tests.cpp"),
         ("compatibility_policy_tests", "compatibility_policy_tests.cpp"),
+        ("graphics_transport_tests", "graphics_transport_tests.cpp"),
+        ("backbuffer_route_tests", "backbuffer_route_tests.cpp"),
+        ("backbuffer_shader_tests", "backbuffer_shader_tests.cpp"),
         ("compatibility_ipc_tests", "compatibility_ipc_tests.cpp"),
         ("screenshot_tests", "screenshot_tests.cpp"),
     ]
@@ -90,8 +95,21 @@ def main():
     resource = ""
     if args.embed_runtime:
         from embed_runtime import prepare
-
-        recipe, embedded_report = prepare(args.embed_runtime, args.embed_native, out / "embedded")
+        forwarder_source = ROOT / 'src/integration/reshade/nr_forwarder.cpp'
+        forwarder_digest = hashlib.sha256(forwarder_source.read_bytes()).hexdigest()
+        forwarder = out / 'phoenix-nvngx.dll'
+        wrapper_recipe = out / 'nr_forwarder.cmd'
+        wrapper_recipe.write_text('\n'.join([
+            '@echo off',
+            f'call "{visual_studio_path}/VC/Auxiliary/Build/vcvars64.bat" > "{out}/nr_forwarder.toolchain.log" 2>&1',
+            'if errorlevel 1 exit /b 5',
+            f'cl {common.replace("/MD", "/MT")} /LD "{forwarder_source}" /Fo:"{out}/nr_forwarder.obj" /Fe:"{forwarder}" /link /INCREMENTAL:NO > "{out}/nr_forwarder.build.log" 2>&1',
+            'exit /b %errorlevel%',
+        ]))
+        subprocess.run(['cmd', '/d', '/c', str(wrapper_recipe)], cwd=out, check=True)
+        if hashlib.sha256(forwarder_source.read_bytes()).hexdigest() != forwarder_digest:
+            raise RuntimeError('NR forwarder source changed during compilation')
+        recipe, embedded_report = prepare(args.embed_runtime, args.embed_native, out / "embedded", forwarder)
         resource = f'"{out}/embedded/runtime.res"'
         lines.extend(
             [
@@ -123,6 +141,8 @@ def main():
     for name, source in tests + software_tests:
         target(name, "tests/native/" + source)
         test_args = f' "{ROOT}"' if name == "generated_plan_tests" else ""
+        if name == 'nr_forwarder_tests' and args.embed_runtime:
+            test_args = f' "{forwarder}"'
         lines.extend(
             [
                 f'"{out}/{name}.exe"{test_args} > "{out}/{name}.result.json" 2>&1',

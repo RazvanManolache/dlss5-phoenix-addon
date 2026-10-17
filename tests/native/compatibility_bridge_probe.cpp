@@ -24,7 +24,9 @@ int main(int argc, char** argv) {
         Ptr<ID3D11Device> device;
         Ptr<ID3D11DeviceContext> context;
         D3D_FEATURE_LEVEL level{};
-        hr(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
+        const bool single_threaded = argc > 6 && std::string(argv[6]) == "singlethread";
+        hr(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+                             single_threaded ? D3D11_CREATE_DEVICE_SINGLETHREADED : 0, nullptr, 0,
                              D3D11_SDK_VERSION, &device, &level, &context));
         D3D11_TEXTURE2D_DESC description{};
         description.Width = width;

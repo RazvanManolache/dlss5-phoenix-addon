@@ -20,7 +20,80 @@ rush for the best experience, often giving code access to our systems without
 being able to inspect what it does—or what that means for our privacy. I'd
 rather let you look under the hood. Better pixels shouldn't require blind trust.
 
+## New in 0.81: More Ways To Run Phoenix
+
+**[Download add-on 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81)**
+includes **both x86 and x64 ReShade add-ons**, the retained x64 helper, and
+optional experimental in-process runtimes. Models and NVIDIA DLLs stay external.
+
+- **Choose where rendering runs.** Automatic, native in-process D3D12, external
+  x64 helper, or the experimental portable runtime. The x86 add-on also offers
+  **x64 library inside x86** for Phoenix/NVIDIA and **x86 Phoenix + native driver**
+  for Phoenix. The helper stays available; automatic selection remains conservative.
+- **Renderer first, transport second.** Choose Phoenix, NVIDIA or comparison
+  first; **Advanced transport** is underneath, with descriptive names instead of
+  experiment numbers. Unsupported renderer/transport combinations explain their
+  helper fallback without discarding your saved choice.
+- **Change the look live.** Tone, structure, skin and mask strengths update
+  without restarting the model on every slider movement. Experimental native x86
+  paths support refinement passes with FP16 intermediate inputs. The x64-library
+  path supports block repetitions; the x86-host path currently uses all eight
+  blocks once. Unsupported controls are disabled or explicitly rejected.
+- **Compare the same frame.** Split and difference views use the input snapshot
+  belonging to that evaluation, rather than a newer game frame. Diagnostics
+  distinguish game presentations, completed model outputs, execution location,
+  inference PID, helper PID and processing round-trip time.
+- **Broader capture compatibility.** D3D9 MSAA resolve, separate Vulkan graphics
+  and presentation queues, and capture integration for D3D9/10/11/12, OpenGL and
+  Vulkan. Portable x86 fixes preserve full-width GPU handles and C API exports.
+- **Safer worker lifecycle.** Model loading and inference stay off the game
+  presentation thread, retirement does not join a worker there, native TLS is
+  initialized for replacement workers, and x64 dependencies cannot accidentally
+  resolve to a game's x86 DXGI proxy.
+- **Android work preserved.** The standalone SDK source retains the explicit
+  approximate mobile Vulkan arithmetic and tiled fast-kernel options from the
+  separate [Android preview](docs/VULKAN_FAST_MOBILE.md). These are not native RTX
+  performance claims or new Android binaries in this add-on release.
+
+**Experimental means opt-in.** The two native x86 paths passed packaged-client
+inference, live-control, switching and worker tests on the local Windows/driver
+profile. **Actual game presentation, resize and device-loss behavior for those
+new paths are not yet validated.** Their bootstrap profile is Windows/driver
+specific, not a portable compatibility catalogue; mismatch rejects the route
+and uses the helper when fallback is enabled. They still copy CPU pixels and
+are not zero-copy or crash-isolated. Current native kernels target **sm_120**.
+
+[Execution choices, installation and limits](docs/EXECUTION_MECHANISMS.md) |
+[0.81 release notes](docs/RELEASE_0.81.md) |
+[Current benchmark data and methodology](docs/benchmarks/0.81/README.md)
+
+### Updated Execution Benchmarks
+
+**RTX 5080, driver 616.64, 1920 x 1080, 1:1, full network, reset frames.**
+Each case used 5 seconds of warmup followed by 20 seconds of measurement.
+These are measured per-output times, **not game FPS** or a promise of faster games.
+
+| Execution | Phoenix GPU / wall (ms) | NVIDIA GPU / wall (ms) | Wall-time scope |
+| --- | ---: | ---: | --- |
+| Native x64 | 4.007 / 4.391 | 4.027 / 4.455 | Resident-input synchronized API call |
+| x64 library inside x86 | 4.037 / 4.508 | 4.004 / 4.465 | Resident-input call; worker entered once |
+| x86 Phoenix + native driver | 4.009 / 4.464 | Not available | Resident input plus per-frame dispatch handoff |
+| External x64 helper | 4.338 / 12.358 | 4.472 / 13.071 | DX12 fixture capture, IPC, processing and return |
+
+![Measured GPU processing time by execution path; capture and return are excluded from these bars](docs/benchmarks/0.81/execution-gpu-time.png)
+
+The helper row uses a different fixture image and sampled latency. The other
+rows use isolated synthetic resident inputs; their timing does **not** measure
+the new add-on routes' CPU capture/upload cost. One serial run per case cannot
+establish architectural speed differences. The x86 Phoenix graph-host mechanism
+has no NVIDIA equivalent; NVIDIA's complete x64 library works through the other
+x86 in-process option. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
+
 ## Native RTX: the main event
+
+The following resolution and memory study is the **14 October historical
+benchmark**, with a different sampling protocol from the execution tests above.
+Its VRAM figures have not been remeasured for 0.81.
 
 ![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
@@ -64,7 +137,7 @@ the chart shows their mean, not a fixed performance guarantee.
 
 [Latest regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
-[Download ReShade addon 0.8-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8-beta) ·
+[Download ReShade addon 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81) ·
 [Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta) ·
 [Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
@@ -469,6 +542,12 @@ Both bitnesses reuse the main controls and timing UI. The thin addon obtains
 devices, validation and timing data from its x64 helper; controls requiring
 missing engine inputs remain visible with a capability explanation.
 See [build, installation, latency and validation details](docs/GRAPHICS_COMPATIBILITY.md).
+
+An opt-in [execution mechanism selector](docs/EXECUTION_MECHANISMS.md) also wires
+the matching-bitness portable runtime into the existing fenced pixel transport.
+It keeps native D3D12, the x64 helper, shared textures and staging routes
+configurable. Automatic routing is unchanged; the alternate local x86 Vulkan
+path remains experimental pending game-presentation validation.
 
 ### Tests and source checks
 

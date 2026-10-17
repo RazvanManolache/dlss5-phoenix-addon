@@ -13,6 +13,9 @@
 // Candidate-only, same-queue recorder. Callers retain this object and its inputs
 // until their submission fence completes. No NGX/DLSS host or reference replay.
 namespace phoenix_native {
+inline constexpr const wchar_t* nvapi_library_name() {
+    return sizeof(void*) == 8 ? L"nvapi64.dll" : L"nvapi.dll";
+}
 using Microsoft::WRL::ComPtr;
 using phoenix_bundle::Json;
 using phoenix_bundle::require;
@@ -29,7 +32,7 @@ struct Api {
     decltype(&NvAPI_D3D12_GetCudaMergedTextureSamplerObject) texture = nullptr;
     decltype(&NvAPI_D3D12_GetCudaSurfaceObject) surface = nullptr;
     Api() {
-        library = LoadLibraryW(L"nvapi64.dll");
+        library = LoadLibraryExW(nvapi_library_name(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         require(library != nullptr, "NVAPI unavailable");
         auto query = reinterpret_cast<void*(__cdecl*)(unsigned)>(
             GetProcAddress(library, "nvapi_QueryInterface"));
@@ -40,7 +43,8 @@ struct Api {
         modules = {reinterpret_cast<decltype(modules.create_module)>(query(0xad1a677d)),
                    reinterpret_cast<decltype(modules.create_function)>(query(0xe2436e22)),
                    reinterpret_cast<decltype(modules.destroy_function)>(query(0xdf295ea6)),
-                   reinterpret_cast<decltype(modules.destroy_module)>(query(0x41c65285))};
+                   reinterpret_cast<decltype(modules.destroy_module)>(query(0x41c65285)),
+                   reinterpret_cast<decltype(modules.fatbin_supported)>(query(0x70c07832))};
         modules.validate();
         dispatch = reinterpret_cast<decltype(dispatch)>(query(0x24973538));
         texture = reinterpret_cast<decltype(texture)>(query(0x329fe6e0));

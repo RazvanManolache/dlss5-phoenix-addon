@@ -71,7 +71,7 @@ does not certify every GPU, replacement model or input distribution.
 
 The workbench is `build/vulkan_architecture_20261014`; selected production files
 are in `adaptive_runtime`. Source variants, our binaries and evidence are also
-preserved under `E:/Games/Reshade/experiments/vulkan_architecture_20261014`, with
+preserved in an external local experiment archive, with
 content deduplication. Vendor runtimes and model DLLs remain external inputs.
 
 All four switches default on when supported: `vulkan_workgroup_fp8`,

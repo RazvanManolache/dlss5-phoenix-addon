@@ -51,6 +51,11 @@ struct Context {
     bool direct_game = true, direct_nr_ready = true, runtime_available = true;
     bool real_guides = true, temporal_history = true, comparison_views = true, input_capture = true;
     bool fps_budget = true;
+    bool portable_backbuffer = false;
+    bool fixed_native_blocks = false;
+    bool* processing_enabled = nullptr;
+    bool processing_changed = false, live_selection_changed = false, live_tuning_changed = false;
+    std::string nvidia_status;
     // GPU timings belong to the queue that measured them, which may be the
     // hidden companion rather than the game's rendering queue.
     std::string timing_provenance = "Game rendering GPU";
@@ -68,6 +73,7 @@ struct Context {
     unsigned last_transformer_blocks = 8;
     int last_mode = -1;
     double present_fps = 0;
+    std::optional<double> portable_wall_ms;
     std::optional<TimingView> live_timing;
     TimingView worker_timing;
     std::array<uint64_t, 4> mode_frames{}, mode_own{}, mode_native{};
@@ -102,18 +108,31 @@ inline void clear_binding(Context &context, unsigned slot) {
 }
 inline bool draw_controls(Context &addon_state) {
     bool changed = false;
+    auto before = addon_state.panel;
+    auto& enabled = addon_state.processing_enabled ? *addon_state.processing_enabled : addon_state.panel.uplift;
+    addon_state.processing_changed = ImGui::Checkbox("Enable neural rendering", &enabled);
+    changed |= addon_state.processing_changed;
+    if (!enabled) ImGui::TextDisabled("Off - showing original game image");
     const auto &model_path = addon_state.model_path;
     const bool disk_model = addon_state.disk_model;
     const char *route_labels[]{"Input",
-                               (addon_state.direct_game && !addon_state.direct_nr_ready)
-                                   ? "Game only (NR unavailable)"
+                               (addon_state.direct_game && !addon_state.direct_nr_ready &&
+                                !addon_state.nvidia_status.empty())
+                                   ? "NVIDIA DLL (NR unavailable)"
                                    : "NVIDIA DLL",
                                "Comparison", "DLSS5 Phoenix"};
     // All routes are always offered; an NVIDIA route without a live feature
     // defers honestly with the reason in status instead of hiding.
     changed = ImGui::Combo("Backend", &addon_state.panel.mode, route_labels, 4) || changed;
+    if (addon_state.direct_game)
+        changed = phoenix::normalize_direct_comparison(addon_state.panel) || changed;
+    if (addon_state.direct_game && !addon_state.direct_nr_ready &&
+        (addon_state.panel.mode == phoenix::nvidia || addon_state.panel.mode == phoenix::split) &&
+        !addon_state.nvidia_status.empty())
+        ImGui::TextWrapped("NVIDIA NR: %s", addon_state.nvidia_status.c_str());
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game) {
+        ImGui::BeginDisabled(addon_state.portable_backbuffer);
         const char *modes[]{"Normal", "Super resolution"};
         changed = ImGui::Combo("Resolution mode", &addon_state.panel.resolution_mode, modes, 2) ||
                   changed;
@@ -169,6 +188,12 @@ inline bool draw_controls(Context &addon_state) {
             if (requested.fallback)
                 ImGui::TextWrapped(
                     "No smaller supported canvas at this quality; using Normal resolution.");
+        }
+        ImGui::EndDisabled();
+        if (addon_state.portable_backbuffer && addon_state.panel.resolution_mode &&
+            ImGui::Button("Use normal resolution for portable processing")) {
+            addon_state.panel.resolution_mode = 0;
+            changed = true;
         }
     }
     if (visible.own_details()) {
@@ -268,7 +293,7 @@ inline bool draw_controls(Context &addon_state) {
         addon_state.panel.controls.auto_mask = false;
         changed = true;
     }
-    if (addon_state.direct_game && phoenix::uses_ours(addon_state.panel.mode)) {
+    if (addon_state.direct_game && phoenix::uses_ours(addon_state.panel.mode) && !addon_state.portable_backbuffer) {
         std::string selected = addon_state.panel.execution_device;
         for (const auto &device_info : addon_state.execution_devices)
             if (device_info.id == selected) {
@@ -351,8 +376,13 @@ inline bool draw_controls(Context &addon_state) {
             changed = true;
         }
         if (addon_state.direct_game) {
+            const bool nvidia_source = addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1;
+            if (nvidia_source && addon_state.panel.comparison > 1) {
+                addon_state.panel.comparison = 1;
+                changed = true;
+            }
             int view = std::max(0, addon_state.panel.comparison - 1);
-            if (ImGui::Combo("View", &view, phoenix::comparison_names + 1, 5)) {
+            if (ImGui::Combo("View", &view, phoenix::comparison_names + 1, nvidia_source ? 1 : 5)) {
                 addon_state.panel.comparison = view + 1;
                 changed = true;
             }
@@ -367,6 +397,15 @@ inline bool draw_controls(Context &addon_state) {
             if (ImGui::Button("Swap A / B")) {
                 std::swap(addon_state.panel.source_a, addon_state.panel.source_b);
                 changed = true;
+            }
+            if (addon_state.panel.source_a == addon_state.panel.source_b)
+                ImGui::TextDisabled("Both sides use the same source");
+            if (addon_state.direct_game && (addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1)) {
+                if (addon_state.panel.comparison > 1) {
+                    addon_state.panel.comparison = 1;
+                    changed = true;
+                }
+                ImGui::TextDisabled("NVIDIA supports split comparison; difference views use Input and Phoenix");
             }
         }
         if (visible.divider())
@@ -400,7 +439,6 @@ inline bool draw_controls(Context &addon_state) {
             phoenix::reset_neural_section(addon_state.panel);
             changed = true;
         }
-        changed |= ImGui::Checkbox("Neural rendering (master switch)", &addon_state.panel.uplift);
         ImGui::BeginDisabled(!addon_state.input_capture);
         if (ImGui::Button("Capture input burst"))
             addon_state.capture(addon_state.panel.capture_burst > 0
@@ -411,7 +449,8 @@ inline bool draw_controls(Context &addon_state) {
                 "Saves consecutive game inputs and their settings for offline replay.");
         ImGui::EndDisabled();
         changed |= ImGui::Checkbox("Override strengths", &addon_state.live.enabled);
-        if (visible.strengths()) {
+        ImGui::BeginDisabled(!visible.strengths());
+        {
             changed |= ImGui::SliderFloat("Local tone", &addon_state.live.tone, 0.f, 2.f, "%.2f",
                                           ImGuiSliderFlags_AlwaysClamp);
             ImGui::SameLine();
@@ -427,10 +466,12 @@ inline bool draw_controls(Context &addon_state) {
                 changed = true;
             }
         }
-        ImGui::BeginDisabled(!addon_state.real_guides);
-        changed |= ImGui::Checkbox("Override guides / skin", &addon_state.live.advanced);
-        if (visible.guides()) {
+        ImGui::EndDisabled();
+        changed |= ImGui::Checkbox("Override skin and guides", &addon_state.live.advanced);
+        ImGui::BeginDisabled(!visible.guides());
+        {
             changed |= ImGui::Checkbox("Automatic skin mask", &addon_state.live.auto_mask);
+            ImGui::BeginDisabled(!addon_state.live.auto_mask);
             changed |= ImGui::SliderFloat("Skin structure", &addon_state.live.skin, -1.f, 2.f,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
             ImGui::SameLine();
@@ -438,6 +479,10 @@ inline bool draw_controls(Context &addon_state) {
                 addon_state.live.skin = -1;
                 changed = true;
             }
+            ImGui::EndDisabled();
+            ImGui::TextWrapped("Skin structure uses the automatic skin mask; -1 follows local structure.");
+            ImGui::SeparatorText("Engine motion and depth");
+            ImGui::BeginDisabled(!addon_state.real_guides);
             changed |= ImGui::SliderFloat("Motion X scale", &addon_state.live.motion_x, -4.f, 4.f,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
             ImGui::SameLine();
@@ -463,12 +508,12 @@ inline bool draw_controls(Context &addon_state) {
                 addon_state.live.depth = -1;
                 changed = true;
             }
+            ImGui::EndDisabled();
         }
         ImGui::EndDisabled();
         if (!addon_state.real_guides)
-            ImGui::TextWrapped("The final-color bridge supplies neutral guides; engine depth, "
-                               "motion and masks are unavailable.");
-        if (visible.native()) {
+            ImGui::TextDisabled("Engine motion and depth are unavailable for final-color capture.");
+        if (visible.native() && !addon_state.portable_backbuffer) {
             if (ImGui::Button("Defaults##native")) {
                 phoenix::reset_native_section(addon_state.panel);
                 changed = true;
@@ -553,10 +598,13 @@ inline bool draw_controls(Context &addon_state) {
                 }
             }
         }
-        if (ImGui::Button("Restore game controls")) {
+        if (ImGui::Button(addon_state.processing_enabled ? "Reset neural overrides" : "Restore game controls")) {
             addon_state.live = {};
             addon_state.panel.native_options = false;
-            addon_state.panel.uplift = false;
+            if (!addon_state.processing_enabled) {
+                addon_state.panel.uplift = false;
+                addon_state.processing_changed = true;
+            }
             changed = true;
         }
         if (ImGui::Button("Reset history"))
@@ -591,6 +639,7 @@ inline bool draw_controls(Context &addon_state) {
                 "Each pass refines the preceding output; each has separate previous-frame history. "
                 "More passes cost GPU time and memory and may overprocess the image.");
             if (ImGui::TreeNode("Transformer block repetitions")) {
+                ImGui::BeginDisabled(addon_state.fixed_native_blocks);
                 for (unsigned iteration_index = 0; iteration_index < 8; ++iteration_index) {
                     char label[32];
                     snprintf(label, sizeof(label), "Block %u repetitions", iteration_index + 1);
@@ -602,6 +651,7 @@ inline bool draw_controls(Context &addon_state) {
                     "0 skips a block and passes its input forward; 1 is the trained default. "
                     "Higher counts repeat the block on its preceding result. Truncated blocks are "
                     "not executed. Skipping or repetition changes the image and is experimental.");
+                ImGui::EndDisabled();
                 ImGui::TreePop();
             }
             if (ImGui::Button("Reset repetitions to defaults")) {
@@ -610,14 +660,31 @@ inline bool draw_controls(Context &addon_state) {
                 changed = true;
             }
         }
+        ImGui::BeginDisabled(addon_state.fixed_native_blocks);
         changed |= ImGui::Checkbox("Enable approximate network", &addon_state.panel.experimental);
+        ImGui::EndDisabled();
+        if(addon_state.fixed_native_blocks && (addon_state.panel.experimental ||
+            std::any_of(addon_state.panel.block_repeats.begin(),addon_state.panel.block_repeats.end(),[](int n){return n!=1;}))) {
+            if(ImGui::Button("Use full network for native x86 driver")) {
+                addon_state.panel.experimental=false;addon_state.panel.block_repeats.fill(1);changed=true;
+            }
+        }
         if (visible.depth()) {
+            ImGui::BeginDisabled(addon_state.fixed_native_blocks);
             changed |= ImGui::SliderInt("Transformer blocks", &addon_state.panel.transformer_blocks,
                                         1, 8, "%d / 8", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::EndDisabled();
             addon_state.panel.minimum_blocks =
                 std::min(addon_state.panel.minimum_blocks, addon_state.panel.transformer_blocks);
+            ImGui::BeginDisabled(addon_state.portable_backbuffer);
             changed |= ImGui::Checkbox("Adaptive blocks", &addon_state.panel.automatic_budget);
-            if (visible.budget()) {
+            ImGui::EndDisabled();
+            if (addon_state.portable_backbuffer && addon_state.panel.automatic_budget &&
+                ImGui::Button("Use fixed blocks for portable processing")) {
+                addon_state.panel.automatic_budget = false;
+                changed = true;
+            }
+            if (visible.budget() && !addon_state.portable_backbuffer) {
                 const char *target_names[]{"DLSS5 Phoenix GPU time", "Desired game FPS"};
                 if (ImGui::BeginCombo("Target", target_names[addon_state.panel.budget_mode])) {
                     for (int target = 0; target < 2; ++target) {
@@ -718,11 +785,13 @@ inline bool draw_controls(Context &addon_state) {
     if (ImGui::CollapsingHeader("Settings / logging")) {
         const char *log_levels[]{"Quiet", "Normal", "Verbose"};
         changed |= ImGui::Combo("Log level", &addon_state.panel.log_level, log_levels, 3);
+        ImGui::BeginDisabled(addon_state.portable_backbuffer);
         changed |=
             ImGui::SliderInt("Capture burst frames", &addon_state.panel.capture_burst, 0, 64);
         changed |= ImGui::Checkbox("Live settings reload", &addon_state.panel.external_reload);
         if (ImGui::Button("Reload overrides now"))
             addon_state.reload();
+        ImGui::EndDisabled();
         ImGui::TextWrapped("%s", addon_state.override_status.c_str());
         ImGui::TextWrapped("%s",
                            phoenix_model::source_path_string(addon_state.overrides_path).c_str());
@@ -747,9 +816,18 @@ inline bool draw_controls(Context &addon_state) {
         ImGui::Text("Model graph: 41 modules / %u transformer blocks",
                     addon_state.last_transformer_blocks);
     }
+    addon_state.live_selection_changed = phoenix::copy_live_selection(before, addon_state.panel);
+    addon_state.live_tuning_changed = phoenix::copy_live_tuning(before, addon_state.panel);
     return changed;
 }
 inline void draw_timing(Context &addon_state) {
+    if (addon_state.portable_wall_ms) {
+        ImGui::Text("Game presentation: %.1f FPS", addon_state.present_fps);
+        ImGui::Text("Last processed frame: %.3f ms (host + inference + resolve)", *addon_state.portable_wall_ms);
+        ImGui::TextWrapped("Timing source: %s", addon_state.timing_provenance.c_str());
+        if (ImGui::Button("Clear processing timing")) addon_state.action(Action::ClearTiming);
+        return;
+    }
     if (addon_state.live_timing) {
         ImGui::Text("Presentation rate: %.1f FPS (%.2f ms between presents)",
                     addon_state.present_fps,
@@ -896,10 +974,16 @@ inline void draw_timing(Context &addon_state) {
 // Both addons also share the small panel in ReShade's general overlay. The
 // adapter persists a changed route and handles model ownership/reconfiguration.
 inline bool draw_compact(Context &context) {
+    context.live_tuning_changed = false;
     ImGui::TextWrapped("Status: %s", context.status.empty() ? "Waiting" : context.status.c_str());
-    const char *labels[]{"Input", context.direct_nr_ready ? "NVIDIA DLL" : "NVIDIA (unavailable)",
+    auto& enabled = context.processing_enabled ? *context.processing_enabled : context.panel.uplift;
+    context.processing_changed = ImGui::Checkbox("Enable neural rendering", &enabled);
+    const char *labels[]{"Input", "NVIDIA DLL",
                           "Comparison", "DLSS5 Phoenix"};
-    const bool changed = ImGui::Combo("Backend##phoenix_compact", &context.panel.mode, labels, 4);
+    context.live_selection_changed = ImGui::Combo("Backend##phoenix_compact", &context.panel.mode, labels, 4);
+    if (context.live_selection_changed && context.direct_game)
+        phoenix::normalize_direct_comparison(context.panel);
+    const bool changed = context.processing_changed || context.live_selection_changed;
     if (phoenix::PanelVisibility{context.panel}.own_details())
         ImGui::Text("Transformer depth: %u / 8", context.last_transformer_blocks);
     if (context.live_timing) {
