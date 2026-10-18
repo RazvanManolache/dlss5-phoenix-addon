@@ -13,27 +13,27 @@ inline bool ValidatePhoenixHostConfig(const nlohmann::json& config,
                                      const std::filesystem::path& directory) {
     using namespace std::filesystem;
     if (config.at("schema") != "phoenix-live/1" || config.at("input_provider") != "feeder_d3d12")
-        throw std::runtime_error("Phoenix host needs phoenix-live/1 and input_provider=feeder_d3d12; SR/DLAA fallback is unavailable");
+        throw std::runtime_error("Phoenix DLSS5 host needs phoenix-live/1 and input_provider=feeder_d3d12; SR/DLAA fallback is unavailable");
     if (config.contains("portable_worker"))
         throw std::runtime_error("Python worker configurations are not supported by this host");
     if (weakly_canonical(u8path(config.at("sandbox").get<std::string>())) != weakly_canonical(directory) ||
         weakly_canonical(u8path(config.at("in_place_game_directory").get<std::string>())) != weakly_canonical(directory) ||
         config.at("in_place_approval") != "I approve driving this installed game in place")
-        throw std::runtime_error("Phoenix configuration does not name this exact host directory");
+        throw std::runtime_error("Phoenix DLSS5 configuration does not name this exact host directory");
     const auto transfer = config.at("direct_transfer").get<std::string>();
-    if (transfer != "linear" && transfer != "srgb") throw std::runtime_error("Invalid Phoenix transfer");
-    if (config.at("color_domain") != "game_nr_sdr_proxy") throw std::runtime_error("Unsupported Phoenix host color domain");
+    if (transfer != "linear" && transfer != "srgb") throw std::runtime_error("Invalid Phoenix DLSS5 transfer");
+    if (config.at("color_domain") != "game_nr_sdr_proxy") throw std::runtime_error("Unsupported Phoenix DLSS5 host color domain");
     const auto& source = config.at("weight_source");
     const auto model = u8path(source.at("path").get<std::string>());
-    if (!model.is_absolute()) throw std::runtime_error("Phoenix model path must be absolute");
+    if (!model.is_absolute()) throw std::runtime_error("Phoenix DLSS5 model path must be absolute");
     if (source.at("kind") == "nvidia_dll") {
         const auto hash = source.at("sha256").get<std::string>();
         if (!is_regular_file(model) || hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
-            throw std::runtime_error("Phoenix model DLL or checksum is invalid");
+            throw std::runtime_error("Phoenix DLSS5 model DLL or checksum is invalid");
     } else if (source.at("kind") != "model_folder" || !is_regular_file(model / "model.json"))
-        throw std::runtime_error("Phoenix model folder is invalid");
+        throw std::runtime_error("Phoenix DLSS5 model folder is invalid");
     const auto limit = config.at("frame_limit").get<unsigned>();
-    if (!limit || limit > 4000000) throw std::runtime_error("Invalid Phoenix frame cap");
+    if (!limit || limit > 4000000) throw std::runtime_error("Invalid Phoenix DLSS5 frame cap");
     return config.at("armed").get<bool>();
 }
 

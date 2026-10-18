@@ -78,7 +78,7 @@ int wmain(int argc, wchar_t** argv) {
             event("adapter", {{"vendor_id", desc.VendorId}, {"device_id", desc.DeviceId}});
             break;
         }
-        if (!device) throw std::runtime_error("No NVIDIA D3D12 adapter");
+        if (!device) throw std::runtime_error("No NVIDIA DLSS5 D3D12 adapter");
         ComPtr<ID3D12CommandQueue> queue;
         D3D12_COMMAND_QUEUE_DESC desc{};
         desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;

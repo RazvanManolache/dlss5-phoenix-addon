@@ -115,7 +115,7 @@ inline std::string file_digest(const fs::path& path, const std::atomic<bool>* ca
 inline fs::path default_cache() {
     PWSTR path = nullptr;
     require(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &path)),
-            "DLSS5 Phoenix cannot locate the local runtime cache");
+            "Phoenix DLSS5 cannot locate the local runtime cache");
     fs::path result(path);
     CoTaskMemFree(path);
     const auto logical = result / L"DLSS5Phoenix" / L"runtime";

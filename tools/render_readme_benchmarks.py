@@ -48,7 +48,7 @@ class Panel:
         self.image = Image.new("RGB", (1600, height), BG)
         self.draw = ImageDraw.Draw(self.image)
         date = date or datetime.date.fromisoformat(DATA["date"]).strftime("%d %b %Y").upper()
-        self.text(48, 28, f"DLSS5 PHOENIX  /  LOCAL BENCHMARK  /  {date}", 21, GREEN, True)
+        self.text(48, 28, f"PHOENIX DLSS5  /  LOCAL BENCHMARK  /  {date}", 21, GREEN, True)
         self.text(48, 67, title, 44, INK, True)
         self.text(48, 130, subtitle, 25, MUTED)
 
@@ -82,17 +82,17 @@ class Panel:
 
 def native():
     phoenix, nvidia = ROWS["phoenix"], ROWS["nvidia"]
-    p = Panel("Native RTX: Phoenix and NVIDIA at 1080p", "RTX 5080 · automatic input-resolution tuning · GPU inference; lower is better", 1040, measured_date(phoenix).strftime("%d %b %Y").upper())
+    p = Panel("Native RTX: Phoenix DLSS5 and NVIDIA DLSS5 at 1080p", "RTX 5080 · automatic input-resolution tuning · GPU inference; lower is better", 1040, measured_date(phoenix).strftime("%d %b %Y").upper())
     for left, row, color in [(48, phoenix, GREEN), (815, nvidia, BLUE)]:
         p.box(left, 196, left + 735, 396)
-        p.text(left + 28, 216, "Phoenix native RTX" if row["id"] == "phoenix" else "NVIDIA DLSS NR", 29, color, True)
+        p.text(left + 28, 216, "Phoenix DLSS5 native RTX" if row["id"] == "phoenix" else "NVIDIA DLSS5 NR", 29, color, True)
         p.text(left + 28, 258, f"{row['core_ms']:.3f} ms", 66, INK, True)
         p.text(left + 28, 350, f"Process-median range: {row['process_median_min_ms']:.3f}–{row['process_median_max_ms']:.3f} ms", 23, MUTED)
     p.box(48, 424, 810, 836)
     p.text(76, 447, "Matched benchmark extents", 28, INK, True)
     p.text(76, 499, "Resolution", 23, MUTED)
-    p.right(480, 499, "Phoenix", 23, GREEN)
-    p.right(625, 499, "NVIDIA", 23, BLUE)
+    p.right(480, 499, "Phoenix DLSS5", 18, GREEN)
+    p.right(625, 499, "NVIDIA DLSS5", 18, BLUE)
     p.right(780, 499, "Δ latency", 23, MUTED)
     for index, row in enumerate(row for row in DATA["resolution_matrix"] if row["width"] >= 1280):
         y = 551 + index * 48
@@ -104,7 +104,7 @@ def native():
     p.text(863, 447, "1080p process GPU-local residency", 28, INK, True)
     for index, (row, color) in enumerate([(phoenix, GREEN), (nvidia, BLUE)]):
         y = 509 + index * 91
-        label = "Phoenix" if index == 0 else "NVIDIA"
+        label = "Phoenix DLSS5" if index == 0 else "NVIDIA DLSS5"
         value = row["device_local_bytes"] / MIB
         p.text(863, y, label, 25, color)
         p.right(1522, y, f"{value:.1f} MiB", 27, INK, True)
@@ -119,7 +119,7 @@ def native():
 def resolution_scaling(rows, title, filename):
     """Use shared linear axes so latency and memory scaling stay comparable."""
     bottom = 325 + len(rows) * 153
-    p = Panel(title, "Phoenix automatic / NVIDIA DLSS NR · same model · exact reset + final outputs", bottom + 180)
+    p = Panel(title, "Phoenix DLSS5 automatic / NVIDIA DLSS5 NR · same model · exact reset + final outputs", bottom + 180)
     p.box(48, 190, 790, bottom)
     p.box(815, 190, 1550, bottom)
     p.text(76, 214, "GPU inference · ms", 30, INK, True)
@@ -130,13 +130,13 @@ def resolution_scaling(rows, title, filename):
         top = 282 + index * 153
         for left in (76, 843):
             p.text(left, top, f"{row['width']} × {row['height']}", 26, INK, True)
-        for offset, (route, label, color) in enumerate((("phoenix", "Phoenix", GREEN), ("nvidia", "NVIDIA", BLUE))):
+        for offset, (route, label, color) in enumerate((("phoenix", "Phoenix DLSS5", GREEN), ("nvidia", "NVIDIA DLSS5", BLUE))):
             y = top + 43 + offset * 39
             for left, key, divisor, maximum in ((76, "gpu_ms", 1, max_time), (843, "device_local_bytes", MIB, max_memory)):
                 value = row[route][key] / divisor
-                p.text(left, y - 4, label, 21, color)
-                start = left + 100
-                end = start + 490 * value / maximum
+                p.text(left, y - 4, label, 20, color)
+                start = left + 165
+                end = start + 425 * value / maximum
                 p.draw.rectangle((start, y + 3, end, y + 24), fill=color)
                 p.text(end + 10, y - 4, f"{value:.2f}" if divisor == 1 else f"{value:,.1f}", 23)
     p.wrap(48, bottom + 30, "RTX 5080 16 GiB · driver 616.64 · Ryzen 9950X3D · 96 GiB RAM. Two processes per renderer and extent; 128 frames each, discard 32. Means of process medians; clocks and scheduling introduce variation.", 1500, 24)
@@ -159,21 +159,21 @@ def resolution_report():
         table += '<tr>' + ''.join(f'<td>{html.escape(value)}</td>' for value in values) + '</tr>'
     page = '''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DLSS5 Phoenix — resolution benchmarks</title>
+<title>Phoenix DLSS5 — resolution benchmarks</title>
 <style>body{background:#0e1420;color:#e9f0f9;font:18px Segoe UI,system-ui;margin:32px auto;padding:0 24px;max-width:1600px}
 a{color:#93bcff}h1{color:#79dbb4}img{max-width:100%;height:auto;border-radius:12px}table{width:100%;border-collapse:collapse}
 td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{background:#161f2d;color:#e9f0f9;padding:10px;font:inherit}
 .scroll{overflow:auto}.muted{color:#acbbce}section{margin:36px 0}</style>
-<h1>DLSS5 Phoenix: resolution benchmarks</h1>
-<p>13 October 2026 · RTX 5080 16 GiB · NVIDIA 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
+<h1>Phoenix DLSS5: resolution benchmarks</h1>
+<p>13 October 2026 · RTX 5080 16 GiB · NVIDIA DLSS5 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
 <p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
 Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
 GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
-<p>Phoenix automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
+<p>Phoenix DLSS5 automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
 Smaller inputs retain their original register choices; aligned memory reads apply at every size.
 Both entries are embedded in the same addon. Clocks were observed, not locked.</p>
-<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
-<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody>''' + table + '''</tbody></table></section>
+<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix DLSS5 ms</th><th>NVIDIA DLSS5 ms</th>
+<th>Phoenix DLSS5 GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody>''' + table + '''</tbody></table></section>
 <p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
 Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
@@ -187,7 +187,7 @@ Per-launch queries can alter scheduling; diagnostic kernel timings are separate 
 <p>The controlled tuning investigation preserves its own A/B measurements and tested alternatives.
 <a href="../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md">Automatic selection, measurements and limits</a>.
 The release snapshot now includes these kernel choices.</p>
-<img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix and NVIDIA comparison">
+<img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix DLSS5 and NVIDIA DLSS5 comparison">
 <img src="native-scaling-kernels.png" alt="Measured kernel-family crossovers and retained wins"></details></section>
 <section><h2>Hypothetical VR costs — not measured in VR</h2>
 <p>RTX 5080 estimates for two independent views, full network and one pass. No stereo-batch speedup assumed.
@@ -202,9 +202,9 @@ The validated RTX Vulkan path now includes workgroup FP8 matrices and eligible f
 The native-kernel Vulkan launch prototype is not enabled in the release.</p>
 <img src="portable-runners.png" alt="Current alternate-runner timing and memory measurements"></section>
 <section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
-Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
+Left: Phoenix DLSS5. Middle: NVIDIA DLSS5. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
 <label for="extent">Resolution </label><select id="extent">''' + options + '''</select>
-<p><img id="comparison" alt="Phoenix, NVIDIA and amplified difference" src="output-''' + f'{rows[0]["width"]}x{rows[0]["height"]}' + '''.png"></p></section>
+<p><img id="comparison" alt="Phoenix DLSS5, NVIDIA DLSS5 and amplified difference" src="output-''' + f'{rows[0]["width"]}x{rows[0]["height"]}' + '''.png"></p></section>
 <script>document.getElementById('extent').addEventListener('change',event=>{
 document.getElementById('comparison').src='output-'+event.target.value+'.png';});</script></html>'''
     measured_date = datetime.date.fromisoformat(DATA["date"]).strftime("%d %B %Y")

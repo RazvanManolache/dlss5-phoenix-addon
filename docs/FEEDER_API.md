@@ -15,7 +15,7 @@ The live add-on exposes `CnrPHOENIXFeederVersion()` (ABI 1) and
 `CnrPHOENIXFeederEvaluate(frame, result)`. The public layout is
 [`feeder_api.h`](../src/integration/reshade/feeder_api.h).
 
-This path calls Phoenix directly, without creating/evaluating a Super Resolution
+This path calls Phoenix DLSS5 directly, without creating/evaluating a Super Resolution
 or DLAA feature. Configure `input_provider=feeder_d3d12` in `Phoenix.json`.
 Actual game-DLSS interception remains `game_dlss` and is unchanged.
 
@@ -29,7 +29,7 @@ Textures must not alias. These objects are borrowed, not transferred.
 
 `S_OK/Recorded` means commands were recorded, not that the GPU completed. The
 caller must submit the same list on the declared queue, wait for its fence and
-verify Phoenix completion/writeback before presenting the output.
+verify Phoenix DLSS5 completion/writeback before presenting the output.
 `S_OK/Bypass` preserves the input. `S_FALSE/Deferred` carries no claimed neural
 recording; a claimed recording that fails is terminal and must be abandoned.
 There is no implicit SR fallback.
@@ -58,8 +58,8 @@ or helper restart is performed. The next processed frame uses the new values.
 Compatibility IPC v11 coalesces these updates on its existing pipe worker; the
 host still accepts v10 clients using the unchanged frame-packet layout.
 
-Stream 0 is mono; 1 and 2 are left/right. Phoenix retains separate executors,
+Stream 0 is mono; 1 and 2 are left/right. Phoenix DLSS5 retains separate executors,
 timing and history and switches only after the previous stream retires. Global
-control resets propagate to every stream. Stereo accepts Input/Phoenix sources;
+control resets propagate to every stream. Stereo accepts Input/Phoenix DLSS5 sources;
 NVIDIA-reference sources are refused until their NR features are isolated.
 Synthetic transport validation is not stereo-game acceptance or a quality claim.

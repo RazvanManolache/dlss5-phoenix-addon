@@ -245,7 +245,7 @@ public:
         if (status != S_OK || (result.status != PhoenixFeederStatusV1::Recorded &&
                               result.status != PhoenixFeederStatusV1::Bypass)) {
             r.list->Close(); // Abandon an unsubmitted failed recording, never execute it.
-            throw std::runtime_error("In-process Phoenix evaluation refused: " +
+            throw std::runtime_error("In-process Phoenix DLSS5 evaluation refused: " +
                 local_json(in_process_api.progress).value("direct_game", Json::object()).value("status", std::string()));
         }
         if (result.status == PhoenixFeederStatusV1::Bypass) { submit(); reset_history(); return false; }
@@ -254,7 +254,7 @@ public:
         submit();
         const auto after = local_json(in_process_api.progress);
         if (!PhoenixOutputAdvanced(before, after))
-            throw std::runtime_error("In-process output lacks completed Phoenix execution proof");
+            throw std::runtime_error("In-process output lacks completed Phoenix DLSS5 execution proof");
         ++completed_;
         begin();
         r.adapter.RecordOutput(r.device.Get(), r.list.Get(), r.presentation.Get());

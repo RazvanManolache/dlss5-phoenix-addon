@@ -24,7 +24,7 @@ Validation of the accepted code includes:
 
 - Exact separate-versus-fused Q/K/V comparisons for 1, 2, 4 and 8 heads, with 1, 17, 63, 64 and 129 rows.
 - 80 additional exact output comparisons across accelerated and scalar Vulkan at 1×1, 96×64, 321×193, 513×257 and 1920×1080. These change seeds (including zero and UINT32_MAX), reset history, exercise maximum supported intensity, and use multiple passes.
-- The portable saved regression suite and NVIDIA/AMD backend operator contracts, including 1,354,743 finite conversion checks per device.
+- The portable saved regression suite and NVIDIA DLSS5/AMD backend operator contracts, including 1,354,743 finite conversion checks per device.
 
 Library configuration can disable either accepted optimization independently:
 
@@ -36,4 +36,4 @@ The defaults apply to the tested NVIDIA Vulkan route. Noise caching regenerates 
 
 Hardware: RTX 5080 16 GiB, NVIDIA driver 616.64, Ryzen 9 9950X3D (16 cores / 32 threads), 96 GiB RAM. AMD checks use the integrated gfx1036 GPU, not a discrete Radeon card. Tests are synthetic library/runner tests; no new game-rendering or physical Android/Intel-GPU claim is made.
 
-Historical local experiment receipts used `build/vulkan_fusions_20261014`. Frozen sources, recipes and selected alternative binaries were also preserved in an external local archive of about 3.5 MB, without a model or NVIDIA DLL. The accepted runtime was `build/vulkan_fusions_20261014/final_runtime`. These paths describe the historical experiment, not release contents.
+Historical local experiment receipts used `build/vulkan_fusions_20261014`. Frozen sources, recipes and selected alternative binaries were also preserved in an external local archive of about 3.5 MB, without a model or NVIDIA DLSS5 DLL. The accepted runtime was `build/vulkan_fusions_20261014/final_runtime`. These paths describe the historical experiment, not release contents.

@@ -1,4 +1,4 @@
-# Build DLSS5 Phoenix
+# Build Phoenix DLSS5
 
 For the standalone C library, Linux/Android builds and experimental Apple silicon
 Metal backend, see [the library build and integration guide](docs/LIBRARY.md).
@@ -73,10 +73,10 @@ Additional targets are `cuda`, `hip`, `sycl`, `vulkan_adapter`, `d3d12_transport
 
 ## Runtime packaging
 
-For the optional NVIDIA NR comparison, install the x64 addon as
-`Phoenix_nvngx.dll.addon64`. This NVIDIA runtime checks its calling module's
+For the optional NVIDIA DLSS5 NR comparison, install the x64 addon as
+`Phoenix_nvngx.dll.addon64`. This NVIDIA DLSS5 runtime checks its calling module's
 path for `nvngx.dll`; installing the same bytes as `Phoenix.addon64` allows
-Phoenix inference but makes NVIDIA NR initialization return `0xBAD00002`.
+Phoenix DLSS5 inference but makes NVIDIA DLSS5 NR initialization return `0xBAD00002`.
 Keep only one active copy of the addon. Renaming NVIDIA's model DLL does not
 satisfy this calling-module requirement.
 
@@ -136,12 +136,12 @@ in `tests/fixtures/runner_regressions.json`; another GPU/toolchain may need its 
 reviewed numerical reference. A mismatch must be investigated, not bypassed.
 
 `validate_native.py` generates inputs for eight saved regression extents, runs 128
-frames per extent and compares reset and history readbacks with saved Phoenix
+frames per extent and compares reset and history readbacks with saved Phoenix DLSS5
 native output hashes. It checks debug errors, GPU execution and kernel retirement
 before marking the bundle validated. Cases include 6K, 8K, and 5760×3239/5761×3241
 on opposite sides of the selection threshold. Both compiled branches must be
 exercised; packaging also verifies that the validated entry/threshold metadata
-has not changed. This is Phoenix regression equivalence,
+has not changed. This is Phoenix DLSS5 regression equivalence,
 not equivalence to NVIDIA's renderer. `--cpu-only` on the standalone native probe
 checks geometry only and cannot satisfy inference validation.
 
@@ -195,7 +195,7 @@ quality settings. The offline graph profiler reads these same options. Runtime
 status reports `validation_ms` separately from preparation, model/transfer, and
 resolve times; full frame calls also include transport and synchronization.
 
-`tools/embed_runtime.py` requires validation manifests and embeds runner libraries and kernels. The NVIDIA model DLL remains separate. No NVIDIA DLL or extracted model is included in the repository.
+`tools/embed_runtime.py` requires validation manifests and embeds runner libraries and kernels. The NVIDIA DLSS5 model DLL remains separate. No NVIDIA DLSS5 DLL or extracted model is included in the repository.
 
 The addon builder writes `report.json` with separate compilation, contract-test
 and artifact-verification results and a `failed_stage` on failure. If linking
@@ -203,7 +203,7 @@ finishes but the addon disappears or cannot be read, inspect that receipt, the
 build logs and security history. Do not treat compiler completion as a successful
 package: the final addon must be readable and pass the embedded-resource test.
 
-The game also needs compatible ReShade with addon support and a `Phoenix.json` configuration. Without configuration the panel can appear while inference remains inactive. The addon supports selecting a compatible NVIDIA DLL or a local model folder; model selection does not replace the runner/kernel package.
+The game also needs compatible ReShade with addon support and a `Phoenix.json` configuration. Without configuration the panel can appear while inference remains inactive. The addon supports selecting a compatible NVIDIA DLSS5 DLL or a local model folder; model selection does not replace the runner/kernel package.
 
 Normal gameplay does not require a readiness marker and performs no marker-file checks. Processing uses the existing configuration, enable controls and runtime initialization checks. For externally controlled tests, set `"require_gpu_ready_file": true` in `Phoenix.json`; this requires `production_game_phoenix_gpu.ready` in the configured sandbox directory, and removing that marker pauses processing. Diagnostic builds retain marker control by default; set the option to `false` to disable it explicitly. The marker is only an external test switch, not model validation.
 

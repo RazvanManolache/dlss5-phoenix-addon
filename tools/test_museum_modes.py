@@ -98,7 +98,7 @@ def check_startup(snapshot, allow_disabled=False):
               'backend': snapshot.get('applied_settings', {}).get('Backend'),
               'disabled_override': allow_disabled and snapshot.get('enabled') is False}
     if snapshot.get('enabled') is not True and not allow_disabled:
-        raise RuntimeError('Saved processing is disabled or unavailable. Enable Phoenix before testing; '
+        raise RuntimeError('Saved processing is disabled or unavailable. Enable Phoenix DLSS5 before testing; '
                            '--allow-disabled-startup is diagnostic only and restores the disabled setting.')
     return result
 
@@ -220,18 +220,18 @@ try:
 
     if not expect_helper:
         initial_creates = next(c for c in report['cases'] if c['name']=='nvidia')['last_status']['nvidia']['creates']
-        assert initial_creates == 1, 'NVIDIA feature was not initialized exactly once at fixed geometry'
+        assert initial_creates == 1, 'NVIDIA DLSS5 feature was not initialized exactly once at fixed geometry'
         returns = []
         for mode in (1, 3, 1):
             started = time.monotonic()
             command('set', settings={'Backend':mode})
             ready = wait(lambda: selection_ready(mode),60)
             info = ready['in_process']['nvidia']
-            assert info['creates'] == initial_creates, 'Backend switch recreated the NVIDIA feature'
+            assert info['creates'] == initial_creates, 'Backend switch recreated the NVIDIA DLSS5 feature'
             if mode == 1:
                 pixels = capture('nvidia-return',keep=False)
                 error = float(np.abs(pixels.astype(float)-images['nvidia'].astype(float)).mean())
-                assert error < 1.5, ('NVIDIA return image mismatch', error)
+                assert error < 1.5, ('NVIDIA DLSS5 return image mismatch', error)
                 returns.append({'first_presented_seconds':round(time.monotonic()-started,3),
                                 'creates':info['creates'],'pixel_mae':error})
         report['nvidia_reuse'] = {'passed':True,'helper_pid':0,'returns':returns}

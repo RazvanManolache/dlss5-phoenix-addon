@@ -49,7 +49,7 @@ other in-progress changes in the checkout. SDK packages contain neither model
 data nor NVIDIA's model DLL.
 
 No model files, DLLs or private frame jobs are included in the published source.
-The supplied NVIDIA DLL is authenticated/read as PE resource data by the portable
+The supplied NVIDIA DLSS5 DLL is authenticated/read as PE resource data by the portable
 runner. Its executable code is not loaded by the standalone inference path.
 
 ## Remaining acceptance work

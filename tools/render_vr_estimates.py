@@ -42,7 +42,7 @@ class Figure:
     def __init__(self, title, subtitle, height):
         self.image = Image.new("RGB", (1600, height), BG)
         self.draw = ImageDraw.Draw(self.image)
-        self.text(48, 26, "DLSS5 PHOENIX  /  VR ESTIMATE  /  NOT A VR BENCHMARK", 22, GOLD, True)
+        self.text(48, 26, "PHOENIX DLSS5  /  VR ESTIMATE  /  NOT A VR BENCHMARK", 22, GOLD, True)
         self.text(48, 69, title, 43, TEXT, True)
         self.text(48, 132, subtitle, 25, MUTED)
 
@@ -93,7 +93,7 @@ def cost_chart(out, records):
                                       fill=CARD, outline=EDGE, width=2)
         figure.text(left + 28, 211, headset["name"], 34, TEXT, True)
         figure.text(left + 28, 258, f"Panel: {headset['width']} × {headset['height']} per eye", 24, MUTED)
-        plot_left, plot_width = left + 139, 450
+        plot_left, plot_width = left + 205, 384
         for mode_index, mode in enumerate(["panel", "half_linear"]):
             row = next(row for row in records if row["headset"] == headset["name"] and row["mode"] == mode)
             top = 315 + mode_index * 206
@@ -102,10 +102,10 @@ def cost_chart(out, records):
             figure.text(left + 28, top + 35,
                         f"Input: {row['input_per_eye'][0]} × {row['input_per_eye'][1]} per eye", 23, MUTED)
             for route_index, (route, name, color) in enumerate([
-                    ("phoenix", "Phoenix", GREEN), ("nvidia", "NVIDIA", BLUE)]):
+                    ("phoenix", "Phoenix DLSS5", GREEN), ("nvidia", "NVIDIA DLSS5", BLUE)]):
                 y = top + 85 + route_index * 51
                 cost = row["stereo_model_ms"][route]
-                figure.text(left + 28, y - 3, name, 24, color)
+                figure.text(left + 28, y - 3, name, 21, color)
                 end = plot_left + cost / 18 * plot_width
                 figure.draw.rectangle((plot_left, y + 4, end, y + 28), fill=color)
                 for hz, marker_color in [(90, GOLD), (120, MUTED)]:
@@ -126,7 +126,7 @@ def cost_chart(out, records):
 
 def budget_chart(out, records):
     figure = Figure("VR estimate: how much frame time remains?",
-                    "Phoenix native on RTX 5080 · both eyes · inference first; everything else still has to fit", 1110)
+                    "Phoenix DLSS5 native on RTX 5080 · both eyes · inference first; everything else still has to fit", 1110)
     for index, hz in enumerate([90, 120]):
         left, budget = 48 + index * 767, 1000 / hz
         figure.draw.rounded_rectangle((left, 190, left + 735, 882), radius=15,

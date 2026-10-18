@@ -37,7 +37,7 @@ These are one matched 1080p CPU inference process per version, using the same br
 | vulkan_amd | 467.0 MiB | 655.5 MiB | 11.95 MiB |
 | vulkan_nvidia | 467.0 MiB | 274.0 MiB | 11.95 MiB |
 
-CPU and SYCL CPU use the Ryzen CPU; CUDA and Vulkan NVIDIA use RTX 5080; HIP AMD and Vulkan AMD use the integrated AMD Radeon. Requested backend buffer bytes describe graph allocations, not physical GPU residency. They exclude shared host noise/history, temporary preparation vectors, transport and driver caches. Worker resident RAM includes runtime and mapped/shared pages. New status fields expose noise/history vector capacities and a sampled temporary-capacity high-water mark without pretending to measure the entire allocator peak.
+CPU and SYCL CPU use the Ryzen CPU; CUDA and Vulkan NVIDIA DLSS5 use RTX 5080; HIP AMD and Vulkan AMD use the integrated AMD Radeon. Requested backend buffer bytes describe graph allocations, not physical GPU residency. They exclude shared host noise/history, temporary preparation vectors, transport and driver caches. Worker resident RAM includes runtime and mapped/shared pages. New status fields expose noise/history vector capacities and a sampled temporary-capacity high-water mark without pretending to measure the entire allocator peak.
 
 Validation
 
@@ -46,7 +46,7 @@ Validation
 - All 42 saved portable frames pass on six installed routes at three sizes; nine additional packed-feature checks match across three extents and three seeds. CPU preflight/history/cancellation contracts pass.
 - GPU→worker→GPU offload passes temporal-history, motion, depth rejection, stale-generation, expiry and alpha checks. Pixel error is 5.96e-08; all tracked transport allocations retire after shutdown. Its small 96×64 fixture is a lifecycle check, not a 1080p memory/performance result.
 - Four counterbalanced ABBA/BAAB blocks (16 isolated processes, 128 frames each) measure native GPU medians of 3.848152 ms before and 3.849160 ms after. The +0.026% difference is small; this pass establishes no material speed change. These intervals are inference measurements, not game FPS. Portable timings collected during correctness checks are not claimed as comparative benchmarks.
-- Eleven C++ CPU suites, one software-D3D12 suite, 28 Python tests and all 118 embedded files pass. No model or NVIDIA DLL is embedded. The final addon is built, but no game installation or live-game memory validation was performed.
+- Eleven C++ CPU suites, one software-D3D12 suite, 28 Python tests and all 118 embedded files pass. No model or NVIDIA DLSS5 DLL is embedded. The final addon is built, but no game installation or live-game memory validation was performed.
 
 Source backup: `backup/memory-gap-audit-20261011`. Fixes are committed separately for direct ownership/sharing, portable buffers, transport accounting and staged sharing. Historical source folders and alternatives were retained.
 
@@ -61,8 +61,8 @@ a smaller model workspace and history, plus resampling scratch and optional
 scaled guides. DLSS SR or XeSS adds a full-output RGBA16F texture (about
 15.8 MiB of texels at 1920×1080, with allocator alignment measured separately)
 and vendor-private storage. Owned output/guide/compositor allocations are
-tracked; NVIDIA/Intel internal resources are **not** included in that ledger.
+tracked; NVIDIA DLSS5/Intel internal resources are **not** included in that ledger.
 Process GPU-local usage includes vendor and harness resources and is not an
-internal-memory breakdown. Native Phoenix plus either temporal upscaler passed
+internal-memory breakdown. Native Phoenix DLSS5 plus either temporal upscaler passed
 1080p execution and zero-owned-object teardown checks; these were regression
 checks, not a new controlled performance/memory comparison against Normal.

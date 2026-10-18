@@ -44,11 +44,11 @@ int wmain(int argc,wchar_t** argv) {
                 {"refinement_changed_values",changed(first,second)},{"gpu_ms",session.gpu_ms()}};
             if(!driver) {
                 auto nv=session.evaluate(pixels,settings,1);
-                phoenix_bundle::require(nv.size()==first.size(),"NVIDIA output extent mismatch");
+                phoenix_bundle::require(nv.size()==first.size(),"NVIDIA DLSS5 output extent mismatch");
                 auto nv_tuned=session.evaluate(pixels,tuning,1);
-                phoenix_bundle::require(changed(nv,nv_tuned)>1000,"NVIDIA controls did not change output");
+                phoenix_bundle::require(changed(nv,nv_tuned)>1000,"NVIDIA DLSS5 controls did not change output");
                 auto switched=session.evaluate(pixels,settings,3);
-                phoenix_bundle::require(switched==first,"NVIDIA/Phoenix switching did not restore output");
+                phoenix_bundle::require(switched==first,"NVIDIA DLSS5/Phoenix DLSS5 switching did not restore output");
                 auto comparison=settings;comparison.mode=phoenix_addon::phoenix::split;comparison.comparison=1;
                 comparison.source_a=1;comparison.source_b=2;comparison.divider=.5f;
                 auto composed=phoenix_compat::portable_compose(pixels,first,width,comparison,&nv);

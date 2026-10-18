@@ -50,7 +50,7 @@ int wmain(int argc, wchar_t** argv) {
         auto vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(get(nullptr, "vkCreateInstance"));
         if (!vkCreateInstance) throw std::runtime_error("Missing instance creation");
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app.pApplicationName = "Phoenix x86 feasibility probe";
+        app.pApplicationName = "Phoenix DLSS5 x86 feasibility probe";
         app.apiVersion = VK_API_VERSION_1_2;
         VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         ici.pApplicationInfo = &app;

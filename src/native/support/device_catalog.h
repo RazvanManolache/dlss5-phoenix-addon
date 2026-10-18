@@ -33,7 +33,7 @@ inline void append_native_devices(std::vector<ExecutionDevice>& result,
                     duplicate = true;
             if (!duplicate)
                 result.push_back({device_id, entry.at("name").get<std::string>() +
-                                                 " (DLSS5 Phoenix " + provider + ")"});
+                                                 " (Phoenix DLSS5 " + provider + ")"});
         }
     } catch (const std::exception&) { /* Missing/invalid SDK catalogue stays unavailable. */
     }
@@ -129,7 +129,7 @@ execution_devices(const std::filesystem::path& vulkan_build = {},
         name[255] = 0;
         const std::string device_id = "vulkan:" + std::string(uuid);
         if (valid_execution_device(device_id))
-            result.push_back({device_id, std::string(name) + " (DLSS5 Phoenix Vulkan)"});
+            result.push_back({device_id, std::string(name) + " (Phoenix DLSS5 Vulkan)"});
     }
     return result;
 }

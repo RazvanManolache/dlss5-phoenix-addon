@@ -1,6 +1,6 @@
-# Standalone Phoenix library (experimental)
+# Standalone Phoenix DLSS5 library (experimental)
 
-Phoenix can be embedded without ReShade through the C interface in
+Phoenix DLSS5 can be embedded without ReShade through the C interface in
 [`native_runtime/phoenix.h`](../native_runtime/phoenix.h). The addon remains the
 main game integration. This portable interface uses the portable graph and
 host-plane frame boundary; its performance must not be inferred from native RTX
@@ -130,7 +130,7 @@ cmake --build build/android --parallel 4
 cmake --install build/android --prefix build/android-sdk
 ```
 
-Package both Phoenix `.so` files and the NDK's `libc++_shared.so` in the app's
+Package both Phoenix DLSS5 `.so` files and the NDK's `libc++_shared.so` in the app's
 ARM64 native library directory. This is a C/NDK interface; a Kotlin/Java app
 needs a JNI wrapper. No APK, UI, camera integration or game injection is supplied.
 Model files must be readable filesystem paths; Android content URIs need to be
@@ -244,7 +244,7 @@ hosts parse its PE resource tree to find `RCDATA/WEIGHTS_HT`, authenticate the
 file and decode the tensor records. Disk models use the existing
 `dlss5-phoenix-model/1`, `phoenix-network37/1` manifest/layout. This supports
 compatible replacement tensors; it does not import arbitrary ONNX/PyTorch
-architectures. No NVIDIA DLL or extracted model is bundled in the source/SDK.
+architectures. No NVIDIA DLSS5 DLL or extracted model is bundled in the source/SDK.
 
 Per-frame controls:
 

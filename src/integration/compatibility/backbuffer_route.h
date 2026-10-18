@@ -55,20 +55,20 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
             (caps.samples!=1&&caps.api!=reshade::api::device_api::d3d9))
             return {BackbufferRoute::Unsupported,"Experimental native x86 processing requires one SDR canvas up to 8192 per axis."};
         if(preference==ExecutionPreference::NativeDriver&&caps.nvidia_required)
-            return {BackbufferRoute::Helper,"NVIDIA/comparison needs its x64 library; retaining the Phoenix driver-host preference and using the helper."};
+            return {BackbufferRoute::Helper,"NVIDIA/comparison needs its x64 library; retaining the Phoenix DLSS5 driver-host preference and using the helper."};
         return {preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::NativeDriver,
-            preference==ExecutionPreference::NativeLibrary?"Experimental x64 renderer inside this x86 process.":"Experimental x86 Phoenix host with same-process native driver."};
+            preference==ExecutionPreference::NativeLibrary?"Experimental x64 renderer inside this x86 process.":"Experimental x86 Phoenix DLSS5 host with same-process native driver."};
     }
     if (preference == ExecutionPreference::Portable && !caps.nvidia_required) {
         if (caps.width > 8192 || caps.height > 8192 || !caps.sdr ||
             caps.layers != 1 || caps.levels != 1 ||
             (caps.samples != 1 && caps.api != reshade::api::device_api::d3d9))
             return {BackbufferRoute::Unsupported, "Portable processing requires a single SDR canvas up to 8192 per axis."};
-        return {BackbufferRoute::Portable, "In-process portable Phoenix; fenced CPU pixel transfers, no helper process."};
+        return {BackbufferRoute::Portable, "In-process portable Phoenix DLSS5; fenced CPU pixel transfers, no helper process."};
     }
     std::string reason;
     if (caps.bits == 32 && caps.nvidia_required)
-        reason = "The selected NVIDIA DLL requires the 64-bit helper; Phoenix-only processing does not.";
+        reason = "The selected NVIDIA DLSS5 DLL requires the 64-bit helper; Phoenix DLSS5-only processing does not.";
     else if (caps.bits == 32 && !caps.x86_native_validated)
         reason = "The x86 native driver execution path is not runtime-validated; using the safe graphics helper.";
     else if (caps.api != reshade::api::device_api::d3d12)
@@ -77,7 +77,7 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
     else if (!caps.native_executor) reason = "The selected executor currently uses the isolated helper.";
     if (preference == ExecutionPreference::Helper) reason = "External helper explicitly selected.";
     if (preference == ExecutionPreference::Portable)
-        reason = "NVIDIA DLL/comparison selected; using the helper while retaining the portable Phoenix preference.";
+        reason = "NVIDIA DLSS5 DLL/comparison selected; using the helper while retaining the portable Phoenix DLSS5 preference.";
     if (reason.empty()) return {BackbufferRoute::InProcess, "DX12 same-device GPU processing; no helper process."};
     if (preference == ExecutionPreference::InProcess)
         return {BackbufferRoute::Unsupported, "In-process mode cannot be used: " + reason};

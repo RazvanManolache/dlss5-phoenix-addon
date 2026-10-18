@@ -6,8 +6,8 @@ uses the selection described in the follow-up and has fresh
 
 **The crossover repeats, and specific kernels change winners with resolution.**
 The explanation is more specific than a generic launch-overhead hypothesis:
-Phoenix wins some small projections and retains several large-image wins, while
-other projections, spatial transitions and global attention favor NVIDIA at
+Phoenix DLSS5 wins some small projections and retains several large-image wins, while
+other projections, spatial transitions and global attention favor NVIDIA DLSS5 at
 larger extents. Observed GPU boost differences also affect the margin.
 
 [Follow-up: controlled memory tests and implemented automatic kernel selection](NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
@@ -27,7 +27,7 @@ Four fresh processes per renderer and extent, balanced `P N N P N P P N` order;
 256 frames per process, discard 64. Values are means of process medians.
 Per-launch timestamps are disabled for these speed comparisons.
 
-| Input | Phoenix GPU ms | NVIDIA GPU ms | Phoenix difference |
+| Input | Phoenix DLSS5 GPU ms | NVIDIA GPU ms | Phoenix DLSS5 difference |
 | --- | ---: | ---: | ---: |
 | 1280×720 | 2.5118 | 2.5968 | −3.27% |
 | 1920×1080 | 3.8553 | 3.8691 | −0.36% |
@@ -41,7 +41,7 @@ The crossover repeats: approximately −3.35%, −0.40%, +2.76% and +3.97%.
 
 Clocks were **observed, not locked**. Mean process-median SM observations:
 
-| Input | Phoenix MHz | NVIDIA MHz |
+| Input | Phoenix DLSS5 MHz | NVIDIA DLSS5 MHz |
 | --- | ---: | ---: |
 | 720p | 2816.0 | 2799.3 |
 | 1080p | 2748.5 | 2778.5 |
@@ -51,28 +51,28 @@ Clocks were **observed, not locked**. Mean process-median SM observations:
 These sample the measured loop, including gaps between frames, rather than only
 the instants when a kernel executes. Do not normalize timings by MHz as if all
 work were compute-bound. Temperatures and power also vary. During the primary
-8K series, process medians span 58.47–62.17 ms for Phoenix and 56.56–61.18 ms
-for NVIDIA. The crossover is repeatable; its exact percentage is variable.
+8K series, process medians span 58.47–62.17 ms for Phoenix DLSS5 and 56.56–61.18 ms
+for NVIDIA DLSS5. The crossover is repeatable; its exact percentage is variable.
 
 ## Direct launch attribution
 
 ![Measured kernel-family crossovers and retained wins](benchmarks/2026-10-13/native-scaling-kernels.png)
 
 An offline, process-local observer times NVIDIA's NVAPI kernel launches without
-changing the DLL on disk. NVIDIA submits 156 launches: 154 core launches plus a
+changing the DLL on disk. NVIDIA DLSS5 submits 156 launches: 154 core launches plus a
 counter-clear kernel and an output-copy kernel. All 154 core launches align with
 the native plan by **ordinal, grid and block dimensions at all four extents**.
 This establishes geometry correspondence, not identical machine code.
 
 Two fresh instrumented processes per renderer/extent, 256 frames, discard 128.
-The original NVIDIA calls each contain one kernel; instrumentation preserves
-that call structure and inserts timestamps around the calls. Phoenix is timed
+The original NVIDIA DLSS5 calls each contain one kernel; instrumentation preserves
+that call structure and inserts timestamps around the calls. Phoenix DLSS5 is timed
 the same way. The following numbers aggregate per-launch medians over repeated
 instances of a kernel family.
 
 The **512-channel Q/K/V projection** is a concrete crossover:
 
-| Input | Phoenix ms, 16 calls | NVIDIA ms, 16 calls | Difference |
+| Input | Phoenix DLSS5 ms, 16 calls | NVIDIA DLSS5 ms, 16 calls | Difference |
 | --- | ---: | ---: | ---: |
 | 720p | 0.196 | 0.260 | −0.064 |
 | 1080p | 0.215 | 0.283 | −0.068 |
@@ -90,13 +90,13 @@ attention projection (+0.055 ms). At **8K**, important losses include:
 
 There are retained wins at 8K: input preparation saves about 0.213 ms, output
 reconstruction 0.160 ms, and repeated 256-channel spatial attention 0.268 ms.
-NVIDIA's extra output-copy kernel takes about 0.335 ms there; Phoenix directly
+NVIDIA's extra output-copy kernel takes about 0.335 ms there; Phoenix DLSS5 directly
 produces its output through a different path. Its counter-clear and output-copy
 helpers are not incorrectly paired with native neural launches.
 
 **Attribution is diagnostic.** Per-launch timestamps can change overlap and
-pacing. At 1080p, the instrumented NVIDIA whole interval is about 4.027 ms versus
-3.869 ms in the primary uninstrumented pass; Phoenix is about 3.836 versus
+pacing. At 1080p, the instrumented NVIDIA DLSS5 whole interval is about 4.027 ms versus
+3.869 ms in the primary uninstrumented pass; Phoenix DLSS5 is about 3.836 versus
 3.855 ms. Thus the instrumented 1080p advantage must not replace the headline
 near-parity result. Summing kernel medians does not reconstruct a whole-frame
 median, and these diagnostic losses are not guaranteed recoverable speedups.
@@ -132,7 +132,7 @@ The three passes execute **18,432 frames in 72 processes**. Every process's fina
 frame hash matches the same-resolution baseline, including both instrumented
 paths. This does not check every intermediate output or certify moving-scene
 quality. Native runs report zero D3D12 debug errors and complete resource/module
-retirement; NVIDIA creation/evaluation and debug checks pass.
+retirement; NVIDIA DLSS5 creation/evaluation and debug checks pass.
 
 No production kernel, model, precision or addon behavior changed. The offline
 native probe gained configurable frame/warmup counts and UTC observation fields.

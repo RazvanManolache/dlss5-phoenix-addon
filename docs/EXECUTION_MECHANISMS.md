@@ -12,9 +12,9 @@ These numbers refer to the requested experiments, not the menu order above.
 
 | Number | Mechanism | Status |
 | --- | --- | --- |
-| 1 | x64 Phoenix/NVIDIA inside an x64 application | Working; native DX12 fixture benchmarks retained separately |
-| 2 | x86 application loads the x64 Phoenix/NVIDIA library in the same process | Integrated as an opt-in x86 add-on route; packaged client inference, live strengths, repeated passes and backend switching verified; game presentation not yet validated |
-| 3 | x86 Phoenix host calls the native driver through a same-process x64 driver thunk | Integrated as an opt-in x86 add-on route; packaged client inference matches route 2 exactly; Phoenix only, full eight-block network; game presentation not yet validated |
+| 1 | x64 Phoenix DLSS5/NVIDIA DLSS5 inside an x64 application | Working; native DX12 fixture benchmarks retained separately |
+| 2 | x86 application loads the x64 Phoenix DLSS5/NVIDIA DLSS5 library in the same process | Integrated as an opt-in x86 add-on route; packaged client inference, live strengths, repeated passes and backend switching verified; game presentation not yet validated |
+| 3 | x86 Phoenix DLSS5 host calls the native driver through a same-process x64 driver thunk | Integrated as an opt-in x86 add-on route; packaged client inference matches route 2 exactly; Phoenix DLSS5 only, full eight-block network; game presentation not yet validated |
 | 4 | x86 application communicates with a separate x64 helper | Working and retained |
 
 The portable x86 Vulkan/SPIR-V implementation is an **additional fallback, not
@@ -22,7 +22,7 @@ route 3**. Its benchmark does not measure the requested native driver bridge.
 The earlier driver-only route-3 prerequisite probe creates modules only. A
 separate full x86-host probe now authenticates the model, generates the native
 graph and its dispatch arguments in x86, then evaluates it through a generic
-x64 driver executor in the same process. It loads no x64 Phoenix renderer and
+x64 driver executor in the same process. It loads no x64 Phoenix DLSS5 renderer and
 uses no helper or Vulkan. Reset-frame inference and live strength changes pass;
 game presentation, temporal integration and automatic selection remain
 unvalidated. See [route-3 host results](WOW64_EXPERIMENT.md#route-3-x86-host-inference).
@@ -34,8 +34,8 @@ See [native driver investigation](X86_NATIVE_INVESTIGATION.md#direct-driver-brid
 | In-process native D3D12 | Optimized native executor inside the game | Same-device GPU resources | Requires supported D3D12/device/format/executor; refuses unsupported combinations |
 | External x64 helper | Existing graphics companion | Automatic, D3D11 shared textures only, or staging/CPU pixels | Always available as a selectable alternative |
 | In-process portable (experimental) | Matching-bitness C++ runtime on a worker thread inside the game | Existing fenced readback and upload | Opt-in; does not use the failing x86 native NVAPI path |
-| x64 library inside x86 (experimental) | Complete native x64 Phoenix/NVIDIA renderer on a native thread in the x86 game | Existing fenced CPU capture and return | Opt-in x86 only; locally matched Windows/driver bootstrap package required |
-| x86 Phoenix + native driver (experimental) | x86 graph/model/controls host with generic x64 driver executor in the same process | Existing fenced CPU capture and return | Opt-in x86 only; Phoenix full network; requires a large-address-aware executable; never patches the game EXE |
+| x64 library inside x86 (experimental) | Complete native x64 Phoenix DLSS5/NVIDIA DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | Opt-in x86 only; locally matched Windows/driver bootstrap package required |
+| x86 Phoenix DLSS5 + native driver (experimental) | x86 graph/model/controls host with generic x64 driver executor in the same process | Existing fenced CPU capture and return | Opt-in x86 only; Phoenix DLSS5 full network; requires a large-address-aware executable; never patches the game EXE |
 
 The two experimental native x86 routes are selectable in **Advanced transport**.
 They use a constrained high-address reservation retry and early native CUDA
@@ -55,9 +55,9 @@ canvas (also SDR D3D12 RGB10A2), up to 8192 pixels per axis. D3D9 capture can re
 MSAA; other portable transports require single sampling. CPU pixel copies remain:
 in-process does **not** mean zero-copy or guaranteed better performance.
 
-For portable and route 3, NVIDIA DLL evaluation and comparisons containing
-NVIDIA use the retained x64 helper while the saved preference remains intact.
-Returning to a Phoenix-only view restores the selected route. Route 2 can
+For portable and route 3, NVIDIA DLSS5 DLL evaluation and comparisons containing
+NVIDIA DLSS5 use the retained x64 helper while the saved preference remains intact.
+Returning to a Phoenix DLSS5-only view restores the selected route. Route 2 can
 evaluate both renderers in the same x86 process. Automatic/native x86 validation
 guards are unchanged; selecting an experimental route never makes it automatic.
 
@@ -140,8 +140,8 @@ game-directory/
       licenses/
 ```
 
-Use the model source already selected in the Phoenix panel. The runtime package
-contains no weights/NVIDIA DLLs. Microsoft C/C++ runtime dependencies must match
+Use the model source already selected in the Phoenix DLSS5 panel. The runtime package
+contains no weights/NVIDIA DLSS5 DLLs. Microsoft C/C++ runtime dependencies must match
 the runtime build. Missing/wrong-bitness DLLs produce a diagnostic and follow the
 configured fallback policy.
 
@@ -156,7 +156,7 @@ resets temporal history rather than pretending guides exist.
 
 This first portable backbuffer adapter uses normal-resolution SDR host planes.
 Super-resolution and adaptive blocks are disabled for it; incompatible saved
-settings fail explicitly and can be reset in the panel. Native NVIDIA host
+settings fail explicitly and can be reset in the panel. Native NVIDIA DLSS5 host
 exposure/jitter/HDR declarations, override-file reload and offline input-capture
 bursts are not portable-runtime features. Unsupported runtime actions are
 rejected, not falsely acknowledged. Standard game screenshots remain separate.
@@ -173,8 +173,8 @@ live tone/structure/skin/mask conditioning and reset-frame inference. Iterations
 keep FP16 model input between passes rather than quantizing intermediate output
 to 8-bit. Route 2 supports native block repetitions; route 3 currently requires
 all eight blocks once. Unsupported resolution/adaptive/guide controls are
-disabled or explicitly refused. Route-3 NVIDIA views use the helper regardless
-of `NativeFallback`, since that route has no x86 NVIDIA model host.
+disabled or explicitly refused. Route-3 NVIDIA DLSS5 views use the helper regardless
+of `NativeFallback`, since that route has no x86 NVIDIA DLSS5 model host.
 Both native x86 routes require the Native RTX executor. CPU/portable executors
 use their own route or the helper, not a mislabeled native evaluation.
 
@@ -185,10 +185,10 @@ Native code stays loaded through process exit. A retiring processing worker owns
 its packets and services driver callbacks until the native thread exits; the
 render thread does not join it. A stuck driver may strand a processing worker,
 but there is no timeout that terminates the game.
-Changing to a different NVIDIA model DLL after one has been loaded is explicitly
+Changing to a different NVIDIA DLSS5 model DLL after one has been loaded is explicitly
 refused by route 2, rather than continuing with the old library under a new label.
 With fallback enabled the helper handles that selection; otherwise restart the
-game. Phoenix-only weight/model selection remains independent of this DLL limit.
+game. Phoenix DLSS5-only weight/model selection remains independent of this DLL limit.
 
 ## Validation Boundary
 

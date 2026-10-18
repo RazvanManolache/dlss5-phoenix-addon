@@ -8,17 +8,17 @@ namespace phoenix_addon {
 // Require the captured eight-block chain and the repack ABI before enabling it.
 inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
     const auto& launches = frame.at("launches");
-    check(launches.size() == 156, "DLSS5 Phoenix depth plan extent");
+    check(launches.size() == 156, "Phoenix DLSS5 depth plan extent");
     auto pointer = [](const auto& launch, unsigned offset, const char* role) {
         for (const auto& relocation : launch.at("relocations"))
             if (relocation.at("argument_offset") == offset) {
                 check(relocation.at("arena") == "workspace" && relocation.at("bytes") == 8 &&
                           relocation.at("role") == role &&
                           !relocation.at("relative_offset").is_null(),
-                      "DLSS5 Phoenix depth pointer contract");
+                      "Phoenix DLSS5 depth pointer contract");
                 return relocation.at("relative_offset").template get<uint64_t>();
             }
-        check(false, "DLSS5 Phoenix depth missing pointer");
+        check(false, "Phoenix DLSS5 depth missing pointer");
         return uint64_t(0);
     };
     uint64_t previous = pointer(launches.at(57), 8, "output");
@@ -27,7 +27,7 @@ inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
               launches.at(98).at("name") == "cc_vit_1d_repack_1d_to_2d_fp8" &&
               launches.at(98).at("argument_bytes") == 24 &&
               launches.at(98).at("scalar_u32_le") == dimensions,
-          "DLSS5 Phoenix depth repack contract");
+          "Phoenix DLSS5 depth repack contract");
     for (unsigned block_index = 0; block_index < 8; ++block_index) {
         const unsigned first = 58 + block_index * 5;
         const char* names[]{block_index ? "cc_vit_1d_ffn_expand_chained_fp8"
@@ -38,15 +38,15 @@ inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
                                              : "cc_vit_1d_projection_chained_fp8"};
         for (unsigned iteration_index = 0; iteration_index < 5; ++iteration_index)
             check(launches.at(first + iteration_index).at("name") == names[iteration_index],
-                  "DLSS5 Phoenix depth block sequence");
+                  "Phoenix DLSS5 depth block sequence");
         check(pointer(launches.at(first), 0, "input") == previous,
-              "DLSS5 Phoenix depth disconnected prefix");
+              "Phoenix DLSS5 depth disconnected prefix");
         const auto& projection = launches.at(first + 4);
-        check(projection.at("argument_bytes") == 72, "DLSS5 Phoenix depth projection ABI");
+        check(projection.at("argument_bytes") == 72, "Phoenix DLSS5 depth projection ABI");
         previous = pointer(projection, 16, "output");
     }
     check(pointer(launches.at(98), 0, "input") == previous,
-          "DLSS5 Phoenix depth final output contract");
+          "Phoenix DLSS5 depth final output contract");
 }
 // Dedicated API table: never changes the parent's/shared Api or launches any
 // native kernel. Only verified dynamic fields in own stem/head arguments vary.
@@ -79,7 +79,7 @@ class FrameDispatch {
         const unsigned block_index = (position - 57) / 5, stage_index = (position - 57) % 5;
         if (repeats_[block_index] <= 1 || block_index >= transformer_blocks_)
             return;
-        check(launch.pParams && launch.paramSize <= 80, "DLSS5 Phoenix repeat argument extent");
+        check(launch.pParams && launch.paramSize <= 80, "Phoenix DLSS5 repeat argument extent");
         repeat_launches_[stage_index] = launch;
         memcpy(repeat_arguments_[stage_index].data(), launch.pParams, launch.paramSize);
     }
@@ -91,7 +91,7 @@ class FrameDispatch {
             return NVAPI_OK;
         uint64_t feedback = 0;
         memcpy(&feedback, repeat_arguments_[4].data() + 16, 8);
-        check(feedback && repeat_counters_, "DLSS5 Phoenix repeat missing feedback/counters");
+        check(feedback && repeat_counters_, "Phoenix DLSS5 repeat missing feedback/counters");
         for (int iteration = 1; iteration < repeats_[block_index]; ++iteration) {
             // Every repeated block gets fresh synchronization words. Its first
             // wait still names the completed upstream block; all internal
@@ -133,26 +133,26 @@ class FrameDispatch {
         if (bypassing_) {
             if (position == 56) {
                 check(launch.pParams && launch.paramSize == 24,
-                      "DLSS5 Phoenix bypass input repack ABI");
+                      "Phoenix DLSS5 bypass input repack ABI");
                 memcpy(&retained_output_, static_cast<const uint8_t*>(launch.pParams) + 8, 8);
                 return;
             }
             if (position < 61 || position >= 97 || (position - 61) % 5)
                 return;
-            check(launch.pParams && launch.paramSize == 72, "DLSS5 Phoenix bypass projection ABI");
+            check(launch.pParams && launch.paramSize == 72, "Phoenix DLSS5 bypass projection ABI");
             memcpy(&upstream_publication_, static_cast<const uint8_t*>(launch.pParams) + 56, 8);
         } else if (transformer_blocks_ == 8 || position != 56 + 5 * transformer_blocks_)
             return;
-        check(launch.pParams && launch.paramSize == 72, "DLSS5 Phoenix depth projection ABI");
+        check(launch.pParams && launch.paramSize == 72, "Phoenix DLSS5 depth projection ABI");
         std::memcpy(&retained_output_, static_cast<const uint8_t*>(launch.pParams) + 16, 8);
-        check(retained_output_, "DLSS5 Phoenix depth missing current-frame output");
+        check(retained_output_, "Phoenix DLSS5 depth missing current-frame output");
     }
     void repack(unsigned position, NVAPI_CU_KERNEL_LAUNCH_PARAMS& launch,
                 std::array<uint8_t, 24>& bytes) {
         if ((!bypassing_ && transformer_blocks_ == 8) || position != 97)
             return;
         check(retained_output_ && launch.pParams && launch.paramSize == bytes.size(),
-              "DLSS5 Phoenix depth repack ABI");
+              "Phoenix DLSS5 depth repack ABI");
         std::memcpy(bytes.data(), launch.pParams, bytes.size());
         std::memcpy(bytes.data(), &retained_output_, 8);
         launch.pParams = bytes.data();
@@ -194,7 +194,7 @@ class FrameDispatch {
             std::array<uint8_t, 80> bypass_bytes{};
             if (self->bypassing_ && position >= 57 && position < 97 && (position - 57) % 5 < 2) {
                 check(source[0].pParams && source[0].paramSize == 72 && self->retained_output_,
-                      "DLSS5 Phoenix bypass block ABI");
+                      "Phoenix DLSS5 bypass block ABI");
                 memcpy(bypass_bytes.data(), source[0].pParams, source[0].paramSize);
                 const unsigned stage_index = (position - 57) % 5;
                 memcpy(bypass_bytes.data() + (stage_index ? 8 : 0), &self->retained_output_, 8);
@@ -285,11 +285,11 @@ class FrameDispatch {
   public:
     void configure_repeats(ID3D12Device* device, const phoenix_bundle::Json& frame,
                            const std::array<int, 8>& counts) {
-        check(!repeat_counters_, "DLSS5 Phoenix repeat configuration is immutable per generation");
+        check(!repeat_counters_, "Phoenix DLSS5 repeat configuration is immutable per generation");
         repeats_ = counts;
         for (int repeat_count : counts) {
             check(repeat_count >= 0 && repeat_count <= 4,
-                  "DLSS5 Phoenix block repeat count outside 0..4");
+                  "Phoenix DLSS5 block repeat count outside 0..4");
             repeating_ |= repeat_count != 1;
             bypassing_ |= repeat_count == 0;
         }
@@ -302,7 +302,7 @@ class FrameDispatch {
                              8)) *
                          4;
         check(repeat_stride_ && repeat_stride_ < 16 * 1024 * 1024,
-              "DLSS5 Phoenix repeat counter extent");
+              "Phoenix DLSS5 repeat counter extent");
         for (unsigned block_index = 0; block_index < 8; ++block_index)
             for (unsigned stage_index = 0; stage_index < 5; ++stage_index)
                 for (const auto& relocation : frame.at("launches")
@@ -315,7 +315,7 @@ class FrameDispatch {
                         continue;
                     const auto offset = relocation.at("relative_offset").get<uint64_t>();
                     check(relocation.at("arena") == "workspace" && offset < repeat_stride_,
-                          "DLSS5 Phoenix repeat counter outside prefix");
+                          "Phoenix DLSS5 repeat counter outside prefix");
                     repeat_sync_[block_index][stage_index].push_back(
                         {relocation.at("argument_offset").get<unsigned>(), offset});
                 }
@@ -378,9 +378,9 @@ class FrameDispatch {
             : owner_(owner) {
             check(!active_, "phoenix nested candidate dispatch");
             check(transformer_blocks >= 1 && transformer_blocks <= 8,
-                  "DLSS5 Phoenix transformer depth outside 1..8");
+                  "Phoenix DLSS5 transformer depth outside 1..8");
             check(transformer_blocks == 8 || skip_groups_mask.load(std::memory_order_relaxed) == 0,
-                  "DLSS5 Phoenix depth cannot combine with stale-tensor ablation");
+                  "Phoenix DLSS5 depth cannot combine with stale-tensor ablation");
             owner.command_ = cmd;
             owner.controls_ = controls;
             owner.position_ = 0;
@@ -393,7 +393,7 @@ class FrameDispatch {
                 kLaunchCount - skipped_launches(owner.skip_mask_) - 5 * (8 - transformer_blocks);
             if (owner.repeating_) {
                 check(!owner.skip_mask_,
-                      "DLSS5 Phoenix repeats cannot combine with stale-tensor ablation");
+                      "Phoenix DLSS5 repeats cannot combine with stale-tensor ablation");
                 owner.expected_launches_ = 114;
                 for (unsigned iteration_index = 0; iteration_index < transformer_blocks;
                      ++iteration_index)

@@ -140,7 +140,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
             require(build.cpu_bridge && build.width == build.output_width &&
                         build.height == build.output_height,
                     "Portable execution requires same-size pixel transport");
-            require(!needs_nvidia_dll(settings), "NVIDIA evaluation requires the helper");
+            require(!needs_nvidia_dll(settings), "NVIDIA DLSS5 evaluation requires the helper");
             require(settings.resolution_mode == 0 && !settings.host_unjitter &&
                         !settings.automatic_budget,
                     "Portable backbuffer execution requires normal resolution, no unjitter and fixed blocks");
@@ -195,7 +195,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     {"processing_location", "in_process_portable"},
                     {"inference_pid", GetCurrentProcessId()}, {"device", options.device},
                     {"execution_devices", devices}, {"ui_clear_revision", ui_clear_revision_},
-                    {"nvidia", {{"ready", false}, {"status", "NVIDIA modes use the retained helper"}}}};
+                    {"nvidia", {{"ready", false}, {"status", "NVIDIA DLSS5 modes use the retained helper"}}}};
             };
             std::unique_lock lock(mutex_);
             ui_snapshot_ = snapshot(Json::parse(runtime.status_json()));
@@ -428,7 +428,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
             source = phoenix_model_tools::selection(settings.model_source, settings.model_folder,
                                                     settings.model_dll, source);
             require(source.external(),
-                    "No model selected. Browse to your NVIDIA DLL or a compatible model folder.");
+                    "No model selected. Browse to your NVIDIA DLSS5 DLL or a compatible model folder.");
             phoenix_addon::phoenix::normalize_direct_comparison(settings);
             stage = "embedded helper installation";
             prepare(addon, source, settings, folder);

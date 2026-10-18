@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
         klass.hInstance = GetModuleHandleW(nullptr);
         klass.lpszClassName = L"PhoenixGraphicsMatrix";
         RegisterClassW(&klass);
-        window = CreateWindowW(klass.lpszClassName, L"Phoenix graphics integration check", WS_POPUP,
+        window = CreateWindowW(klass.lpszClassName, L"Phoenix DLSS5 graphics integration check", WS_POPUP,
                                -30000, -30000, width, height, nullptr, nullptr, klass.hInstance,
                                nullptr);
         check(window != nullptr, "Cannot create test window");
@@ -458,7 +458,7 @@ int main(int argc, char** argv) {
         check(runtime != nullptr, "ReShade runtime did not initialize");
         effect_runtime* first_runtime = runtime;
         if (multiwindow) {
-            second_window = CreateWindowW(klass.lpszClassName, L"Phoenix second graphics window",
+            second_window = CreateWindowW(klass.lpszClassName, L"Phoenix DLSS5 second graphics window",
                                           WS_POPUP, -30000, -30000, width, height, nullptr, nullptr,
                                           klass.hInstance, nullptr);
             check(second_window != nullptr, "Cannot create second OpenGL window");
@@ -803,7 +803,7 @@ int main(int argc, char** argv) {
                 pump_frame();
             check(status().value("delivered", 0) >= 3 &&
                       status().at("applied_settings").at("Backend") == 3,
-                  "Phoenix did not resume producing output after control reapply");
+                  "Phoenix DLSS5 did not resume producing output after control reapply");
             // Obtain an independent actual-present screenshot of the resumed
             // Phoenix mode. The initial mode may have been split comparison.
             complete = capture = false;

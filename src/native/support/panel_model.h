@@ -24,14 +24,14 @@ namespace phoenix_addon::panel {
 constexpr unsigned kBackendCount = 4;
 constexpr const char* kBackendLabels[kBackendCount] = {
     "Game native (NR off)",
-    "NVIDIA DLL",
+    "NVIDIA DLSS5 DLL",
     "CNR ours (3-way split)",
     "CNR ours (fullscreen)",
 };
 constexpr const char* kBackendHelp[kBackendCount] = {
     "Plugin records nothing; the frame is byte-for-byte the game's own.",
     "The DLL evaluates alone. The reference picture.",
-    "Left: before NR. Middle: NVIDIA. Right: ours at intensity=1 style=0 ui_correction=0.",
+    "Left: before NR. Middle: NVIDIA DLSS5. Right: ours at intensity=1 style=0 ui_correction=0.",
     "Our reconstruction fullscreen. Same run settings as the 3-way right band.",
 };
 // Short names for config files (ReShade.ini [CNR_LIVE] Backend). Unknown or

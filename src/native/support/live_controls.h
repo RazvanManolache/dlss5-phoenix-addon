@@ -20,7 +20,7 @@ struct PhoenixLiveControls {
                depth <= 1;
     }
     Controls apply(Controls controls) const {
-        check(valid(), "DLSS5 Phoenix live controls are outside their supported finite ranges");
+        check(valid(), "Phoenix DLSS5 live controls are outside their supported finite ranges");
         if (enabled) {
             controls.tone = tone;
             controls.structure = structure;

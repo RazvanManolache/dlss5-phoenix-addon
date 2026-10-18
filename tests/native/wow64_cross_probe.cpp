@@ -59,7 +59,7 @@ int wmain(int argc, wchar_t** argv) {
         const auto ntdll = module(L"ntdll.dll");
         const auto crc = proc(ntdll, "RtlComputeCrc32");
         if (!ntdll || !crc) throw std::runtime_error("Missing native NTDLL function");
-        const char input[] = "Phoenix cross-bitness probe";
+        const char input[] = "Phoenix DLSS5 cross-bitness probe";
         using Crc32 = ULONG(NTAPI*)(ULONG, const void*, ULONG);
         auto crc32 = reinterpret_cast<Crc32>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlComputeCrc32"));
         if (!crc32) return 1;

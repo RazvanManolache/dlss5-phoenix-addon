@@ -48,7 +48,7 @@ int main() {
         check(std::string(model_dll_warning(ModelDllStatus::available)).empty());
         for (auto status : {ModelDllStatus::missing, ModelDllStatus::unconfigured,
                             ModelDllStatus::not_file, ModelDllStatus::unreadable})
-            check(std::string(model_dll_warning(status)).find("DLSS5 Phoenix") !=
+            check(std::string(model_dll_warning(status)).find("Phoenix DLSS5") !=
                   std::string::npos);
         check(std::filesystem::remove(directory));
         std::cout << nlohmann::json({{"passed", true},

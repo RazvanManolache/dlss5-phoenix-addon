@@ -1,26 +1,26 @@
-# DLSS5 Phoenix
+# Phoenix DLSS5
 
-My attempt at an open-source runner for NVIDIA DLSS 5 neural rendering,
-packaged as a ReShade addon. **Native RTX is the main event:** near NVIDIA's
+My attempt at an open-source runner for NVIDIA DLSS5 neural rendering,
+packaged as a ReShade addon. **Native RTX is the main event:** near NVIDIA DLSS5's
 inference speed in the matched 1080p test, with useful controls and lower
 measured GPU residency. The alternate backends are our slightly obsessive
 portability side quest.
 
 ## Native RTX: the main event
 
-![Native Phoenix and NVIDIA DLSS NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
+![Native Phoenix DLSS5 and NVIDIA DLSS5 NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
-- **1080p inference: a small measured edge.** Phoenix **3.829 ms**, NVIDIA DLSS NR
+- **1080p inference: a small measured edge.** Phoenix DLSS5 **3.829 ms**, NVIDIA DLSS5 NR
   **3.864 ms** on RTX 5080: about **0.9% lower GPU time** in this test.
   Small margins vary with clocks and scheduling; this is not a promised game-FPS gain.
-  NVIDIA was about 1.2–2.3% faster at the larger tested extents.
-- **Less measured GPU residency at 1080p:** **558.8 MiB** for Phoenix versus **686.5 MiB**
-  for NVIDIA in the matched probe—about **18.6% less**. This includes the
+  NVIDIA DLSS5 was about 1.2–2.3% faster at the larger tested extents.
+- **Less measured GPU residency at 1080p:** **558.8 MiB** for Phoenix DLSS5 versus **686.5 MiB**
+  for NVIDIA DLSS5 in the matched probe—about **18.6% less**. This includes the
   harness and driver; it is not a measurement of NVIDIA's internal buffers.
   Spare VRAM apparently needs a financing plan these days.
-- **Correct output from 360p through 8K:** reset and final history frames match NVIDIA
+- **Correct output from 360p through 8K:** reset and final history frames match NVIDIA DLSS5
   exactly on the synthetic fixture at all nine tested standard extents. Memory is
-  essentially tied at 6K; Phoenix uses about 2.7% more at 8K. No universal VRAM
+  essentially tied at 6K; Phoenix DLSS5 uses about 2.7% more at 8K. No universal VRAM
   saving or moving-scene quality claim is implied.
 - **The point is a fast, inspectable runner with controls.** Native RTX is the
   primary path. Getting the same architecture running through other APIs is
@@ -34,7 +34,7 @@ padding are corrected. Automatic kernel selection preserves the small-input
 register choices and switches two stages at 18.66 million neural input pixels
 (5760×3240 area). Wider memory reads improve three 64-channel stages.
 Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
-At 8K the two Phoenix process medians span 60.94–63.74 ms;
+At 8K the two Phoenix DLSS5 process medians span 60.94–63.74 ms;
 the chart shows their mean, not a fixed performance guarantee.
 
 This resolution and memory study uses a different sampling protocol from the
@@ -42,12 +42,12 @@ This resolution and memory study uses a different sampling protocol from the
 
 [Automatic kernel selection and memory tuning: measurements and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
 
-![Native Phoenix and NVIDIA DLSS NR: latency and GPU residency from 720p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
+![Native Phoenix DLSS5 and NVIDIA DLSS5 NR: latency and GPU residency from 720p through 8K](docs/benchmarks/2026-10-13/native-resolution-scaling.png)
 
 <details>
 <summary>Lower input resolutions: 360p, 480p and 540p</summary>
 
-![Native Phoenix and NVIDIA DLSS NR: lower-resolution latency and GPU residency](docs/benchmarks/2026-10-13/native-lower-resolutions.png)
+![Native Phoenix DLSS5 and NVIDIA DLSS5 NR: lower-resolution latency and GPU residency](docs/benchmarks/2026-10-13/native-lower-resolutions.png)
 
 </details>
 
@@ -66,9 +66,9 @@ This resolution and memory study uses a different sampling protocol from the
 assume two independent views, full network and one pass. A proper stereo batch
 could share scheduling and weights; no batching speedup has been measured.
 
-![Estimated Phoenix and NVIDIA neural cost for both eyes, at panel size and half width/height](docs/benchmarks/2026-10-13/vr-estimated-cost.png)
+![Estimated Phoenix DLSS5 and NVIDIA DLSS5 neural cost for both eyes, at panel size and half width/height](docs/benchmarks/2026-10-13/vr-estimated-cost.png)
 
-![Estimated Phoenix frame-budget headroom for PSVR2 and Steam Frame at 90 and 120 Hz](docs/benchmarks/2026-10-13/vr-estimated-budget.png)
+![Estimated Phoenix DLSS5 frame-budget headroom for PSVR2 and Steam Frame at 90 and 120 Hz](docs/benchmarks/2026-10-13/vr-estimated-budget.png)
 
 Game rendering, upscaling and compositor/streaming costs are additional. Actual
 per-eye render targets can differ from panel resolution. Separate eye histories
@@ -80,15 +80,15 @@ are necessary even if execution is batched together.
 
 ## 32-bit Games: x86 Compatibility
 
-**Yes, Phoenix also has a 32-bit game add-on.** Use `Phoenix.addon32` for an
+**Yes, Phoenix DLSS5 also has a 32-bit game add-on.** Use `Phoenix.addon32` for an
 x86 game and `Phoenix.addon64` for an x64 game. Both are in the
 **[0.81 download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81)**.
 This is support for 32-bit games on **64-bit Windows**, not 32-bit Windows or
 older GPUs without the required rendering capabilities.
 
 **Start with Automatic.** For an x86 game, the retained compatibility route
-captures the game image, sends it to a separate x64 helper running Phoenix or
-NVIDIA, and displays the processed result back in the game. The game stays
+captures the game image, sends it to a separate x64 helper running Phoenix DLSS5 or
+NVIDIA DLSS5, and displays the processed result back in the game. The game stays
 32-bit; the neural renderer runs in the helper. No game EXE patch is needed.
 The extra image transfers add overhead, even when model inference is fast.
 
@@ -97,30 +97,30 @@ the x86 game's process instead of using that separate helper:
 
 | x86 execution choice | What happens | Renderers |
 | --- | --- | --- |
-| External x64 helper | The game sends frames to a separate 64-bit processing program | Phoenix and NVIDIA |
-| x64 library inside x86 (experimental) | A native 64-bit worker runs the complete renderer inside the 32-bit game's process | Phoenix and NVIDIA |
-| x86 Phoenix + native driver (experimental) | A 32-bit Phoenix host prepares the network work; a native 64-bit executor submits it to the GPU | Phoenix only; NVIDIA views use the helper |
+| External x64 helper | The game sends frames to a separate 64-bit processing program | Phoenix DLSS5 and NVIDIA DLSS5 |
+| x64 library inside x86 (experimental) | A native 64-bit worker runs the complete renderer inside the 32-bit game's process | Phoenix DLSS5 and NVIDIA DLSS5 |
+| x86 Phoenix DLSS5 + native driver (experimental) | A 32-bit Phoenix DLSS5 host prepares the network work; a native 64-bit executor submits it to the GPU | Phoenix DLSS5 only; NVIDIA DLSS5 views use the helper |
 
 The experiments passed packaged-client inference, controls and switching tests
 on the verified Windows/driver profile. **Game presentation, resize and
 device-loss behavior for these new paths are not yet validated.** They require
 the separate experimental runtime package and a matching Windows/driver profile;
-they are never enabled automatically. Leave helper fallback on. The x86 Phoenix
+they are never enabled automatically. Leave helper fallback on. The x86 Phoenix DLSS5
 host also requires an already large-address-aware game EXE and does not patch it.
 Both native experiments still stage CPU pixels: in-process is not zero-copy,
 crash isolation or a guaranteed performance improvement.
 
 [Installation, configuration and exact limits](docs/EXECUTION_MECHANISMS.md)
 
-## New in 0.81: More Ways To Run Phoenix
+## New in 0.81: More Ways To Run Phoenix DLSS5
 
 The release includes **both x86 and x64 ReShade add-ons**, the retained x64
-helper, and optional experimental runtimes. Models and NVIDIA DLLs stay external.
+helper, and optional experimental runtimes. Models and NVIDIA DLSS5 DLLs stay external.
 
 - **Choose where rendering runs.** Automatic, native in-process D3D12, external
   x64 helper, or experimental portable/native x86 execution. Automatic selection
   remains conservative; the helper stays available.
-- **Renderer first, transport second.** Choose Phoenix, NVIDIA or comparison
+- **Renderer first, transport second.** Choose Phoenix DLSS5, NVIDIA DLSS5 or comparison
   first; **Advanced transport** is underneath, with descriptive names instead of
   experiment numbers. Unsupported combinations explain their helper fallback
   without discarding your saved choice.
@@ -155,11 +155,11 @@ helper, and optional experimental runtimes. Models and NVIDIA DLLs stay external
 Each case used 5 seconds of warmup followed by 20 seconds of measurement.
 These are measured per-output times, **not game FPS** or a promise of faster games.
 
-| Execution | Phoenix GPU / wall (ms) | NVIDIA GPU / wall (ms) | Wall-time scope |
+| Execution | Phoenix DLSS5 GPU / wall (ms) | NVIDIA DLSS5 GPU / wall (ms) | Wall-time scope |
 | --- | ---: | ---: | --- |
 | Native x64 | 4.007 / 4.391 | 4.027 / 4.455 | Resident-input synchronized API call |
 | x64 library inside x86 | 4.037 / 4.508 | 4.004 / 4.465 | Resident-input call; worker entered once |
-| x86 Phoenix + native driver | 4.009 / 4.464 | Not available | Resident input plus per-frame dispatch handoff |
+| x86 Phoenix DLSS5 + native driver | 4.009 / 4.464 | Not available | Resident input plus per-frame dispatch handoff |
 | External x64 helper | 4.338 / 12.358 | 4.472 / 13.071 | DX12 fixture capture, IPC, processing and return |
 
 ![Measured GPU processing time by execution path; capture and return are excluded from these bars](docs/benchmarks/0.81/execution-gpu-time.png)
@@ -167,8 +167,8 @@ These are measured per-output times, **not game FPS** or a promise of faster gam
 The helper row uses a different fixture image and sampled latency. The other
 rows use isolated synthetic resident inputs; their timing does **not** measure
 the new add-on routes' CPU capture/upload cost. One serial run per case cannot
-establish architectural speed differences. The x86 Phoenix graph-host mechanism
-has no NVIDIA equivalent; NVIDIA's complete x64 library works through the other
+establish architectural speed differences. The x86 Phoenix DLSS5 graph-host mechanism
+has no NVIDIA DLSS5 equivalent; NVIDIA's complete x64 library works through the other
 x86 in-process option. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
 
 </details>
@@ -197,7 +197,7 @@ host-buffer interfaces.
 - **Bring a compatible model:** browse to a DLL or model folder and validate it.
 - **Choose resolution and upscaling:** Normal or Super resolution, aspect controls,
   spatial reconstruction, NVIDIA DLSS SR or Intel XeSS.
-- **Let the network adapt:** automatically reduce or restore Phoenix transformer
+- **Let the network adapt:** automatically reduce or restore Phoenix DLSS5 transformer
   blocks to target game FPS or a GPU-time budget (experimental).
 - **Make it your own:** tone, structure, skin controls and adjustable neural work.
 - **Compare as you go:** split/difference views and timing history across backends.
@@ -208,7 +208,7 @@ The current performance results and limitations are below.
 
 **Save without the scroll.** Configuration stays one button away.
 
-![Save configuration button at the top of the Phoenix panel](docs/features/save-configuration.png)
+![Save configuration button at the top of the Phoenix DLSS5 panel](docs/features/save-configuration.png)
 
 **Your model, your runner.** Browse and validate a compatible model; choose an
 available processing device.
@@ -253,7 +253,7 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
   Artist-directed neural rendering looks like a promising way forward.
 - **More artistic choice would be lovely.** I'd like people to train compatible
   models for their own looks: cartoons, painterly worlds, or something less
-  interested in counting pores. Phoenix already supports selecting a compatible
+  interested in counting pores. Phoenix DLSS5 already supports selecting a compatible
   model from disk. There is **no trainer or alternative trained model included**;
   replacement weights must fit the supported architecture and layout.
 - **A very personal hardware opinion:** after the GPU price hikes, the RTX 5080
@@ -268,7 +268,7 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 **Keep your comparisons.** Timing rows survive backend and settings changes.
 
-![Retained GPU timing history with a recent timing graph and separate Phoenix and NVIDIA columns](docs/features/timing-history.png)
+![Retained GPU timing history with a recent timing graph and separate Phoenix DLSS5 and NVIDIA DLSS5 columns](docs/features/timing-history.png)
 
 The values above are from the screenshot session, not the controlled benchmark.
 
@@ -280,24 +280,24 @@ The values above are from the screenshot session, not the controlled benchmark.
   device for a portable runner. In principle, one GPU can render the game while
   another runs neural rendering—the same division of work used in
   [NVIDIA's early two-GPU showcase](https://allthings.how/dlss-5-requires-just-one-rtx-gpu-the-dual-5090-demo-was-a-tech-showcase/).
-  Phoenix has an experimental offload path; real dual-discrete-GPU performance
-  is unverified, and transfer cost/result age matter. The NVIDIA DLL route stays
+  Phoenix DLSS5 has an experimental offload path; real dual-discrete-GPU performance
+  is unverified, and transfer cost/result age matter. The NVIDIA DLSS5 DLL route stays
   on the game's rendering GPU.
-- **Choose the model source:** browse to a supported NVIDIA DLL or compatible
+- **Choose the model source:** browse to a supported NVIDIA DLSS5 DLL or compatible
   model folder, then validate loading and a small inference run. Models and the
-  NVIDIA DLL are supplied separately.
+  NVIDIA DLSS5 DLL are supplied separately.
 - **Choose resolution and upscaling:** Normal or reduced-resolution neural
   rendering with processing quality and aspect controls. Upscaling choices are
   built-in spatial reconstruction, NVIDIA DLSS Super Resolution and Intel XeSS,
-  for both Phoenix and NVIDIA NR output. Temporal upscalers run on the game GPU
+  for both Phoenix DLSS5 and NVIDIA DLSS5 NR output. Temporal upscalers run on the game GPU
   and require valid depth/motion guides and separately supplied vendor runtimes.
   Unsupported configurations show a spatial fallback. Gameplay quality is
-  still unverified; XeSS has been exercised on NVIDIA, not Intel hardware.
+  still unverified; XeSS has been exercised on NVIDIA DLSS5, not Intel hardware.
 - **Tune the look:** local tone and structure, skin masking, motion/depth guides,
-  and route-specific NVIDIA intensity/style/exposure controls.
+  and route-specific NVIDIA DLSS5 intensity/style/exposure controls.
 - **Scale neural work dynamically:** enable **Enable approximate network** and
-  **Adaptive blocks**, then choose **DLSS5 Phoenix GPU time** or **Desired game
-  FPS**. Phoenix reduces the number of executed transformer blocks under load
+  **Adaptive blocks**, then choose **Phoenix DLSS5 GPU time** or **Desired game
+  FPS**. Phoenix DLSS5 reduces the number of executed transformer blocks under load
   and restores them as performance allows, within your minimum and maximum.
   Time-budget mode uses measured inference GPU time; FPS mode uses the game's
   presentation rate. Reduced depth trades image quality for speed and is an
@@ -309,7 +309,7 @@ The values above are from the screenshot session, not the controlled benchmark.
 - **Keep the practical bits practical:** automatic CPU worker count or a manual
   limit, visible model-loading errors, and a Save configuration button at the top.
 - **Keep installation compact:** runner libraries and kernels can be embedded
-  in one addon; they unpack to a private runtime cache as needed. The NVIDIA
+  in one addon; they unpack to a private runtime cache as needed. The NVIDIA DLSS5
   model DLL stays separate.
 
 ## The portability lab
@@ -523,7 +523,7 @@ python tools/validate_native.py --bundle ./build/native_release --probe ./build/
 ```
 
 Each command must succeed before proceeding. The tools generate synthetic inputs
-locally and compare outputs with saved Phoenix regression hashes. Native validation
+locally and compare outputs with saved Phoenix DLSS5 regression hashes. Native validation
 covers eight saved extents, including 1920×1080, 6K, 8K and odd sizes on both
 sides of the automatic kernel-selection threshold. Two modules contain default
 and large-input entries; validation must exercise both choices before packaging.
@@ -553,7 +553,7 @@ python tools/build_addon.py addon_embedded --ngx-sdk C:\SDK\NGX\include --produc
 
 Final output: **`build/addon_embedded/phoenix.addon64`**.
 
-The runner libraries and GPU kernels are embedded in this file. The NVIDIA model
+The runner libraries and GPU kernels are embedded in this file. The NVIDIA DLSS5 model
 DLL remains separate. A game installation also needs compatible ReShade with
 addon support and a local `Phoenix.json` configuration; see [BUILDING.md](BUILDING.md).
 
@@ -603,5 +603,5 @@ and embedded-resource check both succeed.
 Original project code is licensed under [Apache 2.0](LICENSE).
 Third-party components and adaptations retain their upstream terms; see
 [THIRD_PARTY.md](THIRD_PARTY.md) and [NOTICE](NOTICE).
-The project license does not grant rights to separately supplied NVIDIA
+The project license does not grant rights to separately supplied NVIDIA DLSS5
 model DLLs, model data or vendor SDKs/runtimes.

@@ -28,7 +28,7 @@ Resize testing found a separate stall: destroying the bridge also released its l
 | 641×361 → 257×193 | 136.944 | 4.672 |
 | Median | 132.161 | 4.688 |
 
-These three high-resolution timer measurements cover `ResizeBuffers` itself with Phoenix active. Helper initialization and fresh-output waits are outside the timing; this is not an inference-speed improvement or a steady-state FPS measurement. The actual addon supplies the retained device; the measured run uses no external device-retention workaround. The median stall decreased by 96.5%.
+These three high-resolution timer measurements cover `ResizeBuffers` itself with Phoenix DLSS5 active. Helper initialization and fresh-output waits are outside the timing; this is not an inference-speed improvement or a steady-state FPS measurement. The actual addon supplies the retained device; the measured run uses no external device-retention workaround. The median stall decreased by 96.5%.
 
 The rebuilt package passed all seven static, seven motion, seven control/screenshot and one OpenGL multiwindow checks again. D3D10, D3D10.1, D3D11 and D3D12 each passed the three-size resize cycle, with fresh processed output at every extent and identical pixels on return. The D3D11 test additionally requires sharing-device reuse. Both addon bitnesses compiled; the added x86 resize fixture was compile-checked, while these graphics runtime checks used x64. The core build again passed 15 CPU and two software D3D12 suites.
 
@@ -41,15 +41,15 @@ Three alternating old/new rounds, 64 completed calls per run, first call exclude
 | Case | Before (ms) | After (ms) | Change | Helper dedicated GPU peak, before → after (MiB) |
 |---|---:|---:|---:|---:|
 | Pixel transport 1920×1080 | 4.303 | 3.119 | -27.5% | 44.3 → 44.3 |
-| Pixel transport + Phoenix 257×255 | 7.587 | 6.660 | -12.2% | 311.5 → 311.2 |
-| Pixel transport + Phoenix 1920×1080 | 15.430 | 11.322 | -26.6% | 729.5 → 721.5 |
+| Pixel transport + Phoenix DLSS5 257×255 | 7.587 | 6.660 | -12.2% | 311.5 → 311.2 |
+| Pixel transport + Phoenix DLSS5 1920×1080 | 15.430 | 11.322 | -26.6% | 729.5 → 721.5 |
 | Pixel transport 3840×2160 | 19.511 | 14.462 | -25.9% | 44.3 → 44.3 |
 
 | Case | Helper private committed memory, before → after (MiB) | Helper working set, before → after (MiB) |
 |---|---:|---:|
 | Pixel transport 1920×1080 | 179.7 → 181.5 | 161.1 → 161.9 |
-| Pixel transport + Phoenix 257×255 | 630.8 → 630.0 | 434.4 → 435.0 |
-| Pixel transport + Phoenix 1920×1080 | 1078.4 → 1066.7 | 441.8 → 442.4 |
+| Pixel transport + Phoenix DLSS5 257×255 | 630.8 → 630.0 | 434.4 → 435.0 |
+| Pixel transport + Phoenix DLSS5 1920×1080 | 1078.4 → 1066.7 | 441.8 → 442.4 |
 | Pixel transport 3840×2160 | 229.7 → 228.1 | 209.7 → 208.5 |
 
 Private committed memory is a process commitment counter; working set reflects resident process pages. These are not interchangeable measures of physical RAM.
@@ -75,7 +75,7 @@ The final peer pass also made best-effort session cleanup non-throwing. Screensh
 - API runtime tests here use x64 ReShade fixtures. x86 transport, CPU validation and UI checks passed; the previously blocked x86 ReShade fixture was not bypassed.
 - Screenshots capture before ReShade effects/UI; HDR/MSAA captures are rejected. Exceptional Vulkan teardown before submission retains resources until device destruction for safety.
 - Physical device-removal/fence-failure, forced D3D11 fallback reapply, non-DXGI resize and every GPU vendor are not certified by this hardware matrix.
-- NVIDIA vendor-helper NGX initialization remains a separately documented limitation; these results concern the Phoenix compatibility route.
+- NVIDIA vendor-helper NGX initialization remains a separately documented limitation; these results concern the Phoenix DLSS5 compatibility route.
 - Candidate validation proves integrity/loading/finite CPU inference, not visual quality or every runner’s GPU compatibility.
 - Cleanup of obsolete test binaries was blocked by automatic approval review; binaries remain ignored locally and are absent from the source commit.
 
@@ -83,6 +83,6 @@ The final peer pass also made best-effort session cleanup non-throwing. Screensh
 
 See [graphics compatibility instructions](GRAPHICS_COMPATIBILITY.md) and [machine-readable summary](BRIDGE_FIXES_2026-10-14.json). Run `test_compatibility.py`, `test_graphics_apis.py`, `test_compatibility_cpu_iterations.py`, `test_model_validation.py`, `test_shared_panel.py`, `test_compatibility_ipc.py` and `benchmark_compatibility.py` with independently supplied SDK/model inputs.
 
-Historical local receipt directory: `build/bridge_fixes_20261014`. Historical package directory: `build/bridge_fixes_acceptance_package_20261014`. These local outputs are not included in the source repository. No model or NVIDIA DLL was embedded.
+Historical local receipt directory: `build/bridge_fixes_20261014`. Historical package directory: `build/bridge_fixes_acceptance_package_20261014`. These local outputs are not included in the source repository. No model or NVIDIA DLSS5 DLL was embedded.
 
-Resize follow-up receipts: `build/bridge_resize_cached_validation_20261014/report.json` and `build/bridge_resize_verified_20261014/resize_latency_result.json`. The latest rebuilt package is `build/bridge_resize_cached_package_20261014`; its binary hashes are recorded separately in the accompanying summary. It contains no model or NVIDIA DLL and has not yet replaced the real-game installation.
+Resize follow-up receipts: `build/bridge_resize_cached_validation_20261014/report.json` and `build/bridge_resize_verified_20261014/resize_latency_result.json`. The latest rebuilt package is `build/bridge_resize_cached_package_20261014`; its binary hashes are recorded separately in the accompanying summary. It contains no model or NVIDIA DLSS5 DLL and has not yet replaced the real-game installation.

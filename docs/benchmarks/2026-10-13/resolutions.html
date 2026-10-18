@@ -1,20 +1,20 @@
 <!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DLSS5 Phoenix — resolution benchmarks</title>
+<title>Phoenix DLSS5 — resolution benchmarks</title>
 <style>body{background:#0e1420;color:#e9f0f9;font:18px Segoe UI,system-ui;margin:32px auto;padding:0 24px;max-width:1600px}
 a{color:#93bcff}h1{color:#79dbb4}img{max-width:100%;height:auto;border-radius:12px}table{width:100%;border-collapse:collapse}
 td,th{padding:13px;text-align:left;border-bottom:1px solid #2b3a50}select{background:#161f2d;color:#e9f0f9;padding:10px;font:inherit}
 .scroll{overflow:auto}.muted{color:#acbbce}section{margin:36px 0}</style>
-<h1>DLSS5 Phoenix: resolution benchmarks</h1>
-<p>14 October 2026 · RTX 5080 16 GiB · NVIDIA 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
+<h1>Phoenix DLSS5: resolution benchmarks</h1>
+<p>14 October 2026 · RTX 5080 16 GiB · NVIDIA DLSS5 616.64 · Ryzen 9 9950X3D, 32 threads · 96 GiB RAM.</p>
 <p>Identical synthetic RGBA16F color / RG16F motion, model and controls; full eight blocks, one pass.
 Two fresh processes per renderer and extent, 128 frames each; first 32 discarded. Figures average the process medians.
 GPU inference excludes upload/readback; GPU residency includes harness and driver. These are offline checks, not game FPS.</p>
-<p>Phoenix automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
+<p>Phoenix DLSS5 automatically selects two large-input entries at 18,662,400 neural input pixels (5760×3240 area).
 Smaller inputs retain their original register choices; aligned memory reads apply at every size.
 Both entries are embedded in the same addon. Clocks were observed, not locked.</p>
-<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix ms</th><th>NVIDIA ms</th>
-<th>Phoenix GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody><tr><td>640 × 360</td><td>1.922</td><td>2.007</td><td>295.0</td><td>438.2</td><td>Exact reset + final</td></tr><tr><td>854 × 480</td><td>2.088</td><td>2.159</td><td>318.7</td><td>460.4</td><td>Exact reset + final</td></tr><tr><td>960 × 540</td><td>2.126</td><td>2.228</td><td>339.9</td><td>480.1</td><td>Exact reset + final</td></tr><tr><td>1280 × 720</td><td>2.497</td><td>2.589</td><td>395.1</td><td>532.2</td><td>Exact reset + final</td></tr><tr><td>1920 × 1080</td><td>3.829</td><td>3.864</td><td>558.8</td><td>686.5</td><td>Exact reset + final</td></tr><tr><td>2560 × 1440</td><td>6.262</td><td>6.152</td><td>759.0</td><td>872.6</td><td>Exact reset + final</td></tr><tr><td>3840 × 2160</td><td>13.942</td><td>13.628</td><td>1,367.2</td><td>1,448.5</td><td>Exact reset + final</td></tr><tr><td>5760 × 3240</td><td>32.923</td><td>32.513</td><td>2,765.1</td><td>2,765.9</td><td>Exact reset + final</td></tr><tr><td>7680 × 4320</td><td>62.336</td><td>61.039</td><td>4,686.5</td><td>4,562.5</td><td>Exact reset + final</td></tr></tbody></table></section>
+<section class="scroll"><table><thead><tr><th>Resolution</th><th>Phoenix DLSS5 ms</th><th>NVIDIA DLSS5 ms</th>
+<th>Phoenix DLSS5 GPU MiB</th><th>NVIDIA GPU MiB</th><th>Output</th></tr></thead><tbody><tr><td>640 × 360</td><td>1.922</td><td>2.007</td><td>295.0</td><td>438.2</td><td>Exact reset + final</td></tr><tr><td>854 × 480</td><td>2.088</td><td>2.159</td><td>318.7</td><td>460.4</td><td>Exact reset + final</td></tr><tr><td>960 × 540</td><td>2.126</td><td>2.228</td><td>339.9</td><td>480.1</td><td>Exact reset + final</td></tr><tr><td>1280 × 720</td><td>2.497</td><td>2.589</td><td>395.1</td><td>532.2</td><td>Exact reset + final</td></tr><tr><td>1920 × 1080</td><td>3.829</td><td>3.864</td><td>558.8</td><td>686.5</td><td>Exact reset + final</td></tr><tr><td>2560 × 1440</td><td>6.262</td><td>6.152</td><td>759.0</td><td>872.6</td><td>Exact reset + final</td></tr><tr><td>3840 × 2160</td><td>13.942</td><td>13.628</td><td>1,367.2</td><td>1,448.5</td><td>Exact reset + final</td></tr><tr><td>5760 × 3240</td><td>32.923</td><td>32.513</td><td>2,765.1</td><td>2,765.9</td><td>Exact reset + final</td></tr><tr><td>7680 × 4320</td><td>62.336</td><td>61.039</td><td>4,686.5</td><td>4,562.5</td><td>Exact reset + final</td></tr></tbody></table></section>
 <p class="muted">Reset and frame 127 match exactly at every listed extent. This fixture does not certify moving-scene quality.
 Timing ranges, host memory and numerical receipts: <a href="measurements.json">measurements</a> ·
 <a href="native-resolution-validation.json">validation</a> · <a href="README.md">methodology and limitations</a>.</p>
@@ -28,7 +28,7 @@ Per-launch queries can alter scheduling; diagnostic kernel timings are separate 
 <p>The controlled tuning investigation preserves its own A/B measurements and tested alternatives.
 <a href="../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md">Automatic selection, measurements and limits</a>.
 The release snapshot now includes these kernel choices.</p>
-<img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix and NVIDIA comparison">
+<img src="native-scaling-crossover.png" alt="Fresh interleaved native Phoenix DLSS5 and NVIDIA DLSS5 comparison">
 <img src="native-scaling-kernels.png" alt="Measured kernel-family crossovers and retained wins"></details></section>
 <section><h2>Hypothetical VR costs — not measured in VR</h2>
 <p>RTX 5080 estimates for two independent views, full network and one pass. No stereo-batch speedup assumed.
@@ -43,8 +43,8 @@ The validated RTX Vulkan path now includes workgroup FP8 matrices and eligible f
 The native-kernel Vulkan launch prototype is not enabled in the release.</p>
 <img src="portable-runners.png" alt="Current alternate-runner timing and memory measurements"></section>
 <section><h2>Actual output comparisons</h2><p>Final frame 127; fixed RGB range 0–1, no automatic exposure or contrast.
-Left: Phoenix. Middle: NVIDIA. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
+Left: Phoenix DLSS5. Middle: NVIDIA DLSS5. Right: absolute difference ×8. Synthetic fixture, not a game screenshot.</p>
 <label for="extent">Resolution </label><select id="extent"><option value="640x360">640 × 360</option><option value="854x480">854 × 480</option><option value="960x540">960 × 540</option><option value="1280x720">1280 × 720</option><option value="1920x1080">1920 × 1080</option><option value="2560x1440">2560 × 1440</option><option value="3840x2160">3840 × 2160</option><option value="5760x3240">5760 × 3240</option><option value="7680x4320">7680 × 4320</option></select>
-<p><img id="comparison" alt="Phoenix, NVIDIA and amplified difference" src="output-640x360.png"></p></section>
+<p><img id="comparison" alt="Phoenix DLSS5, NVIDIA DLSS5 and amplified difference" src="output-640x360.png"></p></section>
 <script>document.getElementById('extent').addEventListener('change',event=>{
 document.getElementById('comparison').src='output-'+event.target.value+'.png';});</script></html>

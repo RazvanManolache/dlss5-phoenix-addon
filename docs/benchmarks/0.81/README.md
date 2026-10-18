@@ -8,20 +8,20 @@ pre-release measurements were not rerun on the release binaries.
 
 | Renderer | Execution | GPU mean / p95 (ms) | Wall mean / p95 (ms) | Timing samples | Completed outputs/s |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Phoenix | Native x64 | 4.007 / 4.445 | 4.391 / 4.835 | 4240 | 211.95 |
-| Phoenix | x64 library inside x86 | 4.037 / 4.494 | 4.508 / 4.973 | 4096 | 204.78 |
-| Phoenix | x86 Phoenix + native driver | 4.009 / 4.468 | 4.464 / 4.916 | 4480 | 223.99 |
-| Phoenix | External x64 helper | 4.338 / 5.037 | 12.358 / 13.661 | 41 | 63.65 |
-| Nvidia | Native x64 | 4.027 / 4.529 | 4.455 / 4.959 | 4487 | 224.34 |
-| Nvidia | x64 library inside x86 | 4.004 / 4.474 | 4.465 / 4.931 | 4435 | 221.70 |
-| Nvidia | x86 Phoenix + native driver | Not available | Not available | - | - |
-| Nvidia | External x64 helper | 4.472 / 4.858 | 13.071 / 13.857 | 41 | 60.80 |
+| Phoenix DLSS5 | Native x64 | 4.007 / 4.445 | 4.391 / 4.835 | 4240 | 211.95 |
+| Phoenix DLSS5 | x64 library inside x86 | 4.037 / 4.494 | 4.508 / 4.973 | 4096 | 204.78 |
+| Phoenix DLSS5 | x86 Phoenix DLSS5 + native driver | 4.009 / 4.468 | 4.464 / 4.916 | 4480 | 223.99 |
+| Phoenix DLSS5 | External x64 helper | 4.338 / 5.037 | 12.358 / 13.661 | 41 | 63.65 |
+| NVIDIA DLSS5 | Native x64 | 4.027 / 4.529 | 4.455 / 4.959 | 4487 | 224.34 |
+| NVIDIA DLSS5 | x64 library inside x86 | 4.004 / 4.474 | 4.465 / 4.931 | 4435 | 221.70 |
+| NVIDIA DLSS5 | x86 Phoenix DLSS5 + native driver | Not available | Not available | - | - |
+| NVIDIA DLSS5 | External x64 helper | 4.472 / 4.858 | 13.071 / 13.857 | 41 | 60.80 |
 
 ## Read the Scopes
 
 - **Native x64 / x64 library inside x86:** GPU-resident synchronized API calls.
   The x86 experiment enters its x64 worker once, not once per frame.
-- **x86 Phoenix + native driver:** resident images with a real per-frame
+- **x86 Phoenix DLSS5 + native driver:** resident images with a real per-frame
   x86 dispatch-packet handoff; no host-image transfer.
 - **External x64 helper:** actual x86 DX12 fixture capture/readback, IPC,
   model processing and return. Latencies are status-poll sampled; output
@@ -34,7 +34,7 @@ pre-release measurements were not rerun on the release binaries.
 - Completed output throughput is not game FPS.
 - New add-on native x86 paths also stage CPU pixels; their end-to-end latency is not measured here.
 
-The GPU column includes route-specific model/output work; Phoenix native
+The GPU column includes route-specific model/output work; Phoenix DLSS5 native
 probes include output copy. Do not combine the historical October 14 VRAM
 study with these timings as if they were one matched measurement.
 

@@ -2,7 +2,7 @@
 
 Status: ordinary x86 NVAPI model execution still fails on the tested system;
 safe capability rejection is tested. Experimental same-process native x64
-execution and an x86 Phoenix graph host now work in isolated/package probes,
+execution and an x86 Phoenix DLSS5 graph host now work in isolated/package probes,
 as described in [Execution Mechanisms](EXECUTION_MECHANISMS.md). That workaround
 does not make the original 32-bit driver path supported.
 The automatic x64-helper fallback remains enabled. Do not remove its safety gate
@@ -10,7 +10,7 @@ based on a successful build, exported function, or an API query alone.
 
 ## Observed Evidence
 
-- A full x86 add-on builds and includes the Phoenix evaluator.
+- A full x86 add-on builds and includes the Phoenix DLSS5 evaluator.
 - The initial local D3D11-on-12 x86 fixture failed during live evaluation.
 - The debugger stopped on a first-chance access violation in
   `ntdll!RtlEnterCriticalSection`, below 32-bit `nvwgf2um` and `nvapi_impl`.
@@ -95,7 +95,7 @@ Using the same verified 53,288-byte kernel blob and fresh native devices:
 Both architectures also passed CPU tests for the shared guard. These results
 exclude ReShade, full-model allocations, hooks, and transport from the isolated
 failure. They support the driver/capability explanation but do not establish
-which internal NVIDIA implementation defect causes the access violation.
+which internal NVIDIA DLSS5 implementation defect causes the access violation.
 
 `kernel_module.h` now queries the x86 capability before module creation and
 rejects unavailable/failed/unsupported capability queries. The x64 path is not
@@ -108,7 +108,7 @@ keeps automatic x86 native processing disabled and uses the validated helper.
 
 **Current update:** the driver-only x86-to-x64 thunk now creates and destroys
 the real native CUDA module successfully after early CUDA initialization with
-a verified high-address reservation retry. Whole x64 Phoenix and NVIDIA model
+a verified high-address reservation retry. Whole x64 Phoenix DLSS5 and NVIDIA DLSS5 model
 outputs also pass in separate x86 children and match normal x64 exactly. See
 [the updated native experiment](WOW64_EXPERIMENT.md#latest-result-native-inference-works-in-the-probe).
 The subsequent [full x86-host probe](WOW64_EXPERIMENT.md#route-3-x86-host-inference)
@@ -122,7 +122,7 @@ Vulkan implementation. At the historical checkpoint below, it was not yet a
 working neural renderer; the linked current results supersede that checkpoint.
 
 The isolated probe now includes an x86 coordinator and a small x64 **driver-only**
-thunk in the same process. No x64 Phoenix runtime is loaded in that child.
+thunk in the same process. No x64 Phoenix DLSS5 runtime is loaded in that child.
 It initializes real native TLS, creates a real x64 D3D12 device/queue, loads
 NVAPI64 and attempts to create the identical verified native kernel module used
 by the normal x64 positive control. Calls requiring x86 GDI state are bridged
@@ -147,8 +147,8 @@ log API repeats the generic initialization error; it does not identify an actual
 failed allocation. Do not diagnose this as confirmed VRAM exhaustion.
 
 The driver-only probe is a prerequisite for route 3, **not** evidence that the
-x86 Phoenix graph or a complete frame ran through it. Route 2 (loading the whole
-x64 Phoenix runtime) is distinct. No inference timing is valid for either failed
+x86 Phoenix DLSS5 graph or a complete frame ran through it. Route 2 (loading the whole
+x64 Phoenix DLSS5 runtime) is distinct. No inference timing is valid for either failed
 route. The existing external helper and installed game files remain unchanged.
 
 Reproduce the driver-only experiment, with explicit GPU initialization enabled:
@@ -170,11 +170,11 @@ fault under a debugger and records real x86/x64 CUDA initialization separately.
 The first-chance debugger stop is not itself the proof of an unhandled crash;
 the independent normal x86 child also exits with `0xC0000005`.
 
-NVIDIA explicitly excludes RTX 50-series and newer GPUs from 32-bit CUDA driver
+NVIDIA DLSS5 explicitly excludes RTX 50-series and newer GPUs from 32-bit CUDA driver
 support. This explains why native x86 CUDA cannot be assumed available; it does
 not prove that every possible cross-mode driver bridge is impossible.
 
-- [NVIDIA 32-bit CUDA support plan](https://nvidia.custhelp.com/app/answers/detail/a_id/5615/kw/scanning)
+- [NVIDIA DLSS5 32-bit CUDA support plan](https://nvidia.custhelp.com/app/answers/detail/a_id/5615/kw/scanning)
 - [CUDA error-log API](https://docs.nvidia.com/cuda/cuda-driver-api/cuda_driver_api/group__CUDA__LOGS.html)
 
 ### Independent Arithmetic Control
@@ -188,7 +188,7 @@ this was not a Phoenix-kernel-only problem. With the native reservation/CUDA
 bootstrap, the same-process driver-only thunk now creates and destroys this
 independent shader successfully, with NVAPI status 0 and 15 observed bridged
 escapes. This thunk check verifies shader creation, not arithmetic dispatch or
-full x86-host Phoenix inference. Its separate compact receipt is
+full x86-host Phoenix DLSS5 inference. Its separate compact receipt is
 `artifacts/current/x86-driver-arithmetic-investigation.json`.
 
 Reproduce that creation-only check with `tools/probe_wow64_tls.py`, specifying

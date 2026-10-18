@@ -44,7 +44,7 @@ class GpuTiming {
 
     unsigned stamp() {
         auto& pending_frame = pending_[current_];
-        check(pending_frame.count < stamps, "DLSS5 Phoenix timestamp capacity");
+        check(pending_frame.count < stamps, "Phoenix DLSS5 timestamp capacity");
         const unsigned index = pending_frame.count++;
         pending_frame.list->EndQuery(heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
                                      current_ * stamps + index);
@@ -56,7 +56,7 @@ class GpuTiming {
               std::shared_ptr<TimingArchive> archive = std::make_shared<TimingArchive>())
         : queue_(queue), archive_(std::move(archive)) {
         phoenix_native::hr(queue->GetTimestampFrequency(&frequency_));
-        check(frequency_, "DLSS5 Phoenix GPU timestamp frequency missing");
+        check(frequency_, "Phoenix DLSS5 GPU timestamp frequency missing");
         phoenix_native::hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
         D3D12_QUERY_HEAP_DESC query_heap_description{};
         query_heap_description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
@@ -120,7 +120,7 @@ class GpuTiming {
     }
     bool begin(ID3D12GraphicsCommandList* list, unsigned mode, unsigned blocks, unsigned width,
                unsigned height) {
-        check(current_ == slots, "DLSS5 Phoenix nested GPU profile");
+        check(current_ == slots, "Phoenix DLSS5 nested GPU profile");
         poll();
         if (pending_[next_].list) {
             ++archive_->dropped;
@@ -160,7 +160,7 @@ class GpuTiming {
         check(pending_frame.list == list && pending_frame.own.begin >= 0 &&
                   pending_frame.own.end < 0 && index == pending_frame.groups % kGroupCount &&
                   pending_frame.groups < kGroupCount * 4,
-              "DLSS5 Phoenix GPU group timestamp order");
+              "Phoenix DLSS5 GPU group timestamp order");
         pending_frame.group[pending_frame.groups++] = stamp();
     }
     void end() {
@@ -191,7 +191,7 @@ class GpuTiming {
                     if (lists[iteration_index] == pending_frame.list)
                         ++found;
                 check(!found || (found == 1 && matches(queue) && current_ == slots),
-                      "DLSS5 Phoenix timing submission identity");
+                      "Phoenix DLSS5 timing submission identity");
             }
     }
     void submitted(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists) {
@@ -203,7 +203,7 @@ class GpuTiming {
                         found = true;
         if (!found)
             return;
-        check(matches(queue), "DLSS5 Phoenix timing wrong queue");
+        check(matches(queue), "Phoenix DLSS5 timing wrong queue");
         phoenix_native::hr(queue->Signal(fence_.Get(), ++signaled_));
         for (auto& pending_frame : pending_)
             if (pending_frame.list && !pending_frame.fence)
@@ -213,7 +213,7 @@ class GpuTiming {
     }
     void poll() {
         const uint64_t completed = fence_->GetCompletedValue();
-        check(completed != UINT64_MAX, "DLSS5 Phoenix timing device removed");
+        check(completed != UINT64_MAX, "Phoenix DLSS5 timing device removed");
         for (unsigned iteration_index = 0; iteration_index < slots; ++iteration_index) {
             auto& pending_frame = pending_[iteration_index];
             if (!pending_frame.list || !pending_frame.fence || pending_frame.fence > completed)
@@ -263,7 +263,7 @@ class GpuTiming {
             context = Json::object();
         return {
             {"scope",
-             "GPU command-list intervals, not whole-game frame time. Direct DLSS5 Phoenix includes all neural passes and between-pass feed/counter preparation; group times sum across passes. Legacy DLSS5 Phoenix includes Session copies; NVIDIA measures Evaluate."},
+             "GPU command-list intervals, not whole-game frame time. Direct Phoenix DLSS5 includes all neural passes and between-pass feed/counter preparation; group times sum across passes. Legacy Phoenix DLSS5 includes Session copies; NVIDIA DLSS5 measures Evaluate."},
             {"frequency", frequency_},
             {"active_settings", context},
             {"epoch", archive_->epoch()},

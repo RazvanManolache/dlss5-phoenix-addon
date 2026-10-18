@@ -64,7 +64,7 @@ int main() {
         window_class.lpszClassName = L"PhoenixD3D11Fixture";
         RegisterClassW(&window_class);
         HWND window =
-            CreateWindowW(window_class.lpszClassName, L"Phoenix D3D11 fixture", WS_POPUP, -30000,
+            CreateWindowW(window_class.lpszClassName, L"Phoenix DLSS5 D3D11 fixture", WS_POPUP, -30000,
                           -30000, 320, 192, nullptr, nullptr, window_class.hInstance, nullptr);
         if (!window)
             throw std::runtime_error("Cannot create fixture window");

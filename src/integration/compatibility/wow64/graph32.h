@@ -84,7 +84,7 @@ class FrameSession {
         std::fill(output_.begin(),output_.end(),uint16_t(0x7e00));
         const auto controls=settings.controls.apply(phoenix_addon::Controls{});
         if(driver_) {
-            phoenix_bundle::require(backend==3,"Native x86 driver host is Phoenix-only");
+            phoenix_bundle::require(backend==3,"Native x86 driver host is Phoenix DLSS5-only");
             const auto resolved=phoenix_addon::resolve_controls(controls,c.width,c.height,false,false,0);
             c.target=unsigned(frames_%2); c.frame_flags=0;
             const std::array<phoenix_launch_plan::Arena,2> arenas{{{c.workspace_address,c.workspace_bytes},{c.weights_address,c.weight_bytes}}};

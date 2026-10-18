@@ -6,7 +6,7 @@ from pathlib import Path
 from compare_native_methods import ROOT, build_comparison
 
 NAMES = {1: 'Native x64', 2: 'x64 library inside x86',
-         3: 'x86 Phoenix + native driver', 4: 'External x64 helper'}
+         3: 'x86 Phoenix DLSS5 + native driver', 4: 'External x64 helper'}
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
         elif method == 3:
             row['wall_scope'] = 'Resident processing plus per-frame x86/native dispatch handoff; no host image transfer.'
         if not row['available']:
-            row['reason'] = 'No x86 NVIDIA graph host source; use the complete x64 library inside x86 or the helper.'
+            row['reason'] = 'No x86 NVIDIA DLSS5 graph host source; use the complete x64 library inside x86 or the helper.'
     result['limitations'] = [
         'Wall-time scopes differ; do not treat the helper/resident ratio as architectural overhead.',
         'Resident tests use synthetic pixels; the helper uses a different DX12 fixture image.',
@@ -49,22 +49,22 @@ def main():
         '| --- | --- | ---: | ---: | ---: | ---: |']
     for row in result['rows']:
         if row['available']:
-            lines.append(f"| {row['backend'].title()} | {row['execution']} | "
+            lines.append(f"| { {'phoenix':'Phoenix DLSS5','nvidia':'NVIDIA DLSS5'}[row['backend']]} | {row['execution']} | "
                 f"{row['gpu_mean_ms']:.3f} / {row['gpu_p95_ms']:.3f} | "
                 f"{row['wall_mean_ms']:.3f} / {row['wall_p95_ms']:.3f} | "
                 f"{row['samples']} | {row['completed_outputs_per_second']:.2f} |")
         else:
-            lines.append(f"| {row['backend'].title()} | {row['execution']} | Not available | Not available | - | - |")
+            lines.append(f"| { {'phoenix':'Phoenix DLSS5','nvidia':'NVIDIA DLSS5'}[row['backend']]} | {row['execution']} | Not available | Not available | - | - |")
     lines += ['', '## Read the Scopes', '',
         '- **Native x64 / x64 library inside x86:** GPU-resident synchronized API calls.',
         '  The x86 experiment enters its x64 worker once, not once per frame.',
-        '- **x86 Phoenix + native driver:** resident images with a real per-frame',
+        '- **x86 Phoenix DLSS5 + native driver:** resident images with a real per-frame',
         '  x86 dispatch-packet handoff; no host-image transfer.',
         '- **External x64 helper:** actual x86 DX12 fixture capture/readback, IPC,',
         '  model processing and return. Latencies are status-poll sampled; output',
         '  throughput is counted separately, not the inverse of sampled latency.', '',
         *['- '+value for value in result['limitations']], '',
-        'The GPU column includes route-specific model/output work; Phoenix native',
+        'The GPU column includes route-specific model/output work; Phoenix DLSS5 native',
         'probes include output copy. Do not combine the historical October 14 VRAM',
         'study with these timings as if they were one matched measurement.', '',
         '![GPU processing time only](execution-gpu-time.png)', '',
@@ -86,12 +86,12 @@ def draw_chart(result, path):
             if Path(candidate).is_file():
                 return ImageFont.truetype(candidate, size)
         return ImageFont.load_default(size=size)
-    draw.text((34, 22), 'Phoenix 0.81 | GPU processing by execution path', font=font(28), fill='white')
+    draw.text((34, 22), 'Phoenix DLSS5 0.81 | GPU processing by execution path', font=font(28), fill='white')
     draw.text((34, 66), 'RTX 5080 | 1920 x 1080 | 5s warmup + 20s measurement | reset frames', font=font(19), fill='#c8cfd3')
     colors = {'phoenix': '#52c6ad', 'nvidia': '#e0b962'}
     for index, label in enumerate(NAMES.values()):
         y = 128 + index*105
-        draw.text((34, y+12), label, font=font(19), fill='white')
+        draw.text((34, y+12), label, font=font(17), fill='white')
         for backend, delta in (('phoenix', 0), ('nvidia', 34)):
             row = next(row for row in result['rows'] if row['execution'] == label and row['backend'] == backend)
             if row['available']:
@@ -99,9 +99,9 @@ def draw_chart(result, path):
                 draw.rectangle((365, y+delta, end, y+delta+25), fill=colors[backend])
                 draw.text((end+12, y+delta-2), f"{row['gpu_mean_ms']:.3f} ms", font=font(18), fill='white')
             else:
-                draw.text((365, y+delta), 'NVIDIA: no x86 graph-host implementation', font=font(17), fill='#a7b1b8')
-    draw.text((34, 562), 'Phoenix', font=font(20), fill=colors['phoenix'])
-    draw.text((150, 562), 'NVIDIA', font=font(20), fill=colors['nvidia'])
+                draw.text((365, y+delta), 'NVIDIA DLSS5: no x86 graph-host implementation', font=font(17), fill='#a7b1b8')
+    draw.text((34, 562), 'Phoenix DLSS5', font=font(20), fill=colors['phoenix'])
+    draw.text((220, 562), 'NVIDIA DLSS5', font=font(20), fill=colors['nvidia'])
     draw.text((34, 600), 'GPU-only bars exclude capture/IPC/return. Different input fixtures; not game FPS.', font=font(19), fill='#c8cfd3')
     canvas.save(path)
 

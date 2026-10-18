@@ -7,19 +7,19 @@ measurements only; inference latency is not game FPS. [Regular regression checks
 [Interactive resolution report and output comparisons](resolutions.html) ·
 [Measurements](measurements.json) · [Exact-output receipts](native-resolution-validation.json)
 
-## Native RTX and NVIDIA DLSS NR — measured 14 October
+## Native RTX and NVIDIA DLSS5 NR — measured 14 October
 
 RTX 5080 16 GiB, NVIDIA driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 threads;
 96 GiB RAM. Same synthetic RGBA16F color / RG16F motion textures, model DLL
 310.8.0.0, controls, full eight blocks and one pass. D3D12 debug enabled on both.
 GPU timestamps cover runner/Evaluate, excluding uploads and readbacks. Each
 renderer uses two fresh processes per extent, 128 frames each, discarding 32.
-Phoenix uses automatic input-resolution kernel selection and aligned 64-channel
+Phoenix DLSS5 uses automatic input-resolution kernel selection and aligned 64-channel
 memory access. Both routes were freshly rerun; input pixel hashes are unchanged.
 Headline values are arithmetic means of the two process medians; ranges are
 preserved in the JSON. Clocks and scheduling introduce variation.
 
-| Resolution | Phoenix GPU ms | NVIDIA GPU ms | Phoenix GPU MiB | NVIDIA GPU MiB |
+| Resolution | Phoenix DLSS5 GPU ms | NVIDIA GPU ms | Phoenix DLSS5 GPU MiB | NVIDIA GPU MiB |
 | --- | ---: | ---: | ---: | ---: |
 | 640 × 360 | 1.9222 | 2.0074 | 295.01 | 438.21 |
 | 854 × 480 | 2.0883 | 2.1586 | 318.70 | 460.40 |
@@ -32,7 +32,7 @@ preserved in the JSON. Clocks and scheduling introduce variation.
 | 7680 × 4320 | 62.3358 | 61.0393 | 4686.51 | 4562.52 |
 
 GPU memory is measured whole-process local residency, including harness and
-driver allocations. It is not the model size or NVIDIA internal buffer usage.
+driver allocations. It is not the model size or NVIDIA DLSS5 internal buffer usage.
 The same texture formats are used on both routes. No universal VRAM saving is
 claimed: compare the measured rows, especially 6K and 8K.
 
@@ -45,11 +45,11 @@ claimed: compare the measured rows, especially 6K and 8K.
 
 These are averages of process-median observations, not startup peaks. Private
 commit, working set, owned allocations and GPU residency overlap; do not sum them.
-The Phoenix probe retains weight/fixture host caches through the run; NVIDIA
+The Phoenix DLSS5 probe retains weight/fixture host caches through the run; NVIDIA DLSS5
 uses transient host upload planes. These columns describe the probes, not a
 matched comparison of runner-only system RAM.
 
-| Resolution | Phoenix private commit | Phoenix working set | NVIDIA private commit | NVIDIA working set |
+| Resolution | Phoenix DLSS5 private commit | Phoenix DLSS5 working set | NVIDIA DLSS5 private commit | NVIDIA DLSS5 working set |
 | --- | ---: | ---: | ---: | ---: |
 | 640 × 360 | 601.6 | 292.7 | 663.5 | 350.8 |
 | 854 × 480 | 630.9 | 296.3 | 692.0 | 350.7 |
@@ -67,7 +67,7 @@ matched comparison of runner-only system RAM.
 
 [Native scaling investigation](../../NATIVE_SCALING_DIAGNOSIS_2026-10-13.md):
 the retained baseline before tuning, with clock observations and direct
-Phoenix/NVIDIA launch attribution at 720p, 1080p, 4K and 8K.
+Phoenix DLSS5/NVIDIA DLSS5 launch attribution at 720p, 1080p, 4K and 8K.
 [Controlled memory tests and automatic selection](../../NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
 explain the implemented changes. These investigations retain their separate
 sample counts; the current release snapshot above uses the freshly rerun
@@ -81,8 +81,8 @@ kept separate from the measured rows above.
 
 ## Output validation and resolution fixes
 
-- All nine standard extents match NVIDIA exactly at reset and frame 127.
-  Both fresh Phoenix processes produce identical endpoint hashes. NVIDIA
+- All nine standard extents match NVIDIA DLSS5 exactly at reset and frame 127.
+  Both fresh Phoenix DLSS5 processes produce identical endpoint hashes. NVIDIA DLSS5
   final-frame comparisons are repeated in two fresh processes per extent.
 - Earlier planner validation, before the automatic-kernel tuning, checked
   **29 awkward extents** at reset and frame 15, with two fresh
@@ -91,8 +91,8 @@ kept separate from the measured rows above.
   3841×2161, 721×1281 and 3441×1439.
 - Earlier native-only planner checks at seven additional sizes (1×1, 17×31, 1×1024, 4096×7, 7×4096,
   16384×17 and 17×16384) pass finite-output, zero-debug-error, retirement
-  and two-process hash-repeatability checks. NVIDIA probes at 1×1 and 17×31
-  hung the GPU device; the other thin cases were not compared to NVIDIA.
+  and two-process hash-repeatability checks. NVIDIA DLSS5 probes at 1×1 and 17×31
+  hung the GPU device; the other thin cases were not compared to NVIDIA DLSS5.
 - [Edge-case receipts](resolution-edge-validation.json) retain numerical
   comparisons and hashes. [Planner checks](planner-validation.json) cover
   41 allocation extents, tensor lifetimes and token-tail capacity.
@@ -106,7 +106,7 @@ kept separate from the measured rows above.
   entries at 18,662,400 pixels. No per-frame full-workspace clear was added.
 - Current saved-regression validation checks **eight extents**, including
   5760×3239 below the tuning threshold and 5761×3241 above it. Both compiled
-  branches are exercised; current NVIDIA comparisons cover all nine standard
+  branches are exercised; current NVIDIA DLSS5 comparisons cover all nine standard
   extents. Earlier edge-case receipts retain their original source/version scope.
 
 These are numerical checks of one synthetic input and fixed controls. They do
@@ -116,8 +116,8 @@ tracked owned allocations retired to zero in the probes.
 
 ### Actual output images
 
-Final frame 127, fixed RGB range 0–1, no auto exposure or contrast. Left: Phoenix;
-middle: NVIDIA; right: absolute difference amplified ×8. These are synthetic
+Final frame 127, fixed RGB range 0–1, no auto exposure or contrast. Left: Phoenix DLSS5;
+middle: NVIDIA DLSS5; right: absolute difference amplified ×8. These are synthetic
 fixtures, not gameplay screenshots.
 
 ![1440p exact output comparison](output-2560x1440.png)
@@ -148,7 +148,7 @@ These are measurements from the earlier portable build, before the latest
 1080p optimization pass; they have not been rerun with candidate 124. They use
 the alternate-runner RGB32F/fractional-motion broker fixture above.
 Two fresh processes × six frames, discard two; averages of process medians.
-Repeatability hashes match between processes. They are not native/NVIDIA parity
+Repeatability hashes match between processes. They are not native/NVIDIA DLSS5 parity
 checks, and the short runs are exploratory. Vulkan failures are reported as
 failures rather than assigning a time or hiding the row.
 
@@ -181,7 +181,7 @@ The current 14 October replay checks 92 exact alternate frames and all nine nati
 [bridge checks](../../BRIDGE_FIXES_2026-10-14.md) retain the complete scopes and limitations.
 
 - Current automatic-selection addon: **15 CPU suites, two software D3D12 suites, 127 embedded
-  payload files verified**. No model or NVIDIA DLL embedded.
+  payload files verified**. No model or NVIDIA DLSS5 DLL embedded.
 - Rebuilt portable runtime: **42 exact regression frames / 18 jobs / six routes**.
   Earlier 13 October CUDA/Vulkan paired trials checked **144 exact temporal frames**; CPU/HIP
   trials check 16 exact reset frames. Operator contracts pass on CPU, HIP, CUDA

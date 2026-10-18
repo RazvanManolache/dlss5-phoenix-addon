@@ -84,7 +84,7 @@ class Models {
         if(phoenix_) return;
         native_=LoadLibraryExW(fs::u8path(config_.at("native_library").get<std::string>()).c_str(),nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
-        require(native_!=nullptr,"Native Phoenix library unavailable");
+        require(native_!=nullptr,"Native Phoenix DLSS5 library unavailable");
         auto create=symbol<decltype(&phoenix_native_create)>(native_,"phoenix_native_create");
         const auto text=config_.dump(); phoenix_=create(text.c_str(),gpu_.device.Get(),gpu_.queue.Get());
         require(phoenix_!=nullptr,symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error")());
@@ -92,27 +92,27 @@ class Models {
     void initialize_nvidia(const wchar_t* cuda_path) {
         if(nvidia_) return;
         const auto source=phoenix_model::WeightSource::config(config_.at("weight_source"));
-        require(!source.dll.empty(),"NVIDIA mode requires a selected NVIDIA model DLL, not a disk model");
-        require(phoenix_wow64::file_digest(source.dll)==source.dll_sha256,"NVIDIA model digest mismatch");
+        require(!source.dll.empty(),"NVIDIA DLSS5 mode requires a selected NVIDIA DLSS5 model DLL, not a disk model");
+        require(phoenix_wow64::file_digest(source.dll)==source.dll_sha256,"NVIDIA DLSS5 model digest mismatch");
         require(loaded_nvidia_sha_.empty()||loaded_nvidia_sha_==source.dll_sha256,
-            "Changing the NVIDIA library in the native x86 route requires the helper or a game restart; the previous library stays loaded.");
+            "Changing the NVIDIA DLSS5 library in the native x86 route requires the helper or a game restart; the previous library stays loaded.");
         core_=LoadLibraryW((fs::path(cuda_path).parent_path()/"_nvngx.dll").c_str()); require(core_!=nullptr,"Native NGX core unavailable");
         auto allocate=symbol<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter**)>(core_,"NVSDK_NGX_D3D12_AllocateParameters");
-        require(NVSDK_NGX_SUCCEED(allocate(&params_))&&params_,"NVIDIA parameter allocation failed");
-        require(PhoenixNrLoad(source.dll.c_str())!=0,"NVIDIA model load failed");
+        require(NVSDK_NGX_SUCCEED(allocate(&params_))&&params_,"NVIDIA DLSS5 parameter allocation failed");
+        require(PhoenixNrLoad(source.dll.c_str())!=0,"NVIDIA DLSS5 model load failed");
         loaded_nvidia_sha_=source.dll_sha256;
         // No game SR hook, no upscaling at 1:1; this is direct NR evaluation.
         const auto cache=fs::temp_directory_path()/"PhoenixAddon"/"ngx";
         fs::create_directories(cache);
         const auto initialized=PhoenixNrInit(0x1000000ull,cache.c_str(),gpu_.device.Get(),NVSDK_NGX_Version_API,params_);
-        if(!NVSDK_NGX_SUCCEED(initialized)) throw std::runtime_error("NVIDIA initialization failed: "+std::to_string(uint32_t(initialized)));
+        if(!NVSDK_NGX_SUCCEED(initialized)) throw std::runtime_error("NVIDIA DLSS5 initialization failed: "+std::to_string(uint32_t(initialized)));
         params_->Reset();
         for(auto key:{"DLSSNR.Width","DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.Output.Width","Width"}) params_->Set(key,width_);
         for(auto key:{"DLSSNR.Height","DLSSNR.InputHeight","DLSSNR.OutputHeight","DLSSNR.Output.Height","Height"}) params_->Set(key,height_);
         for(auto key:{"CreationNodeMask","VisibilityNodeMask","DLSSNR.SDR","DLSSNR.AutoExposure"}) params_->Set(key,1u);
         for(auto key:{"DLSSNR.Upscaling","PerfQualityValue","DLSSNR.Hdr","DLSS.Feature.Create.Flags","DLSSNR.Hint.Render.Preset"}) params_->Set(key,0u);
         for(auto key:{"DLSSNR.Scale","DLSSNR.ScalingRatio","MV.Scale.X","MV.Scale.Y","InPreExposure","InExposureScale"}) params_->Set(key,1.f);
-        require(NVSDK_NGX_SUCCEED(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_))&&nvidia_,"NVIDIA feature creation failed"); gpu_.submit();
+        require(NVSDK_NGX_SUCCEED(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_))&&nvidia_,"NVIDIA DLSS5 feature creation failed"); gpu_.submit();
         color_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT); motion_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16_FLOAT);
         output_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
         auto desc=color_->GetDesc(); gpu_.device->GetCopyableFootprints(&desc,0,1,0,&footprint_,nullptr,nullptr,&bytes_);
@@ -169,7 +169,7 @@ class Models {
             params_->Set("DLSSNR.LocalToneStrength",controls.at("tone").get<float>()); params_->Set("DLSSNR.LocalStructureStrength",controls.at("structure").get<float>());
             params_->Set("DLSSNR.SkinStructureStrength",controls.at("skin").get<float>()); params_->Set("DLSSNR.UseAutoMask",unsigned(controls.at("auto_mask").get<bool>()));
             params_->Set("DLSSNR.SDR",1u); params_->Set("DLSSNR.Enabled",1u); params_->Set("DLSSNR.Reset",1u);
-            require(NVSDK_NGX_SUCCEED(PhoenixNrEvaluate(gpu_.list.Get(),nvidia_,params_,nullptr)),"NVIDIA evaluation failed"); gpu_.submit();
+            require(NVSDK_NGX_SUCCEED(PhoenixNrEvaluate(gpu_.list.Get(),nvidia_,params_,nullptr)),"NVIDIA DLSS5 evaluation failed"); gpu_.submit();
             gpu_.barrier(output_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
             a={};b={};a.pResource=readback_.Get();a.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;a.PlacedFootprint=footprint_;
             b.pResource=output_.Get();b.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;gpu_.list->CopyTextureRegion(&a,0,0,0,&b,nullptr);

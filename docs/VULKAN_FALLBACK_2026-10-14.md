@@ -67,8 +67,8 @@ are unchanged.
   checks pass. Imported third-party source files were not modified.
 - Optional scalar fused attention uses four 128-thread groups per window/head,
   with sixteen query rows and 6 KiB shared storage per group. It matches the
-  separate operations for 1/2/4/8/16 heads on NVIDIA, Android and the AMD iGPU.
-  Full reset frames also match on Windows/NVIDIA. Full-call gains were inconsistent, so
+  separate operations for 1/2/4/8/16 heads on NVIDIA DLSS5, Android and the AMD iGPU.
+  Full reset frames also match on Windows/NVIDIA DLSS5. Full-call gains were inconsistent, so
   `vulkan_scalar_attention` remains **false by default**.
 - Larger 16×32, 64×32, 32×64 and 64×64 tiles, deeper K staging, unconditional
   coalescing, and an ordered-projection experiment on matrix-capable GPUs were
@@ -88,6 +88,6 @@ samples, hashes, regression logs and model-free Windows/Android x86_64 SDK build
 receipts. Android's original baseline captures remain in
 `build/android_game_20261014/results/`.
 
-The supplied NVIDIA model DLL remains external. Neither SDK contains the DLL
+The supplied NVIDIA DLSS5 model DLL remains external. Neither SDK contains the DLL
 or extracted model tensors. No physical-phone or discrete AMD/Intel testing was
 performed in this pass.

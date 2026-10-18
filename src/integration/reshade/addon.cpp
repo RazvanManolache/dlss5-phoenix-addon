@@ -48,12 +48,12 @@
 #endif
 #if CNR_PHOENIX_DIAGNOSTIC
 #include "../../native/support/diagnostic.h"
-extern "C" __declspec(dllexport) const char* NAME = "DLSS5 Phoenix diagnostic comparison";
+extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 diagnostic comparison";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Bounded paired inference with independent histories; not a production replacement or benchmark.";
 #else
 
-extern "C" __declspec(dllexport) const char* NAME = "DLSS5 Phoenix reconstructed NR";
+extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 reconstructed NR";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Explicit-contract candidate NR integration; no native fallback for registered features.";
 #endif
@@ -427,7 +427,7 @@ void copy_band(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source,
             source_description.MipLevels == 1 && output_description.MipLevels == 1 &&
             source_description.SampleDesc.Count == 1 && output_description.SampleDesc.Count == 1 &&
             first < last && last <= source_description.Width,
-        "DLSS5 Phoenix comparison requires matching single-subresource image formats and extents");
+        "Phoenix DLSS5 comparison requires matching single-subresource image formats and extents");
     phoenix_native::transition(cmd, source, source_state, D3D12_RESOURCE_STATE_COPY_SOURCE);
     phoenix_native::transition(cmd, output, output_state, D3D12_RESOURCE_STATE_COPY_DEST);
     D3D12_TEXTURE_COPY_LOCATION from{}, to{};
@@ -447,7 +447,7 @@ void poll_route_pairs() {
         if (pair->poll(addon_state.route_capture, false) &&
             pair->result().at("comparison") != "byte_exact") {
             addon_state.terminal = true;
-            error("DLSS5 Phoenix switch diagnostic differs from the untouched DLL");
+            error("Phoenix DLSS5 switch diagnostic differs from the untouched DLL");
         }
     }
 }
@@ -557,7 +557,7 @@ void record_event(const char* kind, Json detail) {
     auto& addon_state = state();
     if (addon_state.panel.log_level > 0)
         reshade::log::message(reshade::log::level::info,
-                              (std::string("DLSS5 Phoenix ") + kind +
+                              (std::string("Phoenix DLSS5 ") + kind +
                                (addon_state.panel.log_level == 2 ? " " + detail.dump() : ""))
                                   .c_str());
     if (addon_state.lifecycle_events.size() >= 256)
@@ -665,7 +665,7 @@ void log_native_formats(const NVSDK_NGX_Parameter* params) {
     char message[256];
     std::snprintf(
         message, sizeof(message),
-        "[DLSS5 Phoenix observe] native %ux%u color=%u mvec=%u output=%u depth=%u evals=%llu",
+        "[Phoenix DLSS5 observe] native %ux%u color=%u mvec=%u output=%u depth=%u evals=%llu",
         width, height, color, mvec, output, depth, addon_state.observed_evaluates);
     reshade::log::message(reshade::log::level::info, message);
     try {
@@ -951,7 +951,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
 #else
         if (addon_state.automatic)
             progress("candidate_recording");
-        check(addon_state.panel.valid(), "DLSS5 Phoenix invalid panel settings");
+        check(addon_state.panel.valid(), "Phoenix DLSS5 invalid panel settings");
         endpoint.session->settle();
         const int mode =
             addon_state.routing_test_period
@@ -1033,14 +1033,14 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
         if (mode == phoenix::split) {
             if (addon_state.routing_test_period) {
                 poll_route_pairs();
-                check(!addon_state.terminal, "DLSS5 Phoenix switch comparison already failed");
+                check(!addon_state.terminal, "Phoenix DLSS5 switch comparison already failed");
                 check(addon_state.route_pairs.size() < 128,
-                      "DLSS5 Phoenix switch comparison budget");
+                      "Phoenix DLSS5 switch comparison budget");
                 if (addon_state.route_capture.empty()) {
                     addon_state.route_capture =
                         addon_state.output_directory / "phoenix_switch_capture";
                     check(std::filesystem::create_directory(addon_state.route_capture),
-                          "DLSS5 Phoenix capture directory must be new");
+                          "Phoenix DLSS5 capture directory must be new");
                 }
                 test_pair = std::make_shared<diagnostic::Pair>(evidence.queue, cmd, output,
                                                                addon_state.route_pairs.size() + 1);
@@ -1060,9 +1060,9 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                         scratch = lease.output.Get();
                 if (!scratch) {
                     check(addon_state.route_outputs.size() < 8,
-                          "DLSS5 Phoenix comparison output retirement bound");
+                          "Phoenix DLSS5 comparison output retirement bound");
                     const auto owner = resolve_allocation_device(evidence.queue, output);
-                    check(owner.resolved, "DLSS5 Phoenix comparison allocation device unresolved");
+                    check(owner.resolved, "Phoenix DLSS5 comparison allocation device unresolved");
                     auto resource = phoenix_native::image(
                         owner.device.Get(), width, output->GetDesc().Height,
                         output->GetDesc().Format, D3D12_RESOURCE_STATE_COPY_DEST, false);
@@ -1099,7 +1099,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                 addon_state.live_timing->native_begin();
             check(NVSDK_NGX_SUCCEED(addon_state.original_evaluate(instance, supplied, feature,
                                                                   params, progress_callback)),
-                  "DLSS5 Phoenix selected native Evaluate failed");
+                  "Phoenix DLSS5 selected native Evaluate failed");
             if (addon_state.live_timing)
                 addon_state.live_timing->native_end();
             if (mode == phoenix::split) {
@@ -1109,7 +1109,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                 after.binding_lease = observation::resolve(cmd, params, after, false);
                 resolve_engine_output(cmd, evidence.queue, params, after);
                 check(after.output_state_verified && after.states_verified,
-                      "DLSS5 Phoenix split output/input state unresolved after native");
+                      "Phoenix DLSS5 split output/input state unresolved after native");
                 if (test_pair)
                     test_pair->capture_native(cmd, after.output_state,
                                               endpoint.session->frame_controls());
@@ -1126,9 +1126,9 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                             compositor = lease.compositor.get();
                     if (!compositor) {
                         check(addon_state.comparisons.size() < 8,
-                              "DLSS5 Phoenix compositor retirement bound");
+                              "Phoenix DLSS5 compositor retirement bound");
                         const auto owner = resolve_allocation_device(evidence.queue, output);
-                        check(owner.resolved, "DLSS5 Phoenix compositor device unresolved");
+                        check(owner.resolved, "Phoenix DLSS5 compositor device unresolved");
                         auto created = std::make_unique<phoenix::Comparison>(
                             owner.device.Get(), width, output->GetDesc().Height,
                             output->GetDesc().Format);
@@ -1160,9 +1160,9 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
             addon_state.dispatch_counts.other_accepted - dispatch_before.other_accepted;
         check(routed_own ==
                   (phoenix::uses_ours(mode) ? endpoint.session->expected_candidate_launches() : 0),
-              "DLSS5 Phoenix selected mode did not execute the expected own network");
+              "Phoenix DLSS5 selected mode did not execute the expected own network");
         check(phoenix::uses_native(mode) ? routed_native > 0 : routed_native == 0,
-              "DLSS5 Phoenix native dispatch audit disagrees with selected mode");
+              "Phoenix DLSS5 native dispatch audit disagrees with selected mode");
         ++addon_state.mode_frames[size_t(mode)];
         addon_state.mode_own[size_t(mode)] += routed_own;
         addon_state.mode_native[size_t(mode)] += routed_native;
@@ -1191,7 +1191,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
         if (addon_state.panel.log_level == 2 && addon_state.routed_frames % 120 == 0)
             reshade::log::message(
                 reshade::log::level::info,
-                ("DLSS5 Phoenix frame " + std::to_string(addon_state.routed_frames) +
+                ("Phoenix DLSS5 frame " + std::to_string(addon_state.routed_frames) +
                  " own=" + std::to_string(routed_own) + " native=" + std::to_string(routed_native))
                     .c_str());
         if (addon_state.automatic)
@@ -1217,7 +1217,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
 #else
         check(addon_state.last_mode == phoenix::split ? other_dispatches > 0
                                                       : other_dispatches == 0,
-              "DLSS5 Phoenix selected candidate route has unexpected native CUDA work");
+              "Phoenix DLSS5 selected candidate route has unexpected native CUDA work");
 #endif
         addon_state.last_sampling = endpoint.session->last_sampling();
         auto details = endpoint.session->frame_controls();
@@ -1379,7 +1379,7 @@ void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count,
     if (direct_batch && addon_state.panel.log_level == 2) {
         reshade::log::message(
             reshade::log::level::info,
-            ("[DLSS5 Phoenix] execute: submitting claimed game list batch=" + std::to_string(count))
+            ("[Phoenix DLSS5] execute: submitting claimed game list batch=" + std::to_string(count))
                 .c_str());
         char crumb[96];
         snprintf(crumb, sizeof(crumb), "execute: submitting claimed game list batch=%u", count);
@@ -1388,7 +1388,7 @@ void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count,
     addon_state.original_execute(queue, count, lists);
     if (direct_batch && addon_state.panel.log_level == 2) {
         reshade::log::message(reshade::log::level::info,
-                              "[DLSS5 Phoenix] execute: claimed game list submitted");
+                              "[Phoenix DLSS5] execute: claimed game list submitted");
         phoenix_crumb("execute: claimed game list submitted");
     }
     try {
@@ -1576,7 +1576,7 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_create(ID3D12GraphicsCommandList* cmd,
             ++addon_state.ngx_features_seen;
             if (first)
                 reshade::log::message(reshade::log::level::info,
-                                      ("[DLSS5 Phoenix] NGX feature created: id=" +
+                                      ("[Phoenix DLSS5] NGX feature created: id=" +
                                        std::to_string(unsigned(feature_id)) + " " +
                                        std::to_string(in_w) + "x" + std::to_string(in_h) + " -> " +
                                        std::to_string(out_w) + "x" + std::to_string(out_h) +
@@ -1626,7 +1626,7 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_create(ID3D12GraphicsCommandList* cmd,
                     cmd->GetDevice(IID_PPV_ARGS(&create_device));
                 std::snprintf(
                     message, sizeof(message),
-                    "[DLSS5 Phoenix] NGX create recipe id=%u slot=%llu mod=0x%llx wh=%u,%u out=%u,%u nodes=%u,%u quality=%d flags=0x%x subrects=%d rtx=%d sharp=%f cmd=0x%llx dev=0x%llx",
+                    "[Phoenix DLSS5] NGX create recipe id=%u slot=%llu mod=0x%llx wh=%u,%u out=%u,%u nodes=%u,%u quality=%d flags=0x%x subrects=%d rtx=%d sharp=%f cmd=0x%llx dev=0x%llx",
                     unsigned(feature_id), uint64_t(Slot), mod, input_width, input_height,
                     output_width, output_height, creation_node_mask, visibility_node_mask, quality,
                     unsigned(flags), subrects, rtx, double(sharp), uint64_t(cmd),
@@ -1778,7 +1778,7 @@ void install_ngx_exports() {
              ++module_name_character)
             narrow.push_back(char(*module_name_character));
         reshade::log::message(reshade::log::level::info,
-                              ("[DLSS5 Phoenix] NGX export interposition on " + narrow).c_str());
+                              ("[Phoenix DLSS5] NGX export interposition on " + narrow).c_str());
     }
 }
 // renodx parity: the signed NR runtime must be present before any RR/NR
@@ -1823,7 +1823,7 @@ sl::Result sl_export_evaluate(sl::Feature feature, const sl::FrameToken& frame,
             ++addon_state.sl_evaluates_seen;
             if (first)
                 reshade::log::message(reshade::log::level::info,
-                                      ("[DLSS5 Phoenix] SL feature evaluated: id=" +
+                                      ("[Phoenix DLSS5] SL feature evaluated: id=" +
                                        std::to_string(uint64_t(feature)) + " out=" +
                                        std::to_string(out_w) + "x" + std::to_string(out_h))
                                           .c_str());
@@ -1961,7 +1961,7 @@ void install_sl_hooks() {
     addon_state.sl_hooked = true;
     ++addon_state.sl_export_hooks;
     reshade::log::message(reshade::log::level::info,
-                          "[DLSS5 Phoenix] Streamline tag harvest on sl.interposer.dll");
+                          "[Phoenix DLSS5] Streamline tag harvest on sl.interposer.dll");
 }
 using NgxAllocParamsFn = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter**);
 void preload_nr_runtime();
@@ -2078,7 +2078,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
         char emsg[192]{};
         snprintf(
             emsg, sizeof(emsg),
-            "[DLSS5 Phoenix] self-drive: ensure entry fid=%d want_core=%d inited=%d live_fid=%u handle=%p attempts=%u core_init=%d",
+            "[Phoenix DLSS5] self-drive: ensure entry fid=%d want_core=%d inited=%d live_fid=%u handle=%p attempts=%u core_init=%d",
             want_fid, want_core ? 1 : 0, selfdrive_state.inited ? 1 : 0, selfdrive_state.feature_id,
             selfdrive_state.handle, selfdrive_state.attempts,
             selfdrive_state.core_init_attempted ? 1 : 0);
@@ -2109,7 +2109,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
         selfdrive_state.abandons = 0;
         selfdrive_state.core_init_attempted = false;
         reshade::log::message(reshade::log::level::info,
-                              "[DLSS5 Phoenix] self-drive: geometry changed, recreating");
+                              "[Phoenix DLSS5] self-drive: geometry changed, recreating");
     } else if (selfdrive_state.inited && selfdrive_state.attempts == 0) {
         // A pending feature switch with no live handle (never created or a
         // past refusal): reset so the new feature gets its attempt below.
@@ -2149,7 +2149,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
         check(selfdrive_state.core_module, "phoenix NGX core failed to load");
         GetModuleFileNameW(selfdrive_state.core_module, core, MAX_PATH);
         reshade::log::message(reshade::log::level::info,
-            ("[DLSS5 Phoenix] self-drive NGX core: " + std::filesystem::path(core).string()).c_str());
+            ("[Phoenix DLSS5] self-drive NGX core: " + std::filesystem::path(core).string()).c_str());
         WIN32_FILE_ATTRIBUTE_DATA cfad{};
         if (GetFileAttributesExW(core, GetFileExInfoStandard, &cfad) &&
             !(cfad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
@@ -2194,12 +2194,12 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
             const auto wrapper = addon_state.embedded.runtime / L"phoenix-nvngx.dll";
             selfdrive_state.forward_module = LoadLibraryExW(wrapper.c_str(), nullptr,
                 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-            check(selfdrive_state.forward_module, "Phoenix NR call wrapper is missing; rebuild the embedded addon");
+            check(selfdrive_state.forward_module, "Phoenix DLSS5 NR call wrapper is missing; rebuild the embedded addon");
             auto load = reinterpret_cast<BOOL(WINAPI*)(const wchar_t*)>(
                 GetProcAddress(selfdrive_state.forward_module, "PhoenixNrLoad"));
             wchar_t model_path[32768]{};
             check(GetModuleFileNameW(selfdrive_state.nr_module, model_path, 32768) != 0 &&
-                load && load(model_path), "Phoenix NR call wrapper cannot load the selected NVIDIA runtime");
+                load && load(model_path), "Phoenix DLSS5 NR call wrapper cannot load the selected NVIDIA DLSS5 runtime");
         }
         // Loading a module is not initialization. A refused Init_Ext must not
         // make subsequent frames skip initialization and call CreateFeature.
@@ -2214,7 +2214,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
                 throw std::runtime_error(reason);
             }
             selfdrive_state.nr_initialized=true;
-            reshade::log::message(reshade::log::level::info,"[DLSS5 Phoenix] self-drive: NR runtime initialized");
+            reshade::log::message(reshade::log::level::info,"[Phoenix DLSS5] self-drive: NR runtime initialized");
         }
         selfdrive_state.create_fn = reinterpret_cast<State::NgxCreateFn>(
             GetProcAddress(selfdrive_state.forward_module, "PhoenixNrCreate"));
@@ -2253,7 +2253,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
             char qmsg[192]{};
             snprintf(
                 qmsg, sizeof(qmsg),
-                "[DLSS5 Phoenix] self-drive: RR requirements result=0x%08llX support_flags=0x%X (0=supported on success) arch=0x%X",
+                "[Phoenix DLSS5] self-drive: RR requirements result=0x%08llX support_flags=0x%X (0=supported on success) arch=0x%X",
                 uint64_t(query_result), unsigned(req.FeatureSupported), req.MinHWArchitecture);
             reshade::log::message(reshade::log::level::warning, qmsg);
         }
@@ -2335,7 +2335,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     {
         char cmsg2[192]{};
         snprintf(cmsg2, sizeof(cmsg2),
-                 "[DLSS5 Phoenix] self-drive: RR diag fid=%d coreres=%d attempted=%d", want_fid,
+                 "[Phoenix DLSS5] self-drive: RR diag fid=%d coreres=%d attempted=%d", want_fid,
                  want_core ? 1 : 0, selfdrive_state.core_init_attempted ? 1 : 0);
         reshade::log::message(reshade::log::level::warning, cmsg2);
     }
@@ -2344,7 +2344,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
         char fmsg[160]{};
         snprintf(
             fmsg, sizeof(fmsg),
-            "[DLSS5 Phoenix] self-drive: NR feature %d create result=0x%08llX handle=%p (attempt %u)",
+            "[Phoenix DLSS5] self-drive: NR feature %d create result=0x%08llX handle=%p (attempt %u)",
             want_fid, selfdrive_state.last_create_result, selfdrive_state.handle,
             selfdrive_state.attempts);
         reshade::log::message(reshade::log::level::warning, fmsg);
@@ -2363,7 +2363,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     selfdrive_state.first = true;
     {
         char cmsg[128]{};
-        snprintf(cmsg, sizeof(cmsg), "[DLSS5 Phoenix] self-drive: NR feature %d created %ux%u%s",
+        snprintf(cmsg, sizeof(cmsg), "[Phoenix DLSS5] self-drive: NR feature %d created %ux%u%s",
                  want_fid, width, height, want_core ? " via NGX core" : " via dlssnr runtime");
         reshade::log::message(reshade::log::level::info, cmsg);
     }
@@ -2469,14 +2469,14 @@ void selfdrive_direct_run(ID3D12GraphicsCommandList* cmd, ID3D12Resource* proxy,
     if (selfdrive_state.first) {
         selfdrive_state.first = false;
         reshade::log::message(reshade::log::level::info,
-                              "[DLSS5 Phoenix] self-drive: first NR evaluate submitted");
+                              "[Phoenix DLSS5] self-drive: first NR evaluate submitted");
     }
     ++selfdrive_state.evaluates;
     if (selfdrive_state.evaluates == 1 || selfdrive_state.evaluates % 600 == 0) {
         char msg[288]{};
         snprintf(
             msg, sizeof(msg),
-            "[DLSS5 Phoenix] self-drive: NR evaluate #%llu intensity=%.2f tone=%.2f struct=%.2f skin=%.2f style=%u gtone=%.2f expo=%.3f jit=%.4f,%.4f depth=%d inv=%d reset=%d mvscale=%.3f,%.3f",
+            "[Phoenix DLSS5] self-drive: NR evaluate #%llu intensity=%.2f tone=%.2f struct=%.2f skin=%.2f style=%u gtone=%.2f expo=%.3f jit=%.4f,%.4f depth=%d inv=%d reset=%d mvscale=%.3f,%.3f",
             selfdrive_state.evaluates, double(intensity), double(tone), double(structure),
             double(skin), style, double(globaltone), double(exposure), double(jitter_x),
             double(jitter_y), depth ? 1 : 0, inverted, reset, double(mvsx), double(mvsy));
@@ -2586,7 +2586,7 @@ void preload_nr_runtime() {
     tried = true;
     if (LoadLibraryW(L"nvngx_dlssnr.dll"))
         reshade::log::message(reshade::log::level::info,
-                              "[DLSS5 Phoenix] NR runtime pre-loaded (nvngx_dlssnr.dll)");
+                              "[Phoenix DLSS5] NR runtime pre-loaded (nvngx_dlssnr.dll)");
 }
 void install_native(ID3D12CommandQueue* queue) {
     auto& addon_state = state();
@@ -2686,19 +2686,19 @@ void configure() {
         GetEnvironmentVariableW(L"CNR_PHOENIX_GAME_CONFIG", path, 32768);
 #endif
     if (config_path_length >= 32768)
-        throw std::runtime_error("DLSS5 Phoenix configuration path is too long");
+        throw std::runtime_error("Phoenix DLSS5 configuration path is too long");
     if (!config_path_length) {
         wchar_t module_path[32768]{};
         check(GetModuleFileNameW(addon_state.self, module_path, 32768) != 0,
-              "DLSS5 Phoenix addon location unavailable");
+              "Phoenix DLSS5 addon location unavailable");
         const auto sidecar = std::filesystem::path(module_path).parent_path() / "Phoenix.json";
         if (!std::filesystem::is_regular_file(sidecar)) {
             reshade::log::message(
                 reshade::log::level::warning,
-                "[DLSS5 Phoenix] Not armed: no Phoenix.json beside addon and no launch configuration. Panel alone does not run inference.");
+                "[Phoenix DLSS5] Not armed: no Phoenix.json beside addon and no launch configuration. Panel alone does not run inference.");
             return;
         }
-        check(wcscpy_s(path, sidecar.c_str()) == 0, "DLSS5 Phoenix sidecar path too long");
+        check(wcscpy_s(path, sidecar.c_str()) == 0, "Phoenix DLSS5 sidecar path too long");
     }
     auto config = phoenix_bundle::json_file(path);
     addon_state.embedded = phoenix_embedded::install(addon_state.self);
@@ -2734,7 +2734,7 @@ void configure() {
         return;
     const auto input_provider = config.value("input_provider", std::string("native_nr"));
     check(input_provider == "native_nr" || input_provider == "game_dlss" ||
-              input_provider == "feeder_d3d12", "Unknown Phoenix input provider");
+              input_provider == "feeder_d3d12", "Unknown Phoenix DLSS5 input provider");
     addon_state.direct_feeder = input_provider == "feeder_d3d12";
     addon_state.direct_game = input_provider == "game_dlss" || addon_state.direct_feeder;
     if (addon_state.direct_feeder)
@@ -2788,7 +2788,7 @@ void configure() {
     } else {
         check(beneath(addon_state.sandbox, source_workspace / "sandboxes") ||
                   beneath(addon_state.sandbox, source_workspace / "build"),
-              "DLSS5 Phoenix sandbox outside this build workspace");
+              "Phoenix DLSS5 sandbox outside this build workspace");
         check(beneath(process, addon_state.sandbox),
               "phoenix original installed game is read-only; use owned sandbox");
     }
@@ -2850,7 +2850,7 @@ void configure() {
     check(!addon_state.routing_test_period ||
               (!CNR_PHOENIX_DIAGNOSTIC && addon_state.routing_test_period <= 32 &&
                addon_state.frame_limit <= 512),
-          "DLSS5 Phoenix invalid bounded routing test");
+          "Phoenix DLSS5 invalid bounded routing test");
     if (addon_state.measure) {
         // A timed window needs more than the first-live budget, so the
         // measurement schema carries its own explicit, still bounded cap.
@@ -2867,7 +2867,7 @@ void configure() {
               "phoenix measured warmup must be at most 300 seconds");
     } else if (addon_state.interactive) {
         check(addon_state.frame_limit >= 1 && addon_state.frame_limit <= 4000000,
-              "DLSS5 Phoenix live frame safety cap");
+              "Phoenix DLSS5 live frame safety cap");
         addon_state.capture_limit = 0;
     } else if (addon_state.observe) {
         // Record-only: never claims, tests, skips, or exceeds the record cap.
@@ -2879,7 +2879,7 @@ void configure() {
                                             config.value("routing_test_period", 0u),
                                             !config.value("skip_groups", std::string()).empty(),
                                             config.value("frame_limit", 0u)),
-              "DLSS5 Phoenix observe configuration rejected");
+              "Phoenix DLSS5 observe configuration rejected");
         addon_state.frame_limit = config.value("frame_limit", 0u);
         addon_state.capture_limit = 0;
         addon_state.claim_enabled = false;
@@ -2897,7 +2897,7 @@ void configure() {
     }
     const auto skip_groups = config.value("skip_groups", std::string());
     check(skip_groups.empty(),
-          "DLSS5 Phoenix release does not permit partial-network stage skipping");
+          "Phoenix DLSS5 release does not permit partial-network stage skipping");
     skip_groups_mask.store(0, std::memory_order_relaxed);
     // Production uses chained natural groups and the complete barrier contract.
     addon_state.group_batched.assign(15, 1);
@@ -2918,10 +2918,10 @@ void configure() {
     reshade::log::message(
         reshade::log::level::info,
         addon_state.direct_feeder
-            ? "[DLSS5 Phoenix] Armed: direct feeder textures, own network, no SR/DLAA feature"
+            ? "[Phoenix DLSS5] Armed: direct feeder textures, own network, no SR/DLAA feature"
         : addon_state.direct_game
-            ? "[DLSS5 Phoenix] Armed: direct game SR/RR input, own network, no NR feature/provider required"
-            : "[DLSS5 Phoenix] Armed: native NR boundary provider");
+            ? "[Phoenix DLSS5] Armed: direct game SR/RR input, own network, no NR feature/provider required"
+            : "[Phoenix DLSS5] Armed: native NR boundary provider");
 }
 bool gpu_gate() noexcept {
     auto& addon_state = state();
@@ -3293,7 +3293,7 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     }
 #if !CNR_PHOENIX_DIAGNOSTIC
     if (!addon_state.live_timing || !addon_state.live_timing->matches(queue)) {
-        check(addon_state.retired_timing.size() < 8, "DLSS5 Phoenix timing retirement bound");
+        check(addon_state.retired_timing.size() < 8, "Phoenix DLSS5 timing retirement bound");
         if (addon_state.live_timing) {
             addon_state.live_timing->budget(nullptr);
             addon_state.retired_timing.push_back(std::move(addon_state.live_timing));
@@ -3358,7 +3358,7 @@ static void phoenix_crumb(const char* text) {
     GetModuleFileNameA(nullptr, path, MAX_PATH);
     if (char* slash = strrchr(path, '\\'))
         *(slash + 1) = 0;
-    strcat_s(path, "DLSS5 Phoenix-crumbs.log");
+    strcat_s(path, "Phoenix DLSS5-crumbs.log");
     FILE* log_file = nullptr;
     if (fopen_s(&log_file, path, "a") == 0 && log_file) {
         fprintf(log_file, "[%llu][%lu] %s\n", GetTickCount64(), (unsigned long)GetCurrentThreadId(),
@@ -3406,7 +3406,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         if (!addon_state.panel.uplift) {
             // Master switch off: return BEFORE any GPU timing begin(). The old
             // late return opened a timing slot without end(); the next submit
-            // hook then threw "DLSS5 Phoenix timing submission identity" and latched
+            // hook then threw "Phoenix DLSS5 timing submission identity" and latched
             // terminal, so re-enabling could never recover. Request a history
             // reset so the re-enable edge starts clean; last_mode is left
             // alone so a mode change while off still triggers reset_hold.
@@ -3517,7 +3517,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             ++addon_state.direct_busy;
             addon_state.live.reset_requested = true;
             addon_state.direct_status =
-                "Waiting for previous DLSS5 Phoenix frame fence; game output preserved";
+                "Waiting for previous Phoenix DLSS5 frame fence; game output preserved";
             return;
         }
         if (addon_state.direct_runner &&
@@ -3532,7 +3532,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     : "depth geometry changed";
             reshade::log::message(
                 reshade::log::level::info,
-                (std::string("[DLSS5 Phoenix] Retiring executor: ") + reason).c_str());
+                (std::string("[Phoenix DLSS5] Retiring executor: ") + reason).c_str());
             check(addon_state.direct_runner->idle(),
                   "Direct geometry change awaits old generation fence");
             addon_state.candidate_launches += addon_state.direct_runner->launches();
@@ -3616,8 +3616,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             reshade::log::message(
                 reshade::log::level::info,
                 addon_state.direct_runner->external()
-                    ? "[DLSS5 Phoenix] External DLSS5 Phoenix executor constructed"
-                    : "[DLSS5 Phoenix] Direct network constructed: 41 reconstructed modules, no NR feature");
+                    ? "[Phoenix DLSS5] External Phoenix DLSS5 executor constructed"
+                    : "[Phoenix DLSS5] Direct network constructed: 41 reconstructed modules, no NR feature");
         }
         Controls controls;
         unsigned host_flags = 0;
@@ -3659,7 +3659,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 char msg[256]{};
                 snprintf(
                     msg, sizeof(msg),
-                    "[DLSS5 Phoenix] host probe: mvscale=%.4f,%.4f jitter=%d(%.4f,%.4f) nrjitter=%d(%.4f,%.4f) reset=%d",
+                    "[Phoenix DLSS5] host probe: mvscale=%.4f,%.4f jitter=%d(%.4f,%.4f) nrjitter=%d(%.4f,%.4f) reset=%d",
                     double(controls.motion_x), double(controls.motion_y), has_j ? 1 : 0,
                     double(jitter_x), double(jitter_y), has_nj ? 1 : 0, double(normalized_jitter_x),
                     double(normalized_jitter_y), controls.reset);
@@ -3769,7 +3769,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             addon_state.panel.log_level == 2) {
                             reshade::log::message(
                                 reshade::log::level::info,
-                                ("[DLSS5 Phoenix] nr-frame: proxy encoded color=" +
+                                ("[Phoenix DLSS5] nr-frame: proxy encoded color=" +
                                  phoenix_describe(color, proof.color_state))
                                     .c_str());
                             phoenix_crumb("nr-frame: proxy encoded");
@@ -3857,7 +3857,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             addon_state.panel.log_level == 2) {
                             reshade::log::message(
                                 reshade::log::level::info,
-                                ("[DLSS5 Phoenix] nr-frame: NR evaluated output=" +
+                                ("[Phoenix DLSS5] nr-frame: NR evaluated output=" +
                                  phoenix_describe(nr_image, D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
                                     .c_str());
                             phoenix_crumb("nr-frame: NR evaluated");
@@ -3866,10 +3866,10 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     if (nr_image)
                         addon_state.direct_nr_status.clear();
                     else if (addon_state.panel.mode == phoenix::nvidia)
-                        addon_state.direct_nr_status = "NR resolve staging holds the NVIDIA source";
+                        addon_state.direct_nr_status = "NR resolve staging holds the NVIDIA DLSS5 source";
                 } else if (need_nr && !addon_state.panel.uplift)
                     addon_state.direct_nr_status =
-                        "Neural rendering off (Uplift disabled); NVIDIA sources withheld";
+                        "Neural rendering off (Uplift disabled); NVIDIA DLSS5 sources withheld";
                 else if (need_nr && selfdrive_state.handle)
                     addon_state.direct_nr_status = "NR feature warming up";
             } catch (const std::exception& feature_entry) {
@@ -3878,10 +3878,10 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     selfdrive_state.failed = true;
                     reshade::log::message(
                         reshade::log::level::warning,
-                        "[DLSS5 Phoenix] self-drive: NR abandoned after repeated refusals");
+                        "[Phoenix DLSS5] self-drive: NR abandoned after repeated refusals");
                 } else if (selfdrive_state.abandons <= 3)
                     reshade::log::message(reshade::log::level::info,
-                                          ("[DLSS5 Phoenix] self-drive deferred: " +
+                                          ("[Phoenix DLSS5] self-drive deferred: " +
                                            std::string(feature_entry.what()))
                                               .c_str());
                 selfdrive_state.retry_after_tick = now + ngx_shim::kSelfDriveRetryCooldownMs;
@@ -3900,7 +3900,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         // must first get their chance to create the feature above.
         check(phoenix::direct::comparison_supported(addon_state.panel, nr_image != nullptr),
               addon_state.direct_nr_status.empty()
-                  ? "Independent comparison needs a live NR feature for NVIDIA sources"
+                  ? "Independent comparison needs a live NR feature for NVIDIA DLSS5 sources"
                   : addon_state.direct_nr_status.c_str());
         if (addon_state.panel.mode == phoenix::nvidia) {
             // Fullscreen native NR: our network stays idle (history resumes
@@ -3924,25 +3924,25 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                           resource_description.MipLevels == 1 &&
                           resource_description.DepthOrArraySize == 1 &&
                           resource_description.SampleDesc.Count == 1,
-                      "Direct NVIDIA resource layout unsupported");
+                      "Direct NVIDIA DLSS5 resource layout unsupported");
             }
-            check(color != motion && color != nr_image, "Direct NVIDIA aliased inputs");
+            check(color != motion && color != nr_image, "Direct NVIDIA DLSS5 aliased inputs");
             {
                 char timing_text[128];
                 snprintf(timing_text, sizeof(timing_text), "nr-frame: list type=%d queue type=%d",
                          int(cmd->GetType()), int(queue->GetDesc().Type));
                 if (addon_state.mode_frames[size_t(addon_state.panel.mode)] == 0)
                     reshade::log::message(reshade::log::level::info,
-                                          ("[DLSS5 Phoenix] " + std::string(timing_text)).c_str());
+                                          ("[Phoenix DLSS5] " + std::string(timing_text)).c_str());
                 phoenix_crumb(timing_text);
             }
             check(cmd->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT &&
                       queue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT,
-                  "Direct NVIDIA needs a direct list and queue");
+                  "Direct NVIDIA DLSS5 needs a direct list and queue");
             if (addon_state.mode_frames[size_t(addon_state.panel.mode)] == 0)
                 reshade::log::message(
                     reshade::log::level::info,
-                    ("[DLSS5 Phoenix] nr-frame: first resolve color=" +
+                    ("[Phoenix DLSS5] nr-frame: first resolve color=" +
                      phoenix_describe(color, proof.color_state) + " proxy=" +
                      phoenix_describe(addon_state.direct_runner->proxy_image(),
                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) +
@@ -3960,7 +3960,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     nr_image);
                 if (addon_state.panel.log_level == 2)
                     reshade::log::message(reshade::log::level::info,
-                                          "[DLSS5 Phoenix] nr-frame: resolve recorded");
+                                          "[Phoenix DLSS5] nr-frame: resolve recorded");
                 phoenix_crumb("nr-frame: resolve recorded");
             }
             addon_state.live_timing->upscaler_status(addon_state.direct_runner->upscale_status());
@@ -4041,7 +4041,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                                              execution);
             if (status == "presenting_reprojected_result")
                 addon_state.direct_status =
-                    "DLSS5 Phoenix worker result reprojected onto the current frame";
+                    "Phoenix DLSS5 worker result reprojected onto the current frame";
             else if (status == "failed_input_preserved")
                 addon_state.direct_status =
                     "Worker failed: " + execution.value("error", std::string());
@@ -4050,7 +4050,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     "Waiting for supported, observed depth; game output preserved";
             else
                 addon_state.direct_status =
-                    "Waiting for a fresh DLSS5 Phoenix worker result; game output preserved";
+                    "Waiting for a fresh Phoenix DLSS5 worker result; game output preserved";
         }
         addon_state.displayed = addon_state.panel;
         addon_state.displayed.mode = addon_state.panel.mode;
@@ -4058,7 +4058,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         if (addon_state.recorded == 1 || addon_state.recorded % 300 == 0)
             reshade::log::message(
                 reshade::log::level::info,
-                ("[DLSS5 Phoenix] Direct recorded=" + std::to_string(addon_state.recorded) +
+                ("[Phoenix DLSS5] Direct recorded=" + std::to_string(addon_state.recorded) +
                  " own launches/frame=" + std::to_string(launches) +
                  " exposure flips=" + std::to_string(addon_state.direct_runner->exposure_flips()) +
                  " max=" + std::to_string(addon_state.direct_runner->exposure_max_delta_pct()) +
@@ -4075,7 +4075,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 char timing_msg[224]{};
                 snprintf(
                     timing_msg, sizeof(timing_msg),
-                    "[DLSS5 Phoenix] Split timings: phoenix=%.3f ms (%llu samples) nvidia=%.3f ms (%llu samples)",
+                    "[Phoenix DLSS5] Split timings: phoenix=%.3f ms (%llu samples) nvidia=%.3f ms (%llu samples)",
                     own.at("mean_ms").get<double>(), own.at("samples").get<uint64_t>(),
                     nat.at("mean_ms").get<double>(), nat.at("samples").get<uint64_t>());
                 reshade::log::message(reshade::log::level::info, timing_msg);
@@ -4105,7 +4105,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.direct_status_tick = GetTickCount64();
             reshade::log::message(
                 reshade::log::level::warning,
-                ("[DLSS5 Phoenix] Direct deferred: " + addon_state.direct_status).c_str());
+                ("[Phoenix DLSS5] Direct deferred: " + addon_state.direct_status).c_str());
         }
     }
 }
@@ -4547,7 +4547,7 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
         addon_state.screenshot_request_seen = addon_state.panel.screenshot_request;
     } else
         reshade::log::message(reshade::log::level::warning,
-                              "DLSS5 Phoenix ignored invalid saved panel settings");
+                              "Phoenix DLSS5 ignored invalid saved panel settings");
     if (addon_state.configured && phoenix::uses_ours(addon_state.panel.mode) &&
         !addon_state.bundle && !addon_state.direct_runner && !addon_state.endpoint.session) {
         addon_state.weight_source = addon_state.configured_weight_source;
@@ -4598,7 +4598,7 @@ std::filesystem::path overrides_path() {
     wchar_t filename[32768]{};
     const auto count = GetModuleFileNameW(state().self, filename, DWORD(std::size(filename)));
     if (!count || count >= std::size(filename))
-        throw std::runtime_error("DLSS5 Phoenix addon path unavailable");
+        throw std::runtime_error("Phoenix DLSS5 addon path unavailable");
     return std::filesystem::path(filename).parent_path() / "PhoenixOverrides.ini";
 }
 void poll_overrides(reshade::api::effect_runtime* runtime, bool force = false) {
@@ -4650,7 +4650,7 @@ void poll_overrides(reshade::api::effect_runtime* runtime, bool force = false) {
                 char msg[224]{};
                 snprintf(
                     msg, sizeof(msg),
-                    "[DLSS5 Phoenix] overrides: %u applied, %u ignored; backend=%d comparison=%d sources=%d,%d intensity=%.2f",
+                    "[Phoenix DLSS5] overrides: %u applied, %u ignored; backend=%d comparison=%d sources=%d,%d intensity=%.2f",
                     applied, ignored, addon_state.panel.mode, addon_state.panel.comparison,
                     addon_state.panel.source_a, addon_state.panel.source_b,
                     double(addon_state.panel.intensity));
@@ -4679,7 +4679,7 @@ void arm_input_capture(unsigned frames) {
     if (ec) {
         reshade::log::message(
             reshade::log::level::warning,
-            ("[DLSS5 Phoenix] input capture: cannot create captures dir: " + ec.message()).c_str());
+            ("[Phoenix DLSS5] input capture: cannot create captures dir: " + ec.message()).c_str());
         return;
     }
     char base[128]{};
@@ -4688,7 +4688,7 @@ void arm_input_capture(unsigned frames) {
     addon_state.capture_base = base;
     addon_state.direct_runner->arm_capture(addon_state.capture_base, frames);
     reshade::log::message(reshade::log::level::info,
-                          ("[DLSS5 Phoenix] input capture armed: " + addon_state.capture_base +
+                          ("[Phoenix DLSS5] input capture armed: " + addon_state.capture_base +
                            " x" + std::to_string(frames))
                               .c_str());
 }
@@ -4723,7 +4723,7 @@ void write_capture_frame(phoenix::direct::CaptureFrame& cap) {
                         {"reference_feed", cap.meta.reference_feed},
                         {"srgb", cap.meta.srgb},
                         {"scope",
-                         "Same-frame proxy, DLL output, DLSS5 Phoenix output, DLSS5 Phoenix feed, and final engine output"}})
+                         "Same-frame proxy, DLL output, Phoenix DLSS5 output, Phoenix DLSS5 feed, and final engine output"}})
                        .dump(2);
     }
     {
@@ -4746,7 +4746,7 @@ void write_capture_frame(phoenix::direct::CaptureFrame& cap) {
     };
     char stat[192]{};
     snprintf(stat, sizeof(stat),
-             "[DLSS5 Phoenix] input capture wrote %s cin=%.5f mot=%.5f cout=%.5f", stem,
+             "[Phoenix DLSS5] input capture wrote %s cin=%.5f mot=%.5f cout=%.5f", stem,
              meanabs(cap.color), meanabs(cap.motion), meanabs(cap.output));
     reshade::log::message(reshade::log::level::info, stat);
 }
@@ -5010,7 +5010,7 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
         route_screenshots(runtime);
         runtime->save_screenshot(postfix.c_str());
         reshade::log::message(reshade::log::level::info,
-                              ("[DLSS5 Phoenix] screenshot requested: " + postfix).c_str());
+                              ("[Phoenix DLSS5] screenshot requested: " + postfix).c_str());
     }
     // INI-driven auto-arm waits until past the black loading frames; manual
     // hotkey/button arming bypasses this gate and fires immediately in-game.
@@ -5143,7 +5143,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
-    ImGui::TextUnformatted("DLSS5 Phoenix Neural Rendering");
+    ImGui::TextUnformatted("Phoenix DLSS5 Neural Rendering");
     if (ImGui::Button("Save configuration")) {
         save_live_controls(runtime);
         addon_state.settings_saved_at = GetTickCount64();
@@ -5169,14 +5169,14 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
         if (disk_model)
             ImGui::TextWrapped(
-                "Warning: DLSS5 Phoenix cannot read model.json in the selected model folder.");
+                "Warning: Phoenix DLSS5 cannot read model.json in the selected model folder.");
         else
             ImGui::TextWrapped("Warning: %s", phoenix::model_dll_warning(model_status));
         ImGui::PopStyleColor();
         if (!model_path.empty())
             ImGui::TextWrapped("Configured path: %s", phoenix_model::source_path_string(model_path).c_str());
         ImGui::TextWrapped(
-            "Choose a model source below, or configure weight_source in Phoenix.json. The NVIDIA DLL and model files are separate local files. Restart the game after changing the model source or after a loader failure.");
+            "Choose a model source below, or configure weight_source in Phoenix.json. The NVIDIA DLSS5 DLL and model files are separate local files. Restart the game after changing the model source or after a loader failure.");
         ImGui::Separator();
     }
     ImGui::PushItemWidth(std::max(100.f, ImGui::GetContentRegionAvail().x * .42f));
@@ -5189,7 +5189,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
             addon_state.terminal, addon_state.observe));
     if (addon_state.direct_game)
         ImGui::TextWrapped("%s", addon_state.direct_status.c_str());
-    ImGui::Text("DLSS5 Phoenix frames submitted: %llu", addon_state.submitted);
+    ImGui::Text("Phoenix DLSS5 frames submitted: %llu", addon_state.submitted);
     if (!addon_state.error.empty())
         ImGui::TextWrapped("%s", addon_state.error.c_str());
 #if CNR_PHOENIX_DIAGNOSTIC
@@ -5282,7 +5282,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
                 }
                 break;
             }
-        ImGui::Text("Network GPU, recent: DLSS5 Phoenix %s | NVIDIA %s", own_txt, nat_txt);
+        ImGui::Text("Network GPU, recent: Phoenix DLSS5 %s | NVIDIA DLSS5 %s", own_txt, nat_txt);
         ImGui::Text("Addon GPU: %.3f ms | Game: %.1f FPS (%.2f ms between presents)", route_ms,
                     addon_state.present_fps,
                     addon_state.present_fps > 0 ? 1000.0 / addon_state.present_fps : 0);
@@ -5296,7 +5296,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     if (visible.own_details() && addon_state.endpoint.session) {
         const auto controls = addon_state.endpoint.session->frame_controls();
         if (controls.contains("tone") && controls.contains("structure"))
-            ImGui::Text("Last DLSS5 Phoenix tone %.2f | structure %.2f",
+            ImGui::Text("Last Phoenix DLSS5 tone %.2f | structure %.2f",
                         controls.at("tone").get<double>(), controls.at("structure").get<double>());
     }
 
@@ -5386,19 +5386,19 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
     try {
         check(!CNR_PHOENIX_DIAGNOSTIC && addon_state.direct_feeder && addon_state.direct_game,
               "Direct feeder API requires input_provider=feeder_d3d12 in a live addon");
-        check(!addon_state.terminal, "Phoenix direct feeder is terminal");
-        check(gpu_gate(), "Phoenix direct feeder is not armed");
+        check(!addon_state.terminal, "Phoenix DLSS5 direct feeder is terminal");
+        check(gpu_gate(), "Phoenix DLSS5 direct feeder is not armed");
         const bool need_nr = addon_state.panel.mode == phoenix::nvidia ||
             (addon_state.panel.mode == phoenix::split &&
              (addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1));
         if (frame->stream_id != 0 && addon_state.panel.uplift && need_nr) {
             addon_state.direct_status =
-                "Stereo feeder supports Input/Phoenix sources only; NVIDIA comparison needs isolated NR eye features";
+                "Stereo feeder supports Input/Phoenix DLSS5 sources only; NVIDIA DLSS5 comparison needs isolated NR eye features";
             return E_NOTIMPL;
         }
         auto* cmd = resolve_native_list(frame->command_list);
         check(resolve_queue(cmd) == frame->queue,
-              "Phoenix feeder queue differs from the list's observed submitting queue");
+              "Phoenix DLSS5 feeder queue differs from the list's observed submitting queue");
         const auto output = frame->output->GetDesc(), motion = frame->motion->GetDesc();
         check(output.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
                   motion.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
@@ -5408,14 +5408,14 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
                   output.Width == motion.Width && output.Height == motion.Height &&
                   output.Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
                   phoenix::direct::motion_format(motion.Format),
-              "Phoenix feeder requires native-size float color and motion textures");
+              "Phoenix DLSS5 feeder requires native-size float color and motion textures");
         if (frame->depth) {
             const auto depth = frame->depth->GetDesc();
             check(depth.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
                       depth.SampleDesc.Count == 1 && depth.DepthOrArraySize == 1 &&
                       depth.MipLevels == 1 && depth.Width == output.Width &&
                       depth.Height == output.Height && depth.Format == DXGI_FORMAT_R32_FLOAT,
-                  "Phoenix feeder depth requires native-size scalar R32_FLOAT");
+                  "Phoenix DLSS5 feeder depth requires native-size scalar R32_FLOAT");
         }
         ComPtr<ID3D12Device> device;
         phoenix_native::hr(cmd->GetDevice(IID_PPV_ARGS(&device)));
@@ -5439,12 +5439,12 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
                     phoenix_native::hr(original.As(&owner_identity));
                 }
             }
-            check(owner_identity == device_identity, "Phoenix feeder texture belongs to another device");
+            check(owner_identity == device_identity, "Phoenix DLSS5 feeder texture belongs to another device");
             D3D12_RESOURCE_STATES observed{};
             check(observation::epoch_state(cmd, resource, observed) &&
                       observed == D3D12_RESOURCE_STATE_COMMON &&
                       observation::current_provider_resource(cmd, resource),
-                  "Phoenix feeder texture requires fresh observed COMMON state");
+                  "Phoenix DLSS5 feeder texture requires fresh observed COMMON state");
         }
         ++addon_state.feeder_calls;
         if (addon_state.feeder_stream && *addon_state.feeder_stream != frame->stream_id &&
@@ -5492,7 +5492,7 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
         if (addon_state.direct_runner && addon_state.direct_runner->pending(cmd)) {
             addon_state.direct_runner->invalidate();
             addon_state.terminal = true;
-            error("Phoenix feeder refused after claiming its command list; abandon the recording");
+            error("Phoenix DLSS5 feeder refused after claiming its command list; abandon the recording");
             return E_FAIL;
         }
         if (addon_state.feeder_nr_initialization_recorded) {
@@ -5586,7 +5586,7 @@ void observe_backbuffer_input(reshade::api::effect_runtime* runtime,
     check(value.direct_feeder && value.direct_game && gpu_gate() && !value.terminal,
           "In-process observation requires an armed feeder_d3d12 configuration");
     check(!backbuffer_owner || backbuffer_owner == runtime,
-          "Another window owns the in-process Phoenix session");
+          "Another window owns the in-process Phoenix DLSS5 session");
     observation::install(list, true);
     install_submission_observer(queue);
 }
@@ -5598,7 +5598,7 @@ void prepare_backbuffer_input(reshade::api::effect_runtime* runtime,
     check(value.direct_feeder && value.direct_game && gpu_gate() && !value.terminal,
           "In-process backbuffer processing requires an armed feeder_d3d12 configuration");
     check(!backbuffer_owner || backbuffer_owner == runtime,
-          "Another window owns the in-process Phoenix session; use an isolated helper for this window");
+          "Another window owns the in-process Phoenix DLSS5 session; use an isolated helper for this window");
     check(settings.valid() && settings.execution_device == "native", "Unsupported in-process settings");
     const bool model_changed = settings.model_source != value.active_model_source ||
         settings.model_folder != value.active_model_folder || settings.model_dll != value.active_model_dll;
@@ -6248,7 +6248,7 @@ bool addon_attach(HMODULE module) {
 #ifndef PHOENIX_BUILD_TAG
 #define PHOENIX_BUILD_TAG "unstamped"
 #endif
-    reshade::log::message(reshade::log::level::info, "[DLSS5 Phoenix] addon build " PHOENIX_STR(
+    reshade::log::message(reshade::log::level::info, "[Phoenix DLSS5] addon build " PHOENIX_STR(
                                                          PHOENIX_BUILD_TAG) " attached");
     state().self = module;
 #if !CNR_PHOENIX_DIAGNOSTIC
@@ -6293,7 +6293,7 @@ bool addon_attach(HMODULE module) {
     reshade::register_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
     reshade::register_event<reshade::addon_event::reshade_present>(live_runtime_tick);
     reshade::register_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);
-    reshade::register_overlay("DLSS5 Phoenix", draw_phoenix_overlay);
+    reshade::register_overlay("Phoenix DLSS5", draw_phoenix_overlay);
     reshade::register_overlay(nullptr, draw_phoenix_compact);
     return true;
 }
@@ -6306,7 +6306,7 @@ void addon_detach(HMODULE module) {
     phoenix_compat::in_process_api = {};
     menu_helper::detach();
     // An active sidecar is pinned; process teardown releases the driver.
-    reshade::unregister_overlay("DLSS5 Phoenix", draw_phoenix_overlay);
+    reshade::unregister_overlay("Phoenix DLSS5", draw_phoenix_overlay);
     reshade::unregister_overlay(nullptr, draw_phoenix_compact);
     reshade::unregister_event<reshade::addon_event::reshade_present>(live_runtime_tick);
     reshade::unregister_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);

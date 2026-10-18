@@ -9,7 +9,7 @@ binaries or machine-local paths are included.
 
 - NVIDIA RTX 5080, driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 logical workers;
   96 GiB installed RAM; AMD Radeon gfx1036 integrated graphics.
-- Native: the same FP16 input/motion, controls and model for Phoenix and NVIDIA
+- Native: the same FP16 input/motion, controls and model for Phoenix DLSS5 and NVIDIA
   DLSS NR. GPU timestamps cover the complete runner/Evaluate. Upload and readback
   are excluded; D3D12 debug is enabled for both. Each process uses 128 frames,
   discarding the first 32. Eight fresh processes per route at 1080p; two elsewhere.
@@ -30,7 +30,7 @@ binaries or machine-local paths are included.
 - Memory: process GPU-local residency includes harness and driver allocations;
   owned resources count the runner's allocations. Worker RAM is resident working
   set, not private commitment. These scopes overlap and must not be summed.
-  Integrated GPU allocations use shared RAM. NVIDIA internals are opaque.
+  Integrated GPU allocations use shared RAM. NVIDIA DLSS5 internals are opaque.
 - The full-adapter breakdown is a separate test from the native inner-network
   comparison. At 1080p it owns 493.94 MiB for one pass, 527.69 MiB for two,
   and 595.19 MiB for four. Returning to one pass restores 493.94 MiB owned;
@@ -39,24 +39,24 @@ binaries or machine-local paths are included.
 
 ## Native comparison
 
-| Resolution | Phoenix GPU ms | NVIDIA DLSS NR GPU ms | Phoenix latency difference |
+| Resolution | Phoenix DLSS5 GPU ms | NVIDIA DLSS5 NR GPU ms | Phoenix DLSS5 latency difference |
 | --- | ---: | ---: | ---: |
 | 640 × 384 | 1.9364 | 2.0153 | -3.92% |
 | 1280 × 720 | 2.5049 | 2.5912 | -3.33% |
 | 1920 × 1080 | 3.8351 | 3.8627 | -0.71% |
 | 2560 × 1080 | 4.8340 | 4.8096 | +0.51% |
 
-At 1080p the matched probe's GPU-local residency was 574.70 MiB for Phoenix and
-686.52 MiB for NVIDIA: 111.83 MiB / 16.29% lower. This is an observed process
+At 1080p the matched probe's GPU-local residency was 574.70 MiB for Phoenix DLSS5 and
+686.52 MiB for NVIDIA DLSS5: 111.83 MiB / 16.29% lower. This is an observed process
 comparison, not a claim to know NVIDIA's weight/workspace sizes or every game's
 memory saving. Small timing differences should be read as near parity.
 
 ## Checks performed
 
-- 2,688 native timed frames; four reset-output checks plus final native/NVIDIA
+- 2,688 native timed frames; four reset-output checks plus final native/NVIDIA DLSS5
   output comparisons, matching on the fixed fixture at all four extents.
 - 42 saved-regression frames across CPU, CUDA, HIP, SYCL CPU, Vulkan AMD and
-  Vulkan NVIDIA on the current runtime. The latest CUDA/Vulkan matched run
+  Vulkan NVIDIA DLSS5 on the current runtime. The latest CUDA/Vulkan matched run
   checked 120 exact temporal frame hashes; the current candidate contributes
   60 frames, including 48 measured frames after warmup.
 - Fused residual/attention, row normalization, frame packing and conversion

@@ -16,7 +16,7 @@ one sampling pass, all eight transformer repeat counts set to one. Three fresh
 processes per variant, twelve frames each, first two discarded. The table uses
 the median of the three process medians. The ordering rotates between rounds.
 Model time is the GPU operator interval; full call also includes host work,
-transport and synchronization. Native RTX and NVIDIA DLL timings use a different
+transport and synchronization. Native RTX and NVIDIA DLSS5 DLL timings use a different
 entry path and are not substituted into this paired comparison.
 
 | Runner / configuration | Model ms | Full call ms | Owned GPU MiB |
@@ -24,9 +24,9 @@ entry path and are not substituted into this paired comparison.
 | CUDA baseline 085, 512 windows | 65.71 | 110.66 | 453.38 |
 | CUDA candidate 106, 512 windows — default | 56.09 | 99.08 | 453.38 |
 | CUDA candidate 106, 1,024 windows | 54.77 | 99.77 | 475.38 |
-| Vulkan NVIDIA baseline 085, 512 windows | 111.97 | 162.60 | 453.38 |
-| Vulkan NVIDIA candidate 106, 512 windows — default | 101.39 | 150.38 | 453.38 |
-| Vulkan NVIDIA candidate 106, 1,024 windows | 97.80 | 150.54 | 475.38 |
+| Vulkan NVIDIA DLSS5 baseline 085, 512 windows | 111.97 | 162.60 | 453.38 |
+| Vulkan NVIDIA DLSS5 candidate 106, 512 windows — default | 101.39 | 150.38 | 453.38 |
+| Vulkan NVIDIA DLSS5 candidate 106, 1,024 windows | 97.80 | 150.54 | 475.38 |
 
 The default reduces model time by 14.6% for CUDA and 9.4% for Vulkan. Larger
 batches reduce GPU model time further but do not reliably improve the complete

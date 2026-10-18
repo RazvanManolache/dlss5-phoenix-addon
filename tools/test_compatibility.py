@@ -1,7 +1,7 @@
 """Run x86/x64 transport, inference and helper-death probes with a supplied model.
 
 These tests execute the GPU and are separate from model-free source builds.
-No NVIDIA DLL or model data is copied into the source repository.
+No NVIDIA DLSS5 DLL or model data is copied into the source repository.
 """
 from pathlib import Path
 import argparse
@@ -63,7 +63,7 @@ def main():
         matching = [item["output_sha256"] for item in results
                     if item["mode"] in ("phoenix", "cpu_phoenix") and item["width"] == 257]
         if len(set(matching)) != 1:
-            raise RuntimeError("x86, x64 and CPU-transport Phoenix outputs differ")
+            raise RuntimeError("x86, x64 and CPU-transport Phoenix DLSS5 outputs differ")
         report.update(passed=True, cross_bitness_and_transport_output_identical=True)
     except BaseException as error:
         report["error"] = str(error)

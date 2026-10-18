@@ -4,7 +4,7 @@
 #include <imgui.h>
 #include <reshade.hpp>
 #include "controller.h"
-extern "C" __declspec(dllexport) const char* NAME = "DLSS5 Phoenix (32-bit compatibility)";
+extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 (32-bit compatibility)";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "32-bit game transport with a private 64-bit D3D12 neural-rendering helper.";
 namespace {
@@ -16,7 +16,7 @@ bool attach(HMODULE module) {
         return false;
     attached = true;
     phoenix_compat::attach(module);
-    reshade::register_overlay("DLSS5 Phoenix", phoenix_compat::panel);
+    reshade::register_overlay("Phoenix DLSS5", phoenix_compat::panel);
     reshade::register_overlay(nullptr, phoenix_compat::compact);
     return true;
 }
@@ -24,7 +24,7 @@ void detach(HMODULE module) {
     if (!attached)
         return;
     attached = false;
-    reshade::unregister_overlay("DLSS5 Phoenix", phoenix_compat::panel);
+    reshade::unregister_overlay("Phoenix DLSS5", phoenix_compat::panel);
     reshade::unregister_overlay(nullptr, phoenix_compat::compact);
     phoenix_compat::detach();
     reshade::unregister_addon(module);

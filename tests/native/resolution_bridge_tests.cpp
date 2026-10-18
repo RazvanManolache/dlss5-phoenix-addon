@@ -320,7 +320,7 @@ int main() {
                                          DXGI_FORMAT_R16G16_FLOAT, false, 1,
                                          {{1, 1, 1, 1, 1, 1, 1, 1}}, {}, &dll);
         check(dll_only.architecture_matches(dll) && dll_only.launches() == 0,
-              "DLL-only route created a Phoenix executor");
+              "DLL-only route created a Phoenix DLSS5 executor");
         if (messages)
             for (UINT64 index = 0; index < messages->GetNumStoredMessages(); ++index) {
                 SIZE_T bytes = 0;

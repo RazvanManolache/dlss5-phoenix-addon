@@ -27,13 +27,13 @@ inline ModelDllStatus inspect_model_dll(const std::filesystem::path& path) {
 inline const char* model_dll_warning(ModelDllStatus status) {
     switch (status) {
     case ModelDllStatus::unconfigured:
-        return "DLSS5 Phoenix model DLL is not configured.";
+        return "Phoenix DLSS5 model DLL is not configured.";
     case ModelDllStatus::missing:
-        return "DLSS5 Phoenix cannot find the NVIDIA model DLL.";
+        return "Phoenix DLSS5 cannot find the NVIDIA DLSS5 model DLL.";
     case ModelDllStatus::not_file:
-        return "DLSS5 Phoenix model DLL path points to something other than a file.";
+        return "Phoenix DLSS5 model DLL path points to something other than a file.";
     case ModelDllStatus::unreadable:
-        return "DLSS5 Phoenix cannot access the NVIDIA model DLL.";
+        return "Phoenix DLSS5 cannot access the NVIDIA DLSS5 model DLL.";
     default:
         return "";
     }

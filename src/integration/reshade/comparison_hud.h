@@ -42,8 +42,8 @@ inline void draw_presentation_hud(const phoenix_addon::phoenix::Settings& presen
             }
             if (presentation.comparison_labels) {
                 label(0, presentation.divider * .5f, "Input");
-                label(presentation.divider * .5f, presentation.divider, "NVIDIA");
-                label(presentation.divider, 1, "DLSS5 Phoenix");
+                label(presentation.divider * .5f, presentation.divider, "NVIDIA DLSS5");
+                label(presentation.divider, 1, "Phoenix DLSS5");
             }
         } else if (presentation.comparison == 1) {
             if (presentation.comparison_lines)
@@ -63,9 +63,9 @@ inline void draw_presentation_hud(const phoenix_addon::phoenix::Settings& presen
         }
     }
     if (presentation.mode != phoenix::split && presentation.comparison_labels) {
-        const char* name = presentation.mode == phoenix::nvidia  ? "NVIDIA"
+        const char* name = presentation.mode == phoenix::nvidia  ? "NVIDIA DLSS5"
                            : presentation.mode == phoenix::input ? "Input"
-                                                                 : "DLSS5 Phoenix";
+                                                                 : "Phoenix DLSS5";
         label(0, 1, name);
     }
 }

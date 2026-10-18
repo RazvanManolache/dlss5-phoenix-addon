@@ -121,12 +121,12 @@ compound scope in reconstruction. Required declaration terminators remain.
 All 41 rebuilt modules have identical machine instruction/control streams to
 the preceding cleaned build, and all four resolution regressions pass.
 
-A fresh NVIDIA DLSS NR comparison at 1920x1080 on the RTX 5080 (driver 616.64)
+A fresh NVIDIA DLSS5 NR comparison at 1920x1080 on the RTX 5080 (driver 616.64)
 uses identical synthetic FP16 input/motion and the same model DLL. Eight fresh
 processes per runner each execute 128 frames, excluding the first 32. The
-median of process medians is 4.322200 ms for Phoenix and 3.859112 ms for NVIDIA:
-Phoenix takes 12.00% longer in this workload. Reset and final outputs match
-byte-for-byte; intermediate NVIDIA outputs are not captured. Both use D3D12
+median of process medians is 4.322200 ms for Phoenix DLSS5 and 3.859112 ms for NVIDIA DLSS5:
+Phoenix DLSS5 takes 12.00% longer in this workload. Reset and final outputs match
+byte-for-byte; intermediate NVIDIA DLSS5 outputs are not captured. Both use D3D12
 debug validation, and timing excludes input upload/output readback. This is
 a runner comparison, not a game frame-rate measurement.
 
@@ -205,16 +205,16 @@ counterbalanced 1920x1080 comparison measured these complete GPU intervals:
 
 | Runner | GPU evaluation | CPU recording | Record / submit / wait wall |
 | --- | ---: | ---: | ---: |
-| Phoenix, grouped launches | 4.324288 ms | 0.220100 ms | 4.786775 ms |
-| Phoenix, individual launches | 3.846608 ms | 0.279425 ms | 4.350525 ms |
-| NVIDIA DLL | 3.874896 ms | 0.386625 ms | 4.489225 ms |
+| Phoenix DLSS5, grouped launches | 4.324288 ms | 0.220100 ms | 4.786775 ms |
+| Phoenix DLSS5, individual launches | 3.846608 ms | 0.279425 ms | 4.350525 ms |
+| NVIDIA DLSS5 DLL | 3.874896 ms | 0.386625 ms | 4.489225 ms |
 
 Values are medians of eight isolated process medians per route, with 96
-measured frames after 32 warmup frames each. Both Phoenix routes used the
+measured frames after 32 warmup frames each. Both Phoenix DLSS5 routes used the
 identical newly compiled readable kernels. GPU intervals enclose the complete
 runner/Evaluate, excluding upload/readback, with no per-kernel timestamps.
 CPU, GPU and wall intervals overlap and must not be added. The 11.05% GPU
-latency reduction recovers approximate NVIDIA parity on this synthetic fixture;
+latency reduction recovers approximate NVIDIA DLSS5 parity on this synthetic fixture;
 the 0.73% difference between the two runners is small. This is not game FPS.
 
 The saved pre-cleanup, already optimized kernels with the previous host launcher measured 4.313432 ms,
@@ -229,8 +229,8 @@ All four saved reset/history cases pass for the final source probe, executing
 screens measured 2.114880 to 1.941632 ms at 640x384, 2.865584 to 2.512336 ms at
 1280x720, 4.321840 to 3.842464 ms at 1920x1080, and 5.717760 to 4.825280 ms at
 2560x1080. These extent screens use one process per route; the 1080p table above
-is the repeated comparison. NVIDIA reset and final output hashes also match
-byte-for-byte; intermediate NVIDIA frames were not captured.
+is the repeated comparison. NVIDIA DLSS5 reset and final output hashes also match
+byte-for-byte; intermediate NVIDIA DLSS5 frames were not captured.
 
 Submitting each launch with an additional UAV barrier was slower than the
 selected form. An arbitrary two-launch subdivision failed fence retirement and
@@ -241,7 +241,7 @@ used to claim end-to-end production performance.
 
 All 41 kernels rebuild, 11 C++ CPU suites, one WARP suite and 27 Python tests
 pass, and all 118 payloads in the complete embedded addon verify. No model or
-NVIDIA DLL is embedded. The pre-fix source is retained by the tag
+NVIDIA DLSS5 DLL is embedded. The pre-fix source is retained by the tag
 `backup/native-before-launch-scheduling-20261011`; the production fix is
 `b649062`. No game deployment was part of this validation pass.
 
@@ -256,7 +256,7 @@ The preserved historical gain survives the readable code: a fresh same-host
 comparison measures 4.176840 ms for untuned kernels,
 3.853808 ms for the saved optimized mix,
 3.848888 ms for readable retuned kernels and
-3.877672 ms for NVIDIA. This is 7.85% less GPU
+3.877672 ms for NVIDIA DLSS5. This is 7.85% less GPU
 time than untuned kernels on RTX 5080 / driver 616.64 at 1920x1080. Eight
 isolated 128-frame processes per route exclude the first 32 frames; these are
 complete GPU evaluation times, not game FPS. Ryzen 9 9950X3D, 16 cores / 32
@@ -286,7 +286,7 @@ before/after processes show GPU local residency 715.63 to
 to 919.33 MiB, and resident working set
 359.26 to 331.12 MiB. These process
 figures include driver and offline harness storage; private commit is not
-resident RAM. NVIDIA measures 686.52
+resident RAM. NVIDIA DLSS5 measures 686.52
 MiB local residency and 351.03 MiB
 working set in its standalone probe; its internal split is unknown.
 

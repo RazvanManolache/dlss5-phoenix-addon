@@ -339,7 +339,7 @@ inline const char* startup_status(bool configured, bool automatic, bool gate, bo
     if (observe)
         return "Observation only";
     if (running)
-        return direct ? "Running DLSS5 Phoenix directly (no NR provider)" : "Running";
+        return direct ? "Running Phoenix DLSS5 directly (no NR provider)" : "Running";
     return direct ? "Waiting for supported game DLSS frame" : "Waiting for NR provider input";
 }
 // Meter only the fitted image. Letterbox pixels are storage padding, not
@@ -1715,7 +1715,7 @@ class Runner {
         check(settings.valid() && architecture_matches(settings),
               "Direct refinement configuration changed; rebuild after fence retirement");
         check(comparison_supported(settings, nr_ != nullptr),
-              "Direct comparison needs a live NR feature for NVIDIA sources");
+              "Direct comparison needs a live NR feature for NVIDIA DLSS5 sources");
         check(matches(evidence.queue, color->GetDesc(), motion->GetDesc()),
               "Direct geometry changed");
         for (auto* resource : {color, motion}) {

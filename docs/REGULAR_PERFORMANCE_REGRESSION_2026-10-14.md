@@ -2,15 +2,15 @@
 
 **The regular benchmark suite and exact-output checks passed on the current addon payload.** This follows the separate transport/helper and graphics-bridge checks; their timing boundaries differ.
 
-Hardware: RTX 5080 16 GiB, driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 logical threads; 96 GiB system RAM; AMD integrated gfx1036 for HIP/Vulkan AMD. Model DLL 310.8.0.0 supplied externally. All runs use the full network and one pass. No NVIDIA DLL or extracted model is embedded or published.
+Hardware: RTX 5080 16 GiB, driver 616.64; Ryzen 9 9950X3D, 16 cores / 32 logical threads; 96 GiB system RAM; AMD integrated gfx1036 for HIP/Vulkan AMD. Model DLL 310.8.0.0 supplied externally. All runs use the full network and one pass. No NVIDIA DLSS5 DLL or extracted model is embedded or published.
 
 The tested addon is `build/bridge_resize_cached_package_20261014/Phoenix.addon64`, SHA-256 `c04132e71517be5743cf3250210a39d7c332d8e450eb6b29a7ae4c6880253c6d`. All 127 embedded payload files were decoded and checksum-verified directly from that addon. The native kernel manifest and every portable runtime/shader binary match the previous benchmark package exactly. The native probe and portable client were rebuilt from current source.
 
-## Native Phoenix and NVIDIA DLSS NR
+## Native Phoenix DLSS5 and NVIDIA DLSS5 NR
 
-Same synthetic RGBA16F color and RG16F zero-motion input, controls and model. PNNP ordering: two fresh processes per renderer/resolution, 128 frames each, discarding 32. Each table value is the arithmetic mean of the two process medians. GPU timestamps exclude uploads/readbacks. A separate NVIDIA reset probe checks the first-frame hash. All nine reset/final comparisons and the saved-gallery hashes match.
+Same synthetic RGBA16F color and RG16F zero-motion input, controls and model. PNNP ordering: two fresh processes per renderer/resolution, 128 frames each, discarding 32. Each table value is the arithmetic mean of the two process medians. GPU timestamps exclude uploads/readbacks. A separate NVIDIA DLSS5 reset probe checks the first-frame hash. All nine reset/final comparisons and the saved-gallery hashes match.
 
-| Resolution | Phoenix GPU ms | NVIDIA GPU ms | Phoenix GPU MiB | NVIDIA GPU MiB |
+| Resolution | Phoenix DLSS5 GPU ms | NVIDIA GPU ms | Phoenix DLSS5 GPU MiB | NVIDIA GPU MiB |
 |---|---:|---:|---:|---:|
 | 640×360 | 1.922 | 2.007 | 295.01 | 438.21 |
 | 854×480 | 2.088 | 2.159 | 318.70 | 460.40 |

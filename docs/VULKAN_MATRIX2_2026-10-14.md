@@ -20,7 +20,7 @@ saved reference exactly. Clocks are stock; this is a desktop measurement.
 GPU time improves by 23.2%, complete-call time by 15.8%. The 10 ms target has
 **not** been reached. GPU intervals cover model submissions; complete calls
 include CPU history preparation/resolve, uploads/readback and caller transport.
-The native RTX/NVIDIA DLL GPU-only fixture uses a different image format and
+The native RTX/NVIDIA DLSS5 DLL GPU-only fixture uses a different image format and
 motion boundary, so its timing is not a like-for-like complete-call comparison.
 
 Device tensor bytes exclude driver/pipeline storage and staging. Host capacities
@@ -65,7 +65,7 @@ tested pieces. These alternatives remain available for further experiments.
 Validation includes 42 saved frames across CPU/CUDA/HIP/SYCL/NVIDIA Vulkan/AMD
 Vulkan, 80 additional accelerated/scalar size/seed/reset/multipass frames,
 72 synthetic fusion/legacy-encoding/tail cases, strided-batch 32/64-row matrix
-comparisons with row/column tails, and the existing NVIDIA/AMD operator suites.
+comparisons with row/column tails, and the existing NVIDIA DLSS5/AMD operator suites.
 The addon core passed fifteen CPU suites and two software D3D12 suites. This
 does not certify every GPU, replacement model or input distribution.
 

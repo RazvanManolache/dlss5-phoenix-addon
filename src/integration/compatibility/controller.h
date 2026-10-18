@@ -95,7 +95,7 @@ inline void log_progress(Session &value) {
     const auto presented = value.bridge ? value.bridge->presented() : value.readback->presented();
     if (outputs > value.logged_outputs &&
         (outputs <= 3 || outputs / 100 > value.logged_outputs / 100)) {
-        const auto message = "DLSS5 Phoenix bridge: completed=" + std::to_string(outputs) +
+        const auto message = "Phoenix DLSS5 bridge: completed=" + std::to_string(outputs) +
                              ", presented=" + std::to_string(presented) + ", " + value.message;
         reshade::log::message(reshade::log::level::info, message.c_str());
     }
@@ -393,7 +393,7 @@ inline bool send_action(Session &value, phoenix_ui::Action action, unsigned argu
             value.previous_gpu_rows = Json::array(); value.previous_worker_rows = Json::array();
         }
         const bool accepted = value.local->action(action, argument);
-        value.ui_error = accepted ? "" : "In-process Phoenix action was rejected.";
+        value.ui_error = accepted ? "" : "In-process Phoenix DLSS5 action was rejected.";
         return accepted;
     }
     auto *host = active_host(value);
@@ -647,12 +647,12 @@ inline void panel(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", value.ui_error.c_str());
     ImGui::Separator();
     if (ImGui::CollapsingHeader("Advanced transport")) {
-    ImGui::TextWrapped("%s", value.local ? "Phoenix runs inside the game on its D3D12 device." : native_active(value) ?
+    ImGui::TextWrapped("%s", value.local ? "Phoenix DLSS5 runs inside the game on its D3D12 device." : native_active(value) ?
         "Processing runs inside this x86 game on a native 64-bit thread; no helper process. Pixel transfers still use CPU staging." : portable_active(value) ?
-        "Phoenix runs inside the game using the portable runtime and CPU pixel transfers." :
-        "Phoenix selects same-device D3D12 processing when supported, otherwise an isolated 64-bit helper.");
+        "Phoenix DLSS5 runs inside the game using the portable runtime and CPU pixel transfers." :
+        "Phoenix DLSS5 selects same-device D3D12 processing when supported, otherwise an isolated 64-bit helper.");
     bool route_changed = false;
-    const char* choices[]{"Automatic", "In-process native D3D12", "External x64 helper", "In-process portable (experimental)","x64 library inside x86 (experimental)","x86 Phoenix + native driver (experimental)"};
+    const char* choices[]{"Automatic", "In-process native D3D12", "External x64 helper", "In-process portable (experimental)","x64 library inside x86 (experimental)","x86 Phoenix DLSS5 + native driver (experimental)"};
     int choice = value.execution == ExecutionPreference::InProcess ? 1 : value.execution == ExecutionPreference::Helper ? 2 : value.execution == ExecutionPreference::Portable ? 3 : value.execution==ExecutionPreference::NativeLibrary?4:value.execution==ExecutionPreference::NativeDriver?5:0;
     if (ImGui::Combo("Execution mechanism", &choice, choices, sizeof(void*)==4?6:4)) {
         value.execution_name = choice == 1 ? "in_process" : choice == 2 ? "helper" : choice == 3 ? "portable" : choice==4?"wow64_library":choice==5?"wow64_driver":"auto";
@@ -704,7 +704,7 @@ inline void panel(reshade::api::effect_runtime *runtime) {
         route_changed|=ImGui::IsItemDeactivatedAfterEdit();
         route_changed|=ImGui::Checkbox("Use helper if native processing fails",&value.native_fallback);
         if(value.execution==ExecutionPreference::NativeDriver&&needs_nvidia_dll(value.settings))
-            ImGui::TextWrapped("NVIDIA sources require the x64 library or helper; the Phoenix driver preference is retained.");
+            ImGui::TextWrapped("NVIDIA DLSS5 sources require the x64 library or helper; the Phoenix DLSS5 driver preference is retained.");
     }
     ImGui::Text("Active execution: %s",execution_mode(value));
     if (route_changed) {
@@ -850,7 +850,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         if (value.local) value.local->reset_history();
         else { remember_timing(value); value.bridge.reset(); value.readback.reset(); }
         value.message = !value.processing_error.empty() ? value.processing_error :
-            value.local ? "Phoenix disabled; in-process resources are kept warm." : "Phoenix disabled.";
+            value.local ? "Phoenix DLSS5 disabled; in-process resources are kept warm." : "Phoenix DLSS5 disabled.";
         return;
     }
     if (!value.processing_error.empty()) {
@@ -935,7 +935,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 value.displayed = true;
                 ++value.mode_own[size_t(value.applied_settings.mode)];
                 value.message = decision.reason;
-            } else value.message = "In-process Phoenix waiting for a usable output; game frame preserved.";
+            } else value.message = "In-process Phoenix DLSS5 waiting for a usable output; game frame preserved.";
             return;
         } catch (const std::exception& error) {
             value.fallback_reason = std::string("In-process initialization/evaluation: ") + error.what();
@@ -988,7 +988,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 const auto selected = value.configured;
                 require(
                     selected.external() || value.applied_settings.model_source != "configured",
-                    "No model selected. Browse to your NVIDIA DLL or a compatible model folder.");
+                    "No model selected. Browse to your NVIDIA DLSS5 DLL or a compatible model folder.");
                 std::optional<PortableOptions> portable;
                 std::optional<NativeOptions> native;
                 if(native_attempt) {
@@ -1012,7 +1012,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 value.readback = std::make_unique<ReadbackBridge>(runtime, description, module,
                                                                   selected, value.applied_settings, portable,native);
                 value.message = std::string(api_name(device->get_api())) +
-                                (portable_attempt ? " readback / in-process portable Phoenix. CPU pixel transfers add " :
+                                (portable_attempt ? " readback / in-process portable Phoenix DLSS5. CPU pixel transfers add " :
                                 " readback / asynchronous 64-bit helper. CPU pixel transfers add ") +
                                 "latency and bandwidth.";
                 if(native_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
@@ -1073,7 +1073,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         if (!value.bridge) {
             const auto selected = value.configured;
             require(selected.external() || value.applied_settings.model_source != "configured",
-                    "No model selected. Browse to your NVIDIA DLL or a compatible model folder.");
+                    "No model selected. Browse to your NVIDIA DLSS5 DLL or a compatible model folder.");
             auto *native_device = reinterpret_cast<ID3D11Device *>(uintptr_t(device->get_native()));
             ++value.helper_generation;
             auto &sharing = sharing_devices[device];

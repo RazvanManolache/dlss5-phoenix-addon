@@ -11,9 +11,9 @@ PQ/HLG and other non-sRGB color spaces are refused explicitly.
 For a game whose native NGX output is not reliably visible, the explicit
 final-frame route is `input_provider=feeder_d3d12` in `Phoenix.json`, together
 with `[Phoenix.Compatibility] StandaloneInput=1`, `Enabled=1`, and
-`CoherentFrames=1` in `ReShade.ini`. `[Phoenix] Backend=3` selects Phoenix.
+`CoherentFrames=1` in `ReShade.ini`. `[Phoenix] Backend=3` selects Phoenix DLSS5.
 This uses the packaged x64 helper and holds a completed input/output pair at
-presentation; it does not repair the game's native NGX integration or NVIDIA NR
+presentation; it does not repair the game's native NGX integration or NVIDIA DLSS5 NR
 feature creation. Original engine depth/motion are unavailable on this route.
 RGB10A2 screenshots remain outside the compatibility screenshot encoder's
 accepted formats. No new real-game visual acceptance is implied by this change.
@@ -64,7 +64,7 @@ returned processed Vulkan output and varied screenshots, but reported below
 1 FPS. Those checks establish output delivery, not playable performance. The
 inactive-window baseline and bridge cost still need isolation. Outcast's shutdown
 access violation was reproduced at the same game offset with bare ReShade and
-with Phoenix; an entirely unmodified baseline is still required.
+with Phoenix DLSS5; an entirely unmodified baseline is still required.
 
 ## D3D9 multisampling and capture — 16 October
 

@@ -11,7 +11,7 @@ Four balanced fresh processes per variant ran the same 12-frame 1080p fractional
 | Owned device allocations | 453.38 MiB | 453.38 MiB |
 | Scratch arena | 308.88 MiB | 308.88 MiB |
 
-This is a 6.60% GPU-time reduction and a 4.22% complete-call reduction. These portable-runner calls include host preparation and resolve; they are not directly comparable to native Phoenix's GPU-only timings. Stock clocks and shared desktop use remain a measurement limitation. Worker RAM was essentially unchanged (about 270 MiB working set and 736 MiB private bytes).
+This is a 6.60% GPU-time reduction and a 4.22% complete-call reduction. These portable-runner calls include host preparation and resolve; they are not directly comparable to native Phoenix DLSS5's GPU-only timings. Stock clocks and shared desktop use remain a measurement limitation. Worker RAM was essentially unchanged (about 270 MiB working set and 736 MiB private bytes).
 
 Validation includes 96 exact paired temporal outputs, 42 saved regression frames across all six runner routes, and 40 additional exact edge/control/multipass outputs in both accelerated and scalar Vulkan modes. The edge extents include 1×1, 96×64, 321×193, 513×257 and 1920×1080. Both addon architectures built successfully with this runtime; this checkpoint has not been published or installed into a game.
 

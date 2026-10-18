@@ -24,7 +24,7 @@ validated pre-release measurements, with receipt hashes in the public JSON.
 It is not a fresh timing run of the release binaries. Optional standalone
 runtimes are retained hash-verified builds rather than newly rebuilt SDKs.
 
-Earlier packaged-client tests cover real Phoenix/NVIDIA inference, live
+Earlier packaged-client tests cover real Phoenix DLSS5/NVIDIA DLSS5 inference, live
 strengths, refinement, switching, comparison and worker retirement with the
 local native x86 bootstrap profile. Their raw receipts stay local. They do not
 establish arbitrary game presentation, resize/device-loss behavior or support
@@ -33,7 +33,7 @@ on other Windows/driver profiles.
 ## Publication Scope
 
 No retail game was launched for this release preparation. User configurations,
-game profiles, logs, captures, credentials, model weights and NVIDIA model DLLs
+game profiles, logs, captures, credentials, model weights and NVIDIA DLSS5 model DLLs
 are excluded from the archives. Source archives come from the audited Git tree,
 not a recursive copy of the working directory. Public authorship uses a GitHub
 noreply identity.

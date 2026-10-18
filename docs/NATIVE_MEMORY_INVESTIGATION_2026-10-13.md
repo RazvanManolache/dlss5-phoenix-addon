@@ -50,9 +50,9 @@ The small gains at 1080p/4K remain sensitive to clocks and scheduling. A separat
 balanced combination trial measured 2.04% at 6K and 2.16% at 8K, supporting the
 large-input benefit without promising a fixed percentage.
 
-The balanced three-route 8K trial measured original Phoenix **58.8259 ms**,
-the combined candidate **57.5559 ms**, and NVIDIA **56.9337 ms**. The candidate
-reduced that trial's gap from about **3.32% to 1.09%**; NVIDIA still led. Do not
+The balanced three-route 8K trial measured original Phoenix DLSS5 **58.8259 ms**,
+the combined candidate **57.5559 ms**, and NVIDIA DLSS5 **56.9337 ms**. The candidate
+reduced that trial's gap from about **3.32% to 1.09%**; NVIDIA DLSS5 still led. Do not
 mix NVIDIA's time from that trial with the later automatic-path table.
 
 ## What the controlled changes establish
@@ -110,7 +110,7 @@ available, so the remaining gap is not fully explained.
   including six controls. **19,488 GPU frames** executed across screening,
   follow-ups, full-network comparisons and regression validation.
 - All candidate reset/final readbacks checked against the original same-size
-  fixture match exactly. The NVIDIA comparison checks final output hashes.
+  fixture match exactly. The NVIDIA DLSS5 comparison checks final output hashes.
   Not every intermediate frame was read back; this is not moving-scene certification.
 - Regression validation passes at **eight extents**, including 6K, 8K,
   **5760×3239** immediately below the policy boundary and **5761×3241** above it.
@@ -127,7 +127,7 @@ available, so the remaining gap is not fully explained.
 [Measurements, resources, timing observations and receipt hashes](benchmarks/2026-10-13/native-memory-investigation.json)
 
 The built addon contains the existing portable runtimes plus these native
-kernels. It contains neither the NVIDIA model DLL nor extracted model weights.
+kernels. It contains neither the NVIDIA DLSS5 model DLL nor extracted model weights.
 The public release charts now use a fresh matched nine-resolution pass with
 automatic kernel selection: [current release measurements](benchmarks/2026-10-13/README.md).
 The A/B table above retains the separate controlled investigation, rather than

@@ -8,8 +8,8 @@ SDK's `0.8.1-beta` or the Android preview. Project code remains Apache-2.0.
 - x86 and x64 add-ons with renderer-first controls and Advanced transport below.
 - Retained automatic/native D3D12 and external x64-helper execution.
 - Experimental in-process portable execution with architecture-matched runtimes.
-- Opt-in x64 Phoenix/NVIDIA library execution inside an x86 process.
-- Opt-in x86 Phoenix graph host calling a native x64 driver executor in-process.
+- Opt-in x64 Phoenix DLSS5/NVIDIA DLSS5 library execution inside an x86 process.
+- Opt-in x86 Phoenix DLSS5 graph host calling a native x64 driver executor in-process.
 - Live strengths, same-evaluation comparisons, FP16 intermediate refinement,
   explicit fallback reasons and separate game/output/execution diagnostics.
 - D3D9 multisample capture resolve and split Vulkan graphics/present queues.
@@ -27,8 +27,8 @@ SDK's `0.8.1-beta` or the Android preview. Project code remains Apache-2.0.
 3. Keep `phoenix_graphics_host.exe`, `licenses/` and the supplied notices beside
    the add-on. The embedded helper payload is retained; no replacement ReShade
    DLL for the game is included.
-4. Open ReShade's Phoenix panel and select your separately obtained compatible
-   model. No NVIDIA model DLL, model weights or Windows/driver DLL is supplied.
+4. Open ReShade's Phoenix DLSS5 panel and select your separately obtained compatible
+   model. No NVIDIA DLSS5 model DLL, model weights or Windows/driver DLL is supplied.
 5. Choose the renderer. Leave Advanced transport on **Automatic** initially.
    Incompatible paths show their reason and follow the configured fallback.
 6. For portable experiments, extract the separate
@@ -38,7 +38,7 @@ SDK's `0.8.1-beta` or the Android preview. Project code remains Apache-2.0.
    opt-in. CPU execution is a reference path, not a real-time performance promise.
 7. For native x86 experiments, extract
    `DLSS5-Phoenix-0.81-Experimental-WOW64.zip` there as well. Select **x64 library
-   inside x86** or **x86 Phoenix + native driver**. The included bootstrap matches
+   inside x86** or **x86 Phoenix DLSS5 + native driver**. The included bootstrap matches
    one verified Windows/driver profile only. On mismatch use the helper; never
    disable the checks or copy system DLLs from another computer.
 
@@ -55,9 +55,9 @@ game/
     wow64/
 ```
 
-The x86 graph-host path is Phoenix-only, full eight-block network once, and
+The x86 graph-host path is Phoenix DLSS5-only, full eight-block network once, and
 requires an already large-address-aware executable. It never patches the game
-EXE. NVIDIA views on this path use the retained helper. The x64-library-inside-x86
+EXE. NVIDIA DLSS5 views on this path use the retained helper. The x64-library-inside-x86
 path can evaluate both renderers. Both require the Native RTX executor.
 
 ## Evidence and Limits
@@ -74,7 +74,7 @@ device and are not crash-isolated. Their resident-input benchmark is not an
 end-to-end add-on latency benchmark. See [mechanism documentation](EXECUTION_MECHANISMS.md).
 
 Release archives exclude user configs, local profiles/logs, captures, model
-weights and NVIDIA model DLLs. The optional WOW64 package includes the unmodified
+weights and NVIDIA DLSS5 model DLLs. The optional WOW64 package includes the unmodified
 LGPL-3.0 WOW64Ext dynamic dependency, its corresponding source and license.
 See [third-party notices](../THIRD_PARTY.md). Public benchmark summaries are
 curated measurements, not raw local diagnostic receipts.

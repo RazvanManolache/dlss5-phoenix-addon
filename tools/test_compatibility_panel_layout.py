@@ -23,7 +23,7 @@ class CompatibilityPanelLayoutTests(unittest.TestCase):
         self.assertNotIn('#',labels)
         for name in ('Automatic','In-process native D3D12','External x64 helper',
                      'In-process portable (experimental)','x64 library inside x86 (experimental)',
-                     'x86 Phoenix + native driver (experimental)'):
+                     'x86 Phoenix DLSS5 + native driver (experimental)'):
             self.assertIn('"'+name+'"',labels)
 
     def test_status_reasons_have_no_investigation_numbers(self):

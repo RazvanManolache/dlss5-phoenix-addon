@@ -70,13 +70,13 @@ spatially enlarge its output to 1080p:
   all one. Changes require a new session and reset history.
 - `weight_source` uses the existing authenticated DLL/disk loader. For disk
   models use `{"kind":"model_folder","path":"C:/Models/compatible-model"}`.
-  No model or NVIDIA DLL is included in the library. The NR DLL is mapped as
+  No model or NVIDIA DLSS5 DLL is included in the library. The NR DLL is mapped as
   resource data; NVIDIA's NR evaluation code is not executed.
 - `adapter_index`: optional DXGI adapter index when the library creates its
   device. Without it, native inference selects an NVIDIA adapter. Unsupported
   devices fail explicitly. Supply both D3D12 device and DIRECT queue to use an
   application's existing device instead.
-- `spatial_only: true`: skip model loading and NVIDIA kernel initialization.
+- `spatial_only: true`: skip model loading and NVIDIA DLSS5 kernel initialization.
   `bundle_path` and `weight_source` are unnecessary. `warp: true` explicitly
   selects the software device for this mode only.
 

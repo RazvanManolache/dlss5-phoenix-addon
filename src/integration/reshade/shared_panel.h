@@ -118,9 +118,9 @@ inline bool draw_controls(Context &addon_state) {
     const char *route_labels[]{"Input",
                                (addon_state.direct_game && !addon_state.direct_nr_ready &&
                                 !addon_state.nvidia_status.empty())
-                                   ? "NVIDIA DLL (NR unavailable)"
-                                   : "NVIDIA DLL",
-                               "Comparison", "DLSS5 Phoenix"};
+                                   ? "NVIDIA DLSS5 DLL (NR unavailable)"
+                                   : "NVIDIA DLSS5 DLL",
+                               "Comparison", "Phoenix DLSS5"};
     // All routes are always offered; an NVIDIA route without a live feature
     // defers honestly with the reason in status instead of hiding.
     changed = ImGui::Combo("Backend", &addon_state.panel.mode, route_labels, 4) || changed;
@@ -129,7 +129,7 @@ inline bool draw_controls(Context &addon_state) {
     if (addon_state.direct_game && !addon_state.direct_nr_ready &&
         (addon_state.panel.mode == phoenix::nvidia || addon_state.panel.mode == phoenix::split) &&
         !addon_state.nvidia_status.empty())
-        ImGui::TextWrapped("NVIDIA NR: %s", addon_state.nvidia_status.c_str());
+        ImGui::TextWrapped("NVIDIA DLSS5 NR: %s", addon_state.nvidia_status.c_str());
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game) {
         ImGui::BeginDisabled(addon_state.portable_backbuffer);
@@ -171,7 +171,7 @@ inline bool draw_controls(Context &addon_state) {
             }
             ImGui::TextWrapped(
                 "Runs neural rendering at a smaller resolution, then uses the selected upscaler. "
-                "Padding preserves the game's image aspect. Native Phoenix generates a plan for "
+                "Padding preserves the game's image aspect. Native Phoenix DLSS5 generates a plan for "
                 "the requested resolution and pads its internal tiles.");
         }
         if (addon_state.direct_runner) {
@@ -197,7 +197,7 @@ inline bool draw_controls(Context &addon_state) {
         }
     }
     if (visible.own_details()) {
-        const char *model_sources[]{"Configured source", "Model folder on disk", "NVIDIA DLL file"};
+        const char *model_sources[]{"Configured source", "Model folder on disk", "NVIDIA DLSS5 DLL file"};
         int model_selection = addon_state.panel.model_source == "model_folder" ? 1
                               : addon_state.panel.model_source == "nvidia_dll" ? 2
                                                                                : 0;
@@ -227,7 +227,7 @@ inline bool draw_controls(Context &addon_state) {
             std::array<char, 4096> path_text{};
             memcpy(path_text.data(), selected_path.data(),
                    std::min(selected_path.size(), path_text.size() - 1));
-            if (ImGui::InputText(model_selection == 1 ? "Model folder" : "NVIDIA DLL",
+            if (ImGui::InputText(model_selection == 1 ? "Model folder" : "NVIDIA DLSS5 DLL",
                                  path_text.data(), path_text.size())) {
                 selected_path = path_text.data();
                 changed = true;
@@ -278,10 +278,10 @@ inline bool draw_controls(Context &addon_state) {
             (addon_state.panel.model_folder != addon_state.active_model_folder ||
              addon_state.panel.model_dll != addon_state.active_model_dll))
             ImGui::TextWrapped("%s", addon_state.model_restart.c_str());
-        ImGui::TextWrapped("Active model source: %s", disk_model ? "Model folder" : "NVIDIA DLL");
+        ImGui::TextWrapped("Active model source: %s", disk_model ? "Model folder" : "NVIDIA DLSS5 DLL");
     } else if (addon_state.panel.mode == phoenix::nvidia) {
-        ImGui::TextWrapped("NVIDIA DLL runs on the game's rendering GPU. Phoenix runner and "
-                           "model-folder selections apply only to Phoenix output.");
+        ImGui::TextWrapped("NVIDIA DLSS5 DLL runs on the game's rendering GPU. Phoenix DLSS5 runner and "
+                           "model-folder selections apply only to Phoenix DLSS5 output.");
     }
     if (visible.neural() && ImGui::Button("Reset neural controls")) {
         phoenix::apply_nr_reference(addon_state.panel);
@@ -306,7 +306,7 @@ inline bool draw_controls(Context &addon_state) {
                             addon_state.panel.execution_device.size() - 8) +
                         "]";
         const bool installed = addon_state.runtime_available;
-        if (ImGui::BeginCombo("DLSS5 Phoenix processing device", selected.c_str())) {
+        if (ImGui::BeginCombo("Phoenix DLSS5 processing device", selected.c_str())) {
             for (const auto &device_info : addon_state.execution_devices) {
                 ImGui::PushID(device_info.id.c_str());
                 const auto label = device_info.id.find(':') == std::string::npos
@@ -329,7 +329,7 @@ inline bool draw_controls(Context &addon_state) {
         if (!installed)
             ImGui::TextUnformatted("C++ runtime or selected model source is missing. Configure "
                                    "portable_cpp and the model source.");
-        ImGui::TextWrapped("Select the card that runs DLSS5 Phoenix. The rendering GPU and NVIDIA "
+        ImGui::TextWrapped("Select the card that runs Phoenix DLSS5. The rendering GPU and NVIDIA DLSS5 "
                            "DLL route follow the game.");
         if (addon_state.panel.execution_device == "cpu" ||
             addon_state.panel.execution_device == "sycl:cpu") {
@@ -365,7 +365,7 @@ inline bool draw_controls(Context &addon_state) {
                                        1, phoenix::kMaxOffloadAgeMs) ||
                       changed;
             ImGui::TextWrapped(
-                "DLSS5 Phoenix runs on the selected device. The NVIDIA DLL route remains on the "
+                "Phoenix DLSS5 runs on the selected device. The NVIDIA DLSS5 DLL route remains on the "
                 "rendering GPU. Reference execution may miss the age limit.");
         }
     }
@@ -405,7 +405,7 @@ inline bool draw_controls(Context &addon_state) {
                     addon_state.panel.comparison = 1;
                     changed = true;
                 }
-                ImGui::TextDisabled("NVIDIA supports split comparison; difference views use Input and Phoenix");
+                ImGui::TextDisabled("NVIDIA DLSS5 supports split comparison; difference views use Input and Phoenix DLSS5");
             }
         }
         if (visible.divider())
@@ -420,7 +420,7 @@ inline bool draw_controls(Context &addon_state) {
             changed |= ImGui::Checkbox("Separator lines", &addon_state.panel.comparison_lines);
         ImGui::EndDisabled();
         if (!addon_state.comparison_views)
-            ImGui::TextWrapped("Bridge comparison uses matching input and output; NVIDIA and "
+            ImGui::TextWrapped("Bridge comparison uses matching input and output; NVIDIA DLSS5 and "
                                "difference views need the direct D3D12 route.");
     }
     static int preset_slot = 0;
@@ -518,7 +518,7 @@ inline bool draw_controls(Context &addon_state) {
                 phoenix::reset_native_section(addon_state.panel);
                 changed = true;
             }
-            changed |= ImGui::Checkbox("NVIDIA-only overrides", &addon_state.panel.native_options);
+            changed |= ImGui::Checkbox("NVIDIA DLSS5-only overrides", &addon_state.panel.native_options);
             if (visible.native_values()) {
                 changed |= ImGui::SliderFloat("Intensity", &addon_state.panel.intensity, 0.f, 2.f,
                                               "%.2f", ImGuiSliderFlags_AlwaysClamp);
@@ -630,7 +630,7 @@ inline bool draw_controls(Context &addon_state) {
         ImGui::Text("History resets: %llu%s", addon_state.live_resets_recorded,
                     addon_state.live.reset_requested ? " (pending)" : "");
     }
-    if (visible.experiments() && ImGui::CollapsingHeader("DLSS5 Phoenix experiments")) {
+    if (visible.experiments() && ImGui::CollapsingHeader("Phoenix DLSS5 experiments")) {
         if (addon_state.direct_game) {
             changed |=
                 ImGui::SliderInt("Network passes per frame", &addon_state.panel.refinement_passes,
@@ -685,7 +685,7 @@ inline bool draw_controls(Context &addon_state) {
                 changed = true;
             }
             if (visible.budget() && !addon_state.portable_backbuffer) {
-                const char *target_names[]{"DLSS5 Phoenix GPU time", "Desired game FPS"};
+                const char *target_names[]{"Phoenix DLSS5 GPU time", "Desired game FPS"};
                 if (ImGui::BeginCombo("Target", target_names[addon_state.panel.budget_mode])) {
                     for (int target = 0; target < 2; ++target) {
                         ImGui::BeginDisabled(target == 1 && !addon_state.fps_budget);
@@ -704,7 +704,7 @@ inline bool draw_controls(Context &addon_state) {
                         "FPS target from its hidden window's presentation rate.");
                 if (addon_state.panel.budget_mode == 0) {
                     changed |= ImGui::SliderFloat(
-                        "DLSS5 Phoenix GPU budget (ms)", &addon_state.panel.budget_ms, .1f, 100.f,
+                        "Phoenix DLSS5 GPU budget (ms)", &addon_state.panel.budget_ms, .1f, 100.f,
                         "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
                     ImGui::TextWrapped("Budget estimate: %.3f ms | target is not guaranteed",
                                        addon_state.depth_budget.ema());
@@ -810,7 +810,7 @@ inline bool draw_controls(Context &addon_state) {
                 addon_state.mode_frames[iteration_index], addon_state.mode_own[iteration_index],
                 addon_state.mode_native[iteration_index]);
     }
-    if (visible.own_details() && ImGui::CollapsingHeader("DLSS5 Phoenix model")) {
+    if (visible.own_details() && ImGui::CollapsingHeader("Phoenix DLSS5 model")) {
         ImGui::TextWrapped("%s",
                            phoenix_model::source_path_string(addon_state.bundle_path).c_str());
         ImGui::Text("Model graph: 41 modules / %u transformer blocks",
@@ -845,7 +845,7 @@ inline void draw_timing(Context &addon_state) {
                     char recent_line[192]{};
                     snprintf(
                         recent_line, sizeof(recent_line),
-                        "Networks last 1s: DLSS5 Phoenix %.3f ms (%llu) | NVIDIA %.3f ms (%llu)",
+                        "Networks last 1s: Phoenix DLSS5 %.3f ms (%llu) | NVIDIA DLSS5 %.3f ms (%llu)",
                         recent.at("phoenix_ms").get<double>(),
                         recent.at("phoenix_samples").get<uint64_t>(),
                         recent.at("nvidia_ms").get<double>(),
@@ -922,15 +922,15 @@ inline void draw_timing(Context &addon_state) {
                               ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg)) {
             ImGui::TableSetupColumn("Route");
             ImGui::TableSetupColumn("Samples");
-            ImGui::TableSetupColumn("DLSS5 Phoenix ms");
-            ImGui::TableSetupColumn("NVIDIA ms");
+            ImGui::TableSetupColumn("Phoenix DLSS5 ms");
+            ImGui::TableSetupColumn("NVIDIA DLSS5 ms");
             ImGui::TableSetupColumn("Route ms");
             ImGui::TableHeadersRow();
             const auto live_report = addon_state.live_timing->report();
             for (const auto &row : live_report.at("rows")) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                const char *labels[]{"Input", "NVIDIA", "Split", "DLSS5 Phoenix"};
+                const char *labels[]{"Input", "NVIDIA DLSS5", "Split", "Phoenix DLSS5"};
                 ImGui::TextWrapped("%s / %s / %u blocks", labels[row.at("mode").get<unsigned>()],
                                    row.at("execution_device").get<std::string>().c_str(),
                                    row.at("transformer_blocks").get<unsigned>());
@@ -978,8 +978,8 @@ inline bool draw_compact(Context &context) {
     ImGui::TextWrapped("Status: %s", context.status.empty() ? "Waiting" : context.status.c_str());
     auto& enabled = context.processing_enabled ? *context.processing_enabled : context.panel.uplift;
     context.processing_changed = ImGui::Checkbox("Enable neural rendering", &enabled);
-    const char *labels[]{"Input", "NVIDIA DLL",
-                          "Comparison", "DLSS5 Phoenix"};
+    const char *labels[]{"Input", "NVIDIA DLSS5 DLL",
+                          "Comparison", "Phoenix DLSS5"};
     context.live_selection_changed = ImGui::Combo("Backend##phoenix_compact", &context.panel.mode, labels, 4);
     if (context.live_selection_changed && context.direct_game)
         phoenix::normalize_direct_comparison(context.panel);

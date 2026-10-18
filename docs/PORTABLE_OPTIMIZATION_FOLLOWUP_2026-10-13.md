@@ -1,7 +1,7 @@
 # Portable runner optimization follow-up â€” 2026-10-13
 
 This pass keeps exact output while improving four alternate routes. These are
-portable-runner measurements, not the native Phoenix or NVIDIA DLL benchmark.
+portable-runner measurements, not the native Phoenix DLSS5 or NVIDIA DLSS5 DLL benchmark.
 All numbers below use 1920Ã—1080 input and the same external model DLL.
 
 | Route | Previous model time | Selected model time | Model reduction | Previous full call | Selected full call |
@@ -14,7 +14,7 @@ All numbers below use 1920Ã—1080 input and the same external model DLL.
 The CUDA and Vulkan full-call reductions are **1.65% and 2.71%**. Their model
 execution improves more than the complete call: preparation, transfers, resolve
 and broker overhead still matter. These backends remain far behind native
-Phoenix; the CPU and integrated-GPU routes are not interactive at this resolution.
+Phoenix DLSS5; the CPU and integrated-GPU routes are not interactive at this resolution.
 
 ## What changed
 
@@ -30,7 +30,7 @@ Phoenix; the CPU and integrated-GPU routes are not interactive at this resolutio
   stage decoded weights. Other shapes retain the earlier kernel. Explicit
   `vulkan_matrix_columns` overrides remain available; automatic routing uses
   `vulkan_shape_matrices`.
-- **Vulkan half conversion:** use hardware conversion on NVIDIA, with an integer
+- **Vulkan half conversion:** use hardware conversion on NVIDIA DLSS5, with an integer
   decode that preserves the rounding boundary the driver previously optimized
   away. Preserve special-value behavior. An AMD conversion differed by one ULP,
   so AMD retains the established software path. `vulkan_native_half` controls
@@ -71,7 +71,7 @@ this pass does not claim a reduction in total process RAM or device memory.
   No discrete AMD or Intel GPU was available.
 - External model: `nvngx_dlssnr.dll` 310.8.0.0, SHA-256
   `e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`.
-  No model or NVIDIA DLL is included in the addon artifact.
+  No model or NVIDIA DLSS5 DLL is included in the addon artifact.
 - CUDA/Vulkan: three fresh processes per variant and route, 12 frames per
   process, discard the first two for timing, then take the median of process
   medians. Fractional motion `(0.375, -0.625)`, depth and validity inputs;
@@ -80,7 +80,7 @@ this pass does not claim a reduction in total process RAM or device memory.
   frames, with the second timed. All 16 reset-frame outputs match exactly.
   These timing measurements do not establish long-sequence temporal performance.
 - Final rebuilt runtime: **42 exact reference frames across 18 jobs** on CPU,
-  CUDA, HIP AMD, SYCL CPU, Vulkan AMD and Vulkan NVIDIA, at 1920Ã—1080, 321Ã—193
+  CUDA, HIP AMD, SYCL CPU, Vulkan AMD and Vulkan NVIDIA DLSS5, at 1920Ã—1080, 321Ã—193
   and 96Ã—64. The smaller jobs exercise temporal history. SYCL and Vulkan AMD
   serve as regression routes; no speedup is claimed for them.
 - Operator contracts pass on CPU, HIP, CUDA and both Vulkan devices, including
@@ -91,7 +91,7 @@ this pass does not claim a reduction in total process RAM or device memory.
   hazards** in the operator suite.
 
 The portable timing boundary uses RGB32F host/broker input and output. Native
-Phoenix's separate RGBA16F GPU benchmark has a different boundary; comparing
+Phoenix DLSS5's separate RGBA16F GPU benchmark has a different boundary; comparing
 these full-call values directly would mix transport costs.
 
 ## Retained alternatives and local evidence

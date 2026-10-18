@@ -1519,7 +1519,7 @@ int main() {
                 ++cases;
                 settings.experimental = true;
                 check(settings.blocks_for(mode) == unsigned(mode == 3 ? blocks : 8),
-                      "depth restricted to DLSS5 Phoenix-only route");
+                      "depth restricted to Phoenix DLSS5-only route");
                 ++cases;
             }
         bad = {};

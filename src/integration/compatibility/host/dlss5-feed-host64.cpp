@@ -74,10 +74,10 @@ static bool ConfigurePhoenixHost()
             throw std::runtime_error("Phoenix.addon64 is missing");
         // Do not inherit another game's sidecar selection into this process.
         if (!SetEnvironmentVariableW(L"CNR_PHOENIX_GAME_CONFIG", config_path.c_str())) return false;
-        Log("[host] phoenix-host/2: direct Phoenix enhancement; SDR 1:1; armed=%d", g_phoenix_enabled);
+        Log("[host] phoenix-host/2: direct Phoenix DLSS5 enhancement; SDR 1:1; armed=%d", g_phoenix_enabled);
         return true;
     } catch (const std::exception& error) {
-        Log("[host] Phoenix configuration rejected: %s", error.what());
+        Log("[host] Phoenix DLSS5 configuration rejected: %s", error.what());
         return false;
     }
 }
@@ -172,7 +172,7 @@ static bool ResolvePhoenixFeeder(HMODULE module)
     if (!version || !evaluate) return false;
     const auto abi = version();
     if (abi != PhoenixFeederAbiV1) {
-        Log("[host] Phoenix feeder ABI mismatch: addon=%u host=%u", abi, PhoenixFeederAbiV1);
+        Log("[host] Phoenix DLSS5 feeder ABI mismatch: addon=%u host=%u", abi, PhoenixFeederAbiV1);
         return false;
     }
     g_feeder_evaluate = evaluate;
@@ -195,7 +195,7 @@ static bool WaitForPhoenixFeeder(DWORD timeout_ms)
         PumpPresent();
         auto module = GetModuleHandleW(L"Phoenix.addon64");
         if (ResolvePhoenixFeeder(module)) {
-            Log("[host] Phoenix direct feeder ABI %u available (inference not yet verified)", PhoenixFeederAbiV1);
+            Log("[host] Phoenix DLSS5 direct feeder ABI %u available (inference not yet verified)", PhoenixFeederAbiV1);
             return true;
         }
         if (module) break;
@@ -699,7 +699,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     if (input.Width != input_w || input.Height != input_h ||
         input.Width != destination.Width || input.Height != destination.Height ||
         input.Format != destination.Format) {
-        Log("[host] direct Phoenix requires matching float color/output at 1:1");
+        Log("[host] direct Phoenix DLSS5 requires matching float color/output at 1:1");
         return false;
     }
     g_last_evaluate_bypass = !nr_enabled || !g_phoenix_enabled;
@@ -755,7 +755,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         if (ecode || !ValidFeederReply(hr, frame, result)) {
             AbortCommands();
             Log("[host] direct feeder failed: HRESULT=0x%08X exception=0x%08X", hr, ecode);
-            std::string reason = "Direct Phoenix evaluation failed";
+            std::string reason = "Direct Phoenix DLSS5 evaluation failed";
             if (!ecode && FAILED(hr)) {
                 nlohmann::json refusal;
                 if (ReadPhoenixOutputSummary(refusal)) {
@@ -780,7 +780,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
                     last_deferred_status = status;
                 }
                 if (deferred.value("terminal", true)) {
-                    HostTerminal("Phoenix became terminal while the feeder was deferred");
+                    HostTerminal("Phoenix DLSS5 became terminal while the feeder was deferred");
                     return false;
                 }
             }
@@ -789,7 +789,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         }
         if (result.status == PhoenixFeederStatusV1::Recorded && !summary_before_available) {
             AbortCommands();
-            HostTerminal("Recorded Phoenix output lacks a baseline completion summary");
+            HostTerminal("Recorded Phoenix DLSS5 output lacks a baseline completion summary");
             return false;
         }
         if (!WaitFenceValue(h.fence, EndCommands(), 15000)) {
@@ -803,13 +803,13 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             return CopyTextureCommon(color, output);
         }
         if (!ReadPhoenixOutputSummary(after) || after.value("terminal", true)) {
-            HostTerminal("Phoenix processing stopped before completion proof");
+            HostTerminal("Phoenix DLSS5 processing stopped before completion proof");
             return false;
         }
         if (PhoenixOutputAdvanced(before, after)) return true;
         PumpPresent(); Sleep(8);
     } while (GetTickCount64() < deadline);
-    Log("[host] Phoenix produced no proven processed output within 15 seconds");
+    Log("[host] Phoenix DLSS5 produced no proven processed output within 15 seconds");
     return false;
 }
 
@@ -821,7 +821,7 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
     const auto input = color->GetDesc(), destination = output->GetDesc();
     const auto route = PhoenixHostColorRoute(input.Format, destination.Format);
     if (route == PhoenixColorRoute::Unsupported) {
-        Log("[host] unsupported Phoenix color adapter formats %u -> %u", input.Format, destination.Format);
+        Log("[host] unsupported Phoenix DLSS5 color adapter formats %u -> %u", input.Format, destination.Format);
         return false;
     }
     const bool processing = nr_enabled && g_phoenix_enabled;
@@ -844,7 +844,7 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
     }
     const auto adapter_format = PhoenixByteFormat(destination.Format) ? destination.Format : DXGI_FORMAT_R8G8B8A8_UNORM;
     const auto hr = g_format_adapter.Ensure(h.dev, static_cast<UINT>(input.Width), input.Height, adapter_format);
-    if (FAILED(hr)) { Log("[host] Phoenix format adapter initialization failed 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Log("[host] Phoenix DLSS5 format adapter initialization failed 0x%08X", hr); return false; }
     if (!BeginCommands()) return false;
     g_format_adapter.RecordInput(h.dev, h.list, color);
     if (!WaitFenceValue(h.fence, EndCommands(), 15000)) return false;
@@ -860,7 +860,7 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
     if (!BeginCommands()) return false;
     g_format_adapter.RecordOutput(h.dev, h.list, output, processing && !g_last_evaluate_bypass ? nullptr : g_format_adapter.Color());
     const bool copied = WaitFenceValue(h.fence, EndCommands(), 15000);
-    if (copied) Log("[host] byte-format writeback completed: Phoenix=%d format=%u %ux%u",
+    if (copied) Log("[host] byte-format writeback completed: Phoenix DLSS5=%d format=%u %ux%u",
                     processing && !g_last_evaluate_bypass ? 1 : 0, destination.Format, static_cast<UINT>(destination.Width), destination.Height);
     return copied;
 }
@@ -1378,7 +1378,7 @@ static int RunImage(const wchar_t *input_path, const wchar_t *output_path, int f
     RgbaImage input = {};
     if (!LoadImageRgba8(input_path, input)) return 1;
     const UINT W = input.width, H = input.height;
-    Log("[host] --image: %ux%u static direct Phoenix probe, frames=%d format=%u", W, H, frames, format);
+    Log("[host] --image: %ux%u static direct Phoenix DLSS5 probe, frames=%d format=%u", W, H, frames, format);
 
     ID3D12Resource *color  = MakeTex(W, H, format, false);
     ID3D12Resource *output = MakeTex(W, H, format, true);
@@ -1428,7 +1428,7 @@ static int RunImage(const wchar_t *input_path, const wchar_t *output_path, int f
 static int RunTest()
 {
     const UINT W = 640, H = 360;
-    Log("[host] --test: %ux%u synthetic direct Phoenix", W, H);
+    Log("[host] --test: %ux%u synthetic direct Phoenix DLSS5", W, H);
 
     ID3D12Resource *color  = MakeTex(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false);
     ID3D12Resource *output = MakeTex(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true);
@@ -1447,13 +1447,13 @@ static int RunTest()
         else break;
     }
     Log("[host] --test finished: %d/300 evaluates succeeded", good);
-    Log("[host] inspect Phoenix summary for completed direct feeder output");
+    Log("[host] inspect Phoenix DLSS5 summary for completed direct feeder output");
     return good >= 250 ? 0 : 1;
 }
 
 static int RunVrProbe(UINT, UINT, float)
 {
-    Log("[host] --probe-vr SR feature sizing is unavailable: direct Phoenix accepts SDR 1:1 frames only");
+    Log("[host] --probe-vr SR feature sizing is unavailable: direct Phoenix DLSS5 accepts SDR 1:1 frames only");
     return 1;
 }
 
@@ -1645,7 +1645,7 @@ static int Serve(DWORD game_pid)
             // Open the game's textures (duplicate the handles out of the game) unless this
             // is a CPU bridge, where frames arrive as pipe payloads.
             bool ok = !b.hdr && b.width == b.output_width && b.height == b.output_height;
-            if (!ok) Log("[host] Phoenix feeder currently requires SDR and 1:1 input/output; build rejected");
+            if (!ok) Log("[host] Phoenix DLSS5 feeder currently requires SDR and 1:1 input/output; build rejected");
             if (!b.cpu_bridge && (hgame == nullptr || !ensure_shared_fences()))
             {
                 Log("[host] shared-handle build requested, but game process handles/fences are unavailable");

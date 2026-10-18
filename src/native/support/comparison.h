@@ -12,7 +12,7 @@
 namespace phoenix_addon::phoenix {
 inline constexpr const char* comparison_names[] = {
     "Three-way", "Pair wipe", "Absolute RGB", "Signed RGB", "Heatmap", "Luminance difference"};
-inline constexpr const char* source_names[] = {"Input", "NVIDIA", "DLSS5 Phoenix"};
+inline constexpr const char* source_names[] = {"Input", "NVIDIA DLSS5", "Phoenix DLSS5"};
 inline constexpr char comparison_shader[] = R"hlsl(
 Texture2D<float4> inputImage : register(t0);
 Texture2D<float4> nativeImage : register(t1);
@@ -42,7 +42,7 @@ float4 source(uint index, uint2 p) {
 )hlsl";
 inline void comparison_hr(HRESULT value) {
     if (FAILED(value))
-        throw std::runtime_error("DLSS5 Phoenix comparison D3D12 error " +
+        throw std::runtime_error("Phoenix DLSS5 comparison D3D12 error " +
                                  std::to_string(unsigned(value)));
 }
 inline Microsoft::WRL::ComPtr<ID3DBlob> compile_comparison() {

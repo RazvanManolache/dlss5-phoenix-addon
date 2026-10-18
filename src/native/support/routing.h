@@ -11,8 +11,8 @@
 namespace phoenix_addon::phoenix {
 inline constexpr int kMaxOffloadAgeFrames = 6000, kMaxOffloadAgeMs = 120000;
 enum Mode { input = 0, nvidia = 1, split = 2, ours = 3 };
-inline constexpr const char* names[] = {"Input (NR bypass)", "NVIDIA DLL",
-                                        "Input | NVIDIA | DLSS5 Phoenix", "DLSS5 Phoenix"};
+inline constexpr const char* names[] = {"Input (NR bypass)", "NVIDIA DLSS5 DLL",
+                                        "Input | NVIDIA DLSS5 | Phoenix DLSS5", "Phoenix DLSS5"};
 inline bool uses_native(int mode) {
     return mode == nvidia || mode == split;
 }
@@ -356,14 +356,14 @@ template <class Parameters, class Success> class ParameterEdits {
         : parameters_(parameters), success_(success) {}
     ParameterEdits(const ParameterEdits&) = delete;
     template <class T> void add(const char* key, T after) {
-        check(!applied_, "DLSS5 Phoenix cannot extend an applied parameter transaction");
+        check(!applied_, "Phoenix DLSS5 cannot extend an applied parameter transaction");
         T before{};
         check(success_(parameters_.Get(key, &before)),
-              "DLSS5 Phoenix native override lacks a restorable typed getter");
+              "Phoenix DLSS5 native override lacks a restorable typed getter");
         edits_.push_back({key, before, after});
     }
     void apply() {
-        check(!applied_, "DLSS5 Phoenix duplicate parameter transaction");
+        check(!applied_, "Phoenix DLSS5 duplicate parameter transaction");
         applied_ = true;
         try {
             for (const auto& edit : edits_)

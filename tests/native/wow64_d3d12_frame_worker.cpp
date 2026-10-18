@@ -191,11 +191,11 @@ static Json benchmark_phoenix(Device& gpu, PhoenixNativeSession* session, HMODUL
     std::vector<uint16_t> pixels(size_t(width)*height*3); size_t changed=0;
     for(unsigned y=0;y<height;++y) for(unsigned x=0;x<width;++x) for(unsigned c=0;c<3;++c) {
         const auto value=reinterpret_cast<uint16_t*>(static_cast<char*>(data)+fp.Offset+y*fp.Footprint.RowPitch+x*8)[c];
-        require((value&0x7c00)!=0x7c00,"Nonfinite Phoenix benchmark output");
+        require((value&0x7c00)!=0x7c00,"Nonfinite Phoenix DLSS5 benchmark output");
         const auto i=(size_t(y)*width+x)*4+c; changed+=value!=uint16_t(0x3000+(i*19)%0x800);
         pixels[(size_t(y)*width+x)*3+c]=value;
     }
-    readback->Unmap(0,&empty); require(changed>0,"Unchanged Phoenix benchmark output");
+    readback->Unmap(0,&empty); require(changed>0,"Unchanged Phoenix DLSS5 benchmark output");
     result["output_sha256"]=output_sha256(pixels); result["changed_rgb_samples"]=changed;
     result["gpu_timing_scope"]="native API GPU timestamps: model and output copy";
     result["reset_each_frame"]=reset_each_frame;
@@ -357,7 +357,7 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
             } else if (backend=="phoenix") {
                 save("phoenix_load");
                 auto library=LoadLibraryW(fs::u8path(job.at("native_library").get<std::string>()).c_str());
-                require(library!=nullptr,"Phoenix library load");
+                require(library!=nullptr,"Phoenix DLSS5 library load");
                 auto create=symbol<decltype(&phoenix_native_create)>(library,"phoenix_native_create");
                 auto destroy=symbol<decltype(&phoenix_native_destroy)>(library,"phoenix_native_destroy");
                 auto frame=symbol<decltype(&phoenix_native_frame_host)>(library,"phoenix_native_frame_host");
@@ -377,10 +377,10 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
                         enhanced.data(),enhanced.size()*2,width*8,&controls)==0,error());
                     size_t changed=0;
                     for (size_t i=0;i<enhanced.size();++i) {
-                        require((enhanced[i]&0x7c00)!=0x7c00,"Nonfinite Phoenix output");
+                        require((enhanced[i]&0x7c00)!=0x7c00,"Nonfinite Phoenix DLSS5 output");
                         if (i%4!=3) changed+=enhanced[i]!=color[i];
                     }
-                    require(changed!=0,"No changed Phoenix output");
+                    require(changed!=0,"No changed Phoenix DLSS5 output");
                     report["frames"].push_back({{"changed_rgb_samples",changed},{"output_sha256",output_sha256(enhanced)}});
                     }
                     if(benchmark) { save("phoenix_benchmark"); report["benchmark"]=benchmark_phoenix(gpu,session,library,width,height,controls,job.value("benchmark_reset",false)); }
@@ -394,11 +394,11 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
                 auto free_params=symbol<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter*)>(core,"NVSDK_NGX_D3D12_DestroyParameters");
                 NVSDK_NGX_Parameter* params=nullptr;
                 report["allocate_status"]=uint32_t(alloc(&params)); require(params!=nullptr,"NGX parameters");
-                require(PhoenixNrLoad(fs::u8path(job.at("model_library").get<std::string>()).c_str())!=0,"NVIDIA library load");
+                require(PhoenixNrLoad(fs::u8path(job.at("model_library").get<std::string>()).c_str())!=0,"NVIDIA DLSS5 library load");
                 save("ngx_initialize");
                 const auto init=PhoenixNrInit(0x1000000ull,output.parent_path().c_str(),gpu.device.Get(),NVSDK_NGX_Version_API,params);
                 report["initialize_status"]=uint32_t(init); save("ngx_initialize_result");
-                require(NVSDK_NGX_SUCCEED(init),"NVIDIA initialization refused");
+                require(NVSDK_NGX_SUCCEED(init),"NVIDIA DLSS5 initialization refused");
                 params->Reset();
                 for (const auto* key:{"DLSSNR.Width","DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.Output.Width","Width"}) params->Set(key,width);
                 for (const auto* key:{"DLSSNR.Height","DLSSNR.InputHeight","DLSSNR.OutputHeight","DLSSNR.Output.Height","Height"}) params->Set(key,height);
@@ -408,7 +408,7 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
                 NVSDK_NGX_Handle* handle=nullptr; save("ngx_create");
                 auto created=PhoenixNrCreate(gpu.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params,&handle);
                 report["create_status"]=uint32_t(created); save("ngx_create_result");
-                require(NVSDK_NGX_SUCCEED(created)&&handle,"NVIDIA feature creation refused"); gpu.submit();
+                require(NVSDK_NGX_SUCCEED(created)&&handle,"NVIDIA DLSS5 feature creation refused"); gpu.submit();
                 // Real evaluation follows the same post-render recipe as the addon.
                 auto color=gpu.texture(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
                 auto motion=gpu.texture(width,height,DXGI_FORMAT_R16G16_FLOAT);
@@ -463,7 +463,7 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
                         gpu.list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);
                     }
                     report["evaluate_status"]=uint32_t(evaluated);
-                    require(NVSDK_NGX_SUCCEED(evaluated),"NVIDIA evaluation refused"); gpu.submit();
+                    require(NVSDK_NGX_SUCCEED(evaluated),"NVIDIA DLSS5 evaluation refused"); gpu.submit();
                     const auto wall=milliseconds(started); double gpu_ms=0;
                     if(benchmark) {
                         uint64_t* values=nullptr; D3D12_RANGE range{0,16}; hr(timestamps->Map(0,&range,reinterpret_cast<void**>(&values)));
@@ -483,14 +483,14 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
                 std::vector<uint16_t> pixel_output(size_t(width)*height*3);
                 for(unsigned y=0;y<height;++y) for(unsigned x=0;x<width;++x) {
                     auto pixel=reinterpret_cast<const uint16_t*>(static_cast<char*>(data)+fp.Offset+y*fp.Footprint.RowPitch+x*8);
-                    for(unsigned c=0;c<3;++c) { require((pixel[c]&0x7c00)!=0x7c00,"Nonfinite NVIDIA output"); changed+=pixel[c]!=uint16_t(0x3000+(x*11+y*7+c*17)%0x800); pixel_output[(size_t(y)*width+x)*3+c]=pixel[c]; }
+                    for(unsigned c=0;c<3;++c) { require((pixel[c]&0x7c00)!=0x7c00,"Nonfinite NVIDIA DLSS5 output"); changed+=pixel[c]!=uint16_t(0x3000+(x*11+y*7+c*17)%0x800); pixel_output[(size_t(y)*width+x)*3+c]=pixel[c]; }
                 }
-                readback->Unmap(0,&empty); require(changed!=0,"No changed NVIDIA output");
+                readback->Unmap(0,&empty); require(changed!=0,"No changed NVIDIA DLSS5 output");
                 report["frames"].push_back({{"changed_rgb_samples",changed},{"evaluations",evaluations},{"output_sha256",output_sha256(pixel_output)}});
                 if(benchmark) {
                     report["benchmark"]["output_sha256"]=output_sha256(pixel_output);
                     report["benchmark"]["changed_rgb_samples"]=changed;
-                    report["benchmark"]["gpu_timing_scope"]="D3D12 GPU timestamps around NVIDIA evaluation";
+                    report["benchmark"]["gpu_timing_scope"]="D3D12 GPU timestamps around NVIDIA DLSS5 evaluation";
                     report["benchmark"]["reset_each_frame"]=job.value("benchmark_reset",false);
                 }
                 PhoenixNrRelease(handle); free_params(params);

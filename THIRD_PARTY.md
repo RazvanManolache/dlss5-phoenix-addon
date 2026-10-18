@@ -35,7 +35,7 @@ its license and source/revision notice accompany `wow64ext.dll` in the package.
 Corresponding source is available at that immutable upstream revision. The
 project's Apache-2.0 license does not replace WOW64Ext's terms. Rebuild instructions
 are in [Execution Mechanisms](docs/EXECUTION_MECHANISMS.md); no Windows, CUDA
-driver, NVIDIA model DLL or model weights are included.
+driver, NVIDIA DLSS5 model DLL or model weights are included.
 
 ## Scope of this source subset
 
@@ -49,7 +49,7 @@ The selected native RTX kernel sources and production graph are included so
 the addon can be built from this repository. Experimental kernel alternatives
 and the tuning history remain excluded.
 
-No NVIDIA model DLL, extracted model weights, NGX SDK, vendor runtime binaries
+No NVIDIA DLSS5 model DLL, extracted model weights, NGX SDK, vendor runtime binaries
 or compiled addon is included in this subset. Build scripts that reference an
 external SDK or runtime do not supply it or grant redistribution rights to it.
 Any separately obtained SDKs or binaries remain subject to their own terms.

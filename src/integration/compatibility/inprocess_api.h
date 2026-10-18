@@ -32,6 +32,6 @@ inline Json local_json(PhoenixFeederProgressJsonProc read) {
         const auto written = read(text.data(), size);
         if (written && written <= size) return Json::parse(text.c_str());
     }
-    throw std::runtime_error("In-process Phoenix metadata is unavailable");
+    throw std::runtime_error("In-process Phoenix DLSS5 metadata is unavailable");
 }
 } // namespace phoenix_compat

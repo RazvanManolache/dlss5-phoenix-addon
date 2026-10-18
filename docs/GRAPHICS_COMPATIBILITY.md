@@ -4,24 +4,24 @@ The full D3D12 addon can process either engine DLSS input or standalone final-co
 input inside the game. Standalone processing chooses a same-device GPU route
 when its runtime capabilities permit it, rather than equating missing game DLSS
 calls with a need for a helper. Other APIs currently use the compatibility bridge
-to a private 64-bit D3D12 helper. Full x86 builds now include the Phoenix
+to a private 64-bit D3D12 helper. Full x86 builds now include the Phoenix DLSS5
 evaluator instead of only the transport frontend. However, local x86 native
 execution is currently gated off: live D3D11-on-12 validation faulted inside the
 32-bit NVAPI/graphics driver despite successful compilation and entry-point
 inspection. Automatic x86 processing therefore uses the safe x64 helper. This
 gate must not be removed based on compilation or function availability alone.
-Both paths call the same direct Phoenix evaluator without synthetic SR/DLAA calls.
+Both paths call the same direct Phoenix DLSS5 evaluator without synthetic SR/DLAA calls.
 
 | Game | Addon file | Frame transport |
 | --- | --- | --- |
 | 64-bit D3D12 with engine DLSS input | `Phoenix.addon64` | Existing in-process engine route |
-| 64-bit D3D12 standalone input | `Phoenix.addon64` | Same-device GPU conversion, direct Phoenix and same-frame presentation; capability-based helper fallback |
+| 64-bit D3D12 standalone input | `Phoenix.addon64` | Same-device GPU conversion, direct Phoenix DLSS5 and same-frame presentation; capability-based helper fallback |
 | 64-bit D3D11 | `Phoenix.addon64` | Shared GPU textures and fences |
 | 32-bit D3D11 | `Phoenix.addon32` | Shared GPU textures and fences; inference stays 64-bit |
 | 32/64-bit D3D9 | Matching addon bitness | Staging surfaces; GPU composition of matched input/output |
 | 32/64-bit D3D10/10.1 | Matching addon bitness | Staging textures and asynchronous helper |
-| 32-bit D3D12, Phoenix only | Full `Phoenix.addon32` | Safe x64 helper until native x86 execution passes runtime validation |
-| 32-bit D3D12, NVIDIA DLL or NVIDIA comparison | `Phoenix.addon32` | Pixel buffers with 256-byte row alignment to x64 helper |
+| 32-bit D3D12, Phoenix DLSS5 only | Full `Phoenix.addon32` | Safe x64 helper until native x86 execution passes runtime validation |
+| 32-bit D3D12, NVIDIA DLSS5 DLL or NVIDIA DLSS5 comparison | `Phoenix.addon32` | Pixel buffers with 256-byte row alignment to x64 helper |
 | 32/64-bit OpenGL | Matching addon bitness | Pixel buffers; explicit framebuffer row and texture byte-order handling |
 | 32/64-bit Vulkan | Matching addon bitness | Pixel buffers; submission respects the game's presentation wait semaphores |
 
@@ -42,16 +42,16 @@ single-sample, single-layer SDR RGBA8, BGRA8 and RGB10A2 backbuffers on the game
 DIRECT queue. Conversion uses FP16 textures and GPU packing, retaining 10-bit
 code values on RGB10A2 rather than passing them through the helper's RGBA8 pipe.
 Capture/conversion/evaluation/presentation stay on that device. Motion is zero
-and depth is absent: this route does not invent engine guides. Phoenix, NVIDIA
+and depth is absent: this route does not invent engine guides. Phoenix DLSS5, NVIDIA DLSS5
 DLL and supported pair comparisons use this same in-process renderer on x64.
 On x86, the driver-validation gate currently keeps all processing in the helper;
-a comparison that uses NVIDIA output also requires the x64 NVIDIA DLL. Selecting a backend
-re-evaluates the route without requiring an off/on cycle. The NVIDIA
+a comparison that uses NVIDIA DLSS5 output also requires the x64 NVIDIA DLSS5 DLL. Selecting a backend
+re-evaluates the route without requiring an off/on cycle. The NVIDIA DLSS5
 feature stays resident across backend switches at unchanged geometry and
 create-time settings. Its first use still loads and initializes the runtime;
 switching back does not start a new renderer or repeat feature warmup. Portable
-Phoenix executors retain their isolated helper route; NVIDIA-only rendering
-ignores the saved Phoenix executor without changing it. Other color spaces,
+Phoenix DLSS5 executors retain their isolated helper route; NVIDIA DLSS5-only rendering
+ignores the saved Phoenix DLSS5 executor without changing it. Other color spaces,
 protected surfaces and unsupported layouts are refused, not silently downscaled
 or reinterpreted. Only one window owns the native evaluator; other windows can
 fall back to isolated helpers.
@@ -114,10 +114,10 @@ The working DX12 fixture now has the tested addon; the clean set is untouched.
 **Normal-startup correction on 2026-10-16:** the earlier controlled mode tests
 temporarily enabled processing and restored a saved `Enabled=0`. They validated
 the renderers, not enabled startup. The installed fixture now saves `Enabled=1`.
-A normal maximized launch at 2560 x 989 started the saved NVIDIA mode without
+A normal maximized launch at 2560 x 989 started the saved NVIDIA DLSS5 mode without
 control overrides. Foreground desktop captures with the camera frozen showed
-central RGB mean differences of 8.25/255 (NVIDIA) and 7.68/255 (Phoenix) against
-disabled processing. The Input/Phoenix split matched its standalone sources with
+central RGB mean differences of 8.25/255 (NVIDIA DLSS5) and 7.68/255 (Phoenix DLSS5) against
+disabled processing. The Input/Phoenix DLSS5 split matched its standalone sources with
 mean errors of 0.00 and 0.20/255. These are displayed-pixel checks, not FPS or
 quality claims. The fixture was closed with enabled startup preserved. The mode
 test now rejects disabled startup unless explicitly requested for diagnostics.
@@ -126,12 +126,12 @@ test now rejects disabled startup unless explicitly requested for diagnostics.
 one enable switch. Backend/comparison choices apply without toggling processing;
 expensive tuning remains pending until Apply. Backbuffer routes consistently
 reset spatial history because they have no engine motion vectors. This also
-removes a previously measured mismatch between the in-process Phoenix output
-and a fresh helper's Phoenix half. The final automatic-route run passed all
-four pair checks byte-for-byte, all four Input/Phoenix difference views, gain,
+removes a previously measured mismatch between the in-process Phoenix DLSS5 output
+and a fresh helper's Phoenix DLSS5 half. The final automatic-route run passed all
+four pair checks byte-for-byte, all four Input/Phoenix DLSS5 difference views, gain,
 Off/select/On and rapid-selection checks. A normal visible launch confirmed
 comparison labels/divider. See [interaction contract](ADDON_USABILITY.md) for
-the tested scenarios and limitations. NVIDIA difference views remain unavailable.
+the tested scenarios and limitations. NVIDIA DLSS5 difference views remain unavailable.
 
 **NVIDIA/comparison follow-up on 2026-10-16:** the updated package passes 19 CPU
 suites, both software-DX12 suites, and extraction/hash verification of all 101
@@ -139,27 +139,27 @@ packaged core/companion resources. Cache discovery now resolves the actual
 writable AppData location under packaged launchers, retaining extended paths and
 native separators for deep kernel directories. Containment checks remain active.
 The project's embedded `phoenix-nvngx.dll` is a small call wrapper compiled from
-`nr_forwarder.cpp`, not NVIDIA code or a model. It provides the caller-module
+`nr_forwarder.cpp`, not NVIDIA DLSS5 code or a model. It provides the caller-module
 identity expected by the externally supplied NR runtime. An isolated probe
 measured direct initialization returning `0xBAD00002` and wrapped initialization
 returning success. Feeder warm-up submits feature-creation work as an unchanged
 frame, without claiming processed output. Helper comparisons now retain their
-requested sources and are composed once, instead of returning Phoenix-only
+requested sources and are composed once, instead of returning Phoenix DLSS5-only
 output and replacing the left half during transport. The legacy three-way value
 is normalized to the two-way view offered by the direct panel. Failures retain
 their reason instead of becoming a generic disabled message.
 
 The real DX12 x64 museum was rerun hidden, frozen, at 960 x 540, with both forced
-helper and automatic routing. NVIDIA feature 18 initialized and evaluated
-successfully; Input/Phoenix stayed in-process under automatic routing. After at
-least 20 NVIDIA evaluations, Input/Phoenix, NVIDIA/Phoenix, Phoenix/NVIDIA and
-Input/NVIDIA pairs matched their respective standalone captures byte-for-byte
-away from the divider, placed at 37% rather than 50%. Input/Phoenix absolute
+helper and automatic routing. NVIDIA DLSS5 feature 18 initialized and evaluated
+successfully; Input/Phoenix DLSS5 stayed in-process under automatic routing. After at
+least 20 NVIDIA DLSS5 evaluations, Input/Phoenix DLSS5, NVIDIA DLSS5/Phoenix DLSS5, Phoenix DLSS5/NVIDIA DLSS5 and
+Input/NVIDIA DLSS5 pairs matched their respective standalone captures byte-for-byte
+away from the divider, placed at 37% rather than 50%. Input/Phoenix DLSS5 absolute
 difference view also rendered. Manual camera movement invalidated an earlier
 visible comparison attempt; it is not counted as a renderer failure. These are
 presentation-resource readbacks from a hidden window, not visible-game FPS or
 VR validation. NVIDIA-source difference views remain unsupported; this check
-covers NVIDIA pair wipes, not three-way output or every difference visualization.
+covers NVIDIA DLSS5 pair wipes, not three-way output or every difference visualization.
 The fixture and helper processes were closed and its INI restored.
 
 ```powershell
@@ -175,7 +175,7 @@ browsing/validation, device and CPU-thread selection, resolution/aspect/upscalin
 neural controls, network experiments and logging are shared. Runtime adapters
 provide metadata and actions; the UI does not own inference libraries.
 
-Per-frame strength, skin/mask and NVIDIA tuning changes apply live, including
+Per-frame strength, skin/mask and NVIDIA DLSS5 tuning changes apply live, including
 while dragging, without restarting the helper. Model/executor/resource edits
 reload automatically once editing ends. There is no manual Apply button.
 The helper returns actual available devices, model-validation results,
@@ -186,8 +186,8 @@ No UI pipe operation waits on the game's render thread.
 
 Only actual engine motion/depth and temporal-guide controls are disabled when
 final-color capture cannot supply their inputs. Skin overrides and automatic
-skin masking remain editable. Pair comparison supports Input, NVIDIA and Phoenix;
-NVIDIA difference views remain unavailable. GPU-time adaptive
+skin masking remain editable. Pair comparison supports Input, NVIDIA DLSS5 and Phoenix DLSS5;
+NVIDIA DLSS5 difference views remain unavailable. GPU-time adaptive
 depth is available; the hidden helper's presentation rate cannot supply a
 whole-game FPS controller, so that target is disabled there. These capability
 limits are independent of addon bitness.
@@ -206,10 +206,10 @@ still requires the separate bridge checks below.
 **Validation on 2026-10-14 (RTX 5080 / Windows):**
 
 - All 14 core source-test suites passed.
-- Eight GPU/runtime checks passed: x86/x64 exact transport and Phoenix output,
+- Eight GPU/runtime checks passed: x86/x64 exact transport and Phoenix DLSS5 output,
   split display, CPU pixel transport, helper death, stale-output rejection,
   an irregular 257 × 255 canvas and 1920 × 1080 inference.
-- x86, x64 and CPU-transfer Phoenix images were byte-identical.
+- x86, x64 and CPU-transfer Phoenix DLSS5 images were byte-identical.
 - Real ReShade checks cover D3D9, D3D10, D3D10.1, D3D11, OpenGL and Vulkan;
   the D3D12 helper path is also exercised through the thin x64 test frontend.
   All seven return byte-identical 257 × 193 output, including readback of the
@@ -253,7 +253,7 @@ neural feed.
   this mode; expired output falls back to the live game. Other APIs still use
   delayed full images. ReShade deferred lists without proven submission ordering
   are refused.
-- NVIDIA feature 18 and NVIDIA pair comparisons now pass the DX12 x64 museum
+- NVIDIA DLSS5 feature 18 and NVIDIA DLSS5 pair comparisons now pass the DX12 x64 museum
   check above using the embedded call wrapper and external model DLL. Historical
   `0xBAD00002` results predate that wrapper. Other APIs/architectures, NVIDIA-source
   difference views and game-specific HDR/guide contracts are not certified by it.
@@ -274,8 +274,8 @@ Values measure the helper round trip, excluding game capture/display and startup
 | Boundary | Previous ms | Updated ms |
 | --- | ---: | ---: |
 | 1080p CPU-pixel transport echo, no inference | 19.093 | 4.335 |
-| 257 × 193 CPU-pixel transport plus Phoenix | 41.157 | 7.312 |
-| 1080p CPU-pixel transport plus Phoenix | 47.632 | 19.447 |
+| 257 × 193 CPU-pixel transport plus Phoenix DLSS5 | 41.157 | 7.312 |
+| 1080p CPU-pixel transport plus Phoenix DLSS5 | 47.632 | 19.447 |
 
 All output hashes match. These are preliminary timing samples, not game FPS or
 a comparison with direct D3D12 inference. The panel and status export distinguish
@@ -288,21 +288,21 @@ prevents mixed-frame masks but does not supply missing engine motion vectors.
 1. Install addon-capable ReShade matching the game's bitness.
 2. Copy **one** matching addon file beside the game executable. A 32-bit game
    gets `Phoenix.addon32`; a 64-bit game gets `Phoenix.addon64`.
-3. Keep your NVIDIA model DLL separate, or select a supported external model
-   folder. No NVIDIA DLL or model weights are embedded in these addon files.
-4. Open ReShade's **DLSS5 Phoenix** panel, choose the model with **Browse...**,
+3. Keep your NVIDIA DLSS5 model DLL separate, or select a supported external model
+   folder. No NVIDIA DLSS5 DLL or model weights are embedded in these addon files.
+4. Open ReShade's **Phoenix DLSS5** panel, choose the model with **Browse...**,
    turn on **Enable neural rendering**. Controls apply automatically.
 5. The panel reports startup/model validation, completed frames, round-trip
    latency and errors. Model/device/resource changes reload the renderer;
    per-frame tuning does not restart it.
 
-The helper executable, its ReShade runtime and required x64 Phoenix code are
+The helper executable, its ReShade runtime and required x64 Phoenix DLSS5 code are
 embedded. They unpack into `%LOCALAPPDATA%\DLSS5Phoenix\runtime`; private session
 configuration/logs live under `%LOCALAPPDATA%\DLSS5Phoenix\sessions`. No large
 runtime folder needs to be copied beside the game. The helper is hidden and
 owned by a kill-on-close job; it does not survive its game process.
 
-In Phoenix mode the external DLL supplies model data. In NVIDIA execution mode
+In Phoenix DLSS5 mode the external DLL supplies model data. In NVIDIA DLSS5 execution mode
 the supplied DLL is executable vendor code, loaded only in the x64 process.
 That mode therefore needs the actual compatible runtime, not just a model folder.
 
@@ -335,7 +335,7 @@ decoder and the system `nvapi.dll`, rather than trying to load `nvapi64.dll`.
 It exports undecorated public aliases for WINAPI entry points so component
 inspection and control clients can recognize the same ABI on both architectures.
 Its embedded native GPU kernels are shared with the x64 build; the embedded
-x64 portable plugins and NVIDIA helper remain isolated from x86 native execution.
+x64 portable plugins and NVIDIA DLSS5 helper remain isolated from x86 native execution.
 Compilation, driver entry-point inspection and CPU route tests do not establish
 live x86 inference or presented pixels. Those require a separate explicit run.
 It rejects arbitrary DXGI
@@ -434,7 +434,7 @@ undersized SDR buffer.
   actual game capture/display cost. D3D9's deferred snapshot readback still uses
   a synchronous driver call; no zero-stall claim is made.
 
-Compatibility screenshots capture the composed game/Phoenix image before
+Compatibility screenshots capture the composed game/Phoenix DLSS5 image before
 ReShade effects and UI. HDR and multisampled captures require a conversion or
 resolve path and are currently rejected. Validation confirms model integrity,
 loading and three finite CPU outputs; it does not certify visual quality or

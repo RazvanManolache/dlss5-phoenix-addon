@@ -2,7 +2,7 @@
 
 **These are hypothetical calculations from measured desktop inference, not VR
 benchmarks, verified headset support or game-FPS predictions.** All estimates
-assume native Phoenix or NVIDIA NR on the RTX 5080 host PC, the full network and
+assume native Phoenix DLSS5 or NVIDIA DLSS5 NR on the RTX 5080 host PC, the full network and
 one pass. They do not estimate standalone Steam Frame performance.
 
 ![Estimated neural execution cost for both eyes](vr-estimated-cost.png)
@@ -26,10 +26,10 @@ one pass. They do not estimate standalone Steam Frame performance.
 - Full-panel estimates interpolate between 2560×1440 and 3840×2160. Half-width,
   half-height estimates interpolate between 1280×720 and 1920×1080. No extrapolation.
 - Frame budget is `1000 / refresh_hz`; theoretical remaining time is that budget
-  minus the estimated Phoenix stereo inference time. Half width and height
+  minus the estimated Phoenix DLSS5 stereo inference time. Half width and height
   means **one quarter** of the input pixels per eye.
 
-| Headset | Neural input per eye | Phoenix stereo ms | NVIDIA stereo ms |
+| Headset | Neural input per eye | Phoenix DLSS5 stereo ms | NVIDIA DLSS5 stereo ms |
 | --- | --- | ---: | ---: |
 | PSVR2, panel size | 2000×2040 | ≈13.0 | ≈12.8 |
 | PSVR2, half width/height | 1000×1020 | ≈5.2 | ≈5.4 |
@@ -80,8 +80,8 @@ Relevant source: [native view state](../../../src/native/network/production_netw
 [portable tensor/attention layout](../../../native_runtime/graph.h), and
 [native geometry](../../../src/native/model/generated_plan.h).
 
-The NVIDIA DLL timings also use the independent-view assumption. These tests
-establish no claim about an NVIDIA NR stereo-batch interface or its performance.
+The NVIDIA DLSS5 DLL timings also use the independent-view assumption. These tests
+establish no claim about an NVIDIA DLSS5 NR stereo-batch interface or its performance.
 
 ## Regeneration
 

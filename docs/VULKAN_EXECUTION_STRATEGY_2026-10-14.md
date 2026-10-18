@@ -6,7 +6,7 @@ The accepted local implementation is commit `07398bb`. Its paired 1080p
 RGB32F temporal fixture measured 68.371 ms for model GPU submissions and
 117.675 ms for the complete call, compared with 89.042 and 139.774 ms at the
 previous checkpoint. These are still far from the requested 10 ms target.
-The GPU-only native/NVIDIA fixture has a different frame/motion boundary;
+The GPU-only native/NVIDIA DLSS5 fixture has a different frame/motion boundary;
 its approximately 3.8 ms is not a complete-call comparison.
 
 ## What this pass actually tested
@@ -81,7 +81,7 @@ hashes changed. It is retained as a **different numerical experiment**, not an
 accepted optimization or verified native-equivalent implementation. Precision
 alone did not explain the performance gap.
 
-## A new NVIDIA execution route was verified at the buffer/kernel level
+## A new NVIDIA DLSS5 execution route was verified at the buffer/kernel level
 
 The installed driver advertises `VK_NV_cuda_kernel_launch`; its feature query
 returns true and compute capability 12.0. A standalone prototype:
@@ -99,7 +99,7 @@ checks and output guard checks. The 12x4 feature grid exercises real reordering
 and zero-filled token padding. These are layout tests, **not neural inference,
 image interop, full model parity or a performance measurement**.
 
-This permits investigation of an explicitly named NVIDIA native-kernel Vulkan
+This permits investigation of an explicitly named NVIDIA DLSS5 native-kernel Vulkan
 route. It should reuse the optimized native launch plan, layouts and kernels,
 while retaining the portable shader engine for other devices. It must not be
 presented as an AMD/Android acceleration result or silently relabel a CUDA API
@@ -116,7 +116,7 @@ Next implementation gates:
 4. Measure GPU-only and full-frame paths on identical inputs, controls, precision,
    history and padded extents. Validate temporal output, odd sizes and memory.
 5. Keep the shared-memory/FP8/layout lessons available to the portable engine;
-   the NVIDIA-only extension does not solve its cross-vendor performance.
+   the NVIDIA DLSS5-only extension does not solve its cross-vendor performance.
 
 Extension reference:
 https://docs.vulkan.org/refpages/latest/refpages/source/VK_NV_cuda_kernel_launch.html
@@ -138,4 +138,4 @@ hashes. Alternatives were preserved with content deduplication in an external
 local experiment archive; these private receipts are not release contents.
 
 No experimental route from this pass has replaced the qualified addon packages.
-No NVIDIA model DLL or extracted model is included in the preservation process.
+No NVIDIA DLSS5 model DLL or extracted model is included in the preservation process.

@@ -35,13 +35,13 @@ implementation inference; the failed call and successful allocation are measured
 | Isolated check | Current result |
 | --- | --- |
 | Native x64 CUDA initialization inside x86 | Success, with a real high-address reservation |
-| Driver-only x86-to-x64 thunk | Real native CUDA module created and destroyed, without loading x64 Phoenix in that child |
-| x64 Phoenix inside x86 | Three finite, changed model outputs; SHA-256 matches normal x64 output exactly |
+| Driver-only x86-to-x64 thunk | Real native CUDA module created and destroyed, without loading x64 Phoenix DLSS5 in that child |
+| x64 Phoenix DLSS5 inside x86 | Three finite, changed model outputs; SHA-256 matches normal x64 output exactly |
 | x64 NVIDIA DLSS5 inside x86 | Three evaluations; final finite, changed RGB output matches normal x64 exactly |
 | Process ownership | x86 executable PID equals inference PID; no graphics helper |
 | Tested input | Synthetic 640 x 384, 1:1; same input/model for normal and cross-mode controls |
 
-Phoenix's comparison hashes cover RGBA half-float output; NVIDIA's cover packed
+Phoenix DLSS5's comparison hashes cover RGBA half-float output; NVIDIA's cover packed
 RGB half-float readback, excluding texture padding and unspecified alpha.
 Neither check is a game-presentation or performance benchmark.
 
@@ -80,23 +80,23 @@ CUDA image's SHA-256. These traces do not override normal-child results.
 Measured on an RTX 5080, driver 616.64, at 1920 x 1080 and 1:1 resolution.
 Each backend/process combination initialized independently, warmed for five
 seconds, then measured twenty seconds of serial, fence-completed calls. Both
-Phoenix and NVIDIA used real native GPU processing, without Vulkan or a helper.
+Phoenix DLSS5 and NVIDIA DLSS5 used real native GPU processing, without Vulkan or a helper.
 The current run resets each frame to match route 3's validated path.
 
 | Backend | Execution | Mean GPU time | Mean synchronized call | Completed outputs/s |
 | --- | --- | --- | --- | --- |
-| Phoenix | Normal x64 control (#1) | 4.007 ms | 4.391 ms | 211.95 |
-| Phoenix | x64 library inside x86 (#2) | 4.037 ms | 4.508 ms | 204.78 |
-| NVIDIA | Normal x64 control (#1) | 4.027 ms | 4.455 ms | 224.34 |
-| NVIDIA | x64 library inside x86 (#2) | 4.004 ms | 4.465 ms | 221.70 |
+| Phoenix DLSS5 | Normal x64 control (#1) | 4.007 ms | 4.391 ms | 211.95 |
+| Phoenix DLSS5 | x64 library inside x86 (#2) | 4.037 ms | 4.508 ms | 204.78 |
+| NVIDIA DLSS5 | Normal x64 control (#1) | 4.027 ms | 4.455 ms | 224.34 |
+| NVIDIA DLSS5 | x64 library inside x86 (#2) | 4.004 ms | 4.465 ms | 221.70 |
 
 These are isolated GPU-resident texture calls, **not game FPS or installed-addon
 presentation latency**. The native worker is entered once; per-frame x86 caller
 handoff and capture/presentation integration are not measured. Initialization,
 host image transfers, hashing and image validation are outside the timed loop.
 Output throughput includes timing collection and status parsing, so it is not
-the reciprocal of GPU time. Phoenix GPU timestamps include the model and output
-copy; NVIDIA timestamps surround its evaluation. Compare each backend to its
+the reciprocal of GPU time. Phoenix DLSS5 GPU timestamps include the model and output
+copy; NVIDIA DLSS5 timestamps surround its evaluation. Compare each backend to its
 own x64 control, not as a precisely identical cross-backend timing scope.
 
 All four timed children completed normally, with matching process/inference
@@ -106,8 +106,8 @@ above remains the explicit exact-output check. Do not directly compare these
 isolated output rates with the ReShade fixture's full capture/helper/presentation
 output rate.
 
-The measured synchronized-call difference was +0.117 ms for Phoenix and
-+0.011 ms for NVIDIA in this run. This is one serial measurement, not a repeated
+The measured synchronized-call difference was +0.117 ms for Phoenix DLSS5 and
++0.011 ms for NVIDIA DLSS5 in this run. This is one serial measurement, not a repeated
 statistical determination of WOW64 overhead or a guarantee for arbitrary games.
 
 Reproduce with the native experiment command above, omitting
@@ -121,17 +121,17 @@ add-ons, automatic routing, the helper and game installations remain unchanged.
 
 The remaining blocker was a missing interface, not another reproduced kernel
 crash: the original driver thunk stopped after creating/destroying one module.
-It had no resource/binding/dispatch channel for an x86 Phoenix host. Normal x86
+It had no resource/binding/dispatch channel for an x86 Phoenix DLSS5 host. Normal x86
 NVAPI remains unsupported here, and x86/x64 COM interfaces cannot be exchanged
 as if they shared a vtable layout.
 
-The new disposable host compiles Phoenix's existing bundle authentication,
+The new disposable host compiles Phoenix DLSS5's existing bundle authentication,
 generated graph, native plan preflight, relocation and control patchers into
 the **x86 coordinator**. It sends fixed-width packets to an x64 native thread in
 the same process. GPU addresses and descriptor encodings remain 64-bit opaque
 values. The driver executor owns native COM objects, module/function lifetimes,
-uploads, raw dispatches, barriers, fences and readback. It contains no Phoenix
-graph generator, neural controls, model loader or x64 Phoenix runtime. This is
+uploads, raw dispatches, barriers, fences and readback. It contains no Phoenix DLSS5
+graph generator, neural controls, model loader or x64 Phoenix DLSS5 runtime. This is
 not the full-x64-library route (#2), a helper route (#4), or portable Vulkan.
 
 Verified at 640 x 384, 1:1, on the installed RTX 5080 driver:
@@ -141,13 +141,13 @@ Verified at 640 x 384, 1:1, on the installed RTX 5080 driver:
 - Six frames complete in one session: three default resets, changed input,
   changed strengths on that same input, and restored original input/defaults.
 - All six outputs are byte-identical between the x86 and x64 host controls.
-  Default/restored frames also match the separate normal x64 Phoenix API.
+  Default/restored frames also match the separate normal x64 Phoenix DLSS5 API.
 - Input and strength changes each produce a different output without restarting
   the session; restoring defaults reproduces the original output exactly.
 - GPU outputs are poisoned with half NaNs before each evaluation. Returned
   components must be finite and RGB must differ from the input.
 - The host and driver use the same PID, with `host_bits:32`, `driver_bits:64`,
-  no helper, and no x64 Phoenix renderer loaded. There are 924 real dispatches.
+  no helper, and no x64 Phoenix DLSS5 renderer loaded. There are 924 real dispatches.
 - All 41 functions and 41 modules are destroyed with zero reported cleanup
   failures. Native compatibility metadata is restored and checked.
 
@@ -165,7 +165,7 @@ python tools/probe_wow64_tls.py --wow64ext PATH_TO_WOW64EXT `
   --case thread_driver_host
 ```
 
-The runner adds matching x64-host and normal x64 Phoenix controls automatically.
+The runner adds matching x64-host and normal x64 Phoenix DLSS5 controls automatically.
 The compact receipt is `artifacts/current/wow64-x86-host-investigation.json`;
 `x86_host_conclusions` distinguishes full graph execution, cross-host exact
 output, and comparison with the native API. A crash, helper, x64 renderer,
@@ -186,14 +186,14 @@ warm-up and twenty-second measurement per case:
 
 | Backend | Method | Mean GPU time | Mean call / processing round-trip |
 | --- | --- | --- | --- |
-| Phoenix | #1: native x64 | 4.007 ms | 4.391 ms |
-| Phoenix | #2: whole x64 runtime inside x86 | 4.037 ms | 4.508 ms |
-| Phoenix | #3: x86 host / same-process native driver | 4.009 ms | 4.464 ms |
-| Phoenix | #4: x86 capture / external x64 helper | 4.338 ms | 12.358 ms |
-| NVIDIA | #1: native x64 | 4.027 ms | 4.455 ms |
-| NVIDIA | #2: whole x64 runtime inside x86 | 4.004 ms | 4.465 ms |
-| NVIDIA | #3: x86 model host | Not available | No x86 NVIDIA model host implementation/source |
-| NVIDIA | #4: x86 capture / external x64 helper | 4.472 ms | 13.071 ms |
+| Phoenix DLSS5 | #1: native x64 | 4.007 ms | 4.391 ms |
+| Phoenix DLSS5 | #2: whole x64 runtime inside x86 | 4.037 ms | 4.508 ms |
+| Phoenix DLSS5 | #3: x86 host / same-process native driver | 4.009 ms | 4.464 ms |
+| Phoenix DLSS5 | #4: x86 capture / external x64 helper | 4.338 ms | 12.358 ms |
+| NVIDIA DLSS5 | #1: native x64 | 4.027 ms | 4.455 ms |
+| NVIDIA DLSS5 | #2: whole x64 runtime inside x86 | 4.004 ms | 4.465 ms |
+| NVIDIA DLSS5 | #3: x86 model host | Not available | No x86 NVIDIA DLSS5 model host implementation/source |
+| NVIDIA DLSS5 | #4: x86 capture / external x64 helper | 4.472 ms | 13.071 ms |
 
 These are **not game FPS** or identical end-to-end presentation benchmarks.
 Methods 1/2 measure isolated GPU-resident native API calls; method 2 enters its
@@ -207,14 +207,14 @@ Method 4 runs the actual x86 DX12 fixture with the retained external helper and
 readback transport. Its wall column is sampled processing round-trip, including
 readback/IPC/return, not just a model call. It uses the fixture image rather than
 the synthetic input of methods 1-3. GPU timing scopes also differ slightly:
-Phoenix native timestamps include output copy, while the helper exposes model
+Phoenix DLSS5 native timestamps include output copy, while the helper exposes model
 and route times separately. This supports broad processing/transport comparison,
 not attribution of small differences solely to process architecture.
 
 Route 3's matching x64 packet-host control measured 4.001 ms GPU / 4.348 ms
 synchronized call. The x86 host matched its output exactly and still passed
 input/strength/restoration and full module teardown checks. The ordinary x64
-Phoenix API supplied another independent output control.
+Phoenix DLSS5 API supplied another independent output control.
 
 For route-3 timing, add `--benchmark-x86-host` to the route-3 command above.
 The current receipt is `artifacts/current/wow64-x86-host-benchmark.json`.
@@ -232,7 +232,7 @@ python tools/benchmark_dx12_routes.py --suite PATH_TO_TEST_SUITE `
 `tools/compare_native_methods.py` validates the retained reports and writes
 `artifacts/current/native-method-comparison.json`, including source-report
 SHA-256 values and per-row timing scope. It refuses failed/mismatched profiles
-and marks NVIDIA route 3 unavailable instead of inventing a result. No production
+and marks NVIDIA DLSS5 route 3 unavailable instead of inventing a result. No production
 game integration or deployment was changed for this benchmark.
 
 ## Earlier Results Before The Reservation Fix
@@ -249,21 +249,21 @@ positive control using the same input and model, at 640 x 384 and 1:1 resolution
 | Reserve CPU virtual address above 4 GB | Pass | Pass: 64 GiB address, then released |
 | Direct CUDA initialization | Success | `CUDA_ERROR_OUT_OF_MEMORY` (2) |
 | Legacy NVAPI cubin shader creation/destruction | Pass; creation only, not inference | `NVAPI_ERROR` (-1); no shader |
-| Optimized Phoenix session/model | Frame processed; finite changed RGB | Session creation returns `phoenix NVAPI failure` |
+| Optimized Phoenix DLSS5 session/model | Frame processed; finite changed RGB | Session creation returns `phoenix NVAPI failure` |
 | NVIDIA DLSS5 parameter allocation and Init | Success | Success |
 | NVIDIA DLSS5 feature creation | Success | `0xBAD00002` (`PlatformError`) |
-| NVIDIA evaluation/readback | Three evaluations; finite changed RGB | Not reached |
+| NVIDIA DLSS5 evaluation/readback | Three evaluations; finite changed RGB | Not reached |
 
-NVIDIA output is initialized to half NaNs before evaluation. A successful API
-return without real finite output writes cannot pass. Phoenix host output is
+NVIDIA DLSS5 output is initialized to half NaNs before evaluation. A successful API
+return without real finite output writes cannot pass. Phoenix DLSS5 host output is
 also initialized to half NaNs. Full-model success requires a passing normal
 x64 control, successful process completion, verified GPU transfer and changed
 finite RGB samples; DLL loading or initialization alone never counts.
 
 The disposable x86 executable was also tested with `/LARGEADDRESSAWARE`. This
-gets Phoenix past an earlier `bad allocation`, but does not fix kernel/model
+gets Phoenix DLSS5 past an earlier `bad allocation`, but does not fix kernel/model
 creation. A native GDI `DeleteDC` export bridge routes that operation to the
-same process's x86 coordinator, fixing crashes during native NVAPI/NVIDIA
+same process's x86 coordinator, fixing crashes during native NVAPI/NVIDIA DLSS5
 initialization. It performs the real deletion rather than pretending success.
 All native objects remain on the native worker; no x86 D3D12 COM object is used
 as an x64 interface.
@@ -282,7 +282,7 @@ redirection call from native x64 code. The process-local native identity view
 gets beyond that failure in debugger runs. Real `vkCreateInstance` succeeds, but
 enumeration through the loader returns `VK_ERROR_INITIALIZATION_FAILED` and no
 devices. Calling NVIDIA's x64 ICD directly, with interface version 7 negotiated,
-also returns zero devices. Querying the ICD by the actual NVIDIA DXGI adapter
+also returns zero devices. Querying the ICD by the actual NVIDIA DLSS5 DXGI adapter
 LUIDs does not recover a physical device. This is not a UUID-selection mismatch.
 
 The normal, non-debugged child originally crashed with access violation
@@ -317,7 +317,7 @@ metadata restoration. This supports the crash guard for the observed fault,
 not a broad stability claim, driver compatibility or neural inference success.
 
 The external x64 helper remains unchanged and is still the working x86 route for
-both optimized Phoenix and NVIDIA. Matching-bitness portable x86 Phoenix remains
+both optimized Phoenix DLSS5 and NVIDIA DLSS5. Matching-bitness portable x86 Phoenix DLSS5 remains
 a separate, slower mechanism; neither is evidence that mechanism #2 works.
 
 Reproduce the latest isolated experiment using external SDK/driver paths:
@@ -340,7 +340,7 @@ not that same-process model inference succeeded. CPU-only classification tests:
 python -m unittest discover -s tools -p "test_wow64*.py"
 ```
 
-NVIDIA documents that normal 32-bit CUDA applications are unsupported on
+NVIDIA DLSS5 documents that normal 32-bit CUDA applications are unsupported on
 [RTX 50-series/Blackwell](https://nvidia.custhelp.com/app/answers/detail/a_id/5615).
 That is relevant context, not proof of the cause of this particular x64-in-x86
 experiment's failures.
@@ -420,12 +420,12 @@ Before this experiment, local `codex/pre-wow64-checkpoint` commits captured:
 | --- | --- |
 | Installer/application | `c021ffb` |
 | Test runner/local dashboard source | `d909d34` |
-| Phoenix add-on | `efedd06` |
+| Phoenix DLSS5 add-on | `efedd06` |
 
 Generated runs, logs, payload/model caches and machine-specific cleanup files
 were excluded. The test/dashboard checkpoint is local only and does not change
 the public source-only branch. Nothing was pushed. Experiment files are separate
-on `codex/wow64-native-probe` in the Phoenix checkout.
+on `codex/wow64-native-probe` in the Phoenix DLSS5 checkout.
 
 ## Method
 
@@ -496,7 +496,7 @@ experiment would need correct native static-TLS allocation/template/index setup
 and thread lifecycle handling, then validation of native USER/GDI and graphics
 dependencies. Copying an x86 TEB/TLS pointer, supplying a dummy zero-filled TLS
 block, skipping DllMain, or suppressing the exception would not establish correct
-initialization. No such workaround is integrated into Phoenix.
+initialization. No such workaround is integrated into Phoenix DLSS5.
 
 These results do not prove every Windows-internal workaround impossible. They
 also do not demonstrate a cross-bitness GPU device/module or neural inference.
@@ -525,13 +525,13 @@ is used. This is still an unsupported private API, not a deployable contract.
 | x86 caller executes x64 TLS fixture | Template and zero-fill checks pass after native TLS initialization |
 | Dedicated x64 thread inside x86 process | Same TLS checks pass |
 | x64 DXGI library load in x86 process | Pass; former GDI TLS crash avoided |
-| Real x64 Phoenix library load and default controls | Pass; all tested default control fields match |
-| Phoenix null-session error on borrowed x86 stack | Unhandled `0xE06D7363` C++ exception; debugger flags include invalid stack |
-| Same Phoenix error on dedicated native x64 thread | Pass; returns `-1` and `Null native session`, matching normal x64 control |
-| Normal x64 graphics/kernel-module control | Pass; NVIDIA device, queue and verified kernel module created; module destroyed |
+| Real x64 Phoenix DLSS5 library load and default controls | Pass; all tested default control fields match |
+| Phoenix DLSS5 null-session error on borrowed x86 stack | Unhandled `0xE06D7363` C++ exception; debugger flags include invalid stack |
+| Same Phoenix DLSS5 error on dedicated native x64 thread | Pass; returns `-1` and `Null native session`, matching normal x64 control |
+| Normal x64 graphics/kernel-module control | Pass; NVIDIA DLSS5 device, queue and verified kernel module created; module destroyed |
 | Graphics worker on borrowed x86 stack | Unhandled C++ exception before completion |
 | Graphics worker on dedicated native x64 thread | Factory and NVIDIA adapter enumeration succeed; D3D12 device creation returns `0x887A0004` (`DXGI_ERROR_UNSUPPORTED`) |
-| Cross-mode kernel dispatch or Phoenix frame inference | Not reached; no success claimed |
+| Cross-mode kernel dispatch or Phoenix DLSS5 frame inference | Not reached; no success claimed |
 
 The native-thread test runs in the **same x86 process**, not a helper. The
 returned stack address falls within that native thread's TEB stack bounds. This
@@ -543,11 +543,11 @@ The graphics trace shows D3D12Core reaching UMD loading and loading NVIDIA's
 the adjacent `nvldumdx.dll` is x64 (`0x8664`). An entry-point-not-found exception
 (`0xC0000139`) appears before device creation returns unsupported. This is a
 concrete architecture mismatch in the tested loader path, not a failed neural
-kernel or evidence that a Phoenix output frame was produced. Why that path was
+kernel or evidence that a Phoenix DLSS5 output frame was produced. Why that path was
 chosen, and whether a safe process-local alternative exists, remain open.
 No driver files, graphics registry entries, or system DLLs were modified.
 
-**Verdict:** actual x64 Phoenix code and its tested error path can run inside
+**Verdict:** actual x64 Phoenix DLSS5 code and its tested error path can run inside
 this x86 probe, but mechanism #2 is **not a working GPU inference route**. Do not
 expose it as a selectable working add-on mode or remove the existing helper.
 Any further research must solve correct native UMD/device creation, then kernel
@@ -619,7 +619,7 @@ queried, not assumed. An absent x86 extension must not be force-enabled.
 - Game capture/output integration, synchronization, device reset, memory pressure
   inside a 32-bit game's address space remain untested. Standalone whole-model
   evidence is recorded separately in the alternate runtime document.
-- The Vulkan arithmetic probe provides no Phoenix frame-time or quality result.
+- The Vulkan arithmetic probe provides no Phoenix DLSS5 frame-time or quality result.
   The portable shader path is not established as a performance replacement for
   the optimized native-kernel helper.
 
@@ -628,9 +628,9 @@ queried, not assumed. An absent x86 extension must not be force-enabled.
 | Option | Evidence | Recommendation |
 | --- | --- | --- |
 | Existing x86 capture + x64 helper | Current working route; prior background-delivery results are separate | Keep as the default and fallback |
-| Native x86 Vulkan/SPIR-V Phoenix | Arithmetic probe verified; subsequent standalone model port tracked separately | Optional in-process route; do not replace helper routing |
+| Native x86 Vulkan/SPIR-V Phoenix DLSS5 | Arithmetic probe verified; subsequent standalone model port tracked separately | Optional in-process route; do not replace helper routing |
 | x86 Vulkan + existing CUDA kernels | Extension absent on the tested x86 driver | Do not enable; revisit only if capability changes |
-| WOW64 native x64 graphics | Corrected UMD selection and GDI cleanup permit real GPU copies; Phoenix/NVIDIA model creation still fails | Research only, not a game deployment fix |
+| WOW64 native x64 graphics | Corrected UMD selection and GDI cleanup permit real GPU copies; Phoenix DLSS5/NVIDIA DLSS5 model creation still fails | Research only, not a game deployment fix |
 
 For an x86 Vulkan port, use this acceptance order:
 
@@ -670,7 +670,7 @@ contains only those cases and is not evidence that omitted cases passed.
 
 WOW64Ext is LGPL-3.0-or-later. Its source remains in the external checkout and its
 DLL is dynamically loaded only by this temporary probe. No WOW64Ext source or
-binary was added to the Phoenix runtime or shipped package. Any future product
+binary was added to the Phoenix DLSS5 runtime or shipped package. Any future product
 integration needs a separate license review.
 
 References:

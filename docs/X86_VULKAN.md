@@ -1,7 +1,7 @@
 # Experimental Native x86 Vulkan Runtime
 
 The existing x64 helper remains the default and fallback. This is an additional
-Phoenix execution route, not a replacement for that helper or an attempt to load
+Phoenix DLSS5 execution route, not a replacement for that helper or an attempt to load
 NVIDIA's x64 DLL inside an x86 game.
 
 ## Scope
@@ -14,7 +14,7 @@ capture/presentation inside a game. The installer and helper package are unchang
 The implementation uses the normal 32-bit system Vulkan loader and driver.
 On the tested RTX 5080, that driver supports the required portable compute path
 but does not advertise the CUDA-kernel launch extension to x86. The portable
-SPIR-V operators are used; no hidden CUDA execution or NVIDIA model-DLL code is
+SPIR-V operators are used; no hidden CUDA execution or NVIDIA DLSS5 model-DLL code is
 substituted for them. Model weights are read from the user's configured external
 source as with the existing portable runtime.
 
@@ -41,7 +41,7 @@ and [glslang](https://github.com/KhronosGroup/glslang) 16.6.0 or newer with its
 optimizer. The dependency directory contains `headers/include` and
 `glslang/bin/glslang.exe`.
 
-From the Phoenix source root:
+From the Phoenix DLSS5 source root:
 
 ```powershell
 # CPU-only address, layout, overflow and scratch contracts, both architectures.
@@ -65,7 +65,7 @@ hashes proving where the difference arose. Any neural/preparation/history
 divergence, larger output error, or unexplained display divergence fails the gate.
 The receipt explicitly distinguishes these outcomes; host rounding is not called
 byte-exact output. This is comparison with the portable x64 graph, not a claim of
-native NVIDIA DLL parity or artistic quality.
+native NVIDIA DLSS5 DLL parity or artistic quality.
 
 An opt-in `validation_stage_hashes` runtime setting exposes these stage digests
 in status. It is off by default and has no per-buffer hashing cost during normal
@@ -102,7 +102,7 @@ evidence, and no comparative frame-rate claim follows from these tests.
 
 The candidate contains the portable runtime, Vulkan backend/provider, CPU
 reference backend, `phoenix_frame.exe`, SPIR-V files and license notices. It does
-not contain model/NVIDIA DLLs, captures, logs or private configuration. Temporary
+not contain model/NVIDIA DLSS5 DLLs, captures, logs or private configuration. Temporary
 builds, x64 controls and raw comparison outputs are removed on completion/failure.
 An older successful candidate is not replaced by a failing validation run.
 

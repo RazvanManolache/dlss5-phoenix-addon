@@ -13,7 +13,7 @@ namespace phoenix_model_tools {
 using Json = nlohmann::json;
 inline std::string selected_dll_digest(const std::filesystem::path& path) {
     if (path.empty() || !path.is_absolute())
-        throw std::runtime_error("Choose an absolute NVIDIA DLL path");
+        throw std::runtime_error("Choose an absolute NVIDIA DLSS5 DLL path");
     // Poll only file metadata during drawing. Hash once per actual selection
     // or file change; the loader independently hashes the file again on use.
     struct Cache {
@@ -37,7 +37,7 @@ inline std::string selected_dll_digest(const std::filesystem::path& path) {
         "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e";
     if (cache.digest != reference && !phoenix_model::equivalent_model_dll(cache.digest, reference))
         throw std::runtime_error(
-            "Unsupported NVIDIA DLL edition; choose a supported DLL or compatible model folder");
+            "Unsupported NVIDIA DLSS5 DLL edition; choose a supported DLL or compatible model folder");
     return cache.digest;
 }
 inline phoenix_model::WeightSource selection(const std::string& kind, const std::string& folder,
@@ -139,10 +139,10 @@ class Task {
             dialog->GetOptions(&options);
             dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR |
                                (folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST));
-            dialog->SetTitle(folder ? L"Choose DLSS5 Phoenix model folder"
-                                    : L"Choose NVIDIA model DLL");
+            dialog->SetTitle(folder ? L"Choose Phoenix DLSS5 model folder"
+                                    : L"Choose NVIDIA DLSS5 model DLL");
             if (!folder) {
-                COMDLG_FILTERSPEC filters[]{{L"NVIDIA DLL", L"*.dll"}};
+                COMDLG_FILTERSPEC filters[]{{L"NVIDIA DLSS5 DLL", L"*.dll"}};
                 dialog->SetFileTypes(1, filters);
             }
             if (!initial.empty()) {
@@ -182,7 +182,7 @@ class Task {
         const auto key = source.configuration().dump();
         start(key, [source, runtime, embedded_addon](Result& result) {
             if (!source.external())
-                throw std::runtime_error("Select a model folder or NVIDIA DLL first");
+                throw std::runtime_error("Select a model folder or NVIDIA DLSS5 DLL first");
             size_t records = 0;
             phoenix_model::with_model_resource(
                 source, [](const std::filesystem::path& path) {

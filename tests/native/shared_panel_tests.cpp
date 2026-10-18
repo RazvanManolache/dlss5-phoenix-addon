@@ -127,9 +127,9 @@ int run_tests() {
                 ImGui::SetNextWindowSize({1600, 6000});
                 ImGui::Begin("Shared addon UI");
                 for (const char *section :
-                     {"History policy", "DLSS5 Phoenix experiments",
+                     {"History policy", "Phoenix DLSS5 experiments",
                       "Transformer block repetitions", "Hotkeys", "Settings / logging",
-                      "DLSS5 Phoenix model", "GPU stage breakdown"})
+                      "Phoenix DLSS5 model", "GPU stage breakdown"})
                     ImGui::GetStateStorage()->SetInt(ImGui::GetID(section), 1);
                 phoenix_ui::draw_controls(context);
                 phoenix_ui::draw_timing(context);
@@ -367,7 +367,7 @@ int run_tests() {
             toggle_master();
             expect_selection(select(backend, "Comparison"), "Comparison must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::split,
-                           "Phoenix -> Comparison selection failed");
+                           "Phoenix DLSS5 -> Comparison selection failed");
             require_widget(settings.comparison == 1,
                            "Entering Comparison must normalize a legacy three-way view");
             require_widget(!(frontend_master ? enabled : settings.uplift),
@@ -385,10 +385,10 @@ int run_tests() {
                 expect_selection(click("Swap A / B"), "Swap must report live selection");
                 require_widget(settings.source_a == 0 && settings.source_b == 1,
                                "Swap did not exchange comparison sources");
-                expect_selection(select("Source B", "DLSS5 Phoenix"),
-                                 "Phoenix source must report live selection");
+                expect_selection(select("Source B", "Phoenix DLSS5"),
+                                 "Phoenix DLSS5 source must report live selection");
                 require_widget(settings.source_a == 0 && settings.source_b == 2,
-                               "Input/Phoenix pair was not restored");
+                               "Input/Phoenix DLSS5 pair was not restored");
                 source_selections += 4;
                 const float divider_before = settings.divider;
                 const auto divider = widget_rect("Split position");
@@ -418,22 +418,22 @@ int run_tests() {
                                "Pair wipe did not restore conditional controls");
                 pending_unchanged();
             }
-            expect_selection(select(backend, "NVIDIA DLL"), "NVIDIA Backend must report live selection");
+            expect_selection(select(backend, "NVIDIA DLSS5 DLL"), "NVIDIA DLSS5 Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::nvidia,
-                           "Comparison -> NVIDIA selection failed");
+                           "Comparison -> NVIDIA DLSS5 selection failed");
             ++backend_selections;
             pending_unchanged();
             expect_selection(select(backend, "Input"), "Input Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::input,
-                           "NVIDIA -> Input selection failed");
+                           "NVIDIA DLSS5 -> Input selection failed");
             ++backend_selections;
             require_widget(count_widget("Enable neural rendering") == 1,
                            "Input mode hid the master checkbox");
             toggle_master();
             toggle_master();
-            expect_selection(select(backend, "DLSS5 Phoenix"), "Phoenix Backend must report live selection");
+            expect_selection(select(backend, "Phoenix DLSS5"), "Phoenix DLSS5 Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::ours,
-                           "Input -> Phoenix selection failed");
+                           "Input -> Phoenix DLSS5 selection failed");
             ++backend_selections;
             pending_unchanged();
             if (!compact) {
@@ -533,13 +533,13 @@ int run_tests() {
                 require_widget(widget_disabled("Resolution mode"), "Portable mode exposed unsupported super resolution");
                 // Expand the real quality controls, preserving the production UI path.
                 if (!count_widget("Adaptive blocks")) {
-                    click("DLSS5 Phoenix experiments");
+                    click("Phoenix DLSS5 experiments");
                     frame();
                 }
                 require_widget(widget_disabled("Adaptive blocks"), "Portable mode exposed unsupported adaptive blocks");
-                require_widget(count_widget("NVIDIA-only overrides") == 0,
-                               "Portable Phoenix showed NVIDIA-only controls");
-                require_widget(count_widget("DLSS5 Phoenix processing device") == 0,
+                require_widget(count_widget("NVIDIA DLSS5-only overrides") == 0,
+                               "Portable Phoenix DLSS5 showed NVIDIA DLSS5-only controls");
+                require_widget(count_widget("Phoenix DLSS5 processing device") == 0,
                                "Portable mode duplicated the selected-device control");
                 interaction.portable_backbuffer = false;
                 interaction.input_capture = true;
