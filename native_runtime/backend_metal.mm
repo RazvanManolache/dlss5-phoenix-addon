@@ -193,5 +193,5 @@ extern "C" PHOENIX_EXPORT Backend *phoenix_backend_create(const char *selected, 
 }
 extern "C" PHOENIX_EXPORT void phoenix_backend_destroy(Backend *backend) { delete backend; }
 extern "C" PHOENIX_EXPORT uint32_t phoenix_backend_features(Backend *) {
-    return DeviceFeaturePacking | FusedMatrixResidual;
+    return DeviceFeaturePacking | FusedMatrixResidual | DeviceControlMaps;
 }

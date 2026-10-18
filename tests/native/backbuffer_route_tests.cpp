@@ -8,11 +8,26 @@ int main() {
     using F = reshade::api::format;
     unsigned checks = 0;
     auto verify = [&](bool value) { ++checks; if (!value) throw std::runtime_error("Backbuffer route contract failed"); };
+    using C=reshade::api::color_space;
+    for(auto format:{F::r8g8b8a8_unorm,F::b8g8r8a8_unorm,F::b8g8r8x8_unorm})
+        verify(sdr_backbuffer(C::unknown,format));
+    for(auto format:{F::r16g16b16a16_float,F::r10g10b10a2_unorm,F::unknown})
+        verify(!sdr_backbuffer(C::unknown,format));
+    for(auto space:{C::scrgb,C::hdr10_pq,C::hdr10_hlg})
+        verify(!sdr_backbuffer(space,F::r8g8b8a8_unorm));
     const auto automatic = ExecutionPreference::Automatic;
     BackbufferCapabilities base;
     base.bits = 64; base.width = 2560; base.height = 1080;
     base.local_api = true; base.format = F::r8g8b8a8_unorm;
     base.x86_native_validated = true;
+    for(auto api:{A::d3d9,A::d3d10,A::opengl}) {
+        auto legacy=base;legacy.api=api;legacy.bits=32;legacy.format=F::b8g8r8x8_unorm;
+        legacy.sdr=sdr_backbuffer(C::unknown,legacy.format);
+        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeLibrary).route==BackbufferRoute::NativeLibrary);
+        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==BackbufferRoute::NativeDriver);
+        legacy.sdr=sdr_backbuffer(C::hdr10_pq,legacy.format);
+        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==BackbufferRoute::Unsupported);
+    }
     verify(execution_preference("auto") == automatic);
     verify(execution_preference("bogus") == ExecutionPreference::Invalid);
     for (auto format : {F::r8g8b8a8_unorm, F::r8g8b8a8_unorm_srgb, F::r8g8b8a8_typeless,

@@ -56,6 +56,7 @@ struct Context {
     bool* processing_enabled = nullptr;
     bool processing_changed = false, live_selection_changed = false, live_tuning_changed = false;
     std::string nvidia_status;
+    Json appearance = Json::object();
     // GPU timings belong to the queue that measured them, which may be the
     // hidden companion rather than the game's rendering queue.
     std::string timing_provenance = "Game rendering GPU";
@@ -138,8 +139,19 @@ inline bool draw_controls(Context &addon_state) {
                   changed;
         if (addon_state.panel.resolution_mode) {
             const char *upscalers[]{"Spatial", "NVIDIA DLSS Super Resolution", "Intel XeSS"};
-            changed =
-                ImGui::Combo("Upscaler", &addon_state.panel.upscaler, upscalers, 3) || changed;
+            if (ImGui::BeginCombo("Upscaler", upscalers[addon_state.panel.upscaler])) {
+                for (int choice=0; choice<3; ++choice) {
+                    ImGui::BeginDisabled(choice != 0 && !addon_state.real_guides);
+                    if (ImGui::Selectable(upscalers[choice], addon_state.panel.upscaler == choice)) {
+                        addon_state.panel.upscaler=choice;
+                        changed=true;
+                    }
+                    ImGui::EndDisabled();
+                }
+                ImGui::EndCombo();
+            }
+            if (!addon_state.real_guides)
+                ImGui::TextWrapped("Only spatial upscaling is available on this color-only capture route. Temporal upscalers need engine depth and motion guides.");
             if (addon_state.panel.upscaler) {
                 ImGui::TextWrapped(
                     "Temporal upscaling runs on the rendering GPU and requires observed depth and "
@@ -513,6 +525,24 @@ inline bool draw_controls(Context &addon_state) {
         ImGui::EndDisabled();
         if (!addon_state.real_guides)
             ImGui::TextDisabled("Engine motion and depth are unavailable for final-color capture.");
+        if(phoenix::uses_ours(addon_state.panel.mode)&&!addon_state.portable_backbuffer) {
+            changed|=ImGui::Checkbox("Phoenix appearance (experimental)",&addon_state.live.appearance);
+            ImGui::BeginDisabled(!addon_state.live.appearance);
+            changed|=ImGui::SliderFloat("Phoenix intensity",&addon_state.live.intensity,0.f,2.f,"%.2f",ImGuiSliderFlags_AlwaysClamp);
+            const char* styles[]={"Default","Natural","Cinematic"};
+            changed|=ImGui::Combo("Phoenix style",&addon_state.live.style,styles,3);
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Surface selection requires an engine control map.");
+        }
+        if(addon_state.appearance.value("source",std::string("none"))!="none") {
+            ImGui::Text("Developer controls: %s",addon_state.appearance.value("source",std::string()).c_str());
+            ImGui::TextDisabled("Map %s | UI %s | distortion %s | revision %u",
+                addon_state.appearance.value("control_map",false)?"connected":"none",
+                addon_state.appearance.value("ui",false)?"connected":"none",
+                addon_state.appearance.value("distortion",false)?"connected":"none",
+                addon_state.appearance.value("generation",0u));
+            ImGui::TextDisabled("Experimental. Per-object strengths come from the engine's map.");
+        }
         if (visible.native() && !addon_state.portable_backbuffer) {
             if (ImGui::Button("Defaults##native")) {
                 phoenix::reset_native_section(addon_state.panel);

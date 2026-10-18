@@ -815,13 +815,20 @@ template <class Math> struct Kernel {
         }
         float structure = Math::value(operation.output_batch_stride),
               skin = Math::value(operation.left_row_stride);
-        bool auto_mask = operation.flags != 0;
+        bool auto_mask = (operation.flags & 1u) != 0;
         output[3] = uint16_t(half_bits(1));
         output[10] = uint16_t(half_bits(float(operation.left_batch_stride) / 128.f));
         output[11] = uint16_t(half_bits(Math::value(operation.right_batch_stride)));
         output[12] = uint16_t(half_bits(auto_mask ? 1.f : structure));
         output[13] = uint16_t(half_bits(auto_mask ? (skin < 0 ? structure : skin) : -1.f));
         output[14] = uint16_t(half_bits(auto_mask ? structure : -1.f));
+        if (operation.flags & 2u) {
+            const u64 mask = (u64(operation.row_count) * operation.column_count + 3) / 4 + source * 4;
+            output[11] = uint16_t(half_bits(Math::value(operation.right_batch_stride) *
+                load_float(operation.secondary_output, mask + 1)));
+            output[12] = uint16_t(half_bits(structure * load_float(operation.secondary_output, mask + 2)));
+            output[13] = output[14] = 0;
+        }
         output[15] = 0;
     }
     PHX_DEVICE void operator()(u64 iteration_index) const {

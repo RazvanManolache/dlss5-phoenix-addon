@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <d3d12.h>
+#include "phoenix.h"
 #ifdef PHOENIX_NATIVE_BUILD
 #define PHOENIX_NATIVE_API __declspec(dllexport)
 #else
@@ -46,12 +47,35 @@ PHOENIX_NATIVE_API int phoenix_native_frame_host(PhoenixNativeSession* session, 
                                                  size_t motion_stride, void* output,
                                                  size_t output_bytes, size_t output_stride,
                                                  const PhoenixNativeControls* controls);
+typedef struct PhoenixNativeTextureV2 {
+    ID3D12Resource* resource;
+    D3D12_RESOURCE_STATES state;
+    uint32_t reserved;
+} PhoenixNativeTextureV2;
+typedef struct PhoenixNativeFrameV2 {
+    uint32_t struct_bytes, version;
+    PhoenixNativeControls controls;
+    float intensity;
+    uint32_t style;
+    PhoenixNativeTextureV2 color, motion, output, control_mask, ui, ui_alpha, backbuffer, distortion;
+} PhoenixNativeFrameV2;
+// Experimental full-extent SDR proxy path; source, inference and output extents
+// must agree. Mask/distortion/UI=RGBA32F, UIAlpha=R32F, backbuffer=RGBA16F.
+// UI is premultiplied. UI and UIAlpha are alternatives. All states restored.
+PHOENIX_NATIVE_API int phoenix_native_frame_d3d12_v2(PhoenixNativeSession*, const PhoenixNativeFrameV2*);
+// Float32 bounded host alternative, sharing the portable V3 plane contract.
+// Native network uses its own temporal/noise implementation. One network pass.
+// Depth/validity planes are currently refused by this standalone native adapter.
+PHOENIX_NATIVE_API int phoenix_native_frame_host_v2(PhoenixNativeSession*, const phoenix_frame_v3*);
 // Returns AddRef'd interfaces; caller releases them. Either output may be NULL.
 PHOENIX_NATIVE_API int phoenix_native_device(PhoenixNativeSession* session, ID3D12Device** device,
                                              ID3D12CommandQueue** queue);
 // Wait/drain before destruction. On failure returns -1 and RETAINS the session;
 // retry destruction after resolving the device/queue failure. Never free it yourself.
 PHOENIX_NATIVE_API int phoenix_native_destroy(PhoenixNativeSession* session);
+// Creates the replacement before retiring the old session. Reuses its device
+// and queue, resets temporal state, and leaves *session unchanged on failure.
+PHOENIX_NATIVE_API int phoenix_native_reconfigure(PhoenixNativeSession** session, const char* config_json);
 // JSON reports actual native/spatial path, GPU processing (excludes transfers),
 // complete call time and owned allocation ledger. Size includes terminating NUL.
 PHOENIX_NATIVE_API size_t phoenix_native_status(PhoenixNativeSession* session, char* destination,

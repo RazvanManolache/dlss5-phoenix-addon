@@ -1,9 +1,14 @@
 #define PHOENIX_NATIVE_BUILD
 #include "phoenix_native.h"
+#include "../src/native/session/session.h"
 #include "../src/native/support/resolution_bridge.h"
 #include "../src/native/support/dispatch.h"
+#include "../src/native/support/appearance_gpu.h"
+#include "frame.h"
+#include "advanced_frame.h"
 #include <chrono>
 #include <thread>
+#include <d3d12sdklayers.h>
 
 using Microsoft::WRL::ComPtr;
 using Json = phoenix_bundle::Json;
@@ -90,6 +95,14 @@ struct PhoenixNativeSession {
     std::shared_ptr<phoenix_native::memory::Generation> accounting;
     ComPtr<ID3D12Resource> input_color, input_motion;
     Plane host_color, host_motion, host_output;
+    Plane host_mask, host_ui, host_alpha, host_backbuffer, host_distortion;
+    ComPtr<ID3D12Resource> input_mask, original_color, original_motion, previous_field, display_delta, display_output, unwarped;
+    std::unique_ptr<spatial::Pass> grade, compose, warp_color, warp_motion, warp_mask, warp_output;
+    std::vector<ComPtr<ID3D12Resource>> retained_optional;
+    bool had_mask=false, had_distortion=false;
+    bool last_advanced=false,last_ui=false;
+    unsigned last_style=0;float last_intensity=1;
+    std::string packed_weights_sha256;
     std::unique_ptr<phoenix_addon::FrameDispatch> dispatch;
     std::unique_ptr<phoenix_native::Network> network;
     std::unique_ptr<spatial::ResolutionBridge> resize;
@@ -118,6 +131,11 @@ struct PhoenixNativeSession {
             device = supplied_device;
             queue = supplied_queue;
         } else {
+            if (config.value("debug", false)) {
+                ComPtr<ID3D12Debug> debug;
+                hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
+                debug->EnableDebugLayer();
+            }
             ComPtr<IDXGIFactory6> factory;
             hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
             ComPtr<IDXGIAdapter1> adapter;
@@ -169,6 +187,7 @@ struct PhoenixNativeSession {
                 folder, file_digest,
                 phoenix_model::WeightSource::config(config.at("weight_source")));
             auto weights = bundle.load_weights();
+            packed_weights_sha256=phoenix_model::weight_digest(weights.data(),weights.size());
             auto kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(bundle));
             const auto& plan =
                 bundle.select_frame(neural_width, neural_height, [&](const Json& frame) {
@@ -231,7 +250,28 @@ struct PhoenixNativeSession {
         retained_output.Reset();
     }
     void submit() {
-        hr(command->Close());
+        const HRESULT closed = command->Close();
+        if (FAILED(closed)) {
+            std::string messages;
+            ComPtr<ID3D12InfoQueue> info;
+            if (SUCCEEDED(device.As(&info))) {
+                const auto count = info->GetNumStoredMessages();
+                for (UINT64 i = count > 16 ? count - 16 : 0; i < count; ++i) {
+                    SIZE_T bytes = 0;
+                    if (FAILED(info->GetMessage(i, nullptr, &bytes))) continue;
+                    std::vector<uint8_t> storage(bytes);
+                    auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+                    if (SUCCEEDED(info->GetMessage(i, message, &bytes))) {
+                        messages += "\nD3D12 message " + std::to_string(message->ID) + ": ";
+                        messages.append(message->pDescription,
+                            message->DescriptionByteLength && message->pDescription[message->DescriptionByteLength-1]=='\0'
+                                ? message->DescriptionByteLength-1 : message->DescriptionByteLength);
+                    }
+                }
+            }
+            try { hr(closed); }
+            catch (const std::exception& error) { throw std::runtime_error(std::string(error.what()) + messages); }
+        }
         ID3D12CommandList* lists[]{command.Get()};
         in_flight = true; // Retain all referenced objects even if Signal fails.
         queue->ExecuteCommandLists(1, lists);
@@ -262,7 +302,8 @@ struct PhoenixNativeSession {
     }
     void frame(ID3D12Resource* color, D3D12_RESOURCE_STATES color_state, ID3D12Resource* motion,
                D3D12_RESOURCE_STATES motion_state, ID3D12Resource* output,
-               D3D12_RESOURCE_STATES output_state, const PhoenixNativeControls* options) {
+               D3D12_RESOURCE_STATES output_state, const PhoenixNativeControls* options,
+               const PhoenixNativeFrameV2* extended=nullptr) {
         check_thread();
         require(!poisoned, "Native session failed; destroy and recreate it");
         validate(color, DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -276,8 +317,45 @@ struct PhoenixNativeSession {
             options = &defaults;
         require(options->struct_bytes == sizeof(*options),
                 "Native control structure version mismatch");
+        const bool mapped=extended && extended->control_mask.resource,
+                   distorted=extended && extended->distortion.resource;
+        if (extended) {
+            require(!resize && !spatial_only, "Advanced native frame requires equal source/network/output extents");
+            require(std::isfinite(extended->intensity)&&extended->intensity>=0&&extended->intensity<=2&&extended->style<=2,
+                    "Invalid native appearance controls");
+            require(!(extended->ui.resource&&extended->ui_alpha.resource), "Supply UI or UIAlpha, not both");
+            const PhoenixNativeTextureV2* optional[]={&extended->control_mask,&extended->ui,&extended->ui_alpha,&extended->backbuffer,&extended->distortion};
+            const DXGI_FORMAT formats[]={DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32_FLOAT,DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT};
+            for(unsigned i=0;i<5;++i) {
+                require(!optional[i]->reserved,"Reserved native texture fields");
+                if(optional[i]->resource) {
+                    validate(optional[i]->resource,formats[i]);
+                    require(optional[i]->resource!=output&&optional[i]->resource!=color&&optional[i]->resource!=motion,"Optional texture aliases frame buffers");
+                    for(unsigned j=0;j<i;++j)require(optional[i]->resource!=optional[j]->resource,"Optional textures alias");
+                }
+            }
+            if(mapped&&!input_mask) {
+                input_mask=image(width,height,DXGI_FORMAT_R32G32B32A32_FLOAT);
+                network->bind_control_mask(input_mask.Get());
+            }
+            if(!grade) {
+                grade=std::make_unique<spatial::Pass>(device.Get(),spatial::appearance_delta_shader,accounting);
+                compose=std::make_unique<spatial::Pass>(device.Get(),spatial::appearance_compose_shader,accounting);
+                warp_color=std::make_unique<spatial::Pass>(device.Get(),spatial::appearance_warp_shader,accounting);
+                warp_motion=std::make_unique<spatial::Pass>(*warp_color,accounting);
+                warp_mask=std::make_unique<spatial::Pass>(*warp_color,accounting);
+                warp_output=std::make_unique<spatial::Pass>(*warp_color,accounting);
+                original_color=image(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
+                original_motion=image(width,height,DXGI_FORMAT_R16G16_FLOAT);
+                previous_field=image(width,height,DXGI_FORMAT_R32G32B32A32_FLOAT);
+                display_delta=image(width,height,DXGI_FORMAT_R32G32B32A32_FLOAT);
+                display_output=image(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
+                unwarped=image(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT);
+            }
+        }
         phoenix_addon::Controls controls;
         controls.reset = options->reset != 0;
+        if(had_mask!=mapped || had_distortion!=distorted) controls.reset=1;
         controls.motion_x = options->motion_scale_x;
         controls.motion_y = options->motion_scale_y;
         controls.tone = options->local_tone;
@@ -289,6 +367,10 @@ struct PhoenixNativeSession {
         auto resolved = phoenix_addon::resolve_controls(
             controls, neural_width, neural_height, motion != nullptr, history,
             controls.reset || !network ? 0 : network->next_sampling_index());
+        if(extended) {
+            resolved.control_mask_handle=mapped?network->control_mask_handle:0;
+            resolved.style=float(extended->style)/128.f;
+        }
         const auto started = std::chrono::steady_clock::now();
         retained_color = color;
         retained_motion = motion;
@@ -297,9 +379,39 @@ struct PhoenixNativeSession {
             begin();
             if (resize)
                 resize->begin_frame(submitted, submitted + 1);
-            copy_input(color, color_state, input_color.Get(), false);
+            const auto shader_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            auto record_warp=[&](spatial::Pass& pass,ID3D12Resource* source,ID3D12Resource* field,
+                                ID3D12Resource* prior,ID3D12Resource* destination,unsigned mode) {
+                spatial::Constants c{};c.width=width;c.height=height;c.mode=mode;
+                c.divider=options->motion_scale_x;c.gain=options->motion_scale_y;
+                phoenix_native::transition(command.Get(),destination,shader_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                pass.record(command.Get(),{source,field,prior},destination,c);
+                phoenix_native::transition(command.Get(),destination,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,shader_state);
+            };
+            if(extended) {
+                const PhoenixNativeTextureV2* optional[]={&extended->control_mask,&extended->ui,&extended->ui_alpha,&extended->backbuffer,&extended->distortion};
+                retained_optional.clear();
+                for(auto* plane:optional)if(plane->resource) {
+                    retained_optional.emplace_back(plane->resource);
+                    phoenix_native::transition(command.Get(),plane->resource,plane->state,shader_state);
+                }
+            }
+            copy_input(color, color_state, extended?original_color.Get():input_color.Get(), false);
+            if(distorted) record_warp(*warp_color,original_color.Get(),extended->distortion.resource,nullptr,input_color.Get(),0);
+            else if(extended) copy_input(original_color.Get(),shader_state,input_color.Get(),false);
             if (motion)
                 copy_input(motion, motion_state, input_motion.Get(), true);
+            if(distorted&&motion) {
+                // A separate source prevents read/write aliasing during reprojection.
+                copy_input(motion,motion_state,original_motion.Get(),true);
+                record_warp(*warp_motion,original_motion.Get(),extended->distortion.resource,
+                    had_distortion&&!controls.reset?previous_field.Get():extended->distortion.resource,input_motion.Get(),2);
+                resolved.motion_x=1.f/width;resolved.motion_y=1.f/height;
+            }
+            if(mapped) {
+                if(distorted) record_warp(*warp_mask,extended->control_mask.resource,extended->distortion.resource,nullptr,input_mask.Get(),0);
+                else copy_input(extended->control_mask.resource,shader_state,input_mask.Get(),false);
+            }
             command->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
             ID3D12Resource* result = input_color.Get();
             if (network) {
@@ -307,6 +419,34 @@ struct PhoenixNativeSession {
                 phoenix_addon::FrameDispatch::Scope scope(*dispatch, command.Get(), resolved);
                 result = network->record(command.Get(), !resolved.recurrent, 0, queue.Get());
                 scope.finish();
+            }
+            if(extended) {
+                if(distorted) {record_warp(*warp_output,result,extended->distortion.resource,nullptr,unwarped.Get(),1);result=unwarped.Get();}
+                const bool post=extended->intensity<1||mapped||extended->ui.resource||extended->ui_alpha.resource||extended->backbuffer.resource||
+                    (extended->style&&extended->controls.local_tone>0);
+                if(post) {
+                    spatial::Constants c{};c.width=width;c.height=height;c.reset=extended->style;
+                    c.mode=mapped?1u:0u;std::memcpy(&c.source_a,&controls.tone,sizeof(float));c.divider=extended->intensity;
+                    phoenix_native::transition(command.Get(),display_delta.Get(),shader_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    grade->record(command.Get(),{original_color.Get(),result,extended->control_mask.resource},display_delta.Get(),c);
+                    phoenix_native::transition(command.Get(),display_delta.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,shader_state);
+                    auto* ui=extended->ui.resource?extended->ui.resource:extended->ui_alpha.resource;
+                    c.mode=(ui?1u:0u)|(extended->ui_alpha.resource?2u:0u)|
+                        (extended->ui.resource&&!extended->backbuffer.resource?4u:0u);
+                    phoenix_native::transition(command.Get(),display_output.Get(),shader_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    compose->record(command.Get(),{display_delta.Get(),extended->backbuffer.resource?extended->backbuffer.resource:original_color.Get(),ui},display_output.Get(),c);
+                    phoenix_native::transition(command.Get(),display_output.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,shader_state);
+                    result=display_output.Get();
+                }
+                if(distorted) {
+                    phoenix_native::transition(command.Get(),extended->distortion.resource,shader_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    phoenix_native::transition(command.Get(),previous_field.Get(),shader_state,D3D12_RESOURCE_STATE_COPY_DEST);
+                    command->CopyResource(previous_field.Get(),extended->distortion.resource);
+                    phoenix_native::transition(command.Get(),previous_field.Get(),D3D12_RESOURCE_STATE_COPY_DEST,shader_state);
+                    phoenix_native::transition(command.Get(),extended->distortion.resource,D3D12_RESOURCE_STATE_COPY_SOURCE,shader_state);
+                }
+                const PhoenixNativeTextureV2* optional[]={&extended->control_mask,&extended->ui,&extended->ui_alpha,&extended->backbuffer,&extended->distortion};
+                for(auto* plane:optional)if(plane->resource)phoenix_native::transition(command.Get(),plane->resource,shader_state,plane->state);
             }
             phoenix_native::transition(command.Get(), result,
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -331,6 +471,9 @@ struct PhoenixNativeSession {
                 network->commit(command.Get());
             wait(submitted);
             history = motion != nullptr;
+            had_mask=mapped;had_distortion=distorted;retained_optional.clear();
+            last_advanced=extended;last_ui=extended&&(extended->ui.resource||extended->ui_alpha.resource||extended->backbuffer.resource);
+            last_style=extended?extended->style:0;last_intensity=extended?extended->intensity:1.f;
             ++completed_frames;
             uint64_t* values = nullptr;
             D3D12_RANGE range{0, 16}, empty{};
@@ -408,6 +551,112 @@ int phoenix_native_frame_d3d12(PhoenixNativeSession* session, ID3D12Resource* co
     return protect([&] {
         require(session != nullptr, "Null native session");
         session->frame(color, color_state, motion, motion_state, output, output_state, controls);
+    });
+}
+int phoenix_native_frame_d3d12_v2(PhoenixNativeSession* session, const PhoenixNativeFrameV2* frame) {
+    return protect([&] {
+        require(session&&frame&&frame->struct_bytes==sizeof(*frame)&&frame->version==2,
+                "Native advanced frame version mismatch");
+        require(!frame->color.reserved&&!frame->motion.reserved&&!frame->output.reserved,
+                "Reserved native frame fields");
+        session->frame(frame->color.resource,frame->color.state,frame->motion.resource,frame->motion.state,
+            frame->output.resource,frame->output.state,&frame->controls,frame);
+    });
+}
+int phoenix_native_frame_host_v2(PhoenixNativeSession* session, const phoenix_frame_v3* request) {
+    return protect([&] {
+        using namespace phoenix_cpp;
+        require(session&&request&&request->base.struct_bytes==sizeof(*request)&&
+            request->base.version==PHOENIX_FRAME_VERSION_3&&!request->base.reserved,"Native bounded frame version mismatch");
+        session->check_thread();require(!session->poisoned,"Native session failed; recreate it");
+        require(!session->resize&&!session->spatial_only,"Advanced native host path requires equal neural/source/output extents");
+        const unsigned w=session->width,h=session->height;const size_t pixels=size_t(w)*h;
+        const auto& base=request->base;
+        const auto output_stride=plane_stride(base.output,w,h,3);
+        require(base.metadata_json,"Missing native host metadata");
+        const auto metadata=Json::parse(base.metadata_json);
+        require(metadata.is_object(),"Native host metadata must be an object");
+        const auto controls=phoenix_cpp::Controls::from(metadata.value("controls",Json::object()));
+        require(metadata.value("passes",1u)==1,"Native advanced adapter supports one network pass");
+        auto color=copy_plane(base.color,w,h,3,true),motion=copy_plane(base.motion,w,h,2,false),
+            depth=copy_plane(base.depth,w,h,1,false),validity=copy_plane(base.validity,w,h,1,false),
+            mask=copy_plane(base.control_mask,w,h,4,false),ui=copy_plane(request->ui,w,h,4,false),
+            alpha=copy_plane(request->ui_alpha,w,h,1,false),bb=copy_plane(request->backbuffer,w,h,3,false),
+            field=copy_plane(request->distortion,w,h,4,false);
+        require(depth.empty()&&validity.empty(),"Native standalone adapter has no depth/validity plane contract");
+        require(ui.empty()||alpha.empty(),"Supply UI or UIAlpha, not both");
+        require((mask.empty()&&base.control_profile==PHOENIX_CONTROL_NONE)||
+            (!mask.empty()&&base.control_profile==PHOENIX_CONTROL_EXPERIMENTAL_RGB_1),"Native mask profile required");
+        validate_control_mask(mask.empty()?nullptr:mask.data(),pixels);
+        for(auto* plane:{&color,&ui,&alpha,&bb})validate_unit_plane(plane->empty()?nullptr:plane->data(),plane->size(),"Native proxy/alpha outside finite 0..1");
+        for(float v:motion)require(std::isfinite(v),"Nonfinite native motion");
+        for(float v:field)require(std::isfinite(v)&&std::fabs(v)<=1,"Invalid normalized native distortion");
+        for(size_t p=0;!ui.empty()&&p<pixels;++p)for(unsigned c=0;c<3;++c)
+            require(ui[p*4+c]<=ui[p*4+3],"Native UI must be premultiplied");
+        auto declaration=[&](const char* name,bool present){require(!metadata.contains(name)||metadata.at(name).get<bool>()==present,"Native plane declaration conflict");};
+        declaration("has_motion",!motion.empty());declaration("has_depth",false);declaration("has_history_validity",false);declaration("has_control_mask",!mask.empty());
+        phx::Kernel<HostMath> math{};
+        auto half_rgba=[&](const std::vector<float>& rgb) {
+            std::vector<uint16_t> out(rgb.empty()?0:pixels*4);
+            for(size_t p=0;p<out.size()/4;++p) {for(unsigned c=0;c<3;++c)out[p*4+c]=uint16_t(math.half_bits(rgb[p*3+c]));out[p*4+3]=0x3c00;}
+            return out;
+        };
+        auto packed_color=half_rgba(color),packed_bb=half_rgba(bb);
+        std::vector<uint16_t> packed_motion(motion.size());
+        for(size_t i=0;i<motion.size();++i)packed_motion[i]=uint16_t(math.half_bits(motion[i]));
+        session->prepare_plane(session->host_color,DXGI_FORMAT_R16G16B16A16_FLOAT,false);
+        session->prepare_plane(session->host_output,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+        if(!motion.empty())session->prepare_plane(session->host_motion,DXGI_FORMAT_R16G16_FLOAT,false);
+        if(!mask.empty())session->prepare_plane(session->host_mask,DXGI_FORMAT_R32G32B32A32_FLOAT,false);
+        if(!ui.empty())session->prepare_plane(session->host_ui,DXGI_FORMAT_R32G32B32A32_FLOAT,false);
+        if(!alpha.empty())session->prepare_plane(session->host_alpha,DXGI_FORMAT_R32_FLOAT,false);
+        if(!bb.empty())session->prepare_plane(session->host_backbuffer,DXGI_FORMAT_R16G16B16A16_FLOAT,false);
+        if(!field.empty())session->prepare_plane(session->host_distortion,DXGI_FORMAT_R32G32B32A32_FLOAT,false);
+        const auto started=std::chrono::steady_clock::now();
+        try {
+            session->begin();
+            session->upload(session->host_color,packed_color.data(),w*8,w*8);
+            if(!motion.empty())session->upload(session->host_motion,packed_motion.data(),w*4,w*4);
+            if(!mask.empty())session->upload(session->host_mask,mask.data(),w*16,w*16);
+            if(!ui.empty())session->upload(session->host_ui,ui.data(),w*16,w*16);
+            if(!alpha.empty())session->upload(session->host_alpha,alpha.data(),w*4,w*4);
+            if(!bb.empty())session->upload(session->host_backbuffer,packed_bb.data(),w*8,w*8);
+            if(!field.empty())session->upload(session->host_distortion,field.data(),w*16,w*16);
+            session->submit();session->wait(session->submitted);
+            const auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            PhoenixNativeFrameV2 frame{};frame.struct_bytes=sizeof(frame);frame.version=2;
+            phoenix_native_default_controls(&frame.controls);
+            frame.controls.reset=metadata.value("reset",false);frame.controls.local_tone=controls.tone;
+            frame.controls.local_structure=controls.structure;frame.controls.skin_structure=controls.skin;
+            frame.controls.auto_mask=controls.auto_mask;frame.controls.inverted_depth=metadata.value("reversed_depth",false);
+            frame.intensity=controls.intensity;frame.style=controls.style;
+            frame.color={session->host_color.image.Get(),state,0};frame.output={session->host_output.image.Get(),state,0};
+            if(!motion.empty())frame.motion={session->host_motion.image.Get(),state,0};
+            if(!mask.empty())frame.control_mask={session->host_mask.image.Get(),state,0};
+            if(!ui.empty())frame.ui={session->host_ui.image.Get(),state,0};
+            if(!alpha.empty())frame.ui_alpha={session->host_alpha.image.Get(),state,0};
+            if(!bb.empty())frame.backbuffer={session->host_backbuffer.image.Get(),state,0};
+            if(!field.empty())frame.distortion={session->host_distortion.image.Get(),state,0};
+            session->frame(frame.color.resource,state,frame.motion.resource,state,frame.output.resource,state,&frame.controls,&frame);
+            session->begin();auto& plane=session->host_output;
+            phoenix_native::transition(session->command.Get(),plane.image.Get(),state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_TEXTURE_COPY_LOCATION from{plane.image.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,0},
+                to{plane.transfer.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,plane.footprint};
+            session->command->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+            phoenix_native::transition(session->command.Get(),plane.image.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,state);
+            session->submit();session->wait(session->submitted);
+            void* mapped=nullptr;D3D12_RANGE range{0,size_t(plane.bytes)},empty{};
+            hr(plane.transfer->Map(0,&range,&mapped));
+            for(unsigned y=0;y<h;++y) {
+                const auto* row=reinterpret_cast<const uint16_t*>(static_cast<const char*>(mapped)+plane.footprint.Offset+size_t(y)*plane.footprint.Footprint.RowPitch);
+                auto* dst=reinterpret_cast<unsigned char*>(base.output.data)+size_t(y)*output_stride;
+                for(unsigned x=0;x<w;++x)for(unsigned c=0;c<3;++c) {
+                    const float v=math.half_value(row[x*4+c]);std::memcpy(dst+(size_t(x)*3+c)*sizeof(float),&v,sizeof(v));
+                }
+            }
+            plane.transfer->Unmap(0,&empty);
+            session->call_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+        } catch(...) {session->poisoned=true;throw;}
     });
 }
 int phoenix_native_frame_host(PhoenixNativeSession* session, const void* color, size_t color_bytes,
@@ -508,6 +757,14 @@ int phoenix_native_destroy(PhoenixNativeSession* session) {
         }
     });
 }
+int phoenix_native_reconfigure(PhoenixNativeSession** session,const char* config) {
+    return protect([&] {
+        require(session&&*session&&config,"Missing native session/configuration");
+        auto* previous=*session;previous->check_thread();
+        auto replacement=std::make_unique<PhoenixNativeSession>(Json::parse(config),previous->device.Get(),previous->queue.Get());
+        previous->drain();delete previous;*session=replacement.release();
+    });
+}
 size_t phoenix_native_status(PhoenixNativeSession* session, char* destination, size_t capacity) {
     size_t result = 0;
     protect([&] {
@@ -524,8 +781,19 @@ size_t phoenix_native_status(PhoenixNativeSession* session, char* destination, s
                  {"gpu_processing_ms", session->gpu_ms},
                  {"complete_call_ms", session->call_ms},
                  {"gpu_timing_scope",
-                  "model plus output resize/copy; excludes input preparation and host transfers"},
+                  "model plus presentation/unwarp/resize/copy; excludes input canonicalization/preparation and host transfers"},
                  {"frames", session->completed_frames},
+                 {"native_frame_api_versions",{1,2}},
+                 {"advanced_extent_contract","equal source/network/output"},
+                 {"appearance_profile","recovered_3108"},
+                 {"advanced_api_used",session->last_advanced},
+                 {"ui_composition_used",session->last_ui},
+                 {"effective_style",session->last_style},
+                 {"effective_intensity",session->last_intensity},
+                 {"packed_weights_sha256",session->packed_weights_sha256},
+                 {"control_mask_used",session->had_mask},
+                 {"distortion_used",session->had_distortion},
+                 {"vendor_feature_parity_validated",false},
                  {"failed", session->poisoned},
                  {"owned_memory", session->ledger.snapshot()}}
                 .dump();

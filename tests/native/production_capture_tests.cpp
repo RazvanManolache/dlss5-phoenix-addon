@@ -153,6 +153,54 @@ int main() {
         runner.arm_capture("next", 1);
         check(runner.capture_readback_bytes() == active_bytes,
               "Capture buffers could not be recreated for another request");
+        // Exercise the real asynchronous display wrapper and optional-plane
+        // capture on software D3D12. The executor is deliberately model-free.
+        phoenix_native::hr(allocator->Reset());
+        phoenix_native::hr(command->Reset(allocator.Get(),nullptr));
+        auto mask=phoenix_native::image(device.Get(),width,height,DXGI_FORMAT_R32G32B32A32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+        auto ui=phoenix_native::image(device.Get(),width,height,DXGI_FORMAT_R32G32B32A32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+        auto field=phoenix_native::image(device.Get(),width,height,DXGI_FORMAT_R32G32B32A32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+        auto floats=[&](ID3D12Resource* target,std::array<float,4> value) {
+            const auto desc=target->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 bytes=0;
+            device->GetCopyableFootprints(&desc,0,1,0,&fp,nullptr,nullptr,&bytes);
+            auto upload=phoenix_native::buffer(device.Get(),bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
+            void* mapped=nullptr;phoenix_native::hr(upload->Map(0,nullptr,&mapped));
+            for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x)
+                std::memcpy(static_cast<uint8_t*>(mapped)+fp.Offset+size_t(y)*fp.Footprint.RowPitch+x*16,value.data(),16);
+            upload->Unmap(0,nullptr);
+            D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=upload.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
+            to.pResource=target;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            command->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+            phoenix_native::transition(command.Get(),target,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            uploads.push_back(std::move(upload));
+        };
+        floats(mask.Get(),{0,1,1,1});floats(ui.Get(),{.25f,.25f,.25f,1});floats(field.Get(),{0,0,0,0});
+        phoenix::direct::AppearanceTextures developer;developer.mask=mask.Get();developer.ui=ui.Get();developer.field=field.Get();
+        {phoenix::direct::AppearanceStage epoch(device.Get(),width,height);
+            check(epoch.changed(developer,17),"New map/field epoch not detected");
+            epoch.remember_mode(developer,17);
+            check(!epoch.changed(developer,17),"Stable producer epoch unexpectedly resets history");
+            check(epoch.changed(developer,18),"Changed producer epoch did not request reset");}
+        evidence.experimental_appearance_contract=true;
+        for(const char* key:{"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.BidirectionalDistortionField"})
+            evidence.optional_states[key]=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        runner.record(command.Get(),color.Get(),motion.Get(),evidence,{},settings,8,nullptr,
+                      D3D12_RESOURCE_STATE_COMMON,&developer,17);
+        phoenix_native::hr(command->Close());queue->ExecuteCommandLists(1,lists);
+        check(runner.after_submit(queue.Get(),1,lists),"Advanced capture submission not tracked");
+        const auto advanced_deadline=GetTickCount64()+10000;
+        while(runner.completed()<runner.submitted()&&GetTickCount64()<advanced_deadline)Sleep(1);
+        check(runner.completed()==runner.submitted(),"Advanced capture fence did not retire");
+        runner.poll_captures();check(runner.take_capture(captured),"Advanced capture missing");
+        check(captured.meta.appearance_flags==19&&captured.meta.appearance_generation==17,"Advanced capture identity lost");
+        const std::array<float,4> expected_map{0,1,1,1},expected_ui{.25f,.25f,.25f,1};
+        for(unsigned p=0;p<width*height;++p) {
+            check(std::memcmp(captured.appearance[0].data()+p*16,expected_map.data(),16)==0,"Map snapshot changed");
+            check(std::memcmp(captured.appearance[1].data()+p*16,expected_ui.data(),16)==0,"UI snapshot changed");
+        }
+        check(captured.appearance[4].size()==width*height*16&&
+            std::all_of(captured.appearance[4].begin(),captured.appearance[4].end(),[](uint8_t b){return b==0;}),"Field snapshot changed");
+        check(runner.capture_readback_bytes()==0,"Advanced capture retained buffers after retirement");
         std::cout << Json({{"passed", true},
                            {"software_d3d12", "WARP"},
                            {"model_inference_executed", false},
@@ -160,7 +208,8 @@ int main() {
                            {"hd_capture_readback_bytes", hd_capture_bytes},
                            {"retired_capture_readback_bytes", 0},
                            {"capture_input_bytes_exact", true},
-                           {"burst_readbacks_reused", true}})
+                           {"burst_readbacks_reused", true},
+                           {"optional_snapshots_exact",true},{"producer_epochs_checked",true}})
                          .dump()
                   << '\n';
         return 0;

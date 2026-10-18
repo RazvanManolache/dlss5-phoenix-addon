@@ -13,6 +13,19 @@ int main() {
             ++accepted_commands;
         };
         {
+            PhoenixLiveControls controls;Controls host;host.intensity=.7f;host.style=1;
+            test(controls.apply(host).intensity==.7f&&controls.apply(host).style==1);
+            controls.appearance=true;controls.intensity=.3f;controls.style=2;
+            test(controls.apply(host).intensity==.3f&&controls.apply(host).style==2);
+            controls.intensity=3;test(!controls.valid());controls.intensity=.3f;
+            phoenix::Settings original,copy;original.controls=controls;
+            test(phoenix::copy_live_tuning(copy,original)&&copy.controls.appearance&&copy.controls.style==2);
+            unsigned applied=0,ignored=0;
+            test(phoenix::merge_overrides("[Phoenix]\nPhoenixIntensity=0.8\nPhoenixStyle=1\nPhoenixAppearance=true\n",copy,applied,ignored)&&
+                applied==3&&ignored==0&&copy.controls.intensity==.8f&&copy.controls.style==1);
+            phoenix::reset_neural_section(copy);test(!copy.controls.appearance&&copy.controls.intensity==1&&copy.controls.style==0);
+        }
+        {
             using namespace phoenix;
             auto normal = choose_resolution(1920, 1080, 0, 0, 0, 16, 9, true);
             test(!normal.scaled() && normal.image_width == 1920);
@@ -446,6 +459,15 @@ int main() {
             metadata.skin = -1;
             CaptureMeta back{};
             test(capture_meta_parse(capture_meta_write(metadata), back));
+            {
+                auto mapped=metadata;mapped.appearance_flags=31;mapped.appearance_generation=17;
+                CaptureMeta parsed;
+                test(!capture_meta_parse(capture_meta_write(mapped),parsed,true));
+                test(capture_meta_parse(capture_meta_write(mapped),parsed,true,true)&&
+                     parsed.appearance_flags==31&&parsed.appearance_generation==17);
+                mapped.appearance_flags=32;
+                test(!capture_meta_parse(capture_meta_write(mapped),parsed,true,true));
+            }
             {
                 auto repeated = metadata;
                 repeated.refinement_passes = 3;

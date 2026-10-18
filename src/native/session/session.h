@@ -7,6 +7,7 @@
 #include "../support/colour_bridge.h"
 #include "../support/exposure_meter.h"
 #include "../support/denormalize.h"
+#include "../support/appearance_gpu.h"
 #include <nvsdk_ngx.h>
 #include <mutex>
 
@@ -195,6 +196,9 @@ struct FrameEvidence {
     void (*restore_bindings)(void*, ID3D12GraphicsCommandList*) = nullptr;
     void* restore_context = nullptr;
     std::shared_ptr<void> binding_lease;
+    std::map<std::string,D3D12_RESOURCE_STATES> optional_states;
+    bool experimental_appearance_contract = false;
+    uint32_t appearance_generation = 0;
 };
 
 class Session {
@@ -204,6 +208,8 @@ class Session {
     ComPtr<ID3D12Fence> fence_;
     ComPtr<ID3D12Resource> color_, motion_;
     ComPtr<ID3D12Resource> pending_color_, pending_motion_, pending_output_;
+    std::vector<ComPtr<ID3D12Resource>> pending_optional_;
+    std::unique_ptr<phoenix::direct::AppearanceStage> appearance_;
     FrameDispatch dispatch_;
     std::unique_ptr<phoenix_native::Network> network_;
     Transaction transaction_;
@@ -228,6 +234,7 @@ class Session {
     struct Lease {
         uint64_t fence_value;
         ComPtr<ID3D12Resource> color, motion, output;
+        std::vector<ComPtr<ID3D12Resource>> optional;
     };
     host_memory::Vector<Lease, host_memory::Tag::engine_leases> leases_;
     unsigned width_, height_;
@@ -315,9 +322,10 @@ class Session {
         phoenix_native::hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
         phoenix_native::memory::track(fence_.Get(), accounting,
                                       phoenix_native::memory::Kind::fence);
+        appearance_=std::make_unique<phoenix::direct::AppearanceStage>(device,width_,height_,accounting);
         network_ = std::make_unique<phoenix_native::Network>(device, dispatch_.api(), frame,
                                                              weights, candidates, color_.Get(),
-                                                             motion_.Get(), accounting);
+                                                             motion_.Get(), accounting,true,nullptr,appearance_->mask_target());
         check(network_->group_ends() == std::vector<unsigned>(kGroupEnds, kGroupEnds + kGroupCount),
               "phoenix group schedule changed; review skip mask");
         leases_.reserve(32);
@@ -361,10 +369,12 @@ class Session {
         add(pending_color_);
         add(pending_motion_);
         add(pending_output_);
+        for (const auto& resource : pending_optional_) add(resource);
         for (const auto& lease : leases_) {
             add(lease.color);
             add(lease.motion);
             add(lease.output);
+            for (const auto& resource : lease.optional) add(resource);
         }
         return {{"generation",
                  allocation_lifetime_.generation ? allocation_lifetime_.generation->id : 0},
@@ -585,23 +595,38 @@ class Session {
         validate_resource(output, DXGI_FORMAT_R16G16B16A16_FLOAT);
         check(color != motion && color != output && motion != output,
               "phoenix aliased engine inputs/output rejected");
-        check(!optional_resource(params, "DLSSNR.ControlMask"),
-              "phoenix unsupported host ControlMask input");
-        check(!optional_resource(params, "DLSSNR.UI"), "phoenix unsupported host UI input");
-        check(!optional_resource(params, "DLSSNR.UIAlpha"),
-              "phoenix unsupported host UIAlpha input");
-        check(!optional_resource(params, "DLSSNR.Backbuffer"),
-              "phoenix unsupported host Backbuffer input");
-        check(!optional_resource(params, "DLSSNR.BidirectionalDistortionField"),
-              "phoenix unsupported host BidirectionalDistortionField input");
+        phoenix::direct::AppearanceTextures textures;
+        const char* optional_keys[]={"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.UIAlpha","DLSSNR.Backbuffer","DLSSNR.BidirectionalDistortionField"};
+        ID3D12Resource** optional_targets[]={&textures.mask,&textures.ui,&textures.alpha,&textures.backbuffer,&textures.field};
+        const DXGI_FORMAT optional_formats[]={DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32_FLOAT,DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT};
+        for(unsigned i=0;i<5;++i) {
+            *optional_targets[i]=optional_resource(params,optional_keys[i]);
+            auto* value=*optional_targets[i];if(!value)continue;
+            check(evidence.experimental_appearance_contract,"Optional appearance planes require the explicit experimental contract");
+            validate_resource(value,optional_formats[i]);
+            check(value!=color&&value!=motion&&value!=output,"Appearance input aliases frame resources");
+            for(unsigned j=0;j<i;++j)check(value!=*optional_targets[j],"Appearance inputs alias");
+            check(evidence.optional_states.count(optional_keys[i])!=0,"Missing observed appearance resource state");
+        }
+        check(!(textures.ui&&textures.alpha),"Supply UI or UIAlpha");
         const auto game_controls = read_controls(
             *params, [](NVSDK_NGX_Result result) { return NVSDK_NGX_SUCCEED(result); });
         auto controls = effective_controls(game_controls, committed() == 0, native_fresh_);
         if (live)
             controls = live->apply(controls);
         controls = hdr_overridden_controls(controls, hdr_controls_override_);
+        const bool appearance=phoenix::direct::AppearanceStage::requested(controls,textures);
+        if(appearance) {
+            check(evidence.experimental_appearance_contract,"Appearance output requires the explicit experimental contract");
+            check(color_->GetDesc().Format==DXGI_FORMAT_R16G16B16A16_FLOAT,"Appearance stage requires the SDR proxy format");
+            check(!hdr_||(!textures.ui&&!textures.backbuffer),"HDR UI/backbuffer transfer contract is unavailable");
+            check(std::isfinite(controls.intensity)&&controls.intensity>=0&&controls.intensity<=2&&controls.style>=0&&controls.style<=2,"Invalid appearance controls");
+            check(!controls.ui_correction||textures.ui||textures.alpha,"UI correction needs explicit coverage");
+        }
+        if(appearance_->changed(textures,evidence.appearance_generation))controls.reset=1;
+        auto core_controls=controls;core_controls.intensity=1;core_controls.style=0;core_controls.ui_correction=0;
         // Validate before any GPU recording or counter reservation.
-        resolve_controls(controls, width_, height_, motion != nullptr, history_, 0);
+        resolve_controls(core_controls, width_, height_, motion != nullptr, history_, 0);
         network_->validate_command(cmd, evidence.queue);
         const auto completed = fence_->GetCompletedValue();
         check(completed != UINT64_MAX, "phoenix completion fence reports device loss");
@@ -614,6 +639,8 @@ class Session {
         pending_color_ = color;
         pending_motion_ = motion;
         pending_output_ = output;
+        pending_optional_.clear();
+        for(auto** pointer:optional_targets)if(*pointer)pending_optional_.emplace_back(*pointer);
         transaction_.begin(uintptr_t(cmd), uintptr_t(evidence.queue));
         command_ = cmd;
         submission_observed_ = false;
@@ -624,8 +651,11 @@ class Session {
             last_reset_ = controls.reset != 0;
             last_motion_ = motion != nullptr;
             last_game_reset_ = game_controls.reset != 0;
-            const auto resolved = resolve_controls(controls, width_, height_, motion != nullptr,
+            auto resolved = resolve_controls(core_controls, width_, height_, motion != nullptr,
                                                    history_, last_sampling_);
+            resolved.control_mask_handle=textures.mask?network_->control_mask_handle:0;
+            resolved.style=float(controls.style)/128.f;
+            if(textures.field){resolved.motion_x=1.f/width_;resolved.motion_y=1.f/height_;}
             FrameDispatch::Scope frame_scope(dispatch_, cmd, resolved, transformer_blocks);
             phoenix_native::note("record_copy_color");
             if (hdr_) {
@@ -648,6 +678,12 @@ class Session {
             phoenix_native::note("record_copy_motion");
             if (motion)
                 copy_input(cmd, motion, evidence.motion_state, motion_.Get());
+            const unsigned appearance_slot=unsigned(committed()%32);
+            if(appearance) {
+                for(unsigned i=0;i<5;++i)if(*optional_targets[i])
+                    phoenix_native::transition(cmd,*optional_targets[i],evidence.optional_states.at(optional_keys[i]),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                appearance_->prepare(cmd,color_.Get(),motion?motion_.Get():nullptr,textures,controls,appearance_slot);
+            } else appearance_->absent();
             phoenix_native::note("record_network");
             // Stable motion allocation does not imply engine motion availability.
             // Passing reset here selects the parent's nonrecurrent program, but
@@ -656,6 +692,12 @@ class Session {
                                             evidence.queue);
             phoenix_native::note("record_network_done");
             frame_scope.finish();
+            if(appearance) {
+                result=appearance_->present(cmd,result,textures,controls,appearance_slot);
+                appearance_->remember_mode(textures,evidence.appearance_generation);
+                for(unsigned i=0;i<5;++i)if(*optional_targets[i])
+                    phoenix_native::transition(cmd,*optional_targets[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,evidence.optional_states.at(optional_keys[i]));
+            }
             // HDR output returns through the denormalize pass, not the copy:
             // the result is already the SRV the pass samples, and the
             // engine output goes observed-state -> UAV -> observed-state.
@@ -707,7 +749,7 @@ class Session {
             // recording thread and this callback runs on the engine's submitter.
             pending_commit_ = cmd;
             leases_.push_back({value, std::move(pending_color_), std::move(pending_motion_),
-                               std::move(pending_output_)});
+                               std::move(pending_output_),std::move(pending_optional_)});
             command_ = nullptr;
         } catch (...) {
             invalidate();

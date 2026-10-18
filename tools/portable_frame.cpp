@@ -1,11 +1,15 @@
 // Minimal standalone client of the public C ABI. No ReShade, Python or graphics API required.
 #include "../native_runtime/platform.h"
+#include "../native_runtime/phoenix.h"
 #include "../third_party/nlohmann/json.hpp"
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <vector>
 #include <chrono>
+#ifdef _WIN32
+#include "../native_runtime/broker_client.h"
+#endif
 using Json = nlohmann::json;
 using namespace phoenix_cpp;
 std::vector<float> plane(const Json &job, const char *name, size_t count, bool required) {
@@ -39,11 +43,16 @@ int main(int argc, char **argv) {
         const auto root = std::filesystem::absolute(std::filesystem::u8path(
             devices ? std::string(argv[2])
                     : job.at("config").at("runtime_root").get<std::string>()));
+        bool broker_mode=false;
+#ifdef _WIN32
+        broker_mode=!devices&&job.at("config").value("execution",std::string("in_process"))=="broker";
+        std::unique_ptr<NativeSession> broker_session;
+#endif
         const auto module =
-            open_library(vulkan_devices ? root / "vulkan" / library_name("phoenix_vulkan")
+            broker_mode?nullptr:open_library(vulkan_devices ? root / "vulkan" / library_name("phoenix_vulkan")
                                         : root / library_name(devices ? "phoenix_metal_cpp"
                                                                       : "phoenix_runtime_cpp"));
-        if (!module)
+        if (!module&&!broker_mode)
             throw std::runtime_error("Standalone library unavailable in runtime_root");
         auto library =
             std::unique_ptr<std::remove_pointer_t<LibraryHandle>, decltype(&close_library)>(
@@ -88,18 +97,23 @@ int main(int argc, char **argv) {
             std::cout << text.data() << '\n';
             return 0;
         }
+        auto symbol=[&](const char* name){return module?library_symbol(module,name):nullptr;};
         auto create = reinterpret_cast<void *(*)(const char *, unsigned, unsigned)>(
-            library_symbol(module, "phoenix_runtime_create"));
+            symbol("phoenix_runtime_create"));
         auto destroy =
-            reinterpret_cast<void (*)(void *)>(library_symbol(module, "phoenix_runtime_destroy"));
+            reinterpret_cast<void (*)(void *)>(symbol("phoenix_runtime_destroy"));
         auto frame = reinterpret_cast<int (*)(void *, const float *, const float *, const float *,
                                               const float *, const char *, float *)>(
-            library_symbol(module, "phoenix_runtime_frame"));
+            symbol("phoenix_runtime_frame"));
+        auto frame_v2 = reinterpret_cast<int (*)(void*, const phoenix_frame_v2*)>(
+            symbol("phoenix_runtime_frame_v2"));
+        auto frame_v3 = reinterpret_cast<int (*)(void*, const phoenix_frame_v3*)>(
+            symbol("phoenix_runtime_frame_v3"));
         auto error =
-            reinterpret_cast<const char *(*)()>(library_symbol(module, "phoenix_runtime_error"));
+            reinterpret_cast<const char *(*)()>(symbol("phoenix_runtime_error"));
         auto status = reinterpret_cast<size_t (*)(void *, char *, size_t)>(
-            library_symbol(module, "phoenix_runtime_status"));
-        if (!create || !destroy || !frame || !error || !status)
+            symbol("phoenix_runtime_status"));
+        if (!broker_mode&&(!create || !destroy || !frame || !error || !status))
             throw std::runtime_error("Incomplete Phoenix C API");
         const unsigned width = job.at("width"), height = job.at("height");
         if (!width || !height || width > 8192 || height > 8192)
@@ -111,12 +125,24 @@ int main(int argc, char **argv) {
         auto color = plane(job, "color", pixels * 3, true),
              motion = plane(job, "motion", pixels * 2, false),
              depth = plane(job, "depth", pixels, false),
-             validity = plane(job, "validity", pixels, false);
+             validity = plane(job, "validity", pixels, false),
+             mask = plane(job, "control_mask", pixels * 4, false),
+             ui = plane(job, "ui", pixels * 4, false), alpha = plane(job, "ui_alpha", pixels, false),
+             backbuffer = plane(job, "backbuffer", pixels * 3, false),
+             distortion = plane(job, "distortion", pixels * 4, false);
+        if ((!ui.empty() || !alpha.empty() || !backbuffer.empty() || !distortion.empty()) && !frame_v3&&!broker_mode)
+            throw std::runtime_error("Advanced planes require frame API V3");
+        if (!mask.empty() && ((!frame_v2&&!broker_mode) ||
+            job.value("control_profile", std::string()) != "phoenix-experimental-rgb/1"))
+            throw std::runtime_error("Control mask requires V2 and explicit phoenix-experimental-rgb/1 profile");
         std::vector<float> output(pixels * 3);
         auto config = job.at("config").dump();
+#ifdef _WIN32
+        if(broker_mode) {broker_session=std::make_unique<NativeSession>();broker_session->open(root,job.at("config"),width,height);}
+#endif
         auto session = std::unique_ptr<void, decltype(destroy)>(
-            create(config.c_str(), width, height), destroy);
-        if (!session)
+            broker_mode?nullptr:create(config.c_str(), width, height), destroy);
+        if (!session&&!broker_mode)
             throw std::runtime_error(error());
         auto metadata = job.value("metadata", Json::object());
         metadata["has_motion"] = !motion.empty();
@@ -124,20 +150,56 @@ int main(int argc, char **argv) {
         metadata["has_history_validity"] = !validity.empty();
         metadata["reset"] = true;
         const auto text = metadata.dump();
+        phoenix_frame_v2 bounded{};
+        bounded.struct_bytes = sizeof(bounded);
+        bounded.version = PHOENIX_FRAME_VERSION_2;
+        bounded.control_profile = mask.empty() ? PHOENIX_CONTROL_NONE : PHOENIX_CONTROL_EXPERIMENTAL_RGB_1;
+        auto view = [&](const std::vector<float>& values, unsigned channels) {
+            return values.empty() ? phoenix_plane_f32{} : phoenix_plane_f32{
+                values.data(), values.size() * sizeof(float), 0, width, height, channels, 0};
+        };
+        bounded.color = view(color, 3);
+        bounded.motion = view(motion, 2);
+        bounded.depth = view(depth, 1);
+        bounded.validity = view(validity, 1);
+        bounded.control_mask = view(mask, 4);
+        bounded.output = {output.data(), output.size() * sizeof(float), 0, width, height, 3, 0};
+        bounded.metadata_json = text.c_str();
+        phoenix_frame_v3 extended{};extended.base=bounded;
+        extended.base.struct_bytes=sizeof(extended);extended.base.version=PHOENIX_FRAME_VERSION_3;
+        extended.ui=view(ui,4);extended.ui_alpha=view(alpha,1);
+        extended.backbuffer=view(backbuffer,3);extended.distortion=view(distortion,4);
         const unsigned iterations = job.value("benchmark_iterations", 1u);
         if (!iterations || iterations > 100)
             throw std::runtime_error("Benchmark iterations must be 1..100");
         std::vector<char> report;
         for (unsigned iteration = 0; iteration < iterations; ++iteration) {
             const auto started = std::chrono::steady_clock::now();
-            if (frame(session.get(), color.data(), motion.empty() ? nullptr : motion.data(),
+            int result=0;
+#ifdef _WIN32
+            if(broker_mode) result=broker_session->frame_advanced(color.data(),motion.empty()?nullptr:motion.data(),
+                depth.empty()?nullptr:depth.data(),validity.empty()?nullptr:validity.data(),text,output.data(),
+                mask.empty()?nullptr:mask.data(),ui.empty()?nullptr:ui.data(),alpha.empty()?nullptr:alpha.data(),
+                backbuffer.empty()?nullptr:backbuffer.data(),distortion.empty()?nullptr:distortion.data());
+            else
+#endif
+            result = frame_v3 ? frame_v3(session.get(), &extended) : frame_v2 ? frame_v2(session.get(), &bounded) :
+                frame(session.get(), color.data(), motion.empty() ? nullptr : motion.data(),
                       depth.empty() ? nullptr : depth.data(),
-                      validity.empty() ? nullptr : validity.data(), text.c_str(), output.data()))
+                      validity.empty() ? nullptr : validity.data(), text.c_str(), output.data());
+            if (result) {
+#ifdef _WIN32
+                if(broker_mode)throw std::runtime_error(broker_session->error());
+#endif
                 throw std::runtime_error(error());
+            }
             const double call_ms = std::chrono::duration<double, std::milli>(
                                        std::chrono::steady_clock::now() - started).count();
-            report.resize(status(session.get(), nullptr, 0));
-            status(session.get(), report.data(), report.size());
+#ifdef _WIN32
+            if(broker_mode){const auto value=broker_session->status_json();report.assign(value.begin(),value.end());report.push_back(0);}
+            else
+#endif
+            {report.resize(status(session.get(), nullptr, 0));status(session.get(), report.data(), report.size());}
             if (iterations > 1) {
                 auto row = Json::parse(report.data());
                 row["benchmark_iteration"] = iteration;

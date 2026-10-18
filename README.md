@@ -6,6 +6,15 @@ inference speed in the matched 1080p test, with useful controls and lower
 measured GPU residency. The alternate backends are our slightly obsessive
 portability side quest.
 
+## Add-on 0.82: appearance controls and native correctness fixes
+
+[Download 0.82](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.82) adds experimental Phoenix intensity and Default/Natural/Cinematic styles, plus engine-fed surface maps, protected UI and distortion inputs. Per-surface editing requires engine-provided IDs/textures.
+
+This update fixes the 1024x768 first-frame GPU hang and inconsistent 4K resets by shipping the corrected tile-aligned graph with the runtime. The release includes stale-layout rejection and graph-embedding/package checks. Earlier timing charts below retain their measured runtime identities.
+
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Release and installation](docs/RELEASE_0.82.md) · [Root cause](docs/NATIVE_CORRECTNESS_0.82.md) · [Validation](docs/VALIDATION_0.82.md)
+
+
 ## Native RTX: the main event
 
 ![Native Phoenix DLSS5 and NVIDIA DLSS5 NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
@@ -53,7 +62,7 @@ This resolution and memory study uses a different sampling protocol from the
 
 [Latest regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
-[Download ReShade addon 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81) ·
+[Download ReShade addon 0.82](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.82) ·
 [Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta) ·
 [Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·

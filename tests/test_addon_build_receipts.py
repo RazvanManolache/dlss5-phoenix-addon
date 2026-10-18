@@ -12,6 +12,19 @@ import build_addon
 
 
 class BuildReceiptTests(unittest.TestCase):
+    def test_missing_or_malformed_test_output_identifies_the_failing_suite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for text in (None, '', 'plain text', '{}', '{"passed":"true"}', '[]'):
+                target = folder / 'module_capability_tests.result.json'
+                target.unlink(missing_ok=True)
+                if text is not None:
+                    target.write_text(text)
+                with self.assertRaisesRegex(RuntimeError, 'module_capability_tests'):
+                    build_addon.read_test_result(folder, 'module_capability_tests')
+            target.write_text('{"passed":true,"cpu_only":true}')
+            self.assertTrue(build_addon.read_test_result(folder, 'module_capability_tests')['passed'])
+
     def run_build(self, fault=None, diagnostic=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

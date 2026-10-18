@@ -265,6 +265,7 @@ int phoenix_native_window_attention(int query, int key, int value, int bias, int
 int phoenix_native_features_init(const char* path) {
     return build_pipeline(path, g.rpl, &phx_features_pipeline);
 }
+int phoenix_control_map_abi(void) { return 1; }
 int phoenix_native_features(int color, int prior, int noise, int validity, int output,
                             unsigned height, unsigned width, unsigned padded_width,
                             unsigned padded_height, unsigned style, unsigned tone_bits,

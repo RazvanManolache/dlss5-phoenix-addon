@@ -34,6 +34,10 @@
 #include <psapi.h>
 #include "../../../third_party/minhook/include/MinHook.h"
 #include <intrin.h>
+namespace {
+phoenix_addon::phoenix::direct::AppearanceTextures harvest_appearance(
+    ID3D12GraphicsCommandList*,const NVSDK_NGX_Parameter*,phoenix_addon::FrameEvidence&);
+}
 #include "../../native/support/ngx_shim.h"
 #include "../../native/support/menu_helper.h"
 #include "../../../third_party/streamline/sl.h"
@@ -822,6 +826,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
 #endif
         if (addon_state.automatic)
             progress("frame_contract_resolved");
+        harvest_appearance(cmd,params,evidence);
 #if CNR_PHOENIX_DIAGNOSTIC
         if (!addon_state.measure)
             poll_diagnostic();
@@ -3666,6 +3671,13 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 reshade::log::message(reshade::log::level::info, msg);
             }
         }
+        unsigned developer_contract=0;
+        params->Get("Phoenix.Appearance.Contract",&developer_contract);
+        if(developer_contract==1) {
+            get("DLSSNR.Intensity",controls.intensity);get("DLSSNR.Style",controls.style);
+            get("DLSSNR.LocalToneStrength",controls.tone);get("DLSSNR.LocalStructureStrength",controls.structure);
+            get("DLSSNR.SkinStructureStrength",controls.skin);get("DLSSNR.UseAutoMask",controls.auto_mask);
+        }
         controls = addon_state.live.apply(controls);
         if (addon_state.direct_runner) {
             addon_state.direct_runner->poll_exposure();
@@ -3990,10 +4002,12 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             return;
         }
         addon_state.direct_runner->set_nr(nr_image);
+        auto developer_textures=harvest_appearance(cmd,params,proof);
+        unsigned appearance_generation=0;params->Get("Phoenix.Appearance.Generation",&appearance_generation);
         const auto before = addon_state.direct_runner->launches();
         recording = true;
         addon_state.direct_runner->record(cmd, color, motion, proof, controls, addon_state.panel,
-                                          blocks, worker_depth, worker_depth_state);
+                                          blocks, worker_depth, worker_depth_state,&developer_textures,appearance_generation);
         addon_state.live_timing->upscaler_status(addon_state.direct_runner->upscale_status());
         addon_state.live_timing->end();
         const auto launches = addon_state.direct_runner->launches() - before;
@@ -4039,7 +4053,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                                                  " / " + std::to_string(color_description.Width) +
                                                  "x" + std::to_string(color_description.Height),
                                              execution);
-            if (status == "presenting_reprojected_result")
+            if (status == "composing_reprojected_result" || status == "presenting_reprojected_result")
                 addon_state.direct_status =
                     "Phoenix DLSS5 worker result reprojected onto the current frame";
             else if (status == "failed_input_preserved")
@@ -4708,6 +4722,19 @@ void write_capture_frame(phoenix::direct::CaptureFrame& cap) {
     put(".color.bin", cap.color);
     put(".motion.bin", cap.motion);
     put(".output.bin", cap.output);
+    if(cap.meta.appearance_flags) {
+        const char* names[]={".mask.rgba32f",".ui.rgba32f",".alpha.r32f",".backbuffer.rgba16f",".distortion.rgba32f"};
+        Json planes=Json::object();
+        for(unsigned i=0;i<5;++i)if(!cap.appearance[i].empty()) {
+            put(names[i],cap.appearance[i]);
+            planes[names[i]]={{"bytes",cap.appearance[i].size()},
+                {"sha256",phoenix_model::weight_digest(cap.appearance[i].data(),cap.appearance[i].size())}};
+        }
+        std::ofstream out(addon_state.output_directory/(std::string(stem)+".appearance.json"));
+        if(out)out<<Json({{"schema","phoenix-appearance-capture/1"},{"profile","phoenix-experimental-rgb/1"},
+            {"generation",cap.meta.appearance_generation},{"frame",cap.meta.frame},
+            {"width",cap.meta.width},{"height",cap.meta.height},{"planes",planes}}).dump(2);
+    }
     if (!cap.lineage[0].empty()) {
         const char* names[]{".proxy.bin", ".native.bin", ".phoenix.bin", ".feed.bin"};
         for (unsigned iteration_index = 0; iteration_index < 4; ++iteration_index)
@@ -5079,6 +5106,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.direct_game = value.direct_game;
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
+    ui.appearance=value.bridge_inputs.value("appearance",Json::object());
     ui.model_path = model_path;
     ui.disk_model = disk_model;
     ui.runtime_root = phoenix::portable::native_runtime_root();
@@ -5336,6 +5364,35 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     ImGui::PopItemWidth();
 }
 
+phoenix::direct::AppearanceTextures harvest_appearance(ID3D12GraphicsCommandList* cmd,
+    const NVSDK_NGX_Parameter* params,FrameEvidence& evidence) {
+    phoenix::direct::AppearanceTextures textures;
+    unsigned profile=0;params->Get("Phoenix.Appearance.Contract",&profile);
+    if(profile!=1) {
+        evidence.experimental_appearance_contract=state().live.appearance;
+        state().bridge_inputs["appearance"]={{"source",state().live.appearance?"phoenix_panel":"none"},
+            {"reason","plane_producer_missing"},{"control_map",false},{"ui",false},{"distortion",false},
+            {"generation",0u},{"vendor_validated",false}};
+        return textures;
+    }
+    evidence.experimental_appearance_contract=true;
+    const char* keys[]={"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.UIAlpha","DLSSNR.Backbuffer","DLSSNR.BidirectionalDistortionField"};
+    ID3D12Resource** targets[]={&textures.mask,&textures.ui,&textures.alpha,&textures.backbuffer,&textures.field};
+    for(unsigned i=0;i<5;++i) {
+        *targets[i]=parameter_resource(params,keys[i]);if(!*targets[i])continue;
+        D3D12_RESOURCE_STATES observed{};
+        check(observation::epoch_state(cmd,*targets[i],observed)&&observation::current_provider_resource(cmd,*targets[i]),
+              "Developer appearance resource needs a fresh observed state");
+        evidence.optional_states[keys[i]]=observed;
+    }
+    unsigned generation=0;params->Get("Phoenix.Appearance.Generation",&generation);
+    evidence.appearance_generation=generation;
+    state().bridge_inputs["appearance"]={{"source",active_feeder_v2()?"feeder_v2":"engine"},
+        {"profile","phoenix-experimental-rgb/1"},{"control_map",textures.mask!=nullptr},
+        {"ui",textures.ui||textures.alpha},{"distortion",textures.field!=nullptr},
+        {"generation",generation},{"vendor_validated",false}};
+    return textures;
+}
 void draw_phoenix_compact(reshade::api::effect_runtime* runtime) {
     if (phoenix_compat::applies(runtime)) { phoenix_compat::compact(runtime); return; }
     auto& value = state();
@@ -5375,6 +5432,9 @@ void draw_comparison_hud(reshade::api::effect_runtime* runtime) {
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederVersion() {
     return CNR_PHOENIX_DIAGNOSTIC ? 0u : PhoenixFeederAbiV1;
 }
+extern "C" __declspec(dllexport) HRESULT WINAPI CnrPHOENIXFeederEvaluateLocked(
+    const PhoenixFeederFrameV1* frame, PhoenixFeederResultV1* result, uint64_t capture_token);
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederVersionV2() {return CNR_PHOENIX_DIAGNOSTIC?0u:2u;}
 extern "C" __declspec(dllexport) HRESULT WINAPI
 CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV1* result) {
     if (!frame || !result || !PhoenixFeederContractV1(*frame, *result))
@@ -5510,6 +5570,13 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
     } catch (...) {
         return E_FAIL;
     }
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI CnrPHOENIXFeederEvaluateLocked(
+    const PhoenixFeederFrameV1* frame, PhoenixFeederResultV1* result, uint64_t capture_token) {
+    if (!capture_token) return E_INVALIDARG;
+    phoenix_addon::phoenix::LockedCaptureScope scope(capture_token);
+    return CnrPHOENIXFeederEvaluate(frame, result);
 }
 
 // Optional explicit engine registration. The environment-driven first-live
@@ -5662,6 +5729,13 @@ void forget_backbuffer_commands(ID3D12GraphicsCommandList* cmd) noexcept {
     } catch (...) { state().terminal = true; }
 }
 } // namespace
+extern "C" __declspec(dllexport) HRESULT WINAPI CnrPHOENIXFeederEvaluateV2(
+    const PhoenixFeederFrameV2* frame,PhoenixFeederResultV1* result) {
+    if(!frame||!result||!PhoenixFeederContractV2(*frame,*result)||active_feeder_v2())return E_INVALIDARG;
+    struct Scope {~Scope(){active_feeder_v2()=nullptr;}} scope;
+    active_feeder_v2()=frame;
+    return CnrPHOENIXFeederEvaluate(&frame->frame,result);
+}
 extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederLiveSettings(const char* text, uint32_t bytes) {
     if (!text || !bytes || bytes > 8192 || CNR_PHOENIX_DIAGNOSTIC) return FALSE;
     auto& value = state();
@@ -5888,6 +5962,8 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
               {"override_strengths", addon_state.live.enabled},
               {"tone", addon_state.live.tone},
               {"structure", addon_state.live.structure},
+              {"appearance_enabled",addon_state.live.appearance},
+              {"intensity",addon_state.live.intensity},{"style",addon_state.live.style},
               {"reset_pending", addon_state.live.reset_requested},
               {"resets_recorded", addon_state.live_resets_recorded}}},
             {"in_place_game_directory", addon_state.in_place},

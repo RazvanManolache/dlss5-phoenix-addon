@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <vector>
 #include "broker_client.h"
+#include "device_dependencies.h"
 #include "../src/native/support/cpu_threads.h"
 #include "../src/native/model/weight_source.h"
 #include "../src/native/support/device_selection.h"
@@ -57,6 +58,8 @@ inline void append_cpp_devices(std::vector<ExecutionDevice>& devices) {
             auto device_id = device_config.at("id").get<std::string>();
             if (!valid_execution_device(device_id) || device_id == "native")
                 continue;
+            if (!device_dependencies_present(root, config, device_id))
+                continue;
             bool tested =
                 std::find(validated.begin(), validated.end(), device_id) != validated.end();
             if (!tested && !config.value("allow_unvalidated", false))
@@ -84,7 +87,7 @@ class WorkerClient {
         uint64_t serial = 0, last = 0;
         uint32_t generation = 0;
         Json info, metadata;
-        std::vector<float> color, motion, depth, validity, output;
+        std::vector<float> color, motion, depth, validity, output, mask, ui, alpha, backbuffer, distortion;
     };
     std::shared_ptr<State> worker_state = std::make_shared<State>();
     size_t pixels;
@@ -130,12 +133,17 @@ class WorkerClient {
                     metadata.value("motion_from_frame", last_frame) != last_frame)
                     metadata["reset"] = true;
                 std::vector<float> output(size_t(width) * height * 3);
-                int result = session.frame(
+                int result = session.frame_advanced(
                     worker_state->color.data(),
                     worker_state->motion.empty() ? nullptr : worker_state->motion.data(),
                     worker_state->depth.empty() ? nullptr : worker_state->depth.data(),
                     worker_state->validity.empty() ? nullptr : worker_state->validity.data(),
-                    metadata.dump(), output.data());
+                    metadata.dump(), output.data(),
+                    worker_state->mask.empty() ? nullptr : worker_state->mask.data(),
+                    worker_state->ui.empty() ? nullptr : worker_state->ui.data(),
+                    worker_state->alpha.empty() ? nullptr : worker_state->alpha.data(),
+                    worker_state->backbuffer.empty() ? nullptr : worker_state->backbuffer.data(),
+                    worker_state->distortion.empty() ? nullptr : worker_state->distortion.data());
                 Json answer;
                 if (result) {
                     answer = {{"ok", false}, {"error", session.error()}};
@@ -244,7 +252,9 @@ class WorkerClient {
         return result;
     }
     bool submit(uint64_t serial, uint32_t generation, const float* color, const float* motion,
-                const float* depth, const Json& metadata, const float* valid = nullptr) {
+                const float* depth, const Json& metadata, const float* valid = nullptr,
+                const float* mask = nullptr, const float* ui = nullptr, const float* alpha = nullptr,
+                const float* backbuffer = nullptr, const float* distortion = nullptr) {
         std::unique_lock lock(worker_state->mutex, std::try_to_lock);
         if (!lock || !worker_state->alive || !worker_state->initialized ||
             worker_state->state != WorkerState::idle)
@@ -261,6 +271,12 @@ class WorkerClient {
             worker_state->depth.assign(depth, depth + pixels);
         if (valid)
             worker_state->validity.assign(valid, valid + pixels);
+        auto snapshot = [&](std::vector<float>& target, const float* source, unsigned channels) {
+            if (source) target.assign(source, source + pixels * channels); else target.clear();
+        };
+        snapshot(worker_state->mask,mask,4); snapshot(worker_state->ui,ui,4);
+        snapshot(worker_state->alpha,alpha,1); snapshot(worker_state->backbuffer,backbuffer,3);
+        snapshot(worker_state->distortion,distortion,4);
         worker_state->metadata = metadata;
         worker_state->serial = worker_state->last = serial;
         worker_state->generation = generation;

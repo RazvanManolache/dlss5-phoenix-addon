@@ -56,3 +56,12 @@ Any separately obtained SDKs or binaries remain subject to their own terms.
 
 This dependency inventory describes the included third-party sources. It does
 not establish rights to omitted material or grant an overall project license.
+
+## CUDA runtime in Windows binary downloads
+
+The portable CUDA provider in the 0.82 binary downloads statically links the CUDA
+13.1 runtime. The applicable NVIDIA CUDA Toolkit license and component notices
+are retained in [CUDA runtime terms](third_party/cuda-runtime/LICENSE.txt) and
+accompany the downloads. The source archive supplies these notices, not the
+CUDA Toolkit or runtime libraries. The NVIDIA display driver and DLSS5 model
+DLL remain external.

@@ -1,5 +1,6 @@
 #include "../../src/native/support/module_capability.h"
 #include <cassert>
+#include <iostream>
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
@@ -25,4 +26,5 @@ int main() {
         rejected = true;
     }
     assert(rejected);
+    std::cout << "{\"passed\":true,\"cpu_only\":true,\"native_driver_loaded\":false}\n";
 }

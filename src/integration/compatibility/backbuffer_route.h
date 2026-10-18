@@ -33,6 +33,18 @@ inline bool local_color_format(reshade::api::format format) {
            format == F::b8g8r8a8_unorm_srgb || format == F::b8g8r8a8_typeless ||
            format == F::r10g10b10a2_unorm || format == F::r10g10b10a2_typeless;
 }
+inline bool sdr_backbuffer(reshade::api::color_space space,reshade::api::format format) {
+    using C=reshade::api::color_space;
+    using F=reshade::api::format;
+    if(space==C::srgb_nonlinear)return true;
+    if(space!=C::unknown)return false;
+    // Legacy ReShade swapchains do not expose color-space metadata. Infer SDR
+    // only for ordinary eight-bit canvases, never float/10-bit or explicit HDR.
+    return format==F::r8g8b8a8_unorm||format==F::r8g8b8a8_unorm_srgb||format==F::r8g8b8a8_typeless||
+        format==F::r8g8b8x8_unorm||format==F::r8g8b8x8_unorm_srgb||
+        format==F::b8g8r8a8_unorm||format==F::b8g8r8a8_unorm_srgb||format==F::b8g8r8a8_typeless||
+        format==F::b8g8r8x8_unorm||format==F::b8g8r8x8_unorm_srgb||format==F::b8g8r8x8_typeless;
+}
 inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& caps,
                                                  ExecutionPreference preference) {
     if (preference == ExecutionPreference::Invalid)

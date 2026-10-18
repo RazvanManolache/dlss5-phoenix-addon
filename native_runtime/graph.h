@@ -898,7 +898,8 @@ class Graph {
             frame_planes_[0] = allocate_tensor(height, width, 3, 4);
             frame_planes_[1] = allocate_tensor(height, width, 3, 4);
             frame_planes_[2] = allocate_tensor(height, width, 3, 2);
-            frame_planes_[3] = allocate_tensor(height, width, 1, 1);
+            // Validity bytes followed by an aligned optional RGBA32F map.
+            frame_planes_[3] = allocate_tensor(height, width, 5, 4);
         }
         commit_scratch();
     }
@@ -907,14 +908,23 @@ class Graph {
                          const std::vector<uint8_t>& validity, const std::vector<uint16_t>& noise,
                          unsigned active_width, unsigned active_height, unsigned style, float tone,
                          float structure, float skin, bool auto_mask, std::vector<float>& head,
-                         std::vector<Event>& events, unsigned noise_seed = 0) {
+                         std::vector<Event>& events, unsigned noise_seed = 0,
+                         const float* control_mask = nullptr) {
         demand(device_features_ && color_count == size_t(active_width) * active_height * 3 &&
                    prior.size() == color_count && validity.size() * 3 == color_count &&
                    (noise.size() == size_t(width) * height * 3 || cached_noise(noise_seed)),
                "Device feature plane extent");
-        const void* sources[] = {color, prior.data(), noise.data(), validity.data()};
+        std::vector<uint8_t> mapped_validity;
+        if (control_mask) {
+            const size_t offset = (validity.size() + 3) & ~size_t(3);
+            mapped_validity.resize(offset + validity.size() * 4 * sizeof(float));
+            std::memcpy(mapped_validity.data(), validity.data(), validity.size());
+            std::memcpy(mapped_validity.data() + offset, control_mask, validity.size() * 4 * sizeof(float));
+        }
+        const void* sources[] = {color, prior.data(), noise.data(),
+                                control_mask ? mapped_validity.data() : validity.data()};
         const uint64_t bytes[] = {color_count * 4, prior.size() * 4, noise.size() * 2,
-                                  validity.size()};
+                                  control_mask ? mapped_validity.size() : validity.size()};
         // Invalidate the old seed before any upload can fail: a partially
         // replaced noise plane must never be mistaken for the previous seed.
         if (uploaded_noise_seed_ != noise_seed)
@@ -943,7 +953,7 @@ class Graph {
         pack.right_batch_stride = std::bit_cast<uint32_t>(tone);
         pack.output_batch_stride = std::bit_cast<uint32_t>(structure);
         pack.left_row_stride = std::bit_cast<uint32_t>(skin);
-        pack.flags = auto_mask;
+        pack.flags = unsigned(auto_mask) | (control_mask ? 2u : 0u);
         std::vector<Event> ignored;
         backend_.execute({{pack, size_t(width) * height, UINT32_MAX, 0}}, ignored);
         backend_.execute(commands, events);

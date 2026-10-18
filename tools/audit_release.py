@@ -125,7 +125,7 @@ def validate_public_content(name, raw):
     """Reject host-specific paths and credential formats without echoing matches."""
     patterns = (
         rb"(?i)[a-z]:[/\\\\]Users[/\\\\](?!Public(?:[/\\\\]|$))[^/\\\\\s]+",
-        rb"(?i)[ed]:[/\\\\](?:Games|Kit)(?:[/\\\\]|$)",
+        rb"(?i)[ed]:[/\\\\](?:Games|Kit|AI)(?:[/\\\\]|$)",
         rb"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})",
         rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     )

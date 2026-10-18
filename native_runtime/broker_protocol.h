@@ -10,6 +10,9 @@
 
 namespace phoenix_cpp {
 constexpr uint32_t broker_magic = 0x50485843, broker_version = 1;
+constexpr uint32_t broker_extended_version = 2;
+enum BrokerPlaneFlags : uint32_t { BrokerMask=1, BrokerUI=2, BrokerAlpha=4,
+    BrokerBackbuffer=8, BrokerDistortion=16 };
 constexpr size_t text_capacity = 65536;
 // Fixed-width wire data only; no pointers, STL objects or architecture-sized
 // fields. Compatible between a future x86 host and this x64 broker.
@@ -21,10 +24,13 @@ struct alignas(64) BrokerHeader {
     uint32_t reserved = 0;
     char config[text_capacity]{}, metadata[text_capacity]{}, status[text_capacity]{};
 };
-inline uint64_t broker_bytes(unsigned width, unsigned height) {
+inline uint64_t broker_bytes(unsigned width, unsigned height, uint32_t version = broker_version) {
     if (!width || !height || width > 8192 || height > 8192)
         throw std::runtime_error("Broker extent invalid");
-    return sizeof(BrokerHeader) + uint64_t(width) * height * 10 * sizeof(float);
+    if (version != broker_version && version != broker_extended_version)
+        throw std::runtime_error("Broker wire version unsupported");
+    return sizeof(BrokerHeader) + uint64_t(width) * height *
+        (version == broker_extended_version ? 26 : 10) * sizeof(float);
 }
 inline void broker_text(char* dst, const std::string& value) {
     if (value.size() >= text_capacity)

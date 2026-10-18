@@ -99,11 +99,11 @@ def main():
             'tag', '-a', VERSION, commit, '-m', 'DLSS5 Phoenix add-on '+VERSION], cwd=ROOT, check=True)
     git('push', '--atomic', 'origin', commit+':refs/heads/main', 'refs/tags/'+VERSION)
     body = (output/'RELEASE_NOTES.md').read_text(encoding='utf-8')
-    base = 'https://github.com/'+REPO+'/blob/main/docs/RELEASE_0.81.md'
+    base = 'https://github.com/'+REPO+'/blob/'+VERSION+'/docs/RELEASE_'+VERSION+'.md'
     body = re.sub(r'\]\((?!https?://|#)([^)]+)\)',
                   lambda match: ']('+urllib.parse.urljoin(base, match[1])+')', body)
     release = json.loads(request(API+'/releases', token, 'POST', dict(tag_name=VERSION,
-        target_commitish=commit, name='DLSS5 Phoenix '+VERSION+' - x86/x64 execution choices',
+        target_commitish=commit, name='DLSS5 Phoenix '+VERSION+' - neural controls and native correctness fixes',
         body=body, draft=True, prerelease=False)))
     for name in [line.split('  ', 1)[1] for line in (output/'SHA256SUMS.txt').read_text().splitlines()]+['SHA256SUMS.txt']:
         upload = release['upload_url'].split('{', 1)[0]+'?name='+urllib.parse.quote(name)
@@ -114,7 +114,7 @@ def main():
         print('Uploaded '+name, flush=True)
     release = json.loads(request(API+'/releases/'+str(release['id']), token, 'PATCH',
                                  dict(draft=False, make_latest='true')))
-    public = json.loads(request(API+'/releases/tags/'+VERSION))
+    public = json.loads(request(API+'/releases/tags/'+VERSION, token))
     verified = []
     for asset in public['assets']:
         downloaded = request(asset['browser_download_url'])

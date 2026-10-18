@@ -137,7 +137,7 @@ def main():
         subprocess.run(["cmd", "/d", "/c", str(recipe)], cwd=out, check=True)
 
     includes = f'/I"{ROOT}/third_party" /I"{ROOT}/third_party/reshade"'
-    run("host", "64", f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX {includes} '
+    run("host", "64", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX {includes} '
         f'"{ROOT}/src/integration/compatibility/host/dlss5-feed-host64.cpp" /Fo:"{out}/host.obj" /Fe:"{out}/phoenix_graphics_host.exe" '
         '/link d3d12.lib dxgi.lib d3dcompiler.lib version.lib user32.lib gdi32.lib advapi32.lib ole32.lib windowscodecs.lib')
     original = json.loads((core / "embedded/manifest.json").read_text())
@@ -188,7 +188,7 @@ def main():
     resource32 = resources("32")
     hooks32 = ' '.join(f'"{ROOT}/third_party/minhook/src/{name}"'
         for name in ('hook.c', 'buffer.c', 'trampoline.c', 'hde/hde32.c'))
-    run("addon32", "32", f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /bigobj /DNOMINMAX /DImTextureID=ImU64 '
+    run("addon32", "32", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /bigobj /DNOMINMAX /DImTextureID=ImU64 '
         f'{includes} /I"{args.ngx_sdk.resolve()}" /I"{ROOT}/third_party/nvapi" '
         f'/I"{ROOT}/third_party/minhook/include" /I"{ROOT}/third_party/imgui_reshade" '
         f'/LD "{ROOT}/src/integration/reshade/addon.cpp" {hooks32} '
@@ -215,7 +215,7 @@ def main():
         if name.endswith(('.addon32','.addon64')) and not (CORE_ABI | {'CnrPHOENIXInProcessBackbufferVersion'}).issubset(pe_exports(path)):
             raise ValueError('Packaged addon is missing the required full-runtime ABI: ' + name)
         binaries[name] = dict(bytes=path.stat().st_size, sha256=file_sha256(path))
-    run('embedded_test', '64', f'cl /nologo /std:c++20 /EHsc /MT /DNOMINMAX '
+    run('embedded_test', '64', f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /EHsc /MT /DNOMINMAX '
         f'"{ROOT}/tests/native/embedded_runtime_tests.cpp" /Fo:"{out}/embedded_test.obj" '
         f'/Fe:"{out}/embedded_test.exe" /link bcrypt.lib cabinet.lib shell32.lib ole32.lib')
     run('verify_embedded', '64', f'"{out}/embedded_test.exe" "{out}/Phoenix.addon64" '

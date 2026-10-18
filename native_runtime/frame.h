@@ -1,11 +1,15 @@
 #pragma once
 #include "model.h"
 #include "parallel_rows.h"
+#include "frame_contract.h"
+#include "appearance.h"
 namespace phoenix_cpp {
 struct Controls {
     float intensity = 1, tone = 1, structure = 1, skin = -1, history_strength = 1;
     unsigned seed = 0, style = 0;
     bool auto_mask = true;
+    bool advancing_noise = false;
+    bool legacy_output = false;
     static Controls from(const Json& configuration) {
         Controls controls;
         controls.intensity = configuration.value("intensity", 1.f);
@@ -15,6 +19,9 @@ struct Controls {
         controls.seed = configuration.value("seed", 0u);
         controls.style = configuration.value("style", 0u);
         controls.auto_mask = configuration.value("auto_mask", true);
+        const auto sampling = configuration.value("sampling_mode", std::string("fixed"));
+        demand(sampling == "fixed" || sampling == "advancing", "Unknown sampling mode");
+        controls.advancing_noise = sampling == "advancing";
         demand(std::isfinite(controls.intensity) && controls.intensity >= 0 &&
                    controls.intensity <= 2 && controls.style <= 2,
                "Invalid frame controls");
@@ -206,7 +213,8 @@ struct FrameState {
     // Mirror-padding and intermediate half-rounding match the model input contract.
     std::vector<uint16_t> features(const float* color, const Controls& controls,
                                    const std::vector<float>& prior,
-                                   const std::vector<uint8_t>& valid) {
+                                   const std::vector<uint8_t>& valid,
+                                   const float* control_mask = nullptr) {
         prepare_noise(controls.seed);
         std::vector<uint16_t> result(size_t(padded_width) * padded_height * 16);
         std::array<float, 5> conditioning = {
@@ -234,9 +242,15 @@ struct FrameState {
                                   centre(prior[source_pixel_index * 3 + feature_index])))
                             : pixel_features[4 + feature_index];
                 }
+                auto pixel_conditioning = conditioning;
+                if (control_mask) {
+                    pixel_conditioning[1] = controls.tone * control_mask[source_pixel_index * 4 + 1];
+                    pixel_conditioning[2] = controls.structure * control_mask[source_pixel_index * 4 + 2];
+                    pixel_conditioning[3] = pixel_conditioning[4] = 0.f;
+                }
                 for (unsigned feature_index = 0; feature_index < 5; ++feature_index)
                     pixel_features[10 + feature_index] =
-                        uint16_t(math.half_bits(conditioning[feature_index]));
+                        uint16_t(math.half_bits(pixel_conditioning[feature_index]));
                 pixel_features[15] = 0;
             }
         });
@@ -247,7 +261,8 @@ struct FrameState {
     // intensity does not silently change the temporal state fed to the next frame.
     std::vector<float> resolve(const float* color, const std::vector<float>& head,
                                const Controls& controls, const std::vector<float>& prior,
-                               const std::vector<uint8_t>& valid, std::vector<float>& next) {
+                               const std::vector<uint8_t>& valid, std::vector<float>& next,
+                               const float* control_mask = nullptr, bool defer_display = false) {
         size_t pixel_count = size_t(width) * height;
         std::vector<float> output(pixel_count * 3);
         next.resize(pixel_count * 3);
@@ -255,11 +270,12 @@ struct FrameState {
             for (unsigned pixel_x = 0; pixel_x < width; ++pixel_x) {
                 auto pixel_index = size_t(pixel_y) * width + pixel_x,
                      head_offset = (size_t(pixel_y) * padded_width + pixel_x) * 4;
-                float activation_gate =
-                    valid[pixel_index]
-                        ? 1.f / (1.f + std::exp(-head[head_offset + 3])) * controls.history_strength
-                        : 0;
+                float activation_gate = resolve_gate(head[head_offset + 3],
+                                                    valid[pixel_index] != 0,
+                                                    controls.history_strength);
                 float frame_luma = 0, out_luma = 0;
+                const float intensity = controls.intensity *
+                    (control_mask ? control_mask[pixel_index * 4] : 1.f);
                 const float luminance_weights[] = {.2126f, .7152f, .0722f};
                 for (unsigned channel = 0; channel < 3; ++channel) {
                     float current_value = color[pixel_index * 3 + channel],
@@ -268,23 +284,34 @@ struct FrameState {
                     network += (prior[pixel_index * 3 + channel] - network) * activation_gate;
                     next[pixel_index * 3 + channel] = math.half(network);
                     float blended_value =
-                        std::clamp(current_value + std::min(controls.intensity, 1.f) *
+                        std::clamp(current_value + std::min(intensity, 1.f) *
                                                        (network - current_value),
                                    0.f, 1.f);
                     output[pixel_index * 3 + channel] = blended_value;
                     frame_luma += current_value * luminance_weights[channel];
                     out_luma += blended_value * luminance_weights[channel];
                 }
-                if (controls.intensity > 1) {
+                if (intensity > 1) {
                     float ratio = (out_luma + 1.f / 512) / (frame_luma + 1.f / 512),
                           safe_luminance_ratio = std::max(ratio, 1e-6f),
                           intensity_gain = std::clamp(
-                              std::pow(safe_luminance_ratio, controls.intensity), .5f, 2.f);
+                              std::pow(safe_luminance_ratio, intensity), .5f, 2.f);
                     for (unsigned channel = 0; channel < 3; ++channel)
                         output[pixel_index * 3 + channel] =
                             std::clamp(output[pixel_index * 3 + channel] * intensity_gain /
                                            safe_luminance_ratio,
                                        0.f, 1.f);
+                }
+                if (!controls.legacy_output) {
+                    RGB original{}, neural{};
+                    for (unsigned c = 0; c < 3; ++c) {
+                        original[c] = color[pixel_index * 3 + c];
+                        neural[c] = next[pixel_index * 3 + c];
+                    }
+                    const auto displayed = defer_display ? neural : compose_display(original, neural,
+                        pixel_index, controls.intensity, controls.style, controls.tone,
+                        DisplayInputs{control_mask});
+                    for (unsigned c = 0; c < 3; ++c) output[pixel_index * 3 + c] = displayed[c];
                 }
             }
         });

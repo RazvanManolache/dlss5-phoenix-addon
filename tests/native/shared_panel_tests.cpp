@@ -39,7 +39,7 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Backend", "Backend##phoenix_compact", "View", "Source A", "Source B", "Depth", "Resolution mode"})
+    for (const char *combo : {"Backend", "Backend##phoenix_compact", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
@@ -239,7 +239,7 @@ int run_tests() {
     ImGui::Render();
 
     unsigned widget_checks = 0, backend_selections = 0, source_selections = 0,
-             master_toggles = 0, strength_scenarios = 0;
+             master_toggles = 0, strength_scenarios = 0, appearance_scenarios = 0;
     const auto require_widget = [&](bool condition, const std::string &message) {
         ++widget_checks;
         if (!condition)
@@ -252,7 +252,9 @@ int run_tests() {
     };
     const auto widget_rect = [&](const char *label) {
         require_widget(count_widget(label) == 1,
-                       std::string("Expected exactly one widget: ") + label);
+                       std::string("Expected exactly one widget: ") + label + " (found " +
+                           std::to_string(count_widget(label)) + ", mode " + std::to_string(settings.mode) +
+                           ", appearance " + std::to_string(settings.controls.appearance) + ")");
         const auto found = std::find_if(widgets.begin(), widgets.end(), [&](const Widget &widget) {
             return widget.label == label;
         });
@@ -376,7 +378,7 @@ int run_tests() {
             pending_unchanged();
             toggle_master();
             if (!compact) {
-                expect_selection(select("Source A", "NVIDIA"), "Source A must report live selection");
+                expect_selection(select("Source A", "NVIDIA DLSS5"), "Source A must report live selection");
                 require_widget(settings.source_a == 1 && settings.source_b == 2,
                                "Source A selection changed the wrong source");
                 expect_selection(select("Source B", "Input"), "Source B must report live selection");
@@ -520,6 +522,76 @@ int run_tests() {
                         ++strength_scenarios;
                     }
             }
+            if (!compact) {
+                interaction.portable_backbuffer = false;
+                interaction.real_guides = false;
+                for (int mode : {phoenix_ui::phoenix::ours, phoenix_ui::phoenix::split}) {
+                    settings.mode = mode;
+                    settings.controls = {};
+                    const float nvidia_intensity = settings.intensity;
+                    const int nvidia_style = settings.style;
+                    frame(); frame();
+                    require_widget(widget_disabled("Phoenix intensity") && widget_disabled("Phoenix style"),
+                                   "Appearance children must start disabled");
+                    const auto enabled_appearance = click("Phoenix appearance (experimental)");
+                    require_widget(enabled_appearance.changed && enabled_appearance.tuning &&
+                                       !enabled_appearance.selection && !enabled_appearance.processing &&
+                                       settings.controls.appearance,
+                                   "Appearance enable must apply as a live tuning edit");
+                    frame();
+                    require_widget(!widget_disabled("Phoenix intensity") && !widget_disabled("Phoenix style"),
+                                   "Appearance controls must work without engine motion/depth");
+                    const auto intensity = widget_rect("Phoenix intensity");
+                    const auto edited = click_at({intensity.Min.x + 55, intensity.GetCenter().y});
+                    require_widget(edited.changed && edited.tuning && settings.controls.intensity != 1.f,
+                                   "Phoenix intensity slider did not edit the live override");
+                    const auto natural = select("Phoenix style", "Natural");
+                    require_widget(natural.changed && natural.tuning && settings.controls.style == 1,
+                                   "Natural style selection did not edit the Phoenix override");
+                    const auto cinematic = select("Phoenix style", "Cinematic");
+                    require_widget(cinematic.changed && cinematic.tuning && settings.controls.style == 2,
+                                   "Cinematic style selection did not edit the Phoenix override");
+                    require_widget(settings.intensity == nvidia_intensity && settings.style == nvidia_style,
+                                   "Phoenix appearance edited the separate NVIDIA overrides");
+                    phoenix_addon::Controls host_controls;
+                    host_controls.intensity = .3f;
+                    host_controls.style = 1;
+                    host_controls.ui_correction = 1;
+                    const auto effective = settings.controls.apply(host_controls);
+                    require_widget(effective.intensity == settings.controls.intensity && effective.style == 2 &&
+                                       effective.ui_correction == 1 && host_controls.intensity == .3f,
+                                   "Appearance values did not reach frame controls independently of host UI correction");
+                    nlohmann::json saved = nlohmann::json::object();
+                    phoenix_ui::phoenix::visit_live_tuning(settings, [&](const char* key, auto& value) {
+                        saved[key] = value;
+                    });
+                    phoenix_ui::Settings restored;
+                    phoenix_ui::phoenix::visit_live_tuning(restored, [&](const char* key, auto& value) {
+                        saved.at(key).get_to(value);
+                    });
+                    require_widget(restored.controls.appearance &&
+                                       restored.controls.intensity == settings.controls.intensity &&
+                                       restored.controls.style == 2 && restored.intensity == nvidia_intensity &&
+                                       restored.style == nvidia_style,
+                                   "Persisted Phoenix tuning failed to round-trip independently of NVIDIA values");
+                    const float retained_intensity = settings.controls.intensity;
+                    require_widget(click("Phoenix appearance (experimental)").changed &&
+                                       !settings.controls.appearance,
+                                   "Appearance disable did not switch off the override");
+                    frame();
+                    require_widget(widget_disabled("Phoenix intensity") && widget_disabled("Phoenix style") &&
+                                       settings.controls.intensity == retained_intensity && settings.controls.style == 2,
+                                   "Appearance disable must retain the selected values");
+                    const auto disabled = settings.controls.apply(host_controls);
+                    require_widget(disabled.intensity == .3f && disabled.style == 1,
+                                   "Disabled appearance did not restore the host values");
+                    ++appearance_scenarios;
+                }
+                settings.mode = phoenix_ui::phoenix::nvidia;
+                frame();
+                require_widget(count_widget("Phoenix appearance (experimental)") == 0,
+                               "NVIDIA-only mode exposed Phoenix appearance controls");
+            }
             require_widget(std::array<unsigned, 3>{persisted, applied, actions} == callbacks_before,
                            "Shared controls dispatched a persistence/runtime callback");
             if (!compact) {
@@ -541,6 +613,9 @@ int run_tests() {
                                "Portable Phoenix DLSS5 showed NVIDIA DLSS5-only controls");
                 require_widget(count_widget("Phoenix DLSS5 processing device") == 0,
                                "Portable mode duplicated the selected-device control");
+                require_widget(count_widget("Phoenix appearance (experimental)") == 0 &&
+                                   count_widget("Phoenix intensity") == 0 && count_widget("Phoenix style") == 0,
+                               "Portable final-color route exposed unsupported appearance controls");
                 interaction.portable_backbuffer = false;
                 interaction.input_capture = true;
             }
@@ -558,6 +633,7 @@ int run_tests() {
                                  {"comparison_source_selections", source_selections},
                                  {"master_toggles", master_toggles},
                                  {"strength_skin_scenarios", strength_scenarios},
+                                 {"appearance_scenarios", appearance_scenarios},
                                  {"clicked_runtime_actions", actions}})
                      .dump()
               << '\n';

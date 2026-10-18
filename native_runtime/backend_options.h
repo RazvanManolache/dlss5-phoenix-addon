@@ -48,6 +48,7 @@ enum BackendFeature : uint32_t {
     ProjectedQkvPreparation = 1u << 8,
     WorkgroupShapeTiles = 1u << 9,
     WorkgroupCompatibility = 1u << 10,
-    ApproximateMath = 1u << 11
+    ApproximateMath = 1u << 11,
+    DeviceControlMaps = 1u << 12
 };
 }

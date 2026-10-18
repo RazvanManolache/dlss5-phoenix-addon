@@ -1,6 +1,8 @@
 // CPU layout and routing checks; live API tests separately verify GPU transfers.
 #include "../../src/integration/compatibility/pixel_transport.h"
 #include "../../src/native/support/embedded_runtime.h"
+#include "../../src/native/support/locked_capture.h"
+#include "../../native_runtime/device_dependencies.h"
 #include <array>
 #include <cstdlib>
 #include <iostream>
@@ -13,6 +15,21 @@ int main() {
         if (!value)
             throw std::runtime_error("Graphics transport contract failed");
     };
+    using phoenix_addon::phoenix::capture_age_valid;
+    check(capture_age_valid(7,7,10000,120000,4,100));
+    check(!capture_age_valid(7,8,0,0,4,100));
+    check(!capture_age_valid(0,8,0,0,4,100));
+    check(!capture_age_valid(7,0,0,0,4,100));
+    check(capture_age_valid(0,0,4,100,4,100));
+    check(!capture_age_valid(0,0,5,100,4,100));
+    check(!capture_age_valid(0,0,4,101,4,100));
+    {
+        phoenix_addon::phoenix::LockedCaptureScope scope(7);
+        check(phoenix_addon::phoenix::locked_capture_token==7);
+        { phoenix_addon::phoenix::LockedCaptureScope nested(8); check(phoenix_addon::phoenix::locked_capture_token==8); }
+        check(phoenix_addon::phoenix::locked_capture_token==7);
+    }
+    check(phoenix_addon::phoenix::locked_capture_token==0);
     for (auto api : {device_api::d3d9, device_api::d3d10, device_api::d3d11, device_api::d3d12,
                      device_api::opengl, device_api::vulkan}) {
         check(uses_helper(api, 32));
@@ -44,8 +61,18 @@ int main() {
                 // double-swizzled roundtrip alone would not detect a wrong boundary.
                 check(native[0] ==
                       rgba[size_t(flip ? height - 1 : 0) * width * 4 + (bgra ? 2 : 0)]);
+                for (unsigned row=0; row<height; ++row)
+                    for (unsigned column=0; column<width; ++column)
+                        for (unsigned channel=0; channel<4; ++channel) {
+                            const auto source_channel=bgra && channel!=1 && channel!=3 ? 2-channel : channel;
+                            check(native[size_t(row)*pitch+column*4+channel] ==
+                                rgba[(size_t(flip ? height-1-row : row)*width+column)*4+source_channel]);
+                        }
             }
     }
+    std::array<uint8_t,8> in_place{1,2,3,4,5,6,7,8};
+    copy_pixel_rows(in_place.data(),8,in_place.data(),8,2,1,false,true);
+    check(in_place==std::array<uint8_t,8>{3,2,1,4,7,6,5,8});
     for (unsigned width : {1, 65, 257}) {
         constexpr unsigned height = 3;
         const auto pitch = transfer_row_pitch(device_api::d3d12, width);
@@ -86,7 +113,16 @@ int main() {
     }
     check(phoenix_embedded::file_digest(temporary) ==
           phoenix_model::weight_digest(bytes.data(), bytes.size()));
+    using phoenix_addon::phoenix::portable::device_dependencies_present;
+    const auto directory=temporary.parent_path();
+    nlohmann::json dependency{{"private_opencl_cpu",temporary.filename().string()}};
+    check(device_dependencies_present(directory,dependency,"sycl:cpu"));
+    check(device_dependencies_present(directory,nlohmann::json::object(),"cpu"));
+    check(!device_dependencies_present(directory,nlohmann::json::object(),"sycl:cpu"));
+    check(!device_dependencies_present(directory,{{"private_opencl_cpu","../outside.dll"}},"sycl:cpu"));
+    check(!device_dependencies_present(directory,{{"private_opencl_cpu",temporary.string()}},"sycl:cpu"));
     std::filesystem::remove(temporary);
+    check(!device_dependencies_present(directory,dependency,"sycl:cpu"));
     std::cout << "{\"passed\":true,\"checks\":" << checks << ",\"bits\":" << sizeof(void*) * 8
               << "}\n";
 }

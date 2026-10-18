@@ -76,6 +76,21 @@ int main() {
         parameters.Set(NVSDK_NGX_Parameter_Reset, 0);
         parameters.Reset();
         expect(frame.reset == 1);
+        PhoenixFeederFrameV2 extended;extended.frame=frame;
+        extended.control_mask=reinterpret_cast<ID3D12Resource*>(uintptr_t(6));
+        extended.intensity=.5f;extended.appearance_generation=7;
+        expect(PhoenixFeederContractV2(extended,result));
+        phoenix_addon::active_feeder_v2()=&extended;
+        phoenix_addon::FeederParameters developer(extended.frame);
+        expect(NVSDK_NGX_SUCCEED(developer.Get("DLSSNR.ControlMask",&resource))&&resource==extended.control_mask);
+        expect(NVSDK_NGX_SUCCEED(developer.Get("DLSSNR.Intensity",&x))&&x==.5f);
+        expect(NVSDK_NGX_SUCCEED(developer.Get("Phoenix.Appearance.Contract",&flags))&&flags==1);
+        expect(NVSDK_NGX_SUCCEED(developer.Get("Phoenix.Appearance.Generation",&flags))&&flags==7);
+        expect(NVSDK_NGX_FAILED(parameters.Get("Phoenix.Appearance.Contract",&flags)));
+        phoenix_addon::active_feeder_v2()=nullptr;
+        auto altered=extended;altered.version=3;expect(!PhoenixFeederContractV2(altered,result));
+        altered=extended;altered.intensity=std::numeric_limits<float>::quiet_NaN();expect(!PhoenixFeederContractV2(altered,result));
+        altered=extended;altered.ui=altered.control_mask;altered.ui_alpha=altered.control_mask;expect(!PhoenixFeederContractV2(altered,result));
         std::cout << "{\"cpu_only\":true,\"passed\":true,\"cases\":" << checks << "}\n";
         return 0;
     } catch (const std::exception& error) {

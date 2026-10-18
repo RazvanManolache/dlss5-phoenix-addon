@@ -1167,7 +1167,7 @@ phoenix_backend_create_configured(const char* device_id, const wchar_t*, uint32_
 }
 extern "C" __declspec(dllexport) uint32_t phoenix_backend_features(Backend*) {
 #if defined(PHX_CUDA)
-    return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual;
+    return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual | DeviceControlMaps;
 #else
     return 0;
 #endif

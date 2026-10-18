@@ -9,6 +9,9 @@
 #include "../support/memory.h"
 #include <algorithm>
 #include <cstring>
+#include <source_location>
+#include <sstream>
+#include <iomanip>
 
 // Candidate-only, same-queue recorder. Callers retain this object and its inputs
 // until their submission fence completes. No NGX/DLSS host or reference replay.
@@ -19,8 +22,14 @@ inline constexpr const wchar_t* nvapi_library_name() {
 using Microsoft::WRL::ComPtr;
 using phoenix_bundle::Json;
 using phoenix_bundle::require;
-inline void hr(HRESULT value) {
-    require(SUCCEEDED(value), "phoenix D3D12 failure");
+inline void hr(HRESULT value, const std::source_location& location = std::source_location::current()) {
+    if (FAILED(value)) {
+        std::ostringstream message;
+        message << "phoenix D3D12 failure 0x" << std::hex << std::uppercase << std::setw(8)
+                << std::setfill('0') << uint32_t(value) << " in " << location.function_name()
+                << " (line " << std::dec << location.line() << ')';
+        throw std::runtime_error(message.str());
+    }
 }
 inline void nv(NvAPI_Status value) {
     require(value == NVAPI_OK, "phoenix NVAPI failure");
@@ -223,6 +232,9 @@ struct Step {
     bool barrier_after = false;
 };
 class Network {
+    // The opt-in native diagnostic executable inspects workspace snapshots and
+    // can stop a prefix for fault isolation; production callers cannot do so.
+    friend struct NetworkDiagnostics;
     // Refinement passes run serially on one queue. Their temporary tensors can
     // share storage; each pass still owns both of its temporal history images.
     // The barrier before each counter clear orders all preceding workspace use.
@@ -314,13 +326,29 @@ class Network {
     }
 
   public:
+    uint64_t control_mask_handle = 0;
+    // Bind an owned stable texture before recording. The caller must retire
+    // earlier submissions before changing this descriptor.
+    void bind_control_mask(ID3D12Resource* control_mask) {
+        require(control_mask&&!pending_,"Control map binding during a pending recording");
+        const auto d=control_mask->GetDesc();
+        ComPtr<ID3D12Device> owner;hr(control_mask->GetDevice(IID_PPV_ARGS(&owner)));
+        // ReShade may expose a device wrapper while its textures report the
+        // underlying owner. Prove the allocation relationship, as for the
+        // network's other resources, rather than rejecting that valid wrapper.
+        require(device_owns(device_.Get(),owner.Get())&&d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&
+            d.Width==width&&d.Height==height&&d.MipLevels==1&&d.SampleDesc.Count==1&&d.DepthOrArraySize==1&&
+            d.Format==DXGI_FORMAT_R32G32B32A32_FLOAT&&!(d.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE),"Control map texture contract");
+        control_mask_handle=texture_handle(control_mask,7,false);
+    }
     const unsigned width, height;
     std::shared_ptr<phoenix_kernel::Counters> counters =
         std::make_shared<phoenix_kernel::Counters>();
     Network(ID3D12Device* device, Api& api, const Json& frame, const std::vector<uint8_t>& packed,
             const std::vector<phoenix_kernel::Binary>& candidates, ID3D12Resource* color,
             ID3D12Resource* motion = nullptr, std::shared_ptr<memory::Generation> accounting = {},
-            bool allow_gpu_upload = true, const Network* sequential_source = nullptr)
+            bool allow_gpu_upload = true, const Network* sequential_source = nullptr,
+            ID3D12Resource* control_mask = nullptr)
         : accounting_(accounting), weight_identity_(packed.data()), api_(api), device_(device),
           input_(color), motion_(motion), width(frame.at("width")), height(frame.at("height")) {
         if (accounting) {
@@ -423,7 +451,7 @@ class Network {
                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             memory::resource(device, out.Get(), accounting, memory::Kind::history);
         }
-        D3D12_DESCRIPTOR_HEAP_DESC heap_description{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 7,
+        D3D12_DESCRIPTOR_HEAP_DESC heap_description{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8,
                                                     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0};
         hr(device->CreateDescriptorHeap(&heap_description, IID_PPV_ARGS(&views_)));
         memory::track(views_.Get(), accounting, memory::Kind::views);
@@ -445,12 +473,15 @@ class Network {
         clear_gpu_.ptr +=
             6 * device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         heap_description.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        heap_description.NumDescriptors = 4;
+        heap_description.NumDescriptors = 8;
         heap_description.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr(device->CreateDescriptorHeap(&heap_description, IID_PPV_ARGS(&samplers_)));
         memory::track(samplers_.Get(), accounting, memory::Kind::samplers);
         const uint64_t color_handle = texture_handle(color, 0, false);
         const uint64_t motion_handle = motion ? texture_handle(motion, 1, false) : 0;
+        if (control_mask) {
+            bind_control_mask(control_mask);
+        }
         uint64_t history_handles[2], surfaces[2];
         for (unsigned iteration_index = 0; iteration_index < 2; ++iteration_index) {
             history_handles[iteration_index] =

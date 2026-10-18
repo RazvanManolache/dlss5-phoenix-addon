@@ -18,6 +18,7 @@ class ReadbackBridge {
     uint64_t serial_ = 0, capture_serial_ = 0, upload_serial_ = 0, queued_signal_ = 0;
     uint64_t capture_frame_ = 0, submitted_frame_ = 0, delivered_frame_ = 0;
     uint64_t delivered_ = 0, presented_ = 0;
+    uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
     uint64_t capture_tick_ = 0, submitted_tick_ = 0, delivered_tick_ = 0;
     std::vector<uint8_t> submitted_pixels_;
     double capture_ms_ = 0, upload_ms_ = 0, compose_ms_ = 0;
@@ -186,19 +187,26 @@ class ReadbackBridge {
                 {"last_compose_ms", compose_ms_},
                 {"last_deferred_readback_ms", deferred_readback_ms_},
                 {"capture_snapshot_copies", capture_copies_},
-                {"deferred_readbacks", deferred_readbacks_}};
+                {"deferred_readbacks", deferred_readbacks_},
+                {"input_frame", presented_input_frame_}, {"output_frame", presented_output_frame_},
+                {"composed_at_frame", composed_at_frame_}, {"width", width_}, {"height", height_}};
     }
     void signal_after_present() {
         if (!queued_signal_)
             return;
+        const auto begin = std::chrono::steady_clock::now();
         require(queue_->signal(retired_, queued_signal_),
                 "Cannot signal graphics transfer completion");
+        if (elapsed_ms(begin)>100)
+            reshade::log::message(reshade::log::level::warning,
+                ("Phoenix transfer fence signal stalled " + std::to_string(elapsed_ms(begin)) + " ms").c_str());
         queued_signal_ = 0;
     }
     void frame(reshade::api::command_list* command, reshade::api::resource back,
                uint64_t frame_number, const phoenix_addon::phoenix::Settings& settings,
                bool coherent_frames = false) {
         using namespace reshade::api;
+        const auto frame_begin = std::chrono::steady_clock::now();
         require(command == queue_->get_immediate_command_list(),
                 "Image transport requires the runtime immediate queue");
         const auto completed = device_->get_completed_fence_value(retired_);
@@ -335,12 +343,22 @@ class ReadbackBridge {
                 command->copy_resource(upload_, back);
             command->barrier(back, resource_usage::copy_dest, resource_usage::present);
             ++presented_;
+            // A plain upload replaces the complete image. Only the D3D9
+            // compositor can mix a live input with an older processed output.
+            presented_input_frame_ = compositor9_ && !coherent_frames ? frame_number : delivered_frame_;
+            presented_output_frame_ = delivered_frame_;
+            composed_at_frame_ = frame_number;
             compose_ms_ = elapsed_ms(compose_begin);
         }
         // Vulkan submits with application wait semaphores AFTER this callback.
         // Let ReShade flush first; finish_present then signals the retirement fence.
         if (device_->get_api() != device_api::vulkan)
             signal_after_present();
+        if (elapsed_ms(frame_begin)>100)
+            reshade::log::message(reshade::log::level::warning,
+                ("Phoenix transfer frame stalled " + std::to_string(elapsed_ms(frame_begin)) +
+                 " ms; capture=" + std::to_string(capture_ms_) + " upload=" + std::to_string(upload_ms_) +
+                 " compose=" + std::to_string(compose_ms_)).c_str());
     }
 };
 } // namespace phoenix_compat

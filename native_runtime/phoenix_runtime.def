@@ -2,5 +2,9 @@ EXPORTS
 phoenix_runtime_create
 phoenix_runtime_destroy
 phoenix_runtime_frame
+phoenix_runtime_frame_v2
+phoenix_runtime_frame_v3
 phoenix_runtime_error
 phoenix_runtime_status
+phoenix_runtime_capabilities
+phoenix_runtime_replace_model

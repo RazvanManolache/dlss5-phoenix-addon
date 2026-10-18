@@ -63,3 +63,30 @@ timing and history and switches only after the previous stream retires. Global
 control resets propagate to every stream. Stereo accepts Input/Phoenix DLSS5 sources;
 NVIDIA-reference sources are refused until their NR features are isolated.
 Synthetic transport validation is not stereo-game acceptance or a quality claim.
+
+## Experimental appearance feeder V2
+
+The candidate adds `CnrPHOENIXFeederVersionV2` (returns 2) and
+`CnrPHOENIXFeederEvaluateV2`. The existing V1 exports and structures stay
+unchanged. Construct `PhoenixFeederFrameV2`; its `frame` member is an ordinary
+V1 frame, and the result remains `PhoenixFeederResultV1`. The outer size/version
+identify the additive contract. V2 itself explicitly opts into the experimental
+Phoenix RGB/1 appearance semantics documented in [LIBRARY.md](LIBRARY.md).
+
+V2 supplies intensity/tone/structure/skin/style/automatic controls and optional
+full-extent mask, premultiplied UI, UIAlpha, backbuffer and distortion textures.
+All enter/leave COMMON and require fresh observed barriers on the supplied list.
+Mask/UI/field are RGBA32F, UIAlpha R32F, backbuffer RGBA16F. UI and UIAlpha are
+alternatives. Resources must be distinct, on the same device, with matching
+source/network/output dimensions. The host must produce finite values in the
+declared range and retain textures through completion; Phoenix additionally
+holds resource references through its fence. Unsupported HDR UI/geometry rejects.
+
+`appearance_generation` is a producer contract/coordinate/settings epoch. Change
+it when those conventions change; the native/worker route resets history for
+that change. Keep it stable for ordinary moving-object map updates, which must
+preserve temporal continuation. V1 stream/eye and queue/fence rules still apply.
+The shared panel reports producer/map/UI/field/revision; it cannot synthesize
+object IDs from the final color image. See `examples/engine_control_mask.hlsl`
+for an engine ID-table map producer. Addon compilation, API tests and software
+D3D12 wrapper/capture checks passed; no live engine/game V2 producer was tested.

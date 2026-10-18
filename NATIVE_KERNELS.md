@@ -297,3 +297,14 @@ All 41 rebuilt production instruction/constant sections match tested modules.
 Eleven C++ CPU suites, one WARP suite, 28 Python tests and all 118 embedded
 payloads pass. Backup tag: `backup/native-before-retuning-20261011`.
 No game deployment was performed.
+
+
+## Tile-aligned graph packages
+
+Current native execution requires complete 32-token transformer storage and
+persistent downsample padding. Bundles may add a separately pinned
+`native_graph_v2.json`; the loader prefers it while retaining the original graph
+for older SDK readers. Both graph files are included when embedding a bundle.
+Fresh bundles use the current source graph directly. Packaging rejects a stale
+active graph, and the runtime rejects obsolete layouts before launch.
+See [the 0.82 correctness investigation](docs/NATIVE_CORRECTNESS_0.82.md).

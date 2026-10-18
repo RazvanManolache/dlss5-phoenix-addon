@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.81'
+VERSION = '0.82'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -110,121 +110,92 @@ def write_archive(path, files):
 def common_files():
     files = {name: (ROOT/name).read_bytes() for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY.md')}
     for path in (ROOT/'third_party').rglob('*'):
-        if path.is_file() and (path.name.upper().startswith(('LICENSE', 'NOTICE', 'COPYING', 'MIT_LICENSE'))
-                               or path.name == 'ReShade-LICENSE.txt'):
+        if path.is_file() and (path.name.upper().startswith(('LICENSE', 'NOTICE', 'COPYING', 'MIT_LICENSE')) or path.name == 'ReShade-LICENSE.txt'):
             files['licenses/'+path.relative_to(ROOT/'third_party').as_posix()] = path.read_bytes()
-    for name in ('EXECUTION_MECHANISMS.md', 'WOW64_EXPERIMENT.md', 'X86_NATIVE_INVESTIGATION.md', 'X86_VULKAN.md', 'RELEASE_0.81.md', 'VALIDATION_0.81.md'):
+    for name in ('RELEASE_0.82.md', 'VALIDATION_0.82.md', 'NEURAL_CONTROLS.md', 'NATIVE_CORRECTNESS_0.82.md', 'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
-    files['README.txt'] = (
-        'DLSS5 Phoenix add-on 0.81\n'
-        'Copy the matching Phoenix.addon32 OR Phoenix.addon64 beside your game ReShade DLL.\n'
-        'Keep the graphics helper and notices alongside it. Select your external model in Phoenix.\n'
-        'Leave Advanced transport on Automatic initially. Optional runtimes are separate downloads.\n'
-        'Experimental native x86 paths are Windows/driver-profile specific, not universally validated.\n'
-        'See docs/RELEASE_0.81.md for installation, features, evidence and limits.\n'
-        'No NVIDIA model DLLs, model weights, user configurations, logs or captures are included.\n'
-        'https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81\n').encode()
+    files['README.txt'] = ('Phoenix add-on 0.82\n'
+        'Use a current ReShade build with full add-on support. Copy only the matching add-on and graphics helper.\n'
+        'Select your separately obtained compatible model in the Phoenix panel. New artistic inputs are experimental.\n'
+        'See docs/RELEASE_0.82.md for installation and validation boundaries.\n'
+        'No model weights, NVIDIA model DLLs or private configurations are included.\n').encode()
     return files
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--wow64ext', type=Path, required=True, help='Pinned unmodified WOW64Ext source checkout')
-    parser.add_argument('--ref', default='HEAD', help='Publication commit with exactly the current source tree')
+    parser.add_argument('--ref', default='HEAD')
+    parser.add_argument('--candidate', type=Path, required=True)
+    parser.add_argument('--runtime', type=Path, required=True)
+    parser.add_argument('--runtime-x86', type=Path, required=True)
+    parser.add_argument('--validation', type=Path, required=True)
     args = parser.parse_args()
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode:
         raise ValueError('Commit maintained source before assembling a release')
     commit = subprocess.check_output(['git', 'rev-parse', args.ref+'^{commit}'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'rev-parse', commit+'^{tree}'], cwd=ROOT) != subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=ROOT):
-        raise ValueError('Publication ref must have the exact current source tree')
-    manifest, source = audit()
+        raise ValueError('Publication ref must match this source tree')
+    source_manifest, source = audit()
     tracked = set(filter(None, subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')))
     if set(source) != tracked:
         raise ValueError('Source archive must equal the complete audited tracked tree')
-    hashes = json.loads((CANDIDATE/'FILES_SHA256.json').read_text())
-    for name, expected in hashes.items():
-        path = CANDIDATE/name
-        if not path.resolve().is_relative_to(CANDIDATE.resolve()) or sha(path.read_bytes()) != expected:
-            raise ValueError('Candidate hash mismatch: '+name)
-        safe_payload(name, path.read_bytes())
-    compile_receipt = json.loads((CURRENT/'portable-bridge-validation.json').read_text())
-    if not compile_receipt.get('passed'):
-        raise ValueError('CPU integration/build verification did not pass')
-    for name, expected in compile_receipt['source_sha256'].items():
-        if sha((ROOT/name).read_bytes()) != expected:
-            raise ValueError('Add-on source changed after compilation: '+name)
-    output = CURRENT/f'release-{VERSION}'
-    if output.exists():
-        raise ValueError('Release output already exists; inspect it before replacement')
-    with tempfile.TemporaryDirectory(prefix='release-', dir=ROOT/'artifacts') as temporary:
-        staging = Path(temporary)
-        embedded = {}
-        for bits in (32, 64):
-            embedded[str(bits)] = audit_embedded(CANDIDATE/f'Phoenix.addon{bits}', staging/str(bits))
-            row = compile_receipt['architectures'][str(bits)]
-            if hashes[f'Phoenix.addon{bits}'] != row['addon_sha256'] or embedded[str(bits)]['retained_payload_sha256'] != row['retained_payload_sha256']:
-                raise ValueError('Add-on/embedded payload differs from compile evidence')
-        assets = {}
-        main_files = common_files()
-        for name in ('Phoenix.addon32', 'Phoenix.addon64', 'phoenix_graphics_host.exe'):
-            main_files[name] = (CANDIDATE/name).read_bytes()
-        assets[f'DLSS5-Phoenix-{VERSION}-Windows.zip'] = write_archive(staging/f'DLSS5-Phoenix-{VERSION}-Windows.zip', main_files)
-        portable = common_files()
-        native = common_files()
-        for name in hashes:
-            if name.startswith(('PhoenixRuntime/win-x86/', 'PhoenixRuntime/win-x64/')):
-                portable[name] = (CANDIDATE/name).read_bytes()
-            elif name.startswith('PhoenixRuntime/wow64/'):
-                native[name] = (CANDIDATE/name).read_bytes()
-        from probe_wow64_native import WOW64EXT_COMMIT
-        extension = args.wow64ext.resolve()
-        if subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=extension, text=True).strip() != WOW64EXT_COMMIT:
-            raise ValueError('Wrong WOW64Ext source revision')
-        if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=extension, text=True).strip():
-            raise ValueError('WOW64Ext source is modified')
-        for name in filter(None, subprocess.check_output(['git', 'ls-files', '-z'], cwd=extension).decode().split('\0')):
-            if not name.startswith('bin/'):
-                native['WOW64Ext-source/'+name] = subprocess.check_output(['git', 'show', 'HEAD:'+name], cwd=extension)
-        native['PhoenixRuntime/wow64/licenses/lgpl-3.0.txt'] = (extension/'lgpl-3.0.txt').read_bytes()
-        for suffix, files in (('Portable-Runtimes', portable), ('Experimental-WOW64', native)):
-            name = f'DLSS5-Phoenix-{VERSION}-{suffix}.zip'
-            assets[name] = write_archive(staging/name, files)
-        source_name = f'DLSS5-Phoenix-{VERSION}-Source.zip'
-        source_path = staging/source_name
-        subprocess.run(['git', '-c', 'core.autocrlf=false', 'archive', '--format=zip', f'--prefix=DLSS5-Phoenix-{VERSION}/',
-                        f'--output={source_path}', commit], cwd=ROOT, check=True)
-        with zipfile.ZipFile(source_path) as archive:
-            for name, row in manifest['files'].items():
-                raw = archive.read(f'DLSS5-Phoenix-{VERSION}/'+name)
-                if sha(raw) != row['sha256']:
-                    # Git archives use repository line endings, not worktree CRLF.
-                    expected = subprocess.check_output(['git', 'show', commit+':'+name], cwd=ROOT)
-                    if raw != expected:
-                        raise ValueError('Source archive mismatch: '+name)
-                validate_public_content(name, raw)
-            if archive.testzip():
-                raise ValueError('Source archive CRC failure')
-        assets[source_name] = dict(files=len(source), bytes=source_path.stat().st_size, sha256=sha(source_path.read_bytes()))
-        validation = dict(schema='phoenix-addon-release/1', version=VERSION, commit=commit,
-            source_audit_passed=True, archive_hashes_verified=True,
-            private_paths_secrets_models_and_logs_excluded=True,
-            retained_source_location_diagnostics='Four embedded legacy runtime binaries retain a project-source checkout root in __FILE__ assertions; no user or game configuration is included.',
-            release_preparation_used_gpu=False, retail_games_launched=False,
-            experimental_x86_game_presentation_validated=False,
-            standalone_runtimes='Retained hash-verified builds; not rebuilt for this add-on release.',
-            gpu_evidence='Pre-release isolated/package-client evidence, not a fresh release-binary game run.',
-            cpu_contracts={bits: {name: dict(passed=row['passed']) for name, row in value['tests'].items()}
-                for bits, value in compile_receipt['architectures'].items()},
-            embedded_resources={bits: row['resources'] for bits, row in embedded.items()}, assets=assets)
-        (staging/'VALIDATION.json').write_text(json.dumps(validation, indent=2)+'\n')
-        (staging/'RELEASE_NOTES.md').write_text((ROOT/'docs/RELEASE_0.81.md').read_text(encoding='utf-8'), encoding='utf-8')
-        upload_names = [*assets, 'VALIDATION.json']
-        (staging/'SHA256SUMS.txt').write_text(''.join(sha((staging/name).read_bytes())+'  '+name+'\n' for name in upload_names), encoding='ascii')
-        output.mkdir()
-        for name in [*upload_names, 'SHA256SUMS.txt', 'RELEASE_NOTES.md']:
-            (staging/name).replace(output/name)
-    print(json.dumps(dict(passed=True, version=VERSION, commit=commit, assets=assets), indent=2))
+    tests = json.loads(args.validation.read_text())
+    if not tests.get('passed') or not tests.get('release_payload_checked'):
+        raise ValueError('Fresh release payload validation is incomplete')
+    candidate=args.candidate.resolve()
+    build=json.loads((candidate/'report.json').read_text())
+    if not build.get('passed'):
+        raise ValueError('Add-on package build failed')
+    for name,row in build['binaries'].items():
+        if sha((candidate/name).read_bytes())!=row['sha256']:
+            raise ValueError('Packaged add-on changed: '+name)
+    output=CURRENT/f'release-{VERSION}'
+    if output.exists():raise ValueError('Release output exists; inspect before replacing')
+    with tempfile.TemporaryDirectory(prefix='release-',dir=ROOT/'artifacts') as temporary:
+        staging=Path(temporary); embedded={}
+        for bits in (32,64):
+            embedded[str(bits)]=audit_embedded(candidate/f'Phoenix.addon{bits}',staging/str(bits))
+        files=common_files()
+        for name in ('Phoenix.addon32','Phoenix.addon64','phoenix_graphics_host.exe'):
+            files[name]=(candidate/name).read_bytes()
+        assets={}
+        name=f'DLSS5-Phoenix-{VERSION}-Windows.zip'
+        assets[name]=write_archive(staging/name,files)
+        files=common_files()
+        for architecture,folder in (('win-x64',args.runtime),('win-x86',args.runtime_x86)):
+            for path in folder.rglob('*'):
+                if path.is_file():files['PhoenixRuntime/'+architecture+'/'+path.relative_to(folder).as_posix()]=path.read_bytes()
+        name=f'DLSS5-Phoenix-{VERSION}-Portable-Runtimes.zip'
+        assets[name]=write_archive(staging/name,files)
+        name=f'DLSS5-Phoenix-{VERSION}-Source.zip';prefix=f'DLSS5-Phoenix-{VERSION}/'
+        subprocess.run(['git','-c','core.autocrlf=false','archive','--format=zip','--prefix='+prefix,'--output='+str(staging/name),commit],cwd=ROOT,check=True)
+        index={}
+        for record in subprocess.check_output(['git','ls-files','--stage','-z'],cwd=ROOT).decode().split('\0'):
+            if record:
+                meta,path=record.split('\t',1);index[path]=meta.split()[1]
+        algorithm=subprocess.check_output(['git','rev-parse','--show-object-format'],cwd=ROOT,text=True).strip()
+        with zipfile.ZipFile(staging/name) as archive:
+            archived={p[len(prefix):] for p in archive.namelist() if not p.endswith('/')}
+            if archived!=tracked:raise ValueError('Source ZIP differs from the tracked tree')
+            for path in archived:
+                raw=archive.read(prefix+path);h=hashlib.new(algorithm)
+                h.update(b'blob '+str(len(raw)).encode()+b'\0'+raw)
+                if h.hexdigest()!=index[path]:raise ValueError('Source ZIP differs from committed blob: '+path)
+                validate_public_content(path,raw)
+            if archive.testzip():raise ValueError('Source ZIP CRC error')
+        assets[name]=dict(files=len(tracked),bytes=(staging/name).stat().st_size,sha256=sha((staging/name).read_bytes()))
+        validation=dict(schema='phoenix-addon-release/2',version=VERSION,commit=commit,passed=True,
+            source_audit_passed=True,archive_hashes_verified=True,model_free=True,
+            private_paths_secrets_models_and_logs_excluded=True,retail_games_launched=False,
+            vendor_parity=False,release_validation=tests,
+            embedded_resources={bits:row['resources'] for bits,row in embedded.items()},assets=assets)
+        (staging/'VALIDATION.json').write_text(json.dumps(validation,indent=2)+'\n')
+        (staging/'RELEASE_NOTES.md').write_text((ROOT/'docs/RELEASE_0.82.md').read_text(),encoding='utf-8')
+        names=[*assets,'VALIDATION.json']
+        (staging/'SHA256SUMS.txt').write_text(''.join(sha((staging/n).read_bytes())+'  '+n+'\n' for n in names),encoding='ascii')
+        output.mkdir(parents=True)
+        for n in [*names,'SHA256SUMS.txt','RELEASE_NOTES.md']:(staging/n).replace(output/n)
+    print(json.dumps(dict(passed=True,version=VERSION,commit=commit,assets=assets),indent=2))
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__':main()

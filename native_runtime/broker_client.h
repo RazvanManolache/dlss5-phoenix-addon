@@ -14,6 +14,7 @@ class BrokerClient {
     BrokerHeader* header = nullptr;
     uint64_t sequence = 0;
     size_t pixels = 0;
+    uint32_t protocol = broker_extended_version;
     HANDLE cancel = nullptr;
     void wait(DWORD timeout = 600000) {
         const HANDLE handles[] = {complete, process, cancel};
@@ -39,7 +40,9 @@ class BrokerClient {
               unsigned height, HANDLE cancellation = nullptr) {
         cancel = cancellation;
         pixels = size_t(width) * height;
-        auto bytes = broker_bytes(width, height);
+        protocol = nlohmann::json::parse(config).value("broker_protocol", broker_extended_version);
+        auto bytes = broker_bytes(width, height, protocol);
+        if(bytes>SIZE_MAX)throw std::runtime_error("Broker mapping exceeds caller address space");
         unsigned char random[16];
         if (BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0)
             throw std::runtime_error("Broker nonce generation failed");
@@ -59,6 +62,7 @@ class BrokerClient {
         if (!header)
             throw std::runtime_error("Broker memory allocation failed");
         new (header) BrokerHeader();
+        header->version = protocol;
         header->width = width;
         header->height = height;
         header->bytes = bytes;
@@ -100,7 +104,14 @@ class BrokerClient {
             throw std::runtime_error(header->status);
     }
     int frame(const float* color, const float* motion, const float* depth, const float* validity,
-              const std::string& metadata, float* output) {
+              const std::string& metadata, float* output, const float* mask = nullptr,
+              const float* ui = nullptr, const float* alpha = nullptr,
+              const float* backbuffer = nullptr, const float* distortion = nullptr) {
+        const uint32_t flags = (mask ? BrokerMask : 0) | (ui ? BrokerUI : 0) |
+            (alpha ? BrokerAlpha : 0) | (backbuffer ? BrokerBackbuffer : 0) |
+            (distortion ? BrokerDistortion : 0);
+        if (flags && protocol != broker_extended_version)
+            throw std::runtime_error("Advanced planes require broker protocol 2");
         auto base = reinterpret_cast<float*>(header + 1);
         std::memcpy(base, color, pixels * 3 * sizeof(float));
         auto copy = [&](size_t offset, size_t count, const float* src) {
@@ -112,6 +123,14 @@ class BrokerClient {
         copy(3 * pixels, 2 * pixels, motion);
         copy(5 * pixels, pixels, depth);
         copy(6 * pixels, pixels, validity);
+        if (protocol == broker_extended_version) {
+            copy(10*pixels, 4*pixels, mask);
+            copy(14*pixels, 4*pixels, ui);
+            copy(18*pixels, pixels, alpha);
+            copy(19*pixels, 3*pixels, backbuffer);
+            copy(22*pixels, 4*pixels, distortion);
+        }
+        header->reserved = flags;
         broker_text(header->metadata, metadata);
         header->sequence = ++sequence;
         SetEvent(request);
@@ -134,6 +153,7 @@ class NativeSession {
     std::unique_ptr<BrokerClient> broker;
     std::string error_text;
     HANDLE cancellation = nullptr;
+    unsigned width_ = 0, height_ = 0;
 
   public:
     void set_cancellation(HANDLE handle) {
@@ -141,6 +161,7 @@ class NativeSession {
     }
     void open(const std::filesystem::path& root, const nlohmann::json& config, unsigned width,
               unsigned height) {
+        width_ = width; height_ = height;
         auto effective = config;
         if (config.value("device", std::string()) == "sycl:cpu")
             effective["execution"] = "broker";
@@ -160,6 +181,39 @@ class NativeSession {
                                           metadata.c_str(), output);
         if (result)
             error_text = broker ? broker->status_json() : local.error();
+        return result;
+    }
+    int frame_advanced(const float* color, const float* motion, const float* depth,
+              const float* validity, const std::string& metadata, float* output,
+              const float* mask = nullptr, const float* ui = nullptr, const float* alpha = nullptr,
+              const float* backbuffer = nullptr, const float* distortion = nullptr) {
+        if (!mask && !ui && !alpha && !backbuffer && !distortion)
+            return frame(color, motion, depth, validity, metadata, output);
+        int result = -1;
+        if (broker) result = broker->frame(color, motion, depth, validity, metadata, output,
+            mask, ui, alpha, backbuffer, distortion);
+        else if (!local.frame_v3) error_text = "Advanced frame API unavailable in selected runtime";
+        else {
+            const size_t pixels = size_t(width_) * height_;
+            auto view = [&](const float* data, unsigned channels) {
+                return data ? phoenix_plane_f32{data, pixels * channels * sizeof(float), 0,
+                    width_, height_, channels, 0} : phoenix_plane_f32{};
+            };
+            phoenix_frame_v3 request{};
+            request.base.struct_bytes = sizeof(request);
+            request.base.version = PHOENIX_FRAME_VERSION_3;
+            request.base.control_profile = mask ? PHOENIX_CONTROL_EXPERIMENTAL_RGB_1 : PHOENIX_CONTROL_NONE;
+            request.base.color=view(color,3); request.base.motion=view(motion,2);
+            request.base.depth=view(depth,1); request.base.validity=view(validity,1);
+            request.base.control_mask=view(mask,4);
+            request.base.output={output,pixels*3*sizeof(float),0,width_,height_,3,0};
+            request.base.metadata_json=metadata.c_str();
+            request.ui=view(ui,4); request.ui_alpha=view(alpha,1);
+            request.backbuffer=view(backbuffer,3); request.distortion=view(distortion,4);
+            result=local.frame_v3(local.instance,&request);
+            if (result) error_text=local.error();
+        }
+        if (result && broker) error_text=broker->status_json();
         return result;
     }
     DWORD process_id() const {

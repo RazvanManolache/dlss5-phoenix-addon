@@ -16,11 +16,19 @@ namespace phoenix_addon {
 namespace sl_shim {
 // sl::Feature values we template on (sl_core_types.h).
 inline constexpr uint64_t kFeatureDLSSRR = 1001;
+inline constexpr uint64_t kFeatureDLSSNR = 1004;
 // sl::BufferType values we read (sl_core_types.h).
 inline constexpr unsigned kTagDepth = 0;
 inline constexpr unsigned kTagMotion = 1;
 inline constexpr unsigned kTagHUDLessColor = 2;
 inline constexpr unsigned kTagScalingInputColor = 3;
+// Streamline 2.14.16 public core types. These identify observed resources;
+// they do not supply a private NR provider contract or extend resource lifetime.
+inline constexpr unsigned kTagDistortion = 50;
+inline constexpr unsigned kTagUIAlpha = 69;
+inline constexpr unsigned kTagUpliftInputColor = 70;
+inline constexpr unsigned kTagUpliftOutputColor = 71;
+inline constexpr unsigned kTagUpliftControlMask = 72;
 // Telemetry geometry uses the existing compact packet spelling: w/h are
 // resource width/height; ex_w/ex_h are the tagged viewport extent. These are
 // observations, not allocated frame buffers.
@@ -51,8 +59,41 @@ struct SlInputs {
     uint64_t tags = 0, evaluates = 0;
     uint32_t last_frame = 0;
 };
+struct SlNRInputs {
+    uint32_t frame = 0;
+    unsigned viewport = 0;
+    SlTag color{}, output{}, motion{}, depth{}, control_mask{}, ui_alpha{}, distortion{};
+};
 class SlObserver {
   public:
+    // Exact frame/viewport lookup only. Never use merged views, global tags or
+    // a previous frame's pointers for NR input ownership. The caller must still
+    // retain/validate resources and observe their Streamline lifecycle.
+    bool nr_inputs(uint32_t frame, unsigned viewport, SlNRInputs& result) const {
+        result = {};
+        const auto found = frames_.find(frame);
+        if (found == frames_.end()) return false;
+        const auto view = found->second.by_viewport.find(viewport);
+        if (view == found->second.by_viewport.end()) return false;
+        SlNRInputs candidate{};
+        candidate.frame = frame;
+        candidate.viewport = viewport;
+        const auto read = [&](unsigned type, SlTag& destination) {
+            const auto entry = view->second.find(type);
+            if (entry != view->second.end()) destination = entry->second;
+        };
+        read(kTagUpliftInputColor, candidate.color);
+        read(kTagUpliftOutputColor, candidate.output);
+        read(kTagMotion, candidate.motion);
+        read(kTagDepth, candidate.depth);
+        read(kTagUpliftControlMask, candidate.control_mask);
+        read(kTagUIAlpha, candidate.ui_alpha);
+        read(kTagDistortion, candidate.distortion);
+        if (!candidate.color.resource_key || !candidate.color.w || !candidate.color.h ||
+            !candidate.motion.resource_key) return false;
+        result = candidate;
+        return true;
+    }
     void note_tags(uint32_t frame, const SlTag* tags, size_t tag_count, unsigned viewport);
     // Deprecated frame-less slSetTag path: applies to every frame until
     // replaced. Joined only when no same-frame tags exist.
@@ -135,6 +176,7 @@ class SlObserver {
         uint32_t frame = 0;
         uint32_t viewport_mask = 0;
         std::map<unsigned, SlTag> by_type;
+        std::map<unsigned, std::map<unsigned, SlTag>> by_viewport;
     };
     static unsigned popcount(uint32_t bits) {
         unsigned bit_count = 0;
@@ -170,11 +212,14 @@ inline void SlObserver::note_tags(uint32_t frame, const SlTag* tags, size_t tag_
     if (viewport < 32)
         frame_tags.viewport_mask |= (1u << viewport);
     for (size_t iteration_index = 0; iteration_index < tag_count; ++iteration_index) {
-        if (!tags[iteration_index].resource_key)
+        if (!tags[iteration_index].resource_key) {
+            frame_tags.by_viewport[viewport].erase(tags[iteration_index].buffer_type);
             continue;
+        }
         SlTag tag = tags[iteration_index];
         sl_tag_geometry(tag);
         frame_tags.by_type[tag.buffer_type] = tag;
+        frame_tags.by_viewport[viewport][tag.buffer_type] = tag;
     }
     while (frames_.size() > 8)
         frames_.erase(frames_.begin());
@@ -198,10 +243,15 @@ inline void SlObserver::note_evaluate(uint64_t feature, uint32_t frame, unsigned
     // Scaling input color is the render-resolution color; HUD-less is the
     // fallback. Either is real geometry, never a guess.
     const SlTag* color = nullptr;
-    const auto sit = table.find(kTagScalingInputColor);
+    if (feature == kFeatureDLSSNR) {
+        // A missing NR tag must not leave dimensions from an older evaluate.
+        inputs.color_w = inputs.color_h = inputs.color_format = 0;
+    }
+    const auto sit = table.find(feature == kFeatureDLSSNR ? kTagUpliftInputColor
+                                                        : kTagScalingInputColor);
     if (sit != table.end())
         color = &sit->second;
-    else {
+    else if (feature != kFeatureDLSSNR) {
         const auto hit = table.find(kTagHUDLessColor);
         if (hit != table.end())
             color = &hit->second;

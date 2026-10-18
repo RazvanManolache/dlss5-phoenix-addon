@@ -21,16 +21,19 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
         ComPtr<ID3D12Resource> maps[2], residual;
         std::unique_ptr<direct::Pass> initialize, advance, compose;
         uint64_t serial = 0, tick = 0;
+        uint64_t locked_input_token = 0;
         uint32_t generation = 0;
         unsigned map = 0;
         bool tracking = false;
     } slots_[2];
     unsigned width_, height_, max_frames_;
     uint64_t max_ms_, last_serial_ = 0, capture_fence_ = 0, upload_fence_ = 0;
+    uint64_t current_locked_input_ = 0;
     uint32_t generation_ = 1;
     int pending_ = -1, ready_ = -1;
     bool submitted_ = false, readback_decoded_ = false, failed_ = false;
     bool capture_device_depth_ = false;
+    bool capture_mask_ = false, capture_distortion_ = false;
     ComPtr<ID3D12Device> device_;
     ComPtr<ID3D12Resource> current_, guides_, output_, readback_, upload_;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint_{};
@@ -51,6 +54,7 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
     CompositionProbe composition_;
     double residual_mean_ = 0, residual_max_ = 0;
     std::vector<float> color_, motion_, depth_, history_validity_, result_;
+    std::vector<float> captured_mask_,captured_distortion_;
     Json capture_request_, signature_, last_result_ = Json::object();
     std::string state_ = "worker_starting", error_;
     uint64_t captures_ = 0, delivered_ = 0, discarded_ = 0, presented_ = 0;
@@ -152,16 +156,21 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
     }
     bool eligible(const Slot& slot, uint64_t serial, uint64_t tick) const {
         return slot.tracking && slot.generation == generation_ && serial >= slot.serial &&
-               serial - slot.serial <= max_frames_ && tick - slot.tick <= max_ms_;
+               capture_age_valid(slot.locked_input_token, current_locked_input_,
+                                 serial-slot.serial, tick-slot.tick, max_frames_, max_ms_);
     }
     Json request(const ExecutorFrame& frame) const {
         const auto& controls = frame.controls;
         Json request_body{{"has_motion", true},
+                          {"output_stage","neural_only"},
+                          {"has_control_mask",frame.appearance.mask!=nullptr},
+                          {"has_distortion",frame.appearance.field!=nullptr},
+                          {"appearance_generation",frame.appearance_generation},
                           {"has_depth", true},
                           {"has_history_validity", true},
                           {"reversed_depth", frame.device_depth && controls.inverted != 0},
                           {"controls",
-                           {{"intensity", controls.intensity},
+                           {{"intensity", 1.f},
                             {"style", controls.style},
                             {"local_tone", controls.tone},
                             {"local_structure", controls.structure},
@@ -183,8 +192,16 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
     // the capture fence signals completion.
     bool decode_capture() {
         void* mapped_bytes = nullptr;
-        D3D12_RANGE range{0, SIZE_T(texture_bytes_ * 3)};
+        D3D12_RANGE range{0, SIZE_T(texture_bytes_ * 5)};
         phoenix_native::hr(readback_->Map(0, &range, &mapped_bytes));
+        auto decode_optional=[&](bool present,unsigned offset,std::vector<float>& destination) {
+            destination.resize(present?size_t(width_)*height_*4:0);
+            if(present)for(unsigned y=0;y<height_;++y)
+                std::memcpy(destination.data()+size_t(y)*width_*4,
+                    static_cast<const char*>(mapped_bytes)+texture_bytes_*offset+size_t(y)*footprint_.Footprint.RowPitch,
+                    size_t(width_)*16);
+        };
+        decode_optional(capture_mask_,3,captured_mask_);decode_optional(capture_distortion_,4,captured_distortion_);
         // Both snapshots were copied in the same command list. They cannot be
         // touched until capture_fence_ has completed on the host's queue.
         for (unsigned pixel_y = 0; pixel_y < height_; ++pixel_y)
@@ -319,7 +336,7 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
         }
         D3D12_RESOURCE_DESC buffer_description{};
         buffer_description.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        buffer_description.Width = texture_bytes_ * 3;
+        buffer_description.Width = texture_bytes_ * 5;
         buffer_description.Height = 1;
         buffer_description.DepthOrArraySize = buffer_description.MipLevels = 1;
         buffer_description.SampleDesc.Count = 1;
@@ -387,6 +404,7 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
               "Offload frame sequence/command invalid");
         const bool gap = last_serial_ && frame.serial != last_serial_ + 1;
         last_serial_ = frame.serial;
+        current_locked_input_ = frame.locked_input_token;
         if (failed_)
             return frame.color;
         if (!frame.guides) {
@@ -509,11 +527,12 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
                                                          pixel_y * footprint_.Footprint.RowPitch) +
                                 4 * pixel_x;
                             for (unsigned channel = 0; channel < 3; ++channel) {
-                                pixel[channel] = result_[iteration_index * 3 + channel] -
-                                                 color_[iteration_index * 3 + channel];
-                                residual_mean_ += std::abs(pixel[channel]);
+                                const float residual = result_[iteration_index * 3 + channel] -
+                                                       color_[iteration_index * 3 + channel];
+                                pixel[channel] = residual;
+                                residual_mean_ += std::abs(residual);
                                 residual_max_ =
-                                    std::max(residual_max_, double(std::abs(pixel[channel])));
+                                    std::max(residual_max_, double(std::abs(residual)));
                             }
                             pixel[3] = 0;
                         }
@@ -552,7 +571,9 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
                     }
                     submitted_ =
                         worker_->submit(slot.serial, slot.generation, color_.data(), motion_.data(),
-                                        depth_.data(), capture_request_, history_validity_.data());
+                                        depth_.data(), capture_request_, history_validity_.data(),
+                                        captured_mask_.empty()?nullptr:captured_mask_.data(),nullptr,nullptr,nullptr,
+                                        captured_distortion_.empty()?nullptr:captured_distortion_.data());
                     state_ = submitted_ ? "inference_running" : "worker_starting";
                 }
             }
@@ -564,6 +585,7 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
                 auto& slot = slots_[pending_];
                 slot.serial = frame.serial;
                 slot.tick = tick;
+                slot.locked_input_token = frame.locked_input_token;
                 slot.generation = generation_;
                 slot.map = 0;
                 slot.tracking = true;
@@ -581,6 +603,15 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
                 }
                 capture_fence_ = frame.serial;
                 capture_request_ = desired;
+                capture_mask_=frame.appearance.mask;capture_distortion_=frame.appearance.field;
+                ID3D12Resource* optional[]={frame.appearance.mask,frame.appearance.field};
+                for(unsigned i=0;i<2;++i)if(optional[i]) {
+                    const auto d=optional[i]->GetDesc();
+                    check(d.Width==width_&&d.Height==height_&&d.Format==DXGI_FORMAT_R32G32B32A32_FLOAT,"Offload appearance plane geometry/format");
+                    barrier(cmd,optional[i],read_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    buffer_copy(cmd,optional[i],readback_.Get(),texture_bytes_*(3+i),true);
+                    barrier(cmd,optional[i],D3D12_RESOURCE_STATE_COPY_SOURCE,read_state);
+                }
                 if (ready_ >= 0 && eligible(slots_[ready_], frame.serial, tick) &&
                     last_result_.value("ok", false) &&
                     last_result_.value("frame_id", uint64_t(0)) == slots_[ready_].serial) {

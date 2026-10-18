@@ -379,6 +379,7 @@ def prepare_sources(out):
         "phoenix_native_matrix",
         "phoenix_native_device_id",
         "phoenix_native_features_init",
+        "phoenix_control_map_abi",
         "phoenix_native_features",
         "phoenix_native_matrix_residual",
         "phoenix_native_window_attention",

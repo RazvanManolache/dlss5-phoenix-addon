@@ -28,10 +28,19 @@ inline void copy_pixel_rows(uint8_t* destination, unsigned destination_pitch, co
     for (unsigned row = 0; row < height; ++row) {
         auto* output = destination + size_t(row) * destination_pitch;
         const auto* input = source + size_t(flip_rows ? height - 1 - row : row) * source_pitch;
-        std::memcpy(output, input, size_t(width) * 4);
-        if (bgra)
-            for (unsigned column = 0; column < width; ++column)
-                std::swap(output[column * 4], output[column * 4 + 2]);
+        if (!bgra) {
+            std::memcpy(output, input, size_t(width) * 4);
+        } else {
+            // Upload memory can be write-combined device memory. Reading it
+            // back to swap channels turns every pixel into a slow PCIe read.
+            // Swizzle in a CPU register and write the destination exactly once.
+            for (unsigned column = 0; column < width; ++column) {
+                uint32_t pixel;
+                std::memcpy(&pixel, input + column * 4, sizeof(pixel));
+                pixel = (pixel & 0xff00ff00u) | ((pixel & 0xffu) << 16) | ((pixel >> 16) & 0xffu);
+                std::memcpy(output + column * 4, &pixel, sizeof(pixel));
+            }
+        }
     }
 }
 // The helper currently carries RGBA8 SDR. Preserve the swapchain's packed

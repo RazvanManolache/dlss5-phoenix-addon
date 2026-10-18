@@ -42,6 +42,7 @@ struct Session {
     phoenix_addon::phoenix::control_bridge::Mailbox control;
     uint64_t switches = 0;
     uint64_t selection_revision = 1, presented_revision = 0;
+    uint64_t local_composed_frame = 0;
     bool displayed = false;
     bool timing_clear_pending = false;
     uint64_t timing_clear_revision = 0, timing_clear_generation = 0, helper_generation = 0;
@@ -544,6 +545,15 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"inference_pid", resident_active(value) || value.local ? GetCurrentProcessId() : host ? host->process_id() : 0},
         {"phase", unsigned(processing_phase(value))},
         {"delivered", delivered(value)}, {"presented", presented(value)},
+        // Resource-selection lineage, not a claim that pixels reached the display.
+        // The live regression runner also requests actual presented screenshots.
+        {"frame_lineage", value.readback ? value.readback->transfer_timings()
+                                         : value.bridge ? value.bridge->transfer_timings()
+                                         : value.local ? Json{{"input_frame", value.local_composed_frame},
+                                                              {"output_frame", value.local_composed_frame},
+                                                              {"composed_at_frame", value.local_composed_frame},
+                                                              {"width", value.width}, {"height", value.height}}
+                                                       : Json::object()},
         {"helper_roundtrip_ms", host && !resident_active(value) ? host->roundtrip() : 0},
         {"processing_roundtrip_ms", host ? host->roundtrip() : 0},
         {"timing_provenance", timing_provenance(value)},
@@ -876,7 +886,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
     capabilities.local_api = in_process_api.available();
     capabilities.nvidia_required = needs_nvidia_dll(value.applied_settings);
     capabilities.native_executor = in_process_settings(value.applied_settings).execution_device == "native";
-    capabilities.sdr = value.color_space == reshade::api::color_space::srgb_nonlinear;
+    capabilities.sdr = sdr_backbuffer(value.color_space,capabilities.format);
     if (capabilities.api == reshade::api::device_api::d3d12 && back_resource.handle) {
         Ptr<ID3D12Resource1> protected_image;
         auto* image = reinterpret_cast<ID3D12Resource*>(uintptr_t(back_resource.handle));
@@ -930,6 +940,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             if (apply) value.local->reset_history();
             value.restart = false;
             if (value.local->frame(back_resource, value.applied_settings, apply)) {
+                value.local_composed_frame = value.frames;
                 value.presented_revision = value.selection_revision;
                 value.displayed_settings = value.applied_settings;
                 value.displayed = true;

@@ -186,7 +186,8 @@ class VulkanBackend final : public Backend {
         }
     }
     uint32_t features() const {
-        return DeviceFeaturePacking | (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
+        return DeviceFeaturePacking | (library_symbol(module, "phoenix_control_map_abi") ? DeviceControlMaps : 0) |
+               (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
                (matrix_rows ? FusedMatrixResidual : 0) |
                (prefer_unfused_attention ? PreferUnfusedWindowAttention : 0) |
                (cache_noise ? DeviceNoiseCache : 0) |

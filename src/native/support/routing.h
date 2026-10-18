@@ -180,6 +180,9 @@ template <class Visitor> void visit_live_tuning(Settings& settings, Visitor visi
     visit("MotionX", settings.controls.motion_x);
     visit("MotionY", settings.controls.motion_y);
     visit("Depth", settings.controls.depth);
+    visit("PhoenixAppearance", settings.controls.appearance);
+    visit("PhoenixIntensity", settings.controls.intensity);
+    visit("PhoenixStyle", settings.controls.style);
     visit("NativeOptions", settings.native_options);
     visit("Intensity", settings.intensity);
     visit("Style", settings.style);
@@ -196,6 +199,7 @@ inline bool copy_live_tuning(Settings& target, const Settings& source) {
         return std::tie(s.controls.enabled, s.controls.tone, s.controls.structure,
                         s.controls.advanced, s.controls.auto_mask, s.controls.skin,
                         s.controls.motion_x, s.controls.motion_y, s.controls.depth,
+                        s.controls.appearance,s.controls.intensity,s.controls.style,
                         s.native_options, s.intensity, s.style, s.ui_correction,
                         s.host_exposure, s.host_exposure_scale, s.host_globaltone,
                         s.host_jitter, s.host_white_nits, s.host_unjitter);
@@ -268,6 +272,9 @@ inline void reset_neural_section(Settings& settings) {
     settings.controls.motion_x = 1;
     settings.controls.motion_y = 1;
     settings.controls.depth = -1;
+    settings.controls.appearance=false;
+    settings.controls.intensity=1;
+    settings.controls.style=0;
     settings.host_unjitter = false;
 }
 inline void reset_native_section(Settings& settings) {

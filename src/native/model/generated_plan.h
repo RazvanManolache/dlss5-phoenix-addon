@@ -87,6 +87,22 @@ struct Tensor {
     unsigned begin, end;
     uint64_t bytes, offset = 0;
 };
+inline void validate_tile_layout(const Json& graph) {
+    check(graph.at("layers").size() == 154 &&
+              graph.at("layers").at(56).at("grid").at(0) == "T32",
+          "Native graph lacks tile-aligned repack; update the native kernel bundle graph");
+    for (const auto& item : graph.at("tensors").items()) {
+        const auto& spec = item.value();
+        const auto producer = spec.at("producer").get<unsigned>();
+        if (producer >= 57 && producer <= 97) {
+            const auto& shape = spec.at("shape");
+            check(shape.size() == 2 && shape.at(0) == "T32",
+                  "Native graph lacks 32-token transformer storage; update the native kernel bundle graph");
+        }
+    }
+    check(graph.at("tensors").at("tensor:023.output_downsample_optional").contains("zero_padding"),
+          "Native graph lacks persistent spatial padding; update the native kernel bundle graph");
+}
 // A chained group can overlap on the GPU. All its intermediates stay live
 // until the group's barrier, even when the next dispatch has already begun.
 // Reserve the counter prefix, then place tensors by barrier-expanded live
@@ -95,6 +111,7 @@ struct Tensor {
 inline Json frame(const Json& graph, const Json& kernels, const Json& weights, unsigned width,
                   unsigned height) {
     check(graph.at("schema") == "phoenix-native-graph/1", "Generated graph schema");
+    validate_tile_layout(graph);
     Geometry geometry(width, height);
     std::map<std::string, uint64_t> offsets;
     for (const auto& weight_record : weights.at("records"))

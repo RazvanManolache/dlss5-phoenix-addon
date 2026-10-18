@@ -34,6 +34,7 @@ class D3D11Bridge {
     };
     std::vector<PresentationTarget> targets_;
     uint64_t current_copies_ = 0, input_submissions_ = 0, target_view_creations_ = 0;
+    uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
     bool sharing_device_reused_ = false;
 
     ID3D11RenderTargetView* presentation_target(ID3D11Texture2D* back) {
@@ -266,7 +267,9 @@ class D3D11Bridge {
         return {{"current_snapshot_copies", current_copies_},
                 {"input_submissions", input_submissions_},
                 {"target_view_creations", target_view_creations_},
-                {"sharing_device_reused", sharing_device_reused_}};
+                {"sharing_device_reused", sharing_device_reused_},
+                {"input_frame", presented_input_frame_}, {"output_frame", presented_output_frame_},
+                {"composed_at_frame", composed_at_frame_}, {"width", width_}, {"height", height_}};
     }
     void frame(ID3D11Texture2D* back, uint64_t frame_number,
                const phoenix_addon::phoenix::Settings& settings, bool coherent_frames = false) {
@@ -326,6 +329,9 @@ class D3D11Bridge {
             draw(target, compose_.Get(), views, 3, helper_presentation_mode(settings), settings.intensity,
                  coherent_frames);
             ++presented_;
+            presented_input_frame_ = coherent_frames ? delivered_frame_ : frame_number;
+            presented_output_frame_ = delivered_frame_;
+            composed_at_frame_ = frame_number;
         }
     }
 };

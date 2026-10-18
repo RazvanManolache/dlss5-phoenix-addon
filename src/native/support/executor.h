@@ -1,6 +1,7 @@
 #pragma once
 #include "../session/session.h"
 #include "routing.h"
+#include "locked_capture.h"
 
 namespace phoenix_addon::phoenix {
 // The host owns normalization, game resources, command submission and HDR
@@ -19,6 +20,9 @@ struct ExecutorFrame {
     Controls controls;
     const Settings* settings = nullptr;
     uint64_t serial = 0, completed_serial = 0;
+    uint64_t locked_input_token = 0;
+    direct::AppearanceTextures appearance;
+    uint32_t appearance_generation = 0;
 };
 class NeuralExecutor {
   public:

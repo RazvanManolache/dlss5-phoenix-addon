@@ -8,6 +8,9 @@ struct PhoenixLiveControls {
     bool enabled = false;
     float tone = 1, structure = 1;
     bool advanced = false, auto_mask = false;
+    bool appearance = false;
+    float intensity = 1;
+    int style = 0;
     float skin = -1, motion_x = 1, motion_y = 1;
     int depth = -1;
     bool reset_requested = false;
@@ -17,7 +20,7 @@ struct PhoenixLiveControls {
                structure >= 0 && structure <= 2 && std::isfinite(skin) && skin >= -1 && skin <= 2 &&
                std::isfinite(motion_x) && motion_x >= -4 && motion_x <= 4 &&
                std::isfinite(motion_y) && motion_y >= -4 && motion_y <= 4 && depth >= -1 &&
-               depth <= 1;
+               depth <= 1 && std::isfinite(intensity) && intensity>=0 && intensity<=2 && style>=0 && style<=2;
     }
     Controls apply(Controls controls) const {
         check(valid(), "Phoenix DLSS5 live controls are outside their supported finite ranges");
@@ -25,6 +28,7 @@ struct PhoenixLiveControls {
             controls.tone = tone;
             controls.structure = structure;
         }
+        if (appearance) { controls.intensity=intensity; controls.style=style; }
         if (advanced) {
             controls.skin = skin;
             controls.auto_mask = auto_mask ? 1 : 0;

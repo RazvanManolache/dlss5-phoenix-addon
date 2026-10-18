@@ -29,6 +29,7 @@ struct TensorBytes {
 // decoded host copies; the graph uploads its weights before discarding them.
 class Model {
     std::map<std::string, TensorBytes> tensors_;
+    std::string resource_sha256_;
     phx::Kernel<HostMath> math_{};
 
     // Convert a row/column coordinate into the resource's tiled FP8 layout.
@@ -59,6 +60,7 @@ class Model {
     }
 
   public:
+    const std::string& resource_sha256() const { return resource_sha256_; }
     bool decoded() const {
         return !tensors_.empty();
     }
@@ -75,6 +77,7 @@ class Model {
     explicit Model(const phoenix_model::WeightSource& source) {
         phoenix_model::with_model_resource(
             source, file_sha, [&](const uint8_t* resource_bytes, size_t resource_size) {
+                resource_sha256_ = phoenix_model::weight_digest(resource_bytes, resource_size);
                 auto records = phoenix_model::resource_records(resource_bytes, resource_size);
 
                 for (auto& [record_name, record] : records) {
@@ -188,6 +191,12 @@ class Model {
             values[index] = math_.half_value(half_bits);
         }
         return values;
+    }
+
+    float history_gain() const {
+        const auto values = half(70, 0, "blend_scale");
+        demand(values.size() == 1, "Model blend_scale must contain one scalar");
+        return values.front();
     }
 
     std::vector<float> floats(int block, int layer, const std::string& field) const {

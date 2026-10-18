@@ -123,11 +123,37 @@ pixel displacement, multiplied by the supplied motion scales. Spatial reduction
 adjusts the vectors to inference pixels. Alpha comes from the original source,
 resampled independently when output dimensions differ.
 
-Controls expose reset, motion scale, local tone/structure, skin structure,
-automatic mask and inverted depth. This initial extension records one neural
-pass per call. The addon's exposure/color adapter, strength/style composition,
-automatic budget controller and vendor temporal SR/XeSS integration are not
-part of this low-level API. The spatial operation is not temporal DLSS SR.
+The original V1 controls and output path remain compatible. The candidate's
+three-frame V1 output matched the unchanged SDK exactly. New experimental
+appearance calls are `phoenix_native_frame_d3d12_v2` and
+`phoenix_native_frame_host_v2`; the latter consumes the bounded `phoenix_frame_v3`
+structure. They support the [declared Phoenix map/style/UI/field contract](LIBRARY.md#versioned-host-planes-and-appearance-contract).
+The standalone native network executes one pass and owns its native temporal
+and noise sequence. Host RGB32F is converted through native half textures;
+zero-intensity regions may therefore differ from source float32 by half
+quantization (maximum 0.000244141 in the measured resize fixture).
+
+For D3D12 V2, initialize `struct_bytes`, `version=2`, default native controls,
+`intensity=1` and zero absent resource descriptors. Color/output are RGBA16F,
+motion RG16F, map/UI/field RGBA32F, alpha R32F, backbuffer RGBA16F. Each plane
+includes its observed state, restored before synchronous return. UI and UIAlpha
+are alternatives; all resources must be distinct and on the session device.
+Source, neural and output extents must agree for the advanced path. The native
+host adapter currently refuses explicit depth/validity planes. Arbitrary HDR UI
+and scaled optional planes are not supported by this new contract.
+
+The GPU map is bound to the retained preparation kernel's existing descriptor
+at byte 32; its G/B affect conditioning. Display grade/intensity/R/UI run after
+recurrent history, and field handling uses a separate canonicalization stage.
+Mask texture allocation is lazy in the standalone library. No NVIDIA model DLL
+code is executed by these calls.
+
+`phoenix_native_reconfigure(&session, config_json)` creates a replacement on the
+same device/queue before retiring the old one. It resets history, can resize or
+select compatible replacement weights, and leaves the old pointer unchanged
+on failure. GPU tests covered an invalid resize and a successful 320×320 resize
+with a zero-intensity map. Borrowed devices still require queue serialization;
+reconfiguration temporarily holds both sessions' resources.
 
 `phoenix_native_device` returns AddRef'd interfaces for applications using the
 owned-device path; release them normally. `phoenix_native_status` returns JSON,

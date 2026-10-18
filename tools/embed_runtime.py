@@ -11,6 +11,21 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def native_graph_files(native, manifest):
+    """Keep every selected graph and its pin together in the embedded payload."""
+    native = Path(native)
+    result = {}
+    for filename, pin in (("native_graph.json", "native_graph_sha256"),
+                          ("native_graph_v2.json", "native_graph_v2_sha256")):
+        if pin not in manifest:
+            continue
+        raw = (native / filename).read_bytes()
+        if digest(raw) != manifest[pin]:
+            raise ValueError("Native graph changed since validation: " + filename)
+        result["native/" + filename] = raw
+    return result
+
+
 def compress(data):
     cabinet = ctypes.WinDLL("cabinet", use_last_error=True)
     cabinet.CreateCompressor.argtypes = [
@@ -95,10 +110,7 @@ def prepare(runtime, native, output, nr_forwarder=None):
     config.pop("weight_source", None)
     files["runtime/phoenix_native_cpp.json"] = (json.dumps(config, indent=2) + "\n").encode()
     files["runtime/validation_manifest.json"] = (runtime / "validation_manifest.json").read_bytes()
-    graph = (native / "native_graph.json").read_bytes()
-    if digest(graph) != native_manifest["native_graph_sha256"]:
-        raise ValueError("Native graph changed since validation")
-    files["native/native_graph.json"] = graph
+    files.update(native_graph_files(native, native_manifest))
     files["native/native_manifest.json"] = (native / "native_manifest.json").read_bytes()
     for kernel in native_manifest["kernels"]:
         relative = Path(kernel["binary"])

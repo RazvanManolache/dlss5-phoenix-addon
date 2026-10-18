@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include "phoenix.h"
 
 namespace phoenix_cpp {
 inline std::string path_utf8(const std::filesystem::path& path) {
@@ -19,8 +20,11 @@ struct RuntimeApi {
     void (*destroy)(void*) = nullptr;
     int (*frame)(void*, const float*, const float*, const float*, const float*, const char*,
                  float*) = nullptr;
+    int (*frame_v2)(void*, const phoenix_frame_v2*) = nullptr;
+    int (*frame_v3)(void*, const phoenix_frame_v3*) = nullptr;
     const char* (*error)() = nullptr;
     size_t (*status)(void*, char*, size_t) = nullptr;
+    size_t (*capabilities)(char*, size_t) = nullptr;
 
     RuntimeApi() = default;
     RuntimeApi(const RuntimeApi&) = delete;
@@ -46,6 +50,9 @@ struct RuntimeApi {
         destroy =
             reinterpret_cast<decltype(destroy)>(GetProcAddress(module, "phoenix_runtime_destroy"));
         frame = reinterpret_cast<decltype(frame)>(GetProcAddress(module, "phoenix_runtime_frame"));
+        frame_v2 = reinterpret_cast<decltype(frame_v2)>(GetProcAddress(module, "phoenix_runtime_frame_v2"));
+        frame_v3 = reinterpret_cast<decltype(frame_v3)>(GetProcAddress(module, "phoenix_runtime_frame_v3"));
+        capabilities = reinterpret_cast<decltype(capabilities)>(GetProcAddress(module, "phoenix_runtime_capabilities"));
         error = reinterpret_cast<decltype(error)>(GetProcAddress(module, "phoenix_runtime_error"));
         status =
             reinterpret_cast<decltype(status)>(GetProcAddress(module, "phoenix_runtime_status"));

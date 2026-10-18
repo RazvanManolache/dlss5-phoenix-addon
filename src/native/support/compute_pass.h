@@ -1,7 +1,8 @@
 #pragma once
-#include "../session/session.h"
+#include "../network/production_network.h"
 #include <d3dcompiler.h>
 namespace phoenix_addon::phoenix::direct {
+using Microsoft::WRL::ComPtr;
 // Diagnostic crumb hook: the probes leave it null (silent); the addon points
 // it at its crash-safe logger to bracket GPU-stage recording.
 inline void (*phoenix_crumb)(const char*) = nullptr;
@@ -30,8 +31,8 @@ class Pass {
     ComPtr<ID3D12Device> device_;
     ComPtr<ID3D12RootSignature> root_;
     ComPtr<ID3D12PipelineState> pso_;
-    std::array<ComPtr<ID3D12DescriptorHeap>, 2> heaps_;
-    std::array<std::array<ID3D12Resource*, 4>, 2> bindings_{};
+    std::vector<ComPtr<ID3D12DescriptorHeap>> heaps_;
+    std::vector<std::array<ID3D12Resource*, 4>> bindings_;
 
   public:
     void account(const std::shared_ptr<phoenix_native::memory::Generation>& generation) {
@@ -54,8 +55,9 @@ class Pass {
         return bytes;
     }
     Pass(ID3D12Device* device, const char* source,
-         std::shared_ptr<phoenix_native::memory::Generation> accounting = {})
-        : device_(device) {
+         std::shared_ptr<phoenix_native::memory::Generation> accounting = {}, unsigned slots = 2)
+        : device_(device), heaps_(slots), bindings_(slots) {
+        phoenix_bundle::require(slots>=1 && slots<=32,"Compute descriptor ring extent");
         D3D12_DESCRIPTOR_RANGE ranges[] = {{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, 0},
                                            {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 3}};
         D3D12_ROOT_PARAMETER params[2]{};
@@ -86,7 +88,8 @@ class Pass {
     // shader and root signature are identical. Never recompile them per texture.
     Pass(const Pass& pipeline,
          const std::shared_ptr<phoenix_native::memory::Generation>& accounting)
-        : device_(pipeline.device_), root_(pipeline.root_), pso_(pipeline.pso_) {
+        : device_(pipeline.device_), root_(pipeline.root_), pso_(pipeline.pso_),
+          heaps_(pipeline.heaps_.size()),bindings_(pipeline.heaps_.size()) {
         create_heaps(accounting);
     }
 
@@ -109,7 +112,7 @@ class Pass {
                 unsigned slot = 0) {
         static_assert(sizeof(Parameters) == 9 * sizeof(unsigned),
                       "Direct root-constant ABI changed");
-        check(slot < 2, "Direct descriptor slot");
+        check(slot < heaps_.size(), "Direct descriptor slot");
         auto& heap = heaps_[slot];
         const std::array<ID3D12Resource*, 4> binding{inputs[0], inputs[1], inputs[2], output};
         auto cpu = heap->GetCPUDescriptorHandleForHeapStart();

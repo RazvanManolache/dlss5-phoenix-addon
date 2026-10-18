@@ -39,8 +39,16 @@ void main() {
     pc.output_data.v[pixel * 16u + 3u] = float16_t(1);
     pc.output_data.v[pixel * 16u + 10u] = float16_t(half_round(float(pc.style) / 128.));
     pc.output_data.v[pixel * 16u + 11u] = float16_t(half_round(uintBitsToFloat(pc.tone_bits)));
-    pc.output_data.v[pixel * 16u + 12u] = float16_t(half_round(pc.auto_mask != 0u ? 1. : structure));
-    pc.output_data.v[pixel * 16u + 13u] = float16_t(half_round(pc.auto_mask != 0u ? (skin < 0. ? structure : skin) : -1.));
-    pc.output_data.v[pixel * 16u + 14u] = float16_t(half_round(pc.auto_mask != 0u ? structure : -1.));
+    bool automatic = (pc.auto_mask & 1u) != 0u;
+    pc.output_data.v[pixel * 16u + 12u] = float16_t(half_round(automatic ? 1. : structure));
+    pc.output_data.v[pixel * 16u + 13u] = float16_t(half_round(automatic ? (skin < 0. ? structure : skin) : -1.));
+    pc.output_data.v[pixel * 16u + 14u] = float16_t(half_round(automatic ? structure : -1.));
+    if ((pc.auto_mask & 2u) != 0u) {
+        uint mask = (pc.height * pc.width + 3u) / 4u + source * 4u;
+        pc.output_data.v[pixel*16u+11u] = float16_t(half_round(uintBitsToFloat(pc.tone_bits) * uintBitsToFloat(pc.valid.v[mask+1u])));
+        pc.output_data.v[pixel*16u+12u] = float16_t(half_round(structure * uintBitsToFloat(pc.valid.v[mask+2u])));
+        pc.output_data.v[pixel*16u+13u] = float16_t(0);
+        pc.output_data.v[pixel*16u+14u] = float16_t(0);
+    }
     pc.output_data.v[pixel * 16u + 15u] = float16_t(0);
 }

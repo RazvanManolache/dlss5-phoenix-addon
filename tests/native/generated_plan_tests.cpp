@@ -122,6 +122,24 @@ int main(int argc, char** argv) {
             rejected = true;
         }
         check(rejected);
+        // A hash-valid but obsolete bundle graph used to underallocate these
+        // buffers and corrupt live scratch storage at 1024x768 and 4K.
+        for (unsigned mutation = 0; mutation < 3; ++mutation) {
+            auto obsolete = graph;
+            if (mutation == 0)
+                obsolete["tensors"]["tensor:097.reduction_scratch_optional"]["shape"] =
+                    Json::array({"LH", "LW", 2048});
+            else if (mutation == 1)
+                obsolete["layers"][56]["grid"][0] = "T";
+            else
+                obsolete["tensors"]["tensor:023.output_downsample_optional"].erase("zero_padding");
+            rejected = false;
+            try { phoenix_generated::frame(obsolete, kernels, weights, 1024, 768); }
+            catch (const std::runtime_error& error) {
+                rejected = std::string(error.what()).find("update the native kernel bundle graph") != std::string::npos;
+            }
+            check(rejected);
+        }
         // Cache hits avoid generation/preflight; resizing cannot grow CPU
         // metadata indefinitely. Failed preflight must not evict a good plan.
         phoenix_generated::PlanCache cache;
@@ -174,6 +192,7 @@ int main(int argc, char** argv) {
                            {"live_intervals_checked", true},
                            {"padded_token_storage_checked", true},
                            {"persistent_spatial_padding_checked", true},
+                           {"obsolete_bundle_layout_rejected", true},
                            {"bounded_plan_cache_checked", true},
                            {"unknown_tensor_rejected", true}})
                          .dump()

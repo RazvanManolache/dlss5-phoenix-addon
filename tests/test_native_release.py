@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,9 @@ class PublicationScopeTests(unittest.TestCase):
     def test_selected_kernel_is_published_but_reference_and_private_outputs_are_excluded(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
+            # candidates() enumerates tracked and untracked Git files. Give
+            # this isolated publication fixture the same repository boundary.
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
             names = [
                 "src/native/kernels/production/optimized/output/reconstruction.cu",
                 "src/native/kernels/production/reference/output/reconstruction.cu",

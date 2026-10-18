@@ -27,10 +27,11 @@ int wmain(int argc, wchar_t** argv) {
             throw std::runtime_error("Broker header mapping failed");
         auto bytes = prefix->bytes;
         auto width = prefix->width, height = prefix->height;
-        bool valid = prefix->magic == broker_magic && prefix->version == broker_version &&
+        const auto protocol = prefix->version;
+        bool valid = prefix->magic == broker_magic && (protocol == broker_version || protocol == broker_extended_version) &&
                      prefix->parent == pid;
         UnmapViewOfFile(prefix);
-        if (!valid || bytes != broker_bytes(width, height))
+        if (!valid || bytes != broker_bytes(width, height, protocol))
             throw std::runtime_error("Broker protocol mismatch");
         header = static_cast<BrokerHeader*>(
             MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, size_t(bytes)));
@@ -110,8 +111,39 @@ int wmain(int argc, wchar_t** argv) {
             if (!std::memchr(header->metadata, 0, text_capacity) || header->sequence <= sequence)
                 throw std::runtime_error("Broker request sequence invalid");
             sequence = header->sequence;
-            header->result =
-                api.frame(api.instance, color, motion, depth, validity, header->metadata, output);
+            if (header->version != protocol || header->bytes != bytes || header->width != width ||
+                header->height != height || (header->reserved & ~31u) ||
+                (protocol == broker_version && header->reserved))
+                throw std::runtime_error("Broker request layout changed");
+            if (!header->reserved)
+                header->result = api.frame(api.instance, color, motion, depth, validity, header->metadata, output);
+            else if (!api.frame_v3) {
+                header->result = -1;
+                broker_text(header->status, "{\"ok\":false,\"error\":\"Runtime lacks advanced frame API\"}");
+                SetEvent(complete);
+                continue;
+            } else {
+                const auto metadata = nlohmann::json::parse(header->metadata);
+                auto view = [&](const float* data, unsigned channels, bool present = true) {
+                    return present ? phoenix_plane_f32{data, pixel_count*channels*sizeof(float),0,width,height,channels,0}
+                        : phoenix_plane_f32{};
+                };
+                phoenix_frame_v3 request{};
+                request.base.struct_bytes=sizeof(request); request.base.version=PHOENIX_FRAME_VERSION_3;
+                request.base.control_profile=(header->reserved & BrokerMask) ? PHOENIX_CONTROL_EXPERIMENTAL_RGB_1 : PHOENIX_CONTROL_NONE;
+                request.base.color=view(color,3);
+                request.base.motion=view(motion,2,metadata.value("has_motion",false));
+                request.base.depth=view(depth,1,metadata.value("has_depth",false));
+                request.base.validity=view(validity,1,metadata.value("has_history_validity",false));
+                request.base.control_mask=view(color+10*pixel_count,4,header->reserved & BrokerMask);
+                request.base.output={output,pixel_count*3*sizeof(float),0,width,height,3,0};
+                request.base.metadata_json=header->metadata;
+                request.ui=view(color+14*pixel_count,4,header->reserved & BrokerUI);
+                request.ui_alpha=view(color+18*pixel_count,1,header->reserved & BrokerAlpha);
+                request.backbuffer=view(color+19*pixel_count,3,header->reserved & BrokerBackbuffer);
+                request.distortion=view(color+22*pixel_count,4,header->reserved & BrokerDistortion);
+                header->result=api.frame_v3(api.instance,&request);
+            }
             broker_text(header->status,
                         header->result
                             ? nlohmann::json({{"ok", false}, {"error", api.error()}}).dump()

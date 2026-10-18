@@ -44,6 +44,7 @@ struct CaptureMeta {
     unsigned width = 0, height = 0, color_format = 0, motion_format = 0;
     unsigned color_bpp = 0, motion_bpp = 0, frame = 0, blocks = 8;
     unsigned refinement_passes = 1;
+    unsigned appearance_flags = 0, appearance_generation = 0;
     std::array<int, 8> block_repeats{{1, 1, 1, 1, 1, 1, 1, 1}};
     bool default_repetitions() const {
         return refinement_passes == 1 &&
@@ -57,6 +58,7 @@ struct CaptureMeta {
 struct CaptureFrame {
     CaptureMeta meta;
     std::vector<uint8_t> color, motion, output;
+    std::array<std::vector<uint8_t>,5> appearance; // mask, UI, alpha, backbuffer, field
     // Same-command-list samples, retired by the existing capture fence.
     std::array<std::vector<uint8_t>, 4> lineage; // proxy, native, phoenix, feed
     std::vector<uint8_t> exposure;
@@ -85,6 +87,8 @@ inline std::string capture_meta_write(const CaptureMeta& metadata) {
     write_unsigned("frame", metadata.frame);
     write_unsigned("blocks", metadata.blocks);
     write_unsigned("refinement_passes", metadata.refinement_passes);
+    write_unsigned("appearance_flags", metadata.appearance_flags);
+    write_unsigned("appearance_generation", metadata.appearance_generation);
     for (unsigned block_index = 0; block_index < 8; ++block_index)
         write_unsigned(("block_repeat_" + std::to_string(block_index + 1)).c_str(),
                        unsigned(metadata.block_repeats[block_index]));
@@ -111,7 +115,7 @@ inline std::string capture_meta_write(const CaptureMeta& metadata) {
 // Read the stable key=value capture format, retaining defaults for optional
 // fields. Reject unsupported pass/repetition counts before any GPU replay.
 inline bool capture_meta_parse(const std::string& text, CaptureMeta& metadata,
-                               bool allow_repetitions = false) {
+                               bool allow_repetitions = false, bool allow_appearance = false) {
     metadata = CaptureMeta{};
     size_t pos = 0;
     auto read_unsigned = [&](const char* field_name, bool& success, unsigned long& unsigned_value) {
@@ -173,6 +177,14 @@ inline bool capture_meta_parse(const std::string& text, CaptureMeta& metadata,
     }
     if (metadata.refinement_passes < 1 || metadata.refinement_passes > 4)
         success = false;
+    if (text.find("appearance_flags=") != std::string::npos) {
+        read_unsigned("appearance_flags",success,unsigned_value);
+        metadata.appearance_flags=unsigned(unsigned_value);
+        read_unsigned("appearance_generation",success,unsigned_value);
+        metadata.appearance_generation=unsigned(unsigned_value);
+        if (metadata.appearance_flags & ~31u) success=false;
+        if (metadata.appearance_flags && !allow_appearance) success=false;
+    }
     for (unsigned block_index = 0; block_index < 8; ++block_index) {
         const auto name = "block_repeat_" + std::to_string(block_index + 1);
         if (text.find(name + '=') != std::string::npos) {
@@ -861,11 +873,15 @@ class Runner {
     bool cap_armed_ = false, cap_ready_ = false;
     CaptureFrame cap_staged_;
     std::array<ComPtr<ID3D12Resource>, 4> cap_lineage_;
+    std::array<ComPtr<ID3D12Resource>,5> cap_appearance_;
+    std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT,5> cap_appearance_fp_{};
     ComPtr<ID3D12Resource> cap_exposure_;
     std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT, 4> cap_lineage_fp_{};
     bool cap_has_lineage_ = false;
     float host_jx_ = 0, host_jy_ = 0;
     ComPtr<ID3D12Resource> engine_output_, engine_motion_, engine_depth_;
+    std::vector<ComPtr<ID3D12Resource>> engine_optional_;
+    std::unique_ptr<AppearanceStage> appearance_;
     // NR proxy (display-referred sRGB, the model's native domain) and the
     // fullscreen-resolve scratch surface. The proxy rests readable; NR reads
     // it without transitions, exactly like the owned model inputs.
@@ -879,6 +895,7 @@ class Runner {
     struct Lease {
         uint64_t fence;
         ComPtr<ID3D12Resource> output, motion, depth;
+        std::vector<ComPtr<ID3D12Resource>> optional;
     };
     std::vector<Lease> leases_;
     std::unique_ptr<FrameDispatch> dispatch_;
@@ -1002,6 +1019,7 @@ class Runner {
         for (auto& readback : cap_lineage_)
             readback.Reset();
         cap_exposure_.Reset();
+        for(auto& readback:cap_appearance_)readback.Reset();
         cap_has_lineage_ = false;
     }
 
@@ -1120,6 +1138,7 @@ class Runner {
                 accounting->constructed = true;
             return;
         }
+        appearance_=std::make_unique<AppearanceStage>(device,width_,height_,accounting);
         if (external_) {
             external_->account(accounting);
             check(execution_settings && execution_settings->execution_device != "native",
@@ -1143,13 +1162,13 @@ class Runner {
         leases_.reserve(16);
         network_ = std::make_unique<phoenix_native::Network>(
             device, dispatch_->api(), plan, weights, kernels, network_input_.Get(), motion_.Get(),
-            accounting, allow_gpu_upload);
+            accounting, allow_gpu_upload,nullptr,appearance_->mask_target());
         // Each pass owns its previous-frame history and immutable descriptor
         // tables. The shared input snapshot is updated in queue order only.
         for (unsigned iteration_index = 1; iteration_index < passes; ++iteration_index)
             refinement_.push_back(std::make_unique<phoenix_native::Network>(
                 device, dispatch_->api(), plan, weights, kernels, network_input_.Get(),
-                motion_.Get(), accounting, allow_gpu_upload, network_.get()));
+                motion_.Get(), accounting, allow_gpu_upload, network_.get(),appearance_->mask_target()));
         if (accounting) {
             accounting->constructed = true;
             accounting->host_container_capacity_bytes = network_->host_container_capacity_bytes();
@@ -1477,7 +1496,9 @@ class Runner {
         phoenix_native::transition(cmd, tex, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     }
     void capture_inputs(ID3D12GraphicsCommandList* cmd, const Controls& controls,
-                        const Settings& settings, unsigned blocks) {
+                        const Settings& settings, unsigned blocks,
+                        const AppearanceTextures& textures, const FrameEvidence& evidence,
+                        uint32_t appearance_generation) {
         if (!cap_left_ || cap_armed_ || cap_ready_)
             return;
         auto region = [&](ID3D12Resource* tex, ID3D12Resource* read,
@@ -1525,6 +1546,24 @@ class Runner {
         metadata.tone = controls.tone;
         metadata.structure = controls.structure;
         metadata.skin = controls.skin;
+        metadata.appearance_generation=appearance_generation;
+        const char* keys[]={"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.UIAlpha","DLSSNR.Backbuffer","DLSSNR.BidirectionalDistortionField"};
+        ID3D12Resource* resources[]={textures.mask,textures.ui,textures.alpha,textures.backbuffer,textures.field};
+        for(unsigned i=0;i<5;++i)if(resources[i]) {
+            const auto desc=resources[i]->GetDesc();UINT64 total=0;
+            device_->GetCopyableFootprints(&desc,0,1,0,&cap_appearance_fp_[i],nullptr,nullptr,&total);
+            if(!cap_appearance_[i]||cap_appearance_[i]->GetDesc().Width<total)
+                cap_appearance_[i]=tracked_buffer(device_.Get(),total,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
+            const auto state=evidence.optional_states.at(keys[i]);
+            phoenix_native::transition(cmd,resources[i],state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_TEXTURE_COPY_LOCATION dst{},src{};
+            dst.pResource=cap_appearance_[i].Get();dst.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint=cap_appearance_fp_[i];
+            src.pResource=resources[i];src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            cmd->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
+            phoenix_native::transition(cmd,resources[i],D3D12_RESOURCE_STATE_COPY_SOURCE,state);
+            metadata.appearance_flags|=1u<<i;
+        }
         cap_staged_.meta = metadata;
         cap_staged_.source_a = settings.source_a;
         cap_staged_.source_b = settings.source_b;
@@ -1594,6 +1633,9 @@ class Runner {
             for (unsigned index = 0; index < cap_lineage_.size() && complete; ++index)
                 complete = tight(cap_lineage_[index].Get(), cap_lineage_fp_[index], width_, height_,
                                  8, frame.lineage[index]);
+        for(unsigned i=0;i<5&&complete;++i)if(frame.meta.appearance_flags&(1u<<i))
+            complete=tight(cap_appearance_[i].Get(),cap_appearance_fp_[i],width_,height_,
+                i==2?4u:(i==3?8u:16u),frame.appearance[i]);
         if (complete) {
             cap_staged_ = std::move(frame);
             cap_ready_ = true;
@@ -1610,6 +1652,7 @@ class Runner {
         for (const auto& readback : cap_lineage_)
             if (readback)
                 bytes += readback->GetDesc().Width;
+        for(const auto& readback:cap_appearance_)if(readback)bytes+=readback->GetDesc().Width;
         return bytes;
     }
     bool take_capture(CaptureFrame& out) {
@@ -1689,7 +1732,7 @@ class Runner {
                 check(queue == queue_.Get(), "Direct submission queue changed");
                 phoenix_native::hr(queue->Signal(fence_.Get(), submitted_ + 1));
                 leases_.push_back({submitted_ + 1, std::move(engine_output_),
-                                   std::move(engine_motion_), std::move(engine_depth_)});
+                                   std::move(engine_motion_), std::move(engine_depth_),std::move(engine_optional_)});
                 if (network_recorded_) {
                     network_->commit_any_thread(pending_);
                     for (auto& refinement_runner : refinement_)
@@ -1708,7 +1751,8 @@ class Runner {
     void record(ID3D12GraphicsCommandList* cmd, ID3D12Resource* color, ID3D12Resource* motion,
                 FrameEvidence& evidence, Controls controls, const Settings& settings,
                 unsigned blocks, ID3D12Resource* depth = nullptr,
-                D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_COMMON) {
+                D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_COMMON,
+                const AppearanceTextures* developer=nullptr,uint32_t appearance_generation=0) {
         check((ready() || (pending_ == cmd && !failed_ && !network_recorded_)) && cmd && color &&
                   motion && evidence.states_verified && evidence.restore_bindings,
               "Direct frame contract missing");
@@ -1727,9 +1771,34 @@ class Runner {
         }
         check(color != motion, "Direct aliased inputs");
         controls.reset = controls.reset || !submitted_;
-        const auto resolved =
-            resolve_controls(controls, width_, height_, true, submitted_ > 0,
+        const AppearanceTextures textures=developer?*developer:AppearanceTextures{};
+        const bool appearance=AppearanceStage::requested(controls,textures);
+        const char* keys[]={"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.UIAlpha","DLSSNR.Backbuffer","DLSSNR.BidirectionalDistortionField"};
+        ID3D12Resource* resources[]={textures.mask,textures.ui,textures.alpha,textures.backbuffer,textures.field};
+        const DXGI_FORMAT formats[]={DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32_FLOAT,DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT};
+        if(appearance) {
+            check(appearance_&&evidence.experimental_appearance_contract,"Developer appearance contract not enabled for this route");
+            check(!geometry_.scaled(),"Developer planes currently require equal render/network/output extents");
+            check(!(textures.ui&&textures.alpha),"Supply UI or UIAlpha");
+            check(std::isfinite(controls.intensity)&&controls.intensity>=0&&controls.intensity<=2&&controls.style>=0&&controls.style<=2,"Invalid developer appearance controls");
+            for(unsigned i=0;i<5;++i)if(resources[i]) {
+                const auto d=resources[i]->GetDesc();
+                ComPtr<ID3D12Device> owner;
+                check(SUCCEEDED(resources[i]->GetDevice(IID_PPV_ARGS(&owner))) &&
+                      device_forwards_to(owner.Get(),device_.Get()),"Developer plane belongs to another device");
+                check(d.Width==width_&&d.Height==height_&&d.Format==formats[i]&&d.SampleDesc.Count==1&&d.MipLevels==1&&d.DepthOrArraySize==1,"Developer plane dimensions/format mismatch");
+                check(evidence.optional_states.count(keys[i])!=0,"Developer plane lacks observed state");
+                check(resources[i]!=color&&resources[i]!=motion&&resources[i]!=depth,"Developer plane aliases scene buffers");
+                for(unsigned j=0;j<i;++j)check(resources[i]!=resources[j],"Developer planes alias");
+            }
+        }
+        if(appearance_&&appearance_->changed(textures,appearance_generation))controls.reset=1;
+        auto core_controls=controls;core_controls.intensity=1;core_controls.style=0;core_controls.ui_correction=0;
+        auto resolved =
+            resolve_controls(core_controls, width_, height_, true, submitted_ > 0,
                              controls.reset || !network_ ? 0 : network_->next_sampling_index());
+        resolved.style=float(controls.style)/128.f;
+        if(textures.field&&!external_){resolved.motion_x=1.f/width_;resolved.motion_y=1.f/height_;}
         if (network_)
             network_->validate_command_any_thread(cmd, queue_.Get());
         check(!external_ || !settings.host_unjitter,
@@ -1742,13 +1811,14 @@ class Runner {
         engine_output_ = color;
         engine_motion_ = motion;
         engine_depth_ = depth;
+        engine_optional_.clear();for(auto* resource:resources)if(resource)engine_optional_.emplace_back(resource);
         pending_ = cmd;
         try {
             copy_input(cmd, color, evidence.color_state, input_.Get());
             copy_input(cmd, motion, evidence.motion_state, motion_.Get(), true);
             prepare_upscale(cmd, controls, depth, depth_state);
             if (cap_left_)
-                capture_inputs(cmd, controls, settings, blocks);
+                capture_inputs(cmd, controls, settings, blocks,textures,evidence,appearance_generation);
             // NVIDIA wipe sides remapped onto the two slots the output shader
             // reads (0 = input snapshot, 2 = own result). Sides flagged in
             // the plan are overwritten by the resolve pass below, which
@@ -1838,6 +1908,14 @@ class Runner {
             // Match the established Session HDR bridge-to-NVAPI texture boundary.
             copy_input(cmd, normalized_.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                        network_input_.Get());
+            const unsigned appearance_slot=unsigned(submitted_%32);
+            if(appearance) {
+                for(unsigned i=0;i<5;++i)if(resources[i])phoenix_native::transition(cmd,resources[i],evidence.optional_states.at(keys[i]),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                // Offloaded inference returns an ungraded, original-domain
+                // prediction; fresh display maps/UI are applied only here.
+                auto display_textures=textures;if(external_)display_textures.field=nullptr;
+                appearance_->prepare(cmd,network_input_.Get(),external_?nullptr:motion_.Get(),display_textures,controls,appearance_slot);
+            } else if(appearance_)appearance_->absent();
             capture_lineage(cmd, 3, network_input_.Get(),
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             if (!external_ && network_timing_begin)
@@ -1858,6 +1936,8 @@ class Runner {
                 frame.transformer_blocks = blocks;
                 frame.serial = submitted_ + 1;
                 frame.completed_serial = done;
+                frame.locked_input_token = locked_capture_token;
+                frame.appearance=textures;frame.appearance_generation=appearance_generation;
                 result = external_->record(frame);
             } else
                 for (unsigned pass = 0; pass < passes(); ++pass) {
@@ -1865,8 +1945,9 @@ class Runner {
                         copy_input(cmd, result, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    network_input_.Get());
                     dispatch_->prepare_repeats(cmd);
-                    FrameDispatch::Scope scope(*dispatch_, cmd, resolved, blocks);
                     auto* net = pass ? refinement_[pass - 1].get() : network_.get();
+                    auto pass_resolved=resolved;pass_resolved.control_mask_handle=textures.mask?net->control_mask_handle:0;
+                    FrameDispatch::Scope scope(*dispatch_, cmd, pass_resolved, blocks);
                     result = net->record(cmd, !resolved.recurrent, 0, queue_.Get(), true);
                     scope.finish();
                 }
@@ -1876,6 +1957,12 @@ class Runner {
                 network_timing_end();
             if (!external_)
                 capture_lineage(cmd, 2, result, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            if(appearance) {
+                auto display_textures=textures;if(external_)display_textures.field=nullptr;
+                result=appearance_->present(cmd,result,display_textures,controls,appearance_slot);
+                appearance_->remember_mode(textures,appearance_generation);
+                for(unsigned i=0;i<5;++i)if(resources[i])phoenix_native::transition(cmd,resources[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,evidence.optional_states.at(keys[i]));
+            }
             if (initialized_)
                 phoenix_native::transition(cmd, output_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

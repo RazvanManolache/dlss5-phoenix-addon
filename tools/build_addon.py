@@ -6,6 +6,17 @@ import argparse, hashlib, json, os, re, subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def read_test_result(directory, name):
+    path = directory / (name + ".result.json")
+    try:
+        result = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(result, dict) or type(result.get("passed")) is not bool:
+            raise ValueError("Expected an object with a Boolean passed field")
+        return result
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"Invalid CPU/software test result for {name}: {error}") from error
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("name", help="New directory name under build/")
@@ -61,7 +72,7 @@ def main():
         f'call "{visual_studio_path}/VC/Auxiliary/Build/vcvars64.bat" > "{out}/toolchain.log" 2>&1',
         "if errorlevel 1 exit /b 5",
     ]
-    common = f'/nologo /std:c++20 /Zc:__cplusplus /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
+    common = f'/experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
     libraries = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib"
     minhook = " ".join(
         f'"{ROOT}/third_party/minhook/src/{source_path}"'
@@ -175,10 +186,10 @@ def main():
         report["compilation_completed"] = True
         stage = "read_contract_results"
         report["cpu_tests"] = {
-            name: json.loads((out / (name + ".result.json")).read_text()) for name, _ in tests
+            name: read_test_result(out, name) for name, _ in tests
         }
         report["software_d3d12_tests"] = {
-            name: json.loads((out / (name + ".result.json")).read_text())
+            name: read_test_result(out, name)
             for name, _ in software_tests
         }
         if not all(

@@ -132,6 +132,18 @@ struct Bundle {
             require(digest(folder / "native_graph.json") == manifest.at("native_graph_sha256").get<std::string>(),
                     "Native graph digest");
             graph = json_file(folder / "native_graph.json");
+            // The tile-aligned graph is additive so an unchanged older SDK can
+            // still read its original graph from this model-free kernel bundle.
+            // New runtimes select the separately pinned layout; kernel binaries
+            // and model weights are shared, not duplicated or silently replaced.
+            if (manifest.contains("native_graph_v2_sha256")) {
+                require(digest(folder / "native_graph_v2.json") ==
+                            manifest.at("native_graph_v2_sha256").get<std::string>(),
+                        "Native tile-aligned graph digest");
+                graph = json_file(folder / "native_graph_v2.json");
+                require(graph.at("schema") == "phoenix-native-graph/1",
+                        "Native tile-aligned graph schema");
+            }
             const auto supported_dll = graph.at("supported_dll_sha256").get<std::string>();
             require(
                 weight_source.disk_model() || weight_source.dll_sha256 == supported_dll ||
