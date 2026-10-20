@@ -30,6 +30,15 @@ the UI exposes failure history and a recheck/retry action. Unretired GPU work
 still requires a restart rather than an unsafe fallback. This order is a
 preference for avoiding external transport, not a universal speed claim.
 
+The 2026-10-20 development build passed presented-output checks in generated
+640×360 DX12 fixtures for x86 library, x86 driver, portable fallback from a
+configured external folder, final helper fallback and x64 same-device execution.
+The checks require completed inference, a fresh presented revision and a measured
+pixel change. They do not establish retail-game compatibility or output parity.
+Worker wall-time medians were 16.96 ms (library), 18.14 ms (driver), 31.54 ms
+(portable) and 5.23 ms (helper); the x64 same-device route lacks that counter.
+These diagnostic samples show why "same-process first" does not mean "fastest".
+
 **0.9 downloads:** the standard add-on and optional portable runtime packages
 include no profile-specific WOW64 bundle. The native x86 experiments below retain
 their earlier evidence, not fresh 0.9 Windows/driver-profile certification. They
@@ -43,8 +52,8 @@ These numbers refer to the requested experiments, not the menu order above.
 | Number | Mechanism | Status |
 | --- | --- | --- |
 | 1 | x64 Phoenix DLSS5/NVIDIA DLSS5 inside an x64 application | Working; native DX12 fixture benchmarks retained separately |
-| 2 | x86 application loads the x64 Phoenix DLSS5/NVIDIA DLSS5 library in the same process | Integrated as an opt-in x86 add-on route; packaged client inference, live strengths, repeated passes and backend switching verified; game presentation not yet validated |
-| 3 | x86 Phoenix DLSS5 host calls the native driver through a same-process x64 driver thunk | Integrated as an opt-in x86 add-on route; packaged client inference matches route 2 exactly; Phoenix DLSS5 only, full eight-block network; game presentation not yet validated |
+| 2 | x86 application loads the x64 Phoenix DLSS5/NVIDIA DLSS5 library in the same process | Matching-package development route; presented Phoenix output verified in a generated x86 DX12 fixture; wider game compatibility remains unqualified |
+| 3 | x86 Phoenix DLSS5 host calls the native driver through a same-process x64 driver thunk | Matching-package development route; presented Phoenix output verified in a generated x86 DX12 fixture; Original model and full eight-block network; wider game compatibility remains unqualified |
 | 4 | x86 application communicates with a separate x64 helper | Working and retained |
 
 The portable x86 Vulkan/SPIR-V implementation is an **additional fallback, not
@@ -53,19 +62,19 @@ The earlier driver-only route-3 prerequisite probe creates modules only. A
 separate full x86-host probe now authenticates the model, generates the native
 graph and its dispatch arguments in x86, then evaluates it through a generic
 x64 driver executor in the same process. It loads no x64 Phoenix DLSS5 renderer and
-uses no helper or Vulkan. Reset-frame inference and live strength changes pass;
-game presentation, temporal integration and automatic selection remain
-unvalidated. See [route-3 host results](WOW64_EXPERIMENT.md#route-3-x86-host-inference).
+uses no helper or Vulkan. Reset-frame inference and live strength changes pass.
+The newer fixture checks above add presentation evidence; temporal correctness
+and wider gameplay remain unqualified. See [route-3 host results](WOW64_EXPERIMENT.md#route-3-x86-host-inference).
 See [native driver investigation](X86_NATIVE_INVESTIGATION.md#direct-driver-bridge).
 
 | Mechanism | Processing | Capture / return | Selection policy |
 | --- | --- | --- | --- |
-| Automatic | Existing native D3D12 route when eligible; otherwise x64 helper | Same-device D3D12, D3D11 shared textures, or staging | Conservative existing default |
+| Automatic | Eligible same-process routes in the order above, then x64 helper | Same-device D3D12, D3D11 shared textures, or staging | Same-process preference; checks package readiness and settings |
 | In-process native D3D12 | Optimized native executor inside the game | Same-device GPU resources | Requires supported D3D12/device/format/executor; refuses unsupported combinations |
 | External x64 helper | Existing graphics companion | Automatic, D3D11 shared textures only, or staging/CPU pixels | Always available as a selectable alternative |
-| In-process portable (experimental) | Matching-bitness C++ runtime on a worker thread inside the game | Existing fenced readback and upload | Opt-in; does not use the failing x86 native NVAPI path |
-| x64 library inside x86 (experimental) | Complete native x64 Phoenix DLSS5/NVIDIA DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | Opt-in x86 only; locally matched Windows/driver bootstrap package required |
-| x86 Phoenix DLSS5 + native driver (experimental) | x86 graph/model/controls host with generic x64 driver executor in the same process | Existing fenced CPU capture and return | Opt-in x86 only; Phoenix DLSS5 full network; requires a large-address-aware executable; never patches the game EXE |
+| In-process portable (experimental) | Matching-bitness C++ runtime on a worker thread inside the game | Existing fenced readback and upload | Offered when provider/device requirements pass |
+| x64 library inside x86 (experimental) | Complete native x64 Phoenix DLSS5/NVIDIA DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | x86 only; locally matched Windows/driver bootstrap package required |
+| x86 Phoenix DLSS5 + native driver (experimental) | x86 graph/model/controls host with generic x64 driver executor in the same process | Existing fenced CPU capture and return | x86 only; Phoenix DLSS5 full network; requires a large-address-aware executable; never patches the game EXE |
 
 The two experimental native x86 routes are selectable in **Advanced transport**.
 They use a constrained high-address reservation retry and early native CUDA
