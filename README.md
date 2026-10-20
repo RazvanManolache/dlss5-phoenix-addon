@@ -9,7 +9,17 @@ what actually changes. Better pixels shouldn't require blind trust. The
 alternate backends are our slightly obsessive portability side quest. Yes,
 we may have taken the side quest too far.
 
-**New in 0.10:**
+**New in 0.11:**
+
+- **Fewer impossible choices:** transport options reflect the game's architecture,
+  available runtimes and current settings. The regular native DX12 path is x64-only.
+- **Your paths count:** configured runtime folders are checked before defaults;
+  required DLL architecture, hashes and driver profiles are verified.
+- **Same-process first, helper last:** Automatic tries eligible internal routes
+  before the external helper and explains failed attempts. This is a preference,
+  not a claim that experimental internal routes are faster.
+
+Retained from 0.10:
 
 - Software-rendered games route to the hardware helper; matching x86/x64 bridge fixes.
 
@@ -24,8 +34,8 @@ Retained from 0.9:
   lower startup peaks and a safe Vulkan default.
   [What changed and what we measured](docs/benchmarks/current/review-fixes.md).
 
-[Download addon 0.10](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.10) ·
-[Installation](docs/RELEASE_0.10.md) · [Controls](#a-quick-look) ·
+[Download addon 0.11](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.11) ·
+[Installation](docs/RELEASE_0.11.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 <!-- current-two-model-benchmark -->
