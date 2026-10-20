@@ -105,9 +105,17 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     caps.native_executor = in_process_settings(settings).execution_device == "native";
     caps.nvidia_required = needs_nvidia_dll(settings);
     caps.native_library_available = value.runtime_availability.native && !value.native_library_failed;
-    caps.native_driver_available = value.runtime_availability.native && !value.native_driver_failed;
+    caps.native_driver_available = value.runtime_availability.native && value.runtime_availability.driver_graph && !value.native_driver_failed;
     value.native_library_reason = value.runtime_availability.native_reason;
+    const auto model = settings.model_id.empty() ? value.configured.model_id : settings.model_id;
+    if (caps.native_library_available && std::find(value.runtime_availability.native_models.begin(),
+            value.runtime_availability.native_models.end(), model.empty() ? "original" : model) == value.runtime_availability.native_models.end()) {
+        caps.native_library_available = false;
+        value.native_library_reason = "The native runtime package does not declare support for this model.";
+    }
     value.native_driver_reason = value.runtime_availability.native_reason;
+    if (value.runtime_availability.native && !value.runtime_availability.driver_graph)
+        value.native_driver_reason = value.runtime_availability.driver_reason;
     for (bool driver : {false, true}) {
         const char* reason = native_settings_unavailable_reason(settings, driver);
         if (!*reason && driver) {

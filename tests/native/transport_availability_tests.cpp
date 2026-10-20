@@ -58,6 +58,19 @@ int main() {
     profile["files"]["../escape.dll"] = std::string(64, '0'); save();
     rejected([&] { inspect_native_transport(native, system); });
     profile["files"].erase("../escape.dll"); save();
+    const auto layout = phoenix_model::native_layout("phoenix-network37/1");
+    nlohmann::json graph{{"schema", "phoenix-native-graph/1"}, {"layers", nlohmann::json::array()},
+        {"tensors", {{"tensor:023.output_downsample_optional", {{"producer", 0}, {"zero_padding", true}}}}}};
+    for (unsigned index = 0; index < layout.launches(); ++index) graph["layers"].push_back({{"grid", {"T32"}}});
+    write(native / "native/native_graph_v2.json", graph.dump());
+    nlohmann::json graph_manifest{{"native_graph_v2_sha256", phoenix_embedded::file_digest(native / "native/native_graph_v2.json")}};
+    write(native / "native/native_manifest.json", graph_manifest.dump());
+    inspect_driver_transport_graph(native); verify(true);
+    graph["layers"][layout.repack_in()]["grid"][0] = "T";
+    write(native / "native/native_graph_v2.json", graph.dump());
+    graph_manifest["native_graph_v2_sha256"] = phoenix_embedded::file_digest(native / "native/native_graph_v2.json");
+    write(native / "native/native_manifest.json", graph_manifest.dump());
+    rejected([&] { inspect_driver_transport_graph(native); });
     dll(native / "wow64ext.dll", 64); profile["files"]["wow64ext.dll"] = phoenix_embedded::file_digest(native / "wow64ext.dll"); save();
     rejected([&] { inspect_native_transport(native, system); });
     dll(portable / "phoenix_runtime_cpp.dll", 64); dll(portable / "phoenix_cpu_cpp.dll", 64);

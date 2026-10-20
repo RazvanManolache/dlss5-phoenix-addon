@@ -21,6 +21,9 @@ Automatic preference order:
 5. External x64 helper.
 
 Runtime package and Windows/driver hash checks run off the rendering thread.
+The driver host additionally needs the matching tile-aligned graph and its pinned
+digest. Older native packages without a model-support declaration are eligible
+for Original only; selecting another model needs a package declaring support.
 Automatic waits for discovery, then skips absent/incompatible routes. A failed
 route is excluded for that setup and the next eligible mechanism is attempted;
 the UI exposes failure history and a recheck/retry action. Unretired GPU work

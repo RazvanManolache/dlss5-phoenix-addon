@@ -21,6 +21,9 @@ struct TransportRuntimes {
     bool pending = true, native = false, portable = false;
     std::string native_reason = "Checking native runtime...";
     std::string portable_reason = "Checking portable runtime...";
+    bool driver_graph = false;
+    std::string driver_reason;
+    std::vector<std::string> native_models{"original"};
 };
 
 inline bool transport_dll_matches(const std::filesystem::path& path, unsigned bits) {
@@ -72,6 +75,18 @@ inline void inspect_native_transport(const std::filesystem::path& root,
             "Native runtime profile does not match this NVIDIA driver.");
 }
 
+inline void inspect_driver_transport_graph(const std::filesystem::path& root) {
+    const auto manifest = phoenix_bundle::json_file(root / "native/native_manifest.json");
+    const bool aligned = manifest.contains("native_graph_v2_sha256");
+    const auto graph = root / "native" / (aligned ? "native_graph_v2.json" : "native_graph.json");
+    phoenix_bundle::require(phoenix_embedded::file_digest(graph) ==
+        manifest.at(aligned ? "native_graph_v2_sha256" : "native_graph_sha256").get<std::string>(),
+        "Native driver graph hash mismatch.");
+    const auto metadata = phoenix_bundle::json_file(graph);
+    phoenix_bundle::require(metadata.at("schema") == "phoenix-native-graph/1", "Native driver graph schema mismatch.");
+    phoenix_generated::validate_tile_layout(metadata);
+}
+
 inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path& native_root,
         const std::filesystem::path& portable_root, const std::string& portable_device, unsigned bits,
         bool allow_unvalidated = false) {
@@ -82,6 +97,12 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
             phoenix_bundle::require(GetWindowsDirectoryW(windows, MAX_PATH) != 0, "Windows path unavailable.");
             inspect_native_transport(native_root, std::filesystem::path(windows) / "Sysnative");
             result.native = true; result.native_reason.clear();
+            result.native_models = phoenix_bundle::json_file(native_root / "bootstrap.json")
+                .value("supported_models", std::vector<std::string>{"original"});
+            try {
+                inspect_driver_transport_graph(native_root);
+                result.driver_graph = true;
+            } catch (const std::exception& error) { result.driver_reason = error.what(); }
         } catch (const std::exception& error) { result.native_reason = error.what(); }
     } else result.native_reason = "Native cross-bitness routes require an x86 game.";
     try {
