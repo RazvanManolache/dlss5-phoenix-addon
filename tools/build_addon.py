@@ -97,6 +97,7 @@ def main():
         ("compatibility_policy_tests", "compatibility_policy_tests.cpp"),
         ("graphics_transport_tests", "graphics_transport_tests.cpp"),
         ("backbuffer_route_tests", "backbuffer_route_tests.cpp"),
+        ("transport_availability_tests", "transport_availability_tests.cpp"),
         ("backbuffer_shader_tests", "backbuffer_shader_tests.cpp"),
         ("compatibility_ipc_tests", "compatibility_ipc_tests.cpp"),
         ("screenshot_tests", "screenshot_tests.cpp"),

@@ -191,9 +191,12 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
             runtime.open(options.root, config.dump(), working.image_width, working.image_height);
+            uint64_t portable_phoenix_frames = 0;
             auto snapshot = [&](Json status) {
                 const auto schedule = status.value("network_schedule", Json::object());
                 return Json{{"schema", "phoenix-panel/1"}, {"runtime", status},
+                    {"execution", {{"kind", "portable"}}},
+                    {"phoenix", {{"submitted_frames", portable_phoenix_frames}}},
                     {"transformer_blocks", schedule.value("transformer_blocks", 8u)},
                     {"budget_estimate_ms", schedule.value("estimate_ms", 0.0)},
                     {"runtime_root", phoenix_model::source_path_string(options.root)},
@@ -251,6 +254,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     if (runtime.frame(runtime.instance, color.data(), nullptr, nullptr,
                                 nullptr, metadata.dump().c_str(), enhanced.data()) != 0)
                         throw std::runtime_error(runtime.error());
+                    ++portable_phoenix_frames;
                 }
                 if (processing) enhanced=processing->finish(std::move(enhanced));
                 auto result = portable_compose(pixels, enhanced, build.width, frame_settings);
@@ -295,10 +299,13 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
             phoenix_wow64::FrameSession renderer(options.root,bundle,source,working.image_width,working.image_height,settings,options.driver_host);
+            uint64_t native_phoenix_frames = 0;
             std::unique_lock lock(mutex_);
             auto snapshot=[&](double wall) {return Json{{"schema","phoenix-panel/1"},{"processing_location",native_mode_},
                 {"inference_pid",GetCurrentProcessId()},{"helper_pid",0},{"frame_wall_ms",wall},{"ui_clear_revision",ui_clear_revision_},
                 {"nvidia",renderer.nvidia_status()},
+                {"execution",{{"kind","native"}}},
+                {"phoenix",{{"submitted_frames",native_phoenix_frames}}},
                 {"runtime",{{"backend",native_mode_},{"gpu_processing_ms",renderer.gpu_ms()}}}};};
             ui_snapshot_=snapshot(0);phase_=Phase::Ready;
             while(!stopping_) {
@@ -326,6 +333,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     for(unsigned i=0;i<passes;++i) {
                         require(!stopping_,"Native execution cancelled");
                         result=renderer.evaluate(processing?working_pixels:pixels,frame_settings,backend,processing||i?&result:nullptr);
+                        if (backend == 3) ++native_phoenix_frames;
                     }
                     return processing?processing->finish(std::move(result)):result;
                 };

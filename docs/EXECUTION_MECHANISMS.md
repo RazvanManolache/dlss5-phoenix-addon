@@ -6,7 +6,26 @@ The compatibility panel's **Advanced transport** section selects where processin
 runs, independently of the game graphics API. It appears below the renderer
 controls, so renderer selection comes first. UI choices use descriptive names,
 not the investigation numbers used in the technical tables below. The x64 helper is retained.
-Installing an experimental portable runtime does not change automatic routing.
+The current development routing selects eligible same-process implementations
+before the helper. The dropdown shows only mechanisms eligible for the current
+architecture, canvas, settings and installed runtime. A saved unavailable choice
+remains visible as a warning; it is not silently replaced.
+
+Automatic preference order:
+
+1. Same-device native D3D12 in x64.
+2. Matching x64-library-inside-x86 package.
+3. Matching x86 driver-host package (Original model, all eight blocks once,
+   large-address-aware executable).
+4. Matching portable runtime and an eligible configured device.
+5. External x64 helper.
+
+Runtime package and Windows/driver hash checks run off the rendering thread.
+Automatic waits for discovery, then skips absent/incompatible routes. A failed
+route is excluded for that setup and the next eligible mechanism is attempted;
+the UI exposes failure history and a recheck/retry action. Unretired GPU work
+still requires a restart rather than an unsafe fallback. This order is a
+preference for avoiding external transport, not a universal speed claim.
 
 **0.9 downloads:** the standard add-on and optional portable runtime packages
 include no profile-specific WOW64 bundle. The native x86 experiments below retain
@@ -66,8 +85,9 @@ in-process does **not** mean zero-copy or guaranteed better performance.
 For portable and route 3, NVIDIA DLSS5 DLL evaluation and comparisons containing
 NVIDIA DLSS5 use the retained x64 helper while the saved preference remains intact.
 Returning to a Phoenix DLSS5-only view restores the selected route. Route 2 can
-evaluate both renderers in the same x86 process. Automatic/native x86 validation
-guards are unchanged; selecting an experimental route never makes it automatic.
+evaluate both renderers in the same x86 process. The ordinary same-device native
+D3D12 route remains x64-only. Automatic can select the separate x86 routes when
+their installed package, Windows/driver profile and settings are eligible.
 
 ## Configuration
 
@@ -88,6 +108,9 @@ CoherentFrames=1
 
 - `ExecutionMode`: `auto`, `in_process`, `helper`, `portable`,
   `wow64_library` (route 2), or `wow64_driver` (route 3).
+  Automatic tries eligible same-process routes first, with the helper last.
+  `NativeFallback`/`PortableFallback` affect explicitly selected modes; they do
+  not disable Automatic's ordered retry behavior.
 - `HelperTransport`: `auto`, `shared`, or `readback`. Forced shared transfer
   requires D3D11 shared textures/fences; unsupported combinations fail visibly.
 - `PortableRuntime`: absolute path, or relative to the **add-on directory**, never

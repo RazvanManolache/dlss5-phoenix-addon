@@ -5,6 +5,7 @@
 #include "d3d11_bridge.h"
 #include "readback_bridge.h"
 #include "backbuffer_route.h"
+#include "transport_availability.h"
 #include "d3d12_bridge.h"
 #include "session_policy.h"
 #include "screenshot.h"
@@ -33,9 +34,14 @@ struct Session {
     std::string execution_name = "auto", fallback_reason, processing_error;
     std::string portable_root, portable_device = "auto", helper_transport = "auto";
     std::string native_root;
-    bool native_fallback=true,native_failed=false;
+    bool native_fallback=true, native_library_failed=false, native_driver_failed=false;
     bool portable_allow_unvalidated = false, portable_fallback = true, portable_failed = false;
     bool local_failed = false;
+    TransportAvailabilityProbe availability_probe;
+    TransportRuntimes runtime_availability;
+    BackbufferCapabilities capabilities;
+    std::string native_library_reason, native_driver_reason, portable_reason;
+    std::vector<std::string> failed_routes;
     std::optional<bool> software_device;
     reshade::api::color_space color_space = reshade::api::color_space::srgb_nonlinear;
     phoenix_model_tools::Task picker, validator;
@@ -65,6 +71,65 @@ struct Session {
     std::string message = "Select a model and enable neural rendering.";
 };
 inline HMODULE module = nullptr;
+inline void reset_route_failures(Session& value) {
+    value.local_failed = value.portable_failed = value.native_library_failed = value.native_driver_failed = false;
+    value.failed_routes.clear(); value.fallback_reason.clear();
+}
+inline void reject_route(Session& value, BackbufferRoute route, const std::string& error) {
+    if (route == BackbufferRoute::InProcess) value.local_failed = true;
+    else if (route == BackbufferRoute::NativeLibrary) value.native_library_failed = true;
+    else if (route == BackbufferRoute::NativeDriver) value.native_driver_failed = true;
+    else if (route == BackbufferRoute::Portable) value.portable_failed = true;
+    value.failed_routes.push_back(error);
+    value.fallback_reason = error;
+    value.message = error + "; trying the next eligible route.";
+    value.restart = true;
+}
+inline std::filesystem::path runtime_path(const std::string& configured, const std::filesystem::path& fallback) {
+    wchar_t path[32768]{};
+    require(GetModuleFileNameW(module, path, 32768) != 0, "Addon path unavailable");
+    return transport_runtime_path(std::filesystem::path(path).parent_path(), configured, fallback);
+}
+inline BackbufferCapabilities transport_capabilities(Session& value, const Settings& settings,
+                                                       BackbufferCapabilities caps) {
+    try {
+        value.runtime_availability = value.availability_probe.poll(
+            runtime_path(value.native_root, "PhoenixRuntime/wow64"),
+            runtime_path(value.portable_root, sizeof(void*) == 4 ? "PhoenixRuntime/win-x86" : "PhoenixRuntime/win-x64"),
+            value.portable_device, value.portable_allow_unvalidated);
+    } catch (const std::exception& error) {
+        value.runtime_availability = {false, false, false, error.what(), error.what()};
+    }
+    caps.discovery_pending = value.runtime_availability.pending;
+    caps.local_api = in_process_api.available() && !value.local_failed;
+    caps.native_executor = in_process_settings(settings).execution_device == "native";
+    caps.nvidia_required = needs_nvidia_dll(settings);
+    caps.native_library_available = value.runtime_availability.native && !value.native_library_failed;
+    caps.native_driver_available = value.runtime_availability.native && !value.native_driver_failed;
+    value.native_library_reason = value.runtime_availability.native_reason;
+    value.native_driver_reason = value.runtime_availability.native_reason;
+    for (bool driver : {false, true}) {
+        const char* reason = native_settings_unavailable_reason(settings, driver);
+        if (!*reason && driver) {
+            const auto image = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+            const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
+            const auto pe = reinterpret_cast<const IMAGE_NT_HEADERS*>(image + dos->e_lfanew);
+            if (!(pe->FileHeader.Characteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE))
+                reason = "The x86 driver host requires a large-address-aware executable.";
+        }
+        if (*reason) {
+            (driver ? caps.native_driver_available : caps.native_library_available) = false;
+            (driver ? value.native_driver_reason : value.native_library_reason) = reason;
+        }
+    }
+    caps.portable_available = value.runtime_availability.portable && !value.portable_failed &&
+        settings.resolution_mode == 0 && !settings.host_unjitter && !caps.nvidia_required;
+    value.portable_reason = value.runtime_availability.portable_reason;
+    if (settings.resolution_mode != 0 || settings.host_unjitter)
+        value.portable_reason = "Portable backbuffer execution requires normal resolution and no unjitter.";
+    if (caps.nvidia_required) value.portable_reason = "Portable processing cannot evaluate the NVIDIA DLL.";
+    return caps;
+}
 inline const char *api_name(reshade::api::device_api api) {
     using reshade::api::device_api;
     switch (api) {
@@ -298,7 +363,7 @@ inline void save(reshade::api::effect_runtime *runtime, Session &value, bool app
     if (apply) {
         const bool retry = !value.processing_error.empty();
         value.processing_error.clear();
-        if (retry) value.local_failed = value.portable_failed = value.native_failed = false;
+        if (retry) reset_route_failures(value);
         const bool changed = helper_settings_changed(value.applied_settings, value.settings);
         auto tuning = value.applied_settings;
         const bool tuning_changed = phoenix_addon::phoenix::copy_live_tuning(tuning, value.settings);
@@ -322,7 +387,7 @@ inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value
         ++value.selection_revision;
         value.settings.uplift = value.applied_settings.uplift = true;
         value.processing_error.clear(); value.local_failed = false;
-        if (selection || ui.processing_changed || retry) value.portable_failed = value.native_failed = false;
+        if (selection || ui.processing_changed || retry) reset_route_failures(value);
         if (!value.portable_failed) value.fallback_reason.clear();
         value.restart = value.restart || selection || ui.processing_changed || retry;
         save(runtime, value, false);
@@ -457,16 +522,18 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.processing_enabled = &value.enabled;
     ui.timing_provenance = timing_provenance(value);
     ui.inference_process = host && !resident_active(value);
-    const bool native_requested=!value.native_failed &&
-        (value.execution==ExecutionPreference::NativeLibrary ||
-         (value.execution==ExecutionPreference::NativeDriver&&!needs_nvidia_dll(value.settings)));
+    const bool native_requested = native_active(value) ||
+        (value.execution == ExecutionPreference::NativeLibrary && !value.native_library_failed) ||
+        (value.execution == ExecutionPreference::NativeDriver && !value.native_driver_failed && !needs_nvidia_dll(value.settings));
     ui.final_frame_source = true;
-    ui.portable_backbuffer = (value.execution == ExecutionPreference::Portable && !needs_nvidia_dll(value.settings)) || native_requested;
-    ui.portable_gpu_budget = value.execution == ExecutionPreference::Portable &&
+    ui.portable_backbuffer = portable_active(value) ||
+        (value.execution == ExecutionPreference::Portable && !needs_nvidia_dll(value.settings)) || native_requested;
+    ui.portable_gpu_budget = (portable_active(value) || value.execution == ExecutionPreference::Portable) &&
         !needs_nvidia_dll(value.settings) && value.portable_device != "cpu" &&
         info.contains("runtime") && info.at("runtime").is_object() &&
         info.value("runtime", Json::object()).value("capabilities", Json::object()).contains("granular_controls");
-    ui.fixed_native_blocks = value.execution==ExecutionPreference::NativeDriver && !value.native_failed && !needs_nvidia_dll(value.settings);
+    ui.fixed_native_blocks = (native_active(value) && std::string(execution_mode(value)) == "in_process_x86_driver") ||
+        (value.execution == ExecutionPreference::NativeDriver && !value.native_driver_failed && !needs_nvidia_dll(value.settings));
     if (resident_active(value)) ui.portable_wall_ms = info.value("frame_wall_ms", 0.0);
     ui.input_capture = !ui.portable_backbuffer && !native_active(value);
     ui.status = value.message;
@@ -546,6 +613,10 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
 inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& value) {
     auto* host = active_host(value);
     const auto validation = value.validator.poll();
+    Json transports = Json::array();
+    for (auto preference : available_execution_preferences(value.capabilities))
+        transports.push_back({{"key", execution_preference_name(preference)},
+                              {"label", execution_preference_label(preference)}});
     return {{"tick_ms", GetTickCount64()}, {"api", api_name(runtime->get_device()->get_api())},
         {"window_id", uint64_t(reinterpret_cast<uintptr_t>(runtime->get_hwnd()))},
         {"enabled", value.enabled}, {"coherent_frames", value.coherent_frames},
@@ -557,6 +628,11 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"helper_pid", host && !resident_active(value) ? host->process_id() : 0},
         {"execution_mode", execution_mode(value)},
         {"execution_preference", value.execution_name}, {"fallback_reason", value.fallback_reason},
+        {"transport_options", std::move(transports)}, {"transport_failures", value.failed_routes},
+        {"transport_discovery_pending", value.runtime_availability.pending},
+        {"transport_availability", {{"native_library", value.native_library_reason},
+                                    {"native_driver", value.native_driver_reason},
+                                    {"portable", value.portable_reason}}},
         {"portable_runtime", value.portable_root}, {"portable_device", value.portable_device},
         {"helper_transport", value.helper_transport},
         {"portable_fallback", value.portable_fallback},
@@ -679,12 +755,47 @@ inline void panel(reshade::api::effect_runtime *runtime) {
         "Phoenix DLSS5 runs inside the game using the portable runtime and CPU pixel transfers." :
         "Phoenix DLSS5 selects same-device D3D12 processing when supported, otherwise an isolated 64-bit helper.");
     bool route_changed = false;
-    const char* choices[]{"Automatic", "In-process native D3D12", "External x64 helper", "In-process portable (experimental)","x64 library inside x86 (experimental)","x86 Phoenix DLSS5 + native driver (experimental)"};
-    int choice = value.execution == ExecutionPreference::InProcess ? 1 : value.execution == ExecutionPreference::Helper ? 2 : value.execution == ExecutionPreference::Portable ? 3 : value.execution==ExecutionPreference::NativeLibrary?4:value.execution==ExecutionPreference::NativeDriver?5:0;
-    if (ImGui::Combo("Execution mechanism", &choice, choices, sizeof(void*)==4?6:4)) {
-        value.execution_name = choice == 1 ? "in_process" : choice == 2 ? "helper" : choice == 3 ? "portable" : choice==4?"wow64_library":choice==5?"wow64_driver":"auto";
-        value.execution = execution_preference(value.execution_name);
-        route_changed = true;
+    const auto choices = available_execution_preferences(transport_capabilities(value, value.settings, value.capabilities));
+    const bool saved_available = std::find(choices.begin(), choices.end(), value.execution) != choices.end();
+    const auto preview = saved_available ? execution_preference_label(value.execution) : "Saved mode unavailable - choose a route";
+    if (ImGui::BeginCombo("Execution mechanism", preview)) {
+        for (auto choice : choices) {
+            const bool selected = choice == value.execution;
+            if (ImGui::Selectable(execution_preference_label(choice), selected)) {
+                value.execution = choice; value.execution_name = execution_preference_name(choice);
+                route_changed = true;
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (!saved_available) ImGui::TextWrapped("The saved execution mechanism is not available for this architecture, runtime or settings. Select Automatic to try eligible routes.");
+    ImGui::TextWrapped("Automatic tries same-device native DX12, eligible x86 native routes, then portable processing. The x64 helper is last.");
+    if (ImGui::Button("Recheck runtimes / retry routes")) {
+        value.availability_probe.invalidate(); route_changed = true;
+    }
+    if (ImGui::TreeNode("Transport availability")) {
+        char portable_folder[4096]{};
+        strncpy_s(portable_folder, value.portable_root.c_str(), _TRUNCATE);
+        if (ImGui::InputText("Portable runtime folder", portable_folder, sizeof(portable_folder))) value.portable_root = portable_folder;
+        route_changed |= ImGui::IsItemDeactivatedAfterEdit();
+        char portable_device[4096]{};
+        strncpy_s(portable_device, value.portable_device.c_str(), _TRUNCATE);
+        if (ImGui::InputText("Portable device ID", portable_device, sizeof(portable_device))) value.portable_device = portable_device;
+        route_changed |= ImGui::IsItemDeactivatedAfterEdit();
+        route_changed |= ImGui::Checkbox("Allow devices without a validation entry", &value.portable_allow_unvalidated);
+        if constexpr (sizeof(void*) == 4) {
+            char native_folder[4096]{};
+            strncpy_s(native_folder, value.native_root.c_str(), _TRUNCATE);
+            if (ImGui::InputText("Native runtime folder", native_folder, sizeof(native_folder))) value.native_root = native_folder;
+            route_changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        ImGui::TextWrapped("Configured folders take precedence. Relative runtime folders are resolved beside this addon; Windows and driver hashes are checked away from rendering.");
+        ImGui::TextWrapped("x86 library: %s", value.native_library_reason.empty() ? "Package and settings eligible" : value.native_library_reason.c_str());
+        ImGui::TextWrapped("x86 driver: %s", value.native_driver_reason.empty() ? "Package and settings eligible" : value.native_driver_reason.c_str());
+        ImGui::TextWrapped("Portable: %s", value.portable_reason.empty() ? "Package and settings eligible" : value.portable_reason.c_str());
+        for (const auto& error : value.failed_routes) ImGui::TextWrapped("Failed: %s", error.c_str());
+        ImGui::TreePop();
     }
     const char* transfers[]{"Automatic", "Shared GPU textures (D3D11 only)", "Staging / CPU pixels"};
     int transfer = value.helper_transport == "shared" ? 1 : value.helper_transport == "readback" ? 2 : 0;
@@ -735,7 +846,7 @@ inline void panel(reshade::api::effect_runtime *runtime) {
     }
     ImGui::Text("Active execution: %s",execution_mode(value));
     if (route_changed) {
-        value.local_failed = value.portable_failed = value.native_failed = false; value.fallback_reason.clear();
+        reset_route_failures(value);
         value.processing_error.clear();
         ++value.selection_revision;
         value.restart = true;
@@ -862,7 +973,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 apply_live_selection(value.applied_settings, value.settings);
                 ++value.selection_revision;
                 value.restart = true;
-                value.processing_error.clear(); value.local_failed = value.portable_failed = value.native_failed = false;
+                value.processing_error.clear(); reset_route_failures(value);
                 value.settings_dirty = settings_json(value.settings) != settings_json(value.applied_settings);
                 save(runtime, value, false);
             }
@@ -897,6 +1008,25 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.message = "Previous in-process GPU work did not retire; restart the game before processing again.";
         return;
     }
+    auto *device = runtime->get_device();
+    const auto description = device->get_resource_desc(back_resource);
+    BackbufferCapabilities detected;
+    detected.api = device->get_api(); detected.width = description.texture.width;
+    if (!value.software_device) value.software_device = is_software_render_device(device);
+    detected.software_device = *value.software_device;
+    detected.height = description.texture.height; detected.format = description.texture.format;
+    detected.samples = description.texture.samples; detected.layers = description.texture.depth_or_layers;
+    detected.levels = description.texture.levels;
+    detected.sdr = sdr_backbuffer(value.color_space, detected.format);
+    if (detected.api == reshade::api::device_api::d3d12 && back_resource.handle) {
+        Ptr<ID3D12Resource1> protected_image;
+        auto* image = reinterpret_cast<ID3D12Resource*>(uintptr_t(back_resource.handle));
+        if (SUCCEEDED(image->QueryInterface(IID_PPV_ARGS(&protected_image)))) {
+            Ptr<IUnknown> protection;
+            detected.protected_resource = SUCCEEDED(protected_image->GetProtectedResourceSession(IID_PPV_ARGS(&protection))) && protection;
+        }
+    }
+    value.capabilities = transport_capabilities(value, value.applied_settings, detected);
     const auto& processing=value.applied_settings.processing;
     if(processing.enabled && processing.hook!=0 && processing.hook!=3) {
         value.message="This source is a final frame; select Present for explicit processing.";return;
@@ -925,37 +1055,14 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.message = "Original game (model bypass).";
         return;
     }
-    auto *device = runtime->get_device();
-    const auto description = device->get_resource_desc(back_resource);
-    BackbufferCapabilities capabilities;
-    capabilities.api = device->get_api(); capabilities.width = description.texture.width;
-    if (!value.software_device) value.software_device = is_software_render_device(device);
-    capabilities.software_device = *value.software_device;
-    capabilities.height = description.texture.height; capabilities.format = description.texture.format;
-    capabilities.samples = description.texture.samples; capabilities.layers = description.texture.depth_or_layers;
-    capabilities.levels = description.texture.levels;
-    capabilities.local_api = in_process_api.available();
-    capabilities.nvidia_required = needs_nvidia_dll(value.applied_settings);
-    capabilities.native_executor = in_process_settings(value.applied_settings).execution_device == "native";
-    capabilities.sdr = sdr_backbuffer(value.color_space,capabilities.format);
-    if (capabilities.api == reshade::api::device_api::d3d12 && back_resource.handle) {
-        Ptr<ID3D12Resource1> protected_image;
-        auto* image = reinterpret_cast<ID3D12Resource*>(uintptr_t(back_resource.handle));
-        if (SUCCEEDED(image->QueryInterface(IID_PPV_ARGS(&protected_image)))) {
-            Ptr<IUnknown> protection;
-            capabilities.protected_resource = SUCCEEDED(protected_image->GetProtectedResourceSession(IID_PPV_ARGS(&protection))) && protection;
-        }
-    }
+    auto capabilities = value.capabilities;
     auto decision = choose_backbuffer_route(capabilities, value.execution);
-    const bool native_attempt=(decision.route==BackbufferRoute::NativeLibrary||decision.route==BackbufferRoute::NativeDriver)&&!value.native_failed;
-    if((decision.route==BackbufferRoute::NativeLibrary||decision.route==BackbufferRoute::NativeDriver)&&value.native_failed) {
-        decision=choose_backbuffer_route(capabilities,ExecutionPreference::Helper);decision.reason=value.fallback_reason;
-    }
-    const bool portable_attempt = decision.route == BackbufferRoute::Portable && !value.portable_failed;
-    if (decision.route == BackbufferRoute::Portable && value.portable_failed) {
-        decision = choose_backbuffer_route(capabilities, ExecutionPreference::Helper);
-        decision.reason = value.fallback_reason;
-    }
+    if ((value.execution == ExecutionPreference::NativeLibrary && value.native_library_failed && value.native_fallback) ||
+        (value.execution == ExecutionPreference::NativeDriver && value.native_driver_failed && value.native_fallback) ||
+        (value.execution == ExecutionPreference::Portable && value.portable_failed && value.portable_fallback))
+        decision = choose_backbuffer_route(capabilities, ExecutionPreference::Automatic);
+    const bool native_attempt = decision.route == BackbufferRoute::NativeLibrary || decision.route == BackbufferRoute::NativeDriver;
+    const bool portable_attempt = decision.route == BackbufferRoute::Portable;
     if (value.helper_transport != "auto" && value.helper_transport != "shared" &&
         value.helper_transport != "readback") {
         value.message = "Unknown HelperTransport; use auto, shared or readback.";
@@ -1002,19 +1109,19 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         } catch (const std::exception& error) {
             value.fallback_reason = std::string("In-process initialization/evaluation: ") + error.what();
             value.message = value.fallback_reason;
-            value.local_failed = true;
             const bool safe = !value.local || value.local->safe_to_fallback();
             if (!may_fallback_to_helper(value.execution, safe) || capabilities.width > 8192 || capabilities.height > 8192) {
                 value.processing_error = value.message;
                 return;
             }
             value.local.reset(); value.logged_outputs = 0;
-            value.restart = true;
+            reject_route(value, BackbufferRoute::InProcess, value.fallback_reason);
             reshade::log::message(reshade::log::level::warning, value.fallback_reason.c_str());
+            return; // Re-evaluate the ordered candidates on the next frame.
         }
     } else {
         if (value.local) { remember_timing(value); value.local.reset(); value.logged_outputs = 0; }
-        if (!value.local_failed) value.fallback_reason = decision.reason;
+        if (value.failed_routes.empty()) value.fallback_reason = decision.reason;
     }
     if (value.restart) {
         remember_timing(value);
@@ -1054,20 +1161,12 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 std::optional<PortableOptions> portable;
                 std::optional<NativeOptions> native;
                 if(native_attempt) {
-                    wchar_t path[32768]{};require(GetModuleFileNameW(module,path,32768)!=0,"Addon path unavailable");
-                    auto root=value.native_root.empty()?fs::path("PhoenixRuntime/wow64"):fs::u8path(value.native_root);
-                    if(root.is_relative()) root=fs::path(path).parent_path()/root;
-                    native=NativeOptions{fs::absolute(root).lexically_normal(),value.execution==ExecutionPreference::NativeDriver};
+                    native = NativeOptions{runtime_path(value.native_root, "PhoenixRuntime/wow64"),
+                                           decision.route == BackbufferRoute::NativeDriver};
                 }
                 if (portable_attempt) {
-                    wchar_t path[32768]{};
-                    require(GetModuleFileNameW(module, path, 32768) != 0, "Addon path unavailable");
-                    const auto folder = fs::path(path).parent_path();
-                    auto root = value.portable_root.empty() ?
-                        fs::path("PhoenixRuntime") / (sizeof(void*) == 4 ? "win-x86" : "win-x64") :
-                        fs::u8path(value.portable_root);
-                    if (root.is_relative()) root = folder / root;
-                    portable = PortableOptions{fs::absolute(root).lexically_normal(),
+                    portable = PortableOptions{runtime_path(value.portable_root,
+                        sizeof(void*) == 4 ? "PhoenixRuntime/win-x86" : "PhoenixRuntime/win-x64"),
                         value.portable_device, value.portable_allow_unvalidated};
                 }
                 ++value.helper_generation;
@@ -1080,16 +1179,14 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 if(native_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
                 reshade::log::message(reshade::log::level::info, value.message.c_str());
             }
-            if (portable_attempt && value.readback->host()->phase() == Phase::Failed && value.portable_fallback) {
-                value.portable_failed = true;
-                value.fallback_reason = value.readback->host()->error() + "; using retained x64 helper.";
-                value.message = value.fallback_reason;
-                value.restart = true;
+            if (portable_attempt && value.readback->host()->phase() == Phase::Failed &&
+                (value.portable_fallback || value.execution == ExecutionPreference::Automatic)) {
+                reject_route(value, decision.route, value.readback->host()->error());
                 return; // Retire any queued Vulkan presentation before changing the transport.
             }
-            if(native_attempt&&value.readback->host()->phase()==Phase::Failed&&value.native_fallback) {
-                value.native_failed=true;value.fallback_reason=value.readback->host()->error()+"; using retained x64 helper.";
-                value.message=value.fallback_reason;value.restart=true;return;
+            if(native_attempt && value.readback->host()->phase() == Phase::Failed &&
+               (value.native_fallback || value.execution == ExecutionPreference::Automatic)) {
+                reject_route(value, decision.route, value.readback->host()->error()); return;
             }
             require(value.readback->host()->update_tuning(value.applied_settings), "Helper refused live tuning");
             value.readback->frame(command, back, value.frames, value.applied_settings,
@@ -1097,12 +1194,9 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             log_progress(value);
         } catch (const std::exception &error) {
             value.message = error.what();
-            if(native_attempt&&value.native_fallback) {
-                value.native_failed=true;value.fallback_reason=value.message+"; using retained x64 helper.";value.restart=true;
-            } else if (portable_attempt && value.portable_fallback) {
-                value.portable_failed = true;
-                value.fallback_reason = value.message + "; using retained x64 helper.";
-                value.restart = true;
+            if ((native_attempt && (value.native_fallback || value.execution == ExecutionPreference::Automatic)) ||
+                (portable_attempt && (value.portable_fallback || value.execution == ExecutionPreference::Automatic))) {
+                reject_route(value, decision.route, value.message);
             } else value.processing_error = value.message;
             reshade::log::message(reshade::log::level::error, value.message.c_str());
             if (device->get_api() == reshade::api::device_api::vulkan)

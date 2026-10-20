@@ -1,5 +1,6 @@
 #include "../../src/integration/compatibility/backbuffer_route.h"
 #include "../../src/integration/compatibility/session_policy.h"
+#include "../../src/integration/compatibility/wow64/bridge_policy.h"
 #include <iostream>
 
 int main() {
@@ -19,7 +20,7 @@ int main() {
     BackbufferCapabilities base;
     base.bits = 64; base.width = 2560; base.height = 1080;
     base.local_api = true; base.format = F::r8g8b8a8_unorm;
-    base.x86_native_validated = true;
+    base.native_library_available = base.native_driver_available = true;
     for(auto api:{A::d3d9,A::d3d10,A::opengl}) {
         auto legacy=base;legacy.api=api;legacy.bits=32;legacy.format=F::b8g8r8x8_unorm;
         legacy.sdr=sdr_backbuffer(C::unknown,legacy.format);
@@ -46,15 +47,15 @@ int main() {
     for (auto api : {A::d3d9, A::d3d10, A::d3d11, A::d3d12, A::opengl, A::vulkan}) {
         auto caps = base; caps.api = api; caps.bits = 32;
         verify(choose_backbuffer_route(caps, automatic).route ==
-               (api == A::d3d12 ? BackbufferRoute::InProcess : BackbufferRoute::Helper));
+               BackbufferRoute::NativeLibrary);
         verify(choose_backbuffer_route(caps, ExecutionPreference::InProcess).route ==
-               (api == A::d3d12 ? BackbufferRoute::InProcess : BackbufferRoute::Unsupported));
+               BackbufferRoute::Unsupported);
         caps.bits = 64;
         verify(choose_backbuffer_route(caps, automatic).route ==
                (api == A::d3d12 ? BackbufferRoute::InProcess : BackbufferRoute::Helper));
     }
     auto unvalidated32 = base;
-    unvalidated32.bits = 32; unvalidated32.x86_native_validated = false;
+    unvalidated32.bits = 32; unvalidated32.native_library_available = unvalidated32.native_driver_available = false;
     verify(choose_backbuffer_route(unvalidated32,automatic).route == BackbufferRoute::Helper);
     verify(choose_backbuffer_route(unvalidated32,ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
     for (int mode : {phoenix_addon::phoenix::nvidia, phoenix_addon::phoenix::split, phoenix_addon::phoenix::ours}) {
@@ -75,11 +76,10 @@ int main() {
                 verify(choose_backbuffer_route(caps, ExecutionPreference::InProcess).route ==
                        (local ? BackbufferRoute::InProcess : BackbufferRoute::Unsupported));
                 caps.bits = 32;
-                const bool local32 = local && !caps.nvidia_required;
                 verify(choose_backbuffer_route(caps, automatic).route ==
-                       (local32 ? BackbufferRoute::InProcess : BackbufferRoute::Helper));
+                       (local ? BackbufferRoute::NativeLibrary : BackbufferRoute::Helper));
                 verify(choose_backbuffer_route(caps, ExecutionPreference::InProcess).route ==
-                       (local32 ? BackbufferRoute::InProcess : BackbufferRoute::Unsupported));
+                       BackbufferRoute::Unsupported);
             }
         }
     }
@@ -91,7 +91,7 @@ int main() {
         auto caps = base; caps.bits = 32;
         caps.nvidia_required = needs_nvidia_dll(comparison);
         verify(choose_backbuffer_route(caps, automatic).route ==
-               (a == 1 || b == 1 ? BackbufferRoute::Helper : BackbufferRoute::InProcess));
+               BackbufferRoute::NativeLibrary);
     }
     for (unsigned failure = 0; failure < 2; ++failure) {
         auto caps = base;
@@ -129,7 +129,7 @@ int main() {
     verify(execution_preference("wow64_library")==ExecutionPreference::NativeLibrary);
     verify(execution_preference("wow64_driver")==ExecutionPreference::NativeDriver);
     for(auto api:{A::d3d9,A::d3d10,A::d3d11,A::d3d12,A::opengl,A::vulkan}) {
-        auto caps=base;caps.bits=32;caps.api=api;caps.x86_native_validated=false;
+        auto caps=base;caps.bits=32;caps.api=api;
         for(auto preference:{ExecutionPreference::NativeLibrary,ExecutionPreference::NativeDriver}) {
             const auto expected=preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::NativeDriver;
             verify(choose_backbuffer_route(caps,preference).route==expected);
@@ -151,12 +151,48 @@ int main() {
     }
     for (unsigned bits : {32u, 64u})
         for (auto api : {A::d3d9, A::d3d10, A::d3d11, A::d3d12, A::opengl, A::vulkan}) {
-            auto caps = base; caps.bits = bits; caps.api = api; caps.x86_native_validated = false;
+            auto caps = base; caps.bits = bits; caps.api = api; caps.portable_available = true;
             verify(choose_backbuffer_route(caps, ExecutionPreference::Portable).route == BackbufferRoute::Portable);
             caps.nvidia_required = true;
             verify(choose_backbuffer_route(caps, ExecutionPreference::Portable).route == BackbufferRoute::Helper);
             caps.nvidia_required = false; caps.width = 8193;
             verify(choose_backbuffer_route(caps, ExecutionPreference::Portable).route == BackbufferRoute::Unsupported);
         }
+    auto ordered = base; ordered.bits = 32; ordered.portable_available = true;
+    verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::NativeLibrary);
+    ordered.native_library_available = false;
+    verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::NativeDriver);
+    ordered.native_driver_available = false;
+    verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Portable);
+    ordered.portable_available = false;
+    verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Helper);
+    ordered.discovery_pending = true;
+    verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Unsupported);
+    verify(choose_backbuffer_route(ordered, ExecutionPreference::Helper).route == BackbufferRoute::Helper);
+    for (auto bits : {32u, 64u}) {
+        auto caps = base; caps.bits = bits;
+        const auto choices = available_execution_preferences(caps);
+        verify(choices.front() == ExecutionPreference::Automatic);
+        verify(choices.back() == ExecutionPreference::Helper);
+        verify((std::find(choices.begin(), choices.end(), ExecutionPreference::InProcess) != choices.end()) == (bits == 64));
+        verify((std::find(choices.begin(), choices.end(), ExecutionPreference::NativeLibrary) != choices.end()) == (bits == 32));
+        verify(std::find(choices.begin(), choices.end(), ExecutionPreference::Portable) == choices.end());
+    }
+    Settings native; native.mode = phoenix_addon::phoenix::ours;
+    verify(!*native_settings_unavailable_reason(native, false));
+    verify(!*native_settings_unavailable_reason(native, true));
+    native.model_id = "small-fp8";
+    verify(!*native_settings_unavailable_reason(native, false));
+    verify(*native_settings_unavailable_reason(native, true));
+    native.model_id = "original"; native.block_repeats[0] = 2;
+    verify(!*native_settings_unavailable_reason(native, false));
+    verify(*native_settings_unavailable_reason(native, true));
+    native.block_repeats[0] = 1; native.mode = phoenix_addon::phoenix::nvidia;
+    verify(!*native_settings_unavailable_reason(native, false));
+    verify(*native_settings_unavailable_reason(native, true));
+    native.mode = phoenix_addon::phoenix::ours; native.execution_device = "cpu";
+    verify(*native_settings_unavailable_reason(native, false));
+    native.execution_device = "native"; native.automatic_budget = true;
+    verify(*native_settings_unavailable_reason(native, false));
     std::cout << "{\"passed\":true,\"cpu_only\":true,\"checks\":" << checks << "}\n";
 }
