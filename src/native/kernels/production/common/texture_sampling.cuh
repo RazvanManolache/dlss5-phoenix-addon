@@ -74,11 +74,17 @@ image_mma_half(uint32_t& result_pair_0, uint32_t& result_pair_1, uint32_t activa
                uint32_t activation_fragment_3, uint32_t weight_fragment_0,
                uint32_t weight_fragment_1, uint32_t accumulator_input_0,
                uint32_t accumulator_input_1) {
+#if __CUDA_ARCH__ < 800
+    phoenix_architecture::half_matrix(result_pair_0, result_pair_1,
+        activation_fragment_0, activation_fragment_1, activation_fragment_2, activation_fragment_3,
+        weight_fragment_0, weight_fragment_1, accumulator_input_0, accumulator_input_1);
+#else
     asm("mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16 {%0,%1},{%2,%3,%4,%5},{%6,%7},{%8,%9};"
         : "=r"(result_pair_0), "=r"(result_pair_1)
         : "r"(activation_fragment_0), "r"(activation_fragment_1), "r"(activation_fragment_2),
           "r"(activation_fragment_3), "r"(weight_fragment_0), "r"(weight_fragment_1),
           "r"(accumulator_input_0), "r"(accumulator_input_1));
+#endif
 }
 template <bool CheckBounds>
 __device__ __forceinline__ uint32_t image_read_half(uint64_t address,

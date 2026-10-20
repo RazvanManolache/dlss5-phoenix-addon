@@ -22,6 +22,13 @@ CORE_ABI = {"AddonInit", "AddonUninit", "CnrPHOENIXCompatibilityStatus",
             "CnrPHOENIXFeederUiAction", "CnrPHOENIXFeederLiveSettings"}
 
 
+def release_flags(report):
+    channel = report.get('release_channel', 'stable')
+    if channel not in ('stable', 'experimental'):
+        raise ValueError('Unknown core release channel')
+    return channel, ' /DPHOENIX_EXPERIMENTAL_NATIVE=1' if channel == 'experimental' else ''
+
+
 def file_sha256(path):
     # The embedded core is large. Identity checks should not allocate its size.
     with Path(path).open('rb') as source:
@@ -39,6 +46,8 @@ def verify_core_inputs(core, report):
     if missing:
         raise ValueError('Core lacks required helper ABI: ' + ', '.join(sorted(missing)))
     manifest = json.loads((core / 'embedded/manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('release_channel', 'stable') != release_flags(report)[0]:
+        raise ValueError('Core release channel does not match its embedded payload')
     required = {name + '.obj' for name in ('addon', 'hook', 'buffer', 'trampoline', 'hde64')}
     required.add('embedded/manifest.json')
     required.update(f"embedded/{entry['resource']}.bin" for entry in manifest['files'])
@@ -125,6 +134,7 @@ def main():
     if not {"ReShadeRegisterAddon", "ReShadeGetImGuiFunctionTable"}.issubset(pe_exports(reshade)):
         parser.error("--reshade64 must be an addon-capable ReShade DLL, not another DXGI proxy")
     report = json.loads((core / "report.json").read_text())
+    channel, experimental_flags = release_flags(report)
     try:
         linked_inputs, source_inputs = verify_core_inputs(core, report)
     except (ValueError, OSError, KeyError) as error:
@@ -193,7 +203,7 @@ def main():
     resource32 = resources("32")
     hooks32 = ' '.join(f'"{ROOT}/third_party/minhook/src/{name}"'
         for name in ('hook.c', 'buffer.c', 'trampoline.c', 'hde/hde32.c'))
-    run("addon32", "32", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /bigobj /DNOMINMAX /DImTextureID=ImU64 '
+    run("addon32", "32", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /bigobj /DNOMINMAX /DImTextureID=ImU64{experimental_flags} '
         f'{includes} /I"{args.ngx_sdk.resolve()}" /I"{ROOT}/third_party/nvapi" '
         f'/I"{ROOT}/third_party/minhook/include" /I"{ROOT}/third_party/imgui_reshade" '
         f'/LD "{ROOT}/src/integration/reshade/addon.cpp" {hooks32} '
@@ -229,6 +239,7 @@ def main():
     if embedded_check.get('passed') is not True:
         raise ValueError('Packaged core and companion extraction failed')
     (out / "report.json").write_text(json.dumps(dict(schema="phoenix-compatibility-build/1", passed=True,
+        release_channel=channel,
         binaries=binaries, model_data_included=False, nvidia_dll_included=False,
         gpu_inference_validated=False, core_source_build=str(core),
         link_inputs=linked_inputs, source_inputs=source_inputs,

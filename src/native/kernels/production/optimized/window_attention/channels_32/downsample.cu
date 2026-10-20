@@ -8,7 +8,7 @@
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
 #include "../../../common/boundary_clear.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES 1
+#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
 #define DLSS5_TILE_SHARED_BYTES 4
 #include "../../../common/device_memory_scalar.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.

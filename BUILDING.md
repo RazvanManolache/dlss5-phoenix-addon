@@ -44,9 +44,15 @@ Use a fresh temporary output directory for a requested build. Keep only the requ
 
 ## Native RTX kernels
 
+The stable example below explicitly selects `sm_120`. The production builder's
+default is now the four-target RTX compatibility set; embedding that set requires
+`--experimental-native` until every target has device-inference validation.
+See [architecture variants](docs/NATIVE_ARCHITECTURES.md) and the package choices
+in [0.12](docs/RELEASE_0.12.md).
+
 ```powershell
 if (-not $env:CUDA_PATH) { throw 'Set CUDA_PATH to your installed CUDA Toolkit directory.' }
-python tools/production_build_native_kernels.py native_release --compiler "$env:CUDA_PATH/bin/nvcc.exe" --jobs 4
+python tools/production_build_native_kernels.py native_release --compiler "$env:CUDA_PATH/bin/nvcc.exe" --jobs 4 --architectures sm_120
 ```
 
 This builds 41 production kernel modules and their runtime graph/manifest under `build/native_release`. Two modules contain both default and large-input entry points; each network instance creates only the selected 41 function handles. The repository contains their complete source dependency set; historical tuning profiles are not required.

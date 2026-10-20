@@ -15,6 +15,13 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def require_single_architecture(manifest):
+    """This legacy saved-hash validator has evidence from one device only."""
+    if len(manifest.get("architectures", [])) > 1:
+        raise ValueError("Single-device validation cannot certify a multi-architecture bundle; "
+                         "validate each target separately before packaging")
+
+
 def bundle_hashes(bundle, manifest):
     hashes = {"native_graph.json": digest(bundle / "native_graph.json")}
     if hashes["native_graph.json"] != manifest["native_graph_sha256"]:
@@ -100,6 +107,7 @@ def validate(bundle, probe, weight_source, output, baseline):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not manifest.get("passed") or manifest.get("selection_status") != "compiled":
         raise ValueError("Validate a fresh, successfully compiled native bundle")
+    require_single_architecture(manifest)
     before = bundle_hashes(bundle, manifest)
     selection_digest = kernel_selection_digest(manifest)
     variant_coverage = set()

@@ -9,11 +9,13 @@ import tempfile
 from pathlib import Path
 import numpy as np
 from compare_four_models import ROOT, build, sha, telemetry, write
+from test_native_architectures import cubin_architecture
 
 
 def compiled_resources(bundle, kernel):
     tool = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/cuobjdump.exe'
-    text = subprocess.check_output([tool, '--dump-resource-usage', str(bundle / kernel['binary'])], text=True)
+    text = subprocess.check_output([tool, '--gpu-architecture', 'sm_120', '--dump-resource-usage',
+                                    str(bundle / kernel['binary'])], text=True)
     functions = {}
     for name, fields in re.findall(r'Function ([^:\n]+):\s*\n([^\n]+)', text):
         functions[name.strip()] = {key: int(value) for key, value in
@@ -26,15 +28,33 @@ def compiled_resources(bundle, kernel):
 def machine_comparison(before, after):
     tool = 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/cuobjdump.exe'
     manifest = json.loads((after / 'native_manifest.json').read_text())
+    baseline = {row['name']: row for row in json.loads((before / 'native_manifest.json').read_text())['kernels']}
     rows = []
-    for kernel in manifest['kernels']:
-        code = [subprocess.check_output([tool, '--dump-sass', str(folder / kernel['binary'])])
-                for folder in (before, after)]
-        hashes = [hashlib.sha256(value).hexdigest() for value in code]
-        rows.append(dict(name=kernel['name'], identical=hashes[0] == hashes[1],
-                         before_sha256=hashes[0], after_sha256=hashes[1],
-                         before_resources=compiled_resources(before, kernel),
-                         after_resources=compiled_resources(after, kernel)))
+    with tempfile.TemporaryDirectory(prefix='native-code-compare-', dir=ROOT / 'build') as temporary:
+        work = Path(temporary)
+        for index, kernel in enumerate(manifest['kernels']):
+            hashes = []
+            base = baseline[kernel['name']]
+            for label, folder, record in [('before', before, base), ('after', after, kernel)]:
+                path = folder / record['binary']
+                data = path.read_bytes()
+                if data[:4] != b'\x7fELF':
+                    destination = work / str(index) / label
+                    destination.mkdir(parents=True)
+                    subprocess.run([tool, '--extract-elf', 'all', str(path.resolve())], cwd=destination,
+                                   check=True, capture_output=True, timeout=60)
+                    selected = [p for p in destination.iterdir() if cubin_architecture(p.read_bytes()) == 'sm_120']
+                    if len(selected) != 1:
+                        raise ValueError('Missing or duplicate sm_120 image')
+                    data = selected[0].read_bytes()
+                if cubin_architecture(data) != 'sm_120':
+                    raise ValueError('Paired RTX 5080 comparison requires sm_120 images')
+                hashes.append(hashlib.sha256(data).hexdigest())
+            rows.append(dict(name=kernel['name'], identical=hashes[0] == hashes[1],
+                             hash_scope='complete sm_120 cubin, independently extracted from fatbin when needed',
+                             before_sha256=hashes[0], after_sha256=hashes[1],
+                             before_resources=compiled_resources(before, base),
+                             after_resources=compiled_resources(after, kernel)))
     return rows
 
 
@@ -50,8 +70,21 @@ def main():
     parser.add_argument('--before', required=True, type=Path)
     parser.add_argument('--after', required=True, type=Path)
     parser.add_argument('--rounds', type=int, default=3, choices=range(1, 6))
+    parser.add_argument('--resolutions', nargs='+', default=['320x180', '801x603', '1920x1080', '3840x2160'])
+    parser.add_argument('--prepared-probe', type=Path)
+    parser.add_argument('--prepared-forwarder', type=Path)
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/current/kernel-structure')
     args = parser.parse_args()
+    sizes = []
+    for value in args.resolutions:
+        if not re.fullmatch(r'[1-9][0-9]*x[1-9][0-9]*', value):
+            parser.error('Use WIDTHxHEIGHT resolutions')
+        size = tuple(map(int, value.split('x')))
+        if any(axis > 16384 for axis in size):
+            parser.error('Resolution exceeds native limits')
+        sizes.append(size)
+    if bool(args.prepared_probe) != bool(args.prepared_forwarder):
+        parser.error('Supply both prepared probe and forwarder')
     (ROOT / 'build').mkdir(exist_ok=True)
     bundles = dict(before=args.before.resolve(), after=args.after.resolve())
     destination = args.output.resolve()
@@ -66,8 +99,10 @@ def main():
     model = ROOT.parent / 'research/model-compatibility-310.9.16/nvngx_dlssnr.310.9.16.dll'
     with tempfile.TemporaryDirectory(prefix='kernel-paired-', dir=ROOT / 'build') as folder:
         work = Path(folder)
-        executable, forwarder = build(work)
-        for width, height in ((320, 180), (801, 603), (1920, 1080), (3840, 2160)):
+        executable, forwarder = (args.prepared_probe.resolve(), args.prepared_forwarder.resolve()) if args.prepared_probe else build(work)
+        probe_identity = {str(path): sha(path) for path in (executable, forwarder)}
+        report['probe_binaries'] = {Path(path).name: pin for path, pin in probe_identity.items()}
+        for width, height in sizes:
             y, x = np.mgrid[:height, :width].astype(np.float32)
             pixels = np.ones((height, width, 4), dtype=np.float16)
             pixels[:, :, 0] = x / width
@@ -111,6 +146,8 @@ def main():
                 write(output, report)
                 if not exact:
                     raise RuntimeError(f'Numerical regression: {model_id} {width}x{height}')
+        if any(sha(Path(path)) != pin for path, pin in probe_identity.items()):
+            raise RuntimeError('Probe changed during paired validation')
     report.update(passed=True, gpu_after=telemetry(), temporary_builds_removed=True,
                   note='Passed means exact tested outputs and successful probes, not a statistical guarantee of speed.')
     write(output, report)

@@ -25,11 +25,36 @@ FP8 arithmetic. Explicit model selection never silently substitutes another mode
 Changing models resets temporal history. NVIDIA preset selection and Phoenix
 appearance style are separate controls.
 
+The current source additionally accepts the pinned **OpenNR FP16 compatibility
+310.9.16.0** edition distributed by
+[NODIX Manager 1.3.7](https://github.com/NODIX-TECH/DLSS-5-MANAGER/releases/tag/1.3.7),
+SHA-256 `cdfa6c1ec784867182164c7836f324f087b5c9f374d0c9fe46f54999feabf3ed`.
+DLSS Everything downloads it centrally. Both resources match the NVIDIA reference;
+the existing NVIDIA editions and disk models remain supported. CPU-only selection,
+resource checks and Original decoding have been verified; this compatibility
+edition has not been run on a GPU here. The 0.12 add-ons include the new picker
+identity; 0.11 binaries predate it.
+
+Its older-RTX device images apply to the **NVIDIA DLSS5 backend**, subject to
+driver/API/runtime validation. The standard Phoenix 0.12 Native RTX package targets
+`sm_120`. The optional RTX Compatibility package also includes experimental `sm_75/86/89` kernels for
+Phoenix's own backend; [architecture details](NATIVE_ARCHITECTURES.md) distinguish
+offline compilation from device inference. The compatibility DLL only supplies
+weights when Phoenix kernels execute. OpenNR documents
+D3D11/D3D12 host patches and does not claim CUDA/Vulkan backend compatibility.
+
+The local experimental Windows x64 addon now includes all four Phoenix targets.
+Its actual extracted payload passed RTX 5080 reset/history comparisons for both
+models at 320×180 and 1080p, plus 22 CPU and two software D3D12 suites. Actual DLL
+loading/unloading and all embedded-file hashes also passed. Older-card inference
+and retail-game presentation remain unvalidated; see the
+[packaged-addon receipt](NATIVE_ARCHITECTURES.md#packaged-addon-verification).
+
 ## Execution backends
 
 | Backend | Source/build scope | Both models | Fresh verification on this host |
 | --- | --- | --- | --- |
-| Native RTX | Windows x64, D3D12, authenticated source-built kernel bundle; current bundle targets sm_120 | Yes | RTX 5080, both Phoenix models and both NVIDIA presets, ten extents from 320×180 through 8K |
+| Native RTX | Windows x64, D3D12, authenticated source-built kernel bundle; published sm_120 plus experimental source builds for sm_75/86/89 | Yes | Existing sm_120 bundle: RTX 5080, both Phoenix models and both NVIDIA presets, ten extents through 8K. New four-target modules: both Phoenix models match reset/history outputs at 320×180/1080p, GPU timing change below 0.2%; all 41 sm_120 images byte-identical. Older-card inference remains unvalidated; see [receipts](NATIVE_ARCHITECTURES.md#current-measured-results) |
 | CUDA | Optional Windows C++ provider; NVIDIA CUDA compiler/runtime | Yes | RTX 5080, five extents through 4K |
 | Vulkan | C++ adapter and shader provider; capability-checked scalar/fused variants; Windows/Linux/Android build paths | Yes | RTX 5080 through 4K with ordered FFN; integrated AMD Radeon at 320×180 and 1080p |
 | CPU | Portable C++ reference; optimized Windows provider with AVX and worker controls | Yes | Ryzen 9950X3D, 32 threads at 320×180/1080p and one thread at 320×180 |

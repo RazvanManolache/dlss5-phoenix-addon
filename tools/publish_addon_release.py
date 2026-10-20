@@ -103,7 +103,7 @@ def main():
     body = re.sub(r'\]\((?!https?://|#)([^)]+)\)',
                   lambda match: ']('+urllib.parse.urljoin(base, match[1])+')', body)
     release = json.loads(request(API+'/releases', token, 'POST', dict(tag_name=VERSION,
-        target_commitish=commit, name='DLSS5 Phoenix '+VERSION+' - neural controls and native correctness fixes',
+        target_commitish=commit, name='Phoenix DLSS5 '+VERSION+' - RTX architecture compatibility',
         body=body, draft=True, prerelease=False)))
     for name in [line.split('  ', 1)[1] for line in (output/'SHA256SUMS.txt').read_text().splitlines()]+['SHA256SUMS.txt']:
         upload = release['upload_url'].split('{', 1)[0]+'?name='+urllib.parse.quote(name)

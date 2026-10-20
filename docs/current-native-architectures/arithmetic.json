@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "gpu_used": true,
+  "older_device_validated": false,
+  "source_hashes": {
+    "src/native/kernels/production/common/architecture_math.cuh": "b4f3f9efde0633f1a0331738abbd8fda4b0b7a5505273f5e9fc9cd0ff1194723",
+    "tests/native/kernel_architecture_host_tests.cu": "13b4295a4e4702f1486cbf4583efdcd0237152db37d27d65d948fb77d5535d58",
+    "tests/native/kernel_architecture_device_tests.cu": "cae1dcae34035c5a55aac5a198d1237025470e11fb5209163612fab7e140539e"
+  },
+  "cases": [
+    {
+      "passed": true,
+      "gpu_used": true,
+      "warp_cases": 49,
+      "lane_results": 1568,
+      "mismatches": 0,
+      "turing_steps": false,
+      "device_sm": 120,
+      "older_device_validated": false
+    },
+    {
+      "passed": true,
+      "gpu_used": true,
+      "warp_cases": 49,
+      "lane_results": 1568,
+      "mismatches": 0,
+      "turing_steps": true,
+      "device_sm": 120,
+      "older_device_validated": false
+    }
+  ],
+  "cpu_conversions": {
+    "passed": true,
+    "cpu_only": true,
+    "half_patterns": 65536,
+    "fp8_codes": 256
+  },
+  "corrupt_operand_mutation_detected": true,
+  "temporary_builds_removed": true
+}

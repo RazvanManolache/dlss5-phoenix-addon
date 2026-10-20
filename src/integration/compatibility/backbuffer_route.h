@@ -83,6 +83,11 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
     }
     if(preference==ExecutionPreference::NativeLibrary||preference==ExecutionPreference::NativeDriver) {
         if(caps.bits!=32) return {BackbufferRoute::Unsupported,"WOW64 execution is only available in the x86 addon."};
+        // Both mixed-bitness native routes can crash the 32-bit NVIDIA OpenGL
+        // driver when the renderer is disabled. Keep this unqualified pairing
+        // out of automatic selection and explicit requests.
+        if(caps.api==reshade::api::device_api::opengl)
+            return {BackbufferRoute::Unsupported,"Cross-bitness native execution is unavailable with x86 OpenGL; use a matching portable runtime or the external helper."};
         if (!caps.native_executor)
             return {BackbufferRoute::Unsupported, "Native cross-bitness routes require the Native RTX executor."};
         if (!(preference == ExecutionPreference::NativeLibrary ? caps.native_library_available : caps.native_driver_available))

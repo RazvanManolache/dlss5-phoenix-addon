@@ -40,6 +40,7 @@ FORBIDDEN = {
     ".pdb",
     ".exp",
     ".cubin",
+    ".fatbin",
     ".ptx",
     ".spv",
     ".bin",

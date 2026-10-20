@@ -120,10 +120,14 @@ __device__ __forceinline__ uint32_t select_half_operand(uint32_t value) {
 }
 
 __device__ __forceinline__ uint32_t pack_fp8_pair(uint32_t operand_a, uint32_t operand_c) {
+#if __CUDA_ARCH__ < 890
+    return uint32_t(phoenix_architecture::encode_fp8_pair(operand_a)) | (operand_c << 16);
+#else
     uint32_t result;
     asm("{ .reg .b16 lo,hi,unused; mov.b32 {hi,unused},%2; cvt.rn.satfinite.e4m3x2.f16x2 lo,%1; "
         "mov.b32 %0,{lo,hi}; }"
         : "=r"(result)
         : "r"(operand_a), "r"(operand_c));
     return result;
+#endif
 }

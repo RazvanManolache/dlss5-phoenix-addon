@@ -1,0 +1,99 @@
+{
+  "passed": true,
+  "gpu_used": false,
+  "games_launched": false,
+  "older_gpu_inference_validated": false,
+  "images": {
+    "modules": 41,
+    "device_images": 164,
+    "sm120_byte_exact": true,
+    "image_bytes": {
+      "sm_120": 3563648,
+      "sm_86": 101634400,
+      "sm_75": 105692704,
+      "sm_89": 2438496
+    },
+    "fatbin_bytes": 23771056
+  },
+  "conversions": {
+    "passed": true,
+    "cpu_only": true,
+    "half_patterns": 65536,
+    "fp8_codes": 256
+  },
+  "models": {
+    "checks": 104448,
+    "dispatch_depth_cases": 16,
+    "gpu_used": false,
+    "model": "small-fp8",
+    "neural_launches": 78,
+    "passed": true,
+    "resolutions": [
+      {
+        "height": 1,
+        "width": 1,
+        "workspace_bytes": 15686656
+      },
+      {
+        "height": 12,
+        "width": 16,
+        "workspace_bytes": 15686656
+      },
+      {
+        "height": 320,
+        "width": 320,
+        "workspace_bytes": 15686656
+      },
+      {
+        "height": 320,
+        "width": 384,
+        "workspace_bytes": 16637440
+      },
+      {
+        "height": 360,
+        "width": 640,
+        "workspace_bytes": 27676672
+      },
+      {
+        "height": 603,
+        "width": 801,
+        "workspace_bytes": 59354112
+      },
+      {
+        "height": 540,
+        "width": 960,
+        "workspace_bytes": 58731008
+      },
+      {
+        "height": 768,
+        "width": 1024,
+        "workspace_bytes": 82744320
+      },
+      {
+        "height": 1080,
+        "width": 1920,
+        "workspace_bytes": 211329024
+      },
+      {
+        "height": 1440,
+        "width": 2560,
+        "workspace_bytes": 341279744
+      },
+      {
+        "height": 2160,
+        "width": 3840,
+        "workspace_bytes": 760883712
+      },
+      {
+        "height": 1920,
+        "width": 1080,
+        "workspace_bytes": 211329024
+      }
+    ],
+    "shared_kernel_modules": 41,
+    "skip_group_cases": 15,
+    "vendor_reference_used": false,
+    "weight_records": 77
+  },
+  "temporary_builds_removed": true
+}

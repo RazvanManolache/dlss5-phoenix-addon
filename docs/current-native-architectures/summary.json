@@ -1,0 +1,84 @@
+{
+  "passed": true,
+  "scope": "Experimental native RTX source targets for both Phoenix models; RTX 5080 regression only; no older-card full-model validation.",
+  "architectures": [
+    "sm_75",
+    "sm_86",
+    "sm_89",
+    "sm_120"
+  ],
+  "modules": 41,
+  "device_images": 164,
+  "native_graph_sha256": "607624001f6b6653712174b6f9c0889962423582f702098c209e53ca74f0ea63",
+  "kernel_source_snapshot_sha256": "6217ae10ca3e625638d21c76868e9f7dea04e863e69efa6b391f716f7df60c85",
+  "sm120_all_images_byte_exact": true,
+  "python_suites": [
+    {
+      "suite": "production_native_tests.py",
+      "passed": 12
+    },
+    {
+      "suite": "test_kernel_structure.py",
+      "passed": 6
+    },
+    {
+      "suite": "test_validation_tools.py",
+      "passed": 7
+    },
+    {
+      "suite": "test_embedded_graph.py",
+      "passed": 2
+    }
+  ],
+  "offline_passed": true,
+  "arithmetic_passed": true,
+  "paired_passed": true,
+  "gpu_cases": [
+    {
+      "model": "original",
+      "width": 320,
+      "height": 180,
+      "exact": true,
+      "before_ms": 1.852192,
+      "after_ms": 1.84992,
+      "change_percent": -0.12266546880669305
+    },
+    {
+      "model": "small-fp8",
+      "width": 320,
+      "height": 180,
+      "exact": true,
+      "before_ms": 1.016416,
+      "after_ms": 1.016576,
+      "change_percent": 0.015741586122208773
+    },
+    {
+      "model": "original",
+      "width": 1920,
+      "height": 1080,
+      "exact": true,
+      "before_ms": 3.843072,
+      "after_ms": 3.83728,
+      "change_percent": -0.15071276312284
+    },
+    {
+      "model": "small-fp8",
+      "width": 1920,
+      "height": 1080,
+      "exact": true,
+      "before_ms": 2.270656,
+      "after_ms": 2.269888,
+      "change_percent": -0.03382282476958043
+    }
+  ],
+  "older_device_inference_validated": false,
+  "installed_files_modified": false,
+  "games_launched": false,
+  "published_packages_modified": false,
+  "compiled_bundle": "build/native_arch_compat_final",
+  "receipts": [
+    "validation.json",
+    "arithmetic.json",
+    "paired.json"
+  ]
+}

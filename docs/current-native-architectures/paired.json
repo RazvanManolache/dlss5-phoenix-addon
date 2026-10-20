@@ -1,0 +1,2280 @@
+{
+  "passed": true,
+  "games_launched": false,
+  "installed_files_modified": false,
+  "scope": "Native Phoenix DLSS5 kernels only; matched full schedules, fixed seed, zero motion",
+  "fixture": "Deterministic RGB gradients and sinusoidal detail, RGBA16F; no model data copied",
+  "gpu_before": "NVIDIA GeForce RTX 5080, 616.64, 2077 MiB, 33, 2647 MHz, 28.28 W, 3 %",
+  "cases": [
+    {
+      "model": "original",
+      "width": 320,
+      "height": 180,
+      "exact": true,
+      "before_ms": 1.852192,
+      "after_ms": 1.84992,
+      "change_percent": -0.12266546880669305,
+      "rounds": {
+        "before": [
+          {
+            "gpu_median_ms": 1.852192,
+            "wall_median_ms": 2.254,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "70ef5a540693dbf36bc6d0086f4c66f2f78e03f6504472d953e58ec11c6aaa8a"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "8fe60d69b1b13d9b9b690794f9a9877fd65f2b855f3f321be481d7b68928fcb5"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "8fe60d69b1b13d9b9b690794f9a9877fd65f2b855f3f321be481d7b68928fcb5"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ],
+        "after": [
+          {
+            "gpu_median_ms": 1.84992,
+            "wall_median_ms": 2.2697,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "70ef5a540693dbf36bc6d0086f4c66f2f78e03f6504472d953e58ec11c6aaa8a"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "8fe60d69b1b13d9b9b690794f9a9877fd65f2b855f3f321be481d7b68928fcb5"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "8fe60d69b1b13d9b9b690794f9a9877fd65f2b855f3f321be481d7b68928fcb5"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ]
+      }
+    },
+    {
+      "model": "small-fp8",
+      "width": 320,
+      "height": 180,
+      "exact": true,
+      "before_ms": 1.016416,
+      "after_ms": 1.016576,
+      "change_percent": 0.015741586122208773,
+      "rounds": {
+        "before": [
+          {
+            "gpu_median_ms": 1.016416,
+            "wall_median_ms": 1.2832,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "cd315cc11bc35d0d60b724883b1336506bb60b7abac0c24289c3fb656d5cf62e"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "8d90801d20a4e652b5b2b73f84b923d35639107c7226327879141f0cadcddfb8"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "8d90801d20a4e652b5b2b73f84b923d35639107c7226327879141f0cadcddfb8"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ],
+        "after": [
+          {
+            "gpu_median_ms": 1.016576,
+            "wall_median_ms": 1.2877,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "cd315cc11bc35d0d60b724883b1336506bb60b7abac0c24289c3fb656d5cf62e"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "8d90801d20a4e652b5b2b73f84b923d35639107c7226327879141f0cadcddfb8"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "8d90801d20a4e652b5b2b73f84b923d35639107c7226327879141f0cadcddfb8"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ]
+      }
+    },
+    {
+      "model": "original",
+      "width": 1920,
+      "height": 1080,
+      "exact": true,
+      "before_ms": 3.843072,
+      "after_ms": 3.83728,
+      "change_percent": -0.15071276312284,
+      "rounds": {
+        "before": [
+          {
+            "gpu_median_ms": 3.833856,
+            "wall_median_ms": 4.289,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 3.84352,
+            "wall_median_ms": 4.3527,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 3.843072,
+            "wall_median_ms": 4.2834,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ],
+        "after": [
+          {
+            "gpu_median_ms": 3.83616,
+            "wall_median_ms": 4.333,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 3.83728,
+            "wall_median_ms": 4.2953,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 3.853696,
+            "wall_median_ms": 4.36,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "5043131909707a13758e60d6cd935cdeb0e17c2a7c33561c5c53639f1b994287"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "69fcfc1e1795d0a6b163e8988d80fa16e877d7a4a586b8581f6ec934984c72ed"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ]
+      }
+    },
+    {
+      "model": "small-fp8",
+      "width": 1920,
+      "height": 1080,
+      "exact": true,
+      "before_ms": 2.270656,
+      "after_ms": 2.269888,
+      "change_percent": -0.03382282476958043,
+      "rounds": {
+        "before": [
+          {
+            "gpu_median_ms": 2.269024,
+            "wall_median_ms": 2.5209,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 2.270656,
+            "wall_median_ms": 2.5625,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 2.275968,
+            "wall_median_ms": 2.5637,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ],
+        "after": [
+          {
+            "gpu_median_ms": 2.267808,
+            "wall_median_ms": 2.6033,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 2.269888,
+            "wall_median_ms": 2.5214,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          },
+          {
+            "gpu_median_ms": 2.2752,
+            "wall_median_ms": 2.5515,
+            "captures": {
+              "history": {
+                "finite": true,
+                "sha256": "e2d476334b4128cad379557a7817044158807a2f166d75de513ebc0a9c53e782"
+              },
+              "reset_a": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              },
+              "reset_b": {
+                "finite": true,
+                "sha256": "e479d764547b5143f0125caba15a9754855788a7b66a2d2329b1dec412fe25a4"
+              }
+            },
+            "debug_errors": 0,
+            "reset_repeatable": true
+          }
+        ]
+      }
+    }
+  ],
+  "machine_code": [
+    {
+      "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "287e4538d7f270b7facca6ff7aef1eda6256947e3ed2505e87efca2a6aababcb",
+      "after_sha256": "287e4538d7f270b7facca6ff7aef1eda6256947e3ed2505e87efca2a6aababcb",
+      "before_resources": {
+        "phoenix_decoder_input_upsampling": {
+          "REG": 236,
+          "STACK": 0,
+          "SHARED": 4112,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_decoder_input_upsampling": {
+          "REG": 236,
+          "STACK": 0,
+          "SHARED": 4112,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "87f2bc05a9e111717b65f0c29cfbb0fa8f24695fb5b9ff2e76b51c81a5d6a60f",
+      "after_sha256": "87f2bc05a9e111717b65f0c29cfbb0fa8f24695fb5b9ff2e76b51c81a5d6a60f",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward": {
+          "REG": 154,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward": {
+          "REG": 154,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "8c05f47b18ada9f7d9bed7f57b197c967be5808ed1e0cbdc35b71b589749ed59",
+      "after_sha256": "8c05f47b18ada9f7d9bed7f57b197c967be5808ed1e0cbdc35b71b589749ed59",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync": {
+          "REG": 176,
+          "STACK": 8,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync": {
+          "REG": 176,
+          "STACK": 8,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "415131569a0e1d1233a1f4fdf062c59cc107d0c0ede8e2c1559001fb040789c5",
+      "after_sha256": "415131569a0e1d1233a1f4fdf062c59cc107d0c0ede8e2c1559001fb040789c5",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_projection": {
+          "REG": 190,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_projection": {
+          "REG": 190,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "24df3e8071a4b891bb887150187f34effedd3234d1bf4c7b5d98769d97b8c3e7",
+      "after_sha256": "24df3e8071a4b891bb887150187f34effedd3234d1bf4c7b5d98769d97b8c3e7",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view": {
+          "REG": 190,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view": {
+          "REG": 190,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "d829e4b10f224fa0e58094de73d7859a743b9815a8fe1868405af39a322b48d9",
+      "after_sha256": "d829e4b10f224fa0e58094de73d7859a743b9815a8fe1868405af39a322b48d9",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_final_head_wait": {
+          "REG": 138,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_final_head_wait": {
+          "REG": 138,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_proj_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "c9c4095ab9fac0ac4996e8c0ee141d6b5974d71aeebeca77c60fdcb678d39d90",
+      "after_sha256": "c9c4095ab9fac0ac4996e8c0ee141d6b5974d71aeebeca77c60fdcb678d39d90",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_projection_large_input": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        },
+        "phoenix_global_attention_split_heads_512_projection": {
+          "REG": 142,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_projection_large_input": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        },
+        "phoenix_global_attention_split_heads_512_projection": {
+          "REG": 142,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "0207e1eec99376ce807d392b9108762da01835235628eed7d85661984793870d",
+      "after_sha256": "0207e1eec99376ce807d392b9108762da01835235628eed7d85661984793870d",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_projection_output_view_wait": {
+          "REG": 188,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_projection_output_view_wait": {
+          "REG": 188,
+          "STACK": 0,
+          "SHARED": 14360,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "ec99b1755584525631cf51c6e13c52b57359c598ddfff9864929edc7c01e0e78",
+      "after_sha256": "ec99b1755584525631cf51c6e13c52b57359c598ddfff9864929edc7c01e0e78",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_projection_pool": {
+          "REG": 144,
+          "STACK": 40,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_projection_pool": {
+          "REG": 144,
+          "STACK": 40,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "10c75c903785098417d8e4ff1ff48d1b5593e9f7cc6e0ba084626a65c126d8df",
+      "after_sha256": "10c75c903785098417d8e4ff1ff48d1b5593e9f7cc6e0ba084626a65c126d8df",
+      "before_resources": {
+        "phoenix_global_attention_split_heads_512_query_key_value": {
+          "REG": 210,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_split_heads_512_query_key_value": {
+          "REG": 210,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "264298e7ee7697b562866d432e3f190a3bfd70b37db431a33268b6fad1ba44d9",
+      "after_sha256": "264298e7ee7697b562866d432e3f190a3bfd70b37db431a33268b6fad1ba44d9",
+      "before_resources": {
+        "phoenix_output_reconstruction": {
+          "REG": 128,
+          "STACK": 104,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_output_reconstruction": {
+          "REG": 128,
+          "STACK": 104,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "e2b74d4afd32690e07cc9f97376cf3ad4e392cf7d29ce281fbbad4a228da2ca8",
+      "after_sha256": "e2b74d4afd32690e07cc9f97376cf3ad4e392cf7d29ce281fbbad4a228da2ca8",
+      "before_resources": {
+        "phoenix_input_preparation": {
+          "REG": 128,
+          "STACK": 64,
+          "SHARED": 4096,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_input_preparation": {
+          "REG": 128,
+          "STACK": 64,
+          "SHARED": 4096,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "d7f69e9bbe23b3dd8edce35a7ff413c4a98b6d9b45bd92b92344894bf8ded53a",
+      "after_sha256": "d7f69e9bbe23b3dd8edce35a7ff413c4a98b6d9b45bd92b92344894bf8ded53a",
+      "before_resources": {
+        "phoenix_window_attention_channels_32_attention": {
+          "REG": 127,
+          "STACK": 48,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_32_attention": {
+          "REG": 127,
+          "STACK": 48,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "3c00f1ed451ea80cb63b905afc3a3abaa8a0bbbb14e84758d1b784f4818d7fcc",
+      "after_sha256": "3c00f1ed451ea80cb63b905afc3a3abaa8a0bbbb14e84758d1b784f4818d7fcc",
+      "before_resources": {
+        "phoenix_window_attention_channels_32_downsample": {
+          "REG": 128,
+          "STACK": 32,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_32_downsample": {
+          "REG": 128,
+          "STACK": 32,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "f519893c4b2d46d3021af2d2d143bf7755db3b4364ba0eaf1e3b82b06a5edd10",
+      "after_sha256": "f519893c4b2d46d3021af2d2d143bf7755db3b4364ba0eaf1e3b82b06a5edd10",
+      "before_resources": {
+        "phoenix_window_attention_channels_32_input_view": {
+          "REG": 128,
+          "STACK": 72,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_32_input_view": {
+          "REG": 128,
+          "STACK": 72,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "b297e7a03f5dabd9c4f5afcd011ff20655e91c8b26acb510ebb895dc63d84449",
+      "after_sha256": "b297e7a03f5dabd9c4f5afcd011ff20655e91c8b26acb510ebb895dc63d84449",
+      "before_resources": {
+        "phoenix_window_attention_channels_32_output_view": {
+          "REG": 128,
+          "STACK": 64,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_32_output_view": {
+          "REG": 128,
+          "STACK": 64,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "86c14de74c9bd696e7d0a75470abed338218ad49ccdf26c5bbec4f854e7e8e97",
+      "after_sha256": "86c14de74c9bd696e7d0a75470abed338218ad49ccdf26c5bbec4f854e7e8e97",
+      "before_resources": {
+        "phoenix_window_attention_channels_32_upsample": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_32_upsample": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "0a3b2158504b0ff433a964b9f1fe821c194371322e46510486e84843a05f998c",
+      "after_sha256": "0a3b2158504b0ff433a964b9f1fe821c194371322e46510486e84843a05f998c",
+      "before_resources": {
+        "phoenix_window_attention_channels_64_attention": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_64_attention": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "ea4afe8d685b2e23d1e328801d34cc882933bfec626537bc25bf7e142c04e516",
+      "after_sha256": "ea4afe8d685b2e23d1e328801d34cc882933bfec626537bc25bf7e142c04e516",
+      "before_resources": {
+        "phoenix_window_attention_channels_64_downsample": {
+          "REG": 158,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_64_downsample": {
+          "REG": 158,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "f6e28f16e4789b7d642c01cdf870e239ade4ac03542f3a98ae45fecfdc233123",
+      "after_sha256": "f6e28f16e4789b7d642c01cdf870e239ade4ac03542f3a98ae45fecfdc233123",
+      "before_resources": {
+        "phoenix_window_attention_channels_64_input_view": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_64_input_view": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "7fad1a021dc94110e804c95661103fe6f42da25ec35ee1a1b2e78b6fd4623fae",
+      "after_sha256": "7fad1a021dc94110e804c95661103fe6f42da25ec35ee1a1b2e78b6fd4623fae",
+      "before_resources": {
+        "phoenix_window_attention_channels_64_output_view": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_64_output_view": {
+          "REG": 160,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "9879b932119e1c98bf435883ac6822431eff2dbac5900523ccc83719e51db333",
+      "after_sha256": "9879b932119e1c98bf435883ac6822431eff2dbac5900523ccc83719e51db333",
+      "before_resources": {
+        "phoenix_window_attention_channels_64_upsample": {
+          "REG": 168,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_64_upsample": {
+          "REG": 168,
+          "STACK": 0,
+          "SHARED": 6144,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "ee1c6a27bd364dbdbc4eeb60afe023b9173a1eb95c5e49f4f3046fa500c7a065",
+      "after_sha256": "ee1c6a27bd364dbdbc4eeb60afe023b9173a1eb95c5e49f4f3046fa500c7a065",
+      "before_resources": {
+        "phoenix_window_attention_channels_128_attention": {
+          "REG": 157,
+          "STACK": 0,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_128_attention": {
+          "REG": 157,
+          "STACK": 0,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "91683dd904487740f76f20b5043e8f2733e6ee615a9002ab06ad58fa4bcc5ea8",
+      "after_sha256": "91683dd904487740f76f20b5043e8f2733e6ee615a9002ab06ad58fa4bcc5ea8",
+      "before_resources": {
+        "phoenix_window_attention_channels_128_downsample": {
+          "REG": 156,
+          "STACK": 0,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_128_downsample": {
+          "REG": 156,
+          "STACK": 0,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "35c13b9755952c479a5c339967b0136985bf5c66923498cb708a71857e7e26f5",
+      "after_sha256": "35c13b9755952c479a5c339967b0136985bf5c66923498cb708a71857e7e26f5",
+      "before_resources": {
+        "phoenix_window_attention_channels_128_input_view": {
+          "REG": 156,
+          "STACK": 40,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_128_input_view": {
+          "REG": 156,
+          "STACK": 40,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "0fbb72ee478d3399c0a4f725771835aa1dbd69344cc5dd10dd3bbf759b987c1f",
+      "after_sha256": "0fbb72ee478d3399c0a4f725771835aa1dbd69344cc5dd10dd3bbf759b987c1f",
+      "before_resources": {
+        "phoenix_window_attention_channels_128_output_view": {
+          "REG": 156,
+          "STACK": 8,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_128_output_view": {
+          "REG": 156,
+          "STACK": 8,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "8a1f2bae977090816e056a176cf9aade863ca46a6ed7d61f5710d849ef0fac89",
+      "after_sha256": "8a1f2bae977090816e056a176cf9aade863ca46a6ed7d61f5710d849ef0fac89",
+      "before_resources": {
+        "phoenix_window_attention_channels_128_upsample": {
+          "REG": 165,
+          "STACK": 8,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_128_upsample": {
+          "REG": 165,
+          "STACK": 8,
+          "SHARED": 10240,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "df3341cbac8f4d1fada632ebba7d18d3a8c2a53217dea6b026b0b9cb3ed5b623",
+      "after_sha256": "df3341cbac8f4d1fada632ebba7d18d3a8c2a53217dea6b026b0b9cb3ed5b623",
+      "before_resources": {
+        "phoenix_window_attention_channels_256_attention": {
+          "REG": 184,
+          "STACK": 8,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_256_attention": {
+          "REG": 184,
+          "STACK": 8,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "860b7b727a919357d213284d605c33fbab16fbd3d0edb69649ff57e133e69898",
+      "after_sha256": "860b7b727a919357d213284d605c33fbab16fbd3d0edb69649ff57e133e69898",
+      "before_resources": {
+        "phoenix_window_attention_channels_256_downsample": {
+          "REG": 178,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_256_downsample": {
+          "REG": 178,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "aacba740f55ee328935d8b0dac909ac425bf717cb5c2d6412bca00ec358c0f26",
+      "after_sha256": "aacba740f55ee328935d8b0dac909ac425bf717cb5c2d6412bca00ec358c0f26",
+      "before_resources": {
+        "phoenix_window_attention_channels_256_input_view": {
+          "REG": 248,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_256_input_view": {
+          "REG": 248,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "b74e9f36e5a3c3f7fdcf13d41e57b3ea0ca8d062a56bd6c422384ce5cb93cde9",
+      "after_sha256": "b74e9f36e5a3c3f7fdcf13d41e57b3ea0ca8d062a56bd6c422384ce5cb93cde9",
+      "before_resources": {
+        "phoenix_window_attention_channels_256_output_view": {
+          "REG": 248,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_256_output_view": {
+          "REG": 248,
+          "STACK": 0,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "13c1a03081d77a54fdde028957218df7d6aaf9979ee18aceb3f25ea719ecc217",
+      "after_sha256": "13c1a03081d77a54fdde028957218df7d6aaf9979ee18aceb3f25ea719ecc217",
+      "before_resources": {
+        "phoenix_window_attention_channels_256_upsample": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_window_attention_channels_256_upsample": {
+          "REG": 128,
+          "STACK": 40,
+          "SHARED": 18432,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_attention_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "771fc1eedd5d8d1a4bc978a978afd20144d25020a33142a0a84eec54e3f0b08c",
+      "after_sha256": "771fc1eedd5d8d1a4bc978a978afd20144d25020a33142a0a84eec54e3f0b08c",
+      "before_resources": {
+        "phoenix_global_attention_transformer_attention_large_input": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "phoenix_global_attention_transformer_attention": {
+          "REG": 176,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_attention_large_input": {
+          "REG": 128,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        },
+        "phoenix_global_attention_transformer_attention": {
+          "REG": 176,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_ffn_contract_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "b31614d14f375960fc6f2c12157c1aa32bc47a07f8b139f5e3931e38b54aa7ea",
+      "after_sha256": "b31614d14f375960fc6f2c12157c1aa32bc47a07f8b139f5e3931e38b54aa7ea",
+      "before_resources": {
+        "phoenix_global_attention_transformer_feed_forward_contract": {
+          "REG": 168,
+          "STACK": 0,
+          "SHARED": 18448,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_feed_forward_contract": {
+          "REG": 168,
+          "STACK": 0,
+          "SHARED": 18448,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_ffn_expand_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "10a0e5792fcc98d3991bd062deb92ce0fdafafed0a282ea3ad049e84278372fc",
+      "after_sha256": "10a0e5792fcc98d3991bd062deb92ce0fdafafed0a282ea3ad049e84278372fc",
+      "before_resources": {
+        "phoenix_global_attention_transformer_feed_forward_expand": {
+          "REG": 144,
+          "STACK": 0,
+          "SHARED": 26648,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_feed_forward_expand": {
+          "REG": 144,
+          "STACK": 0,
+          "SHARED": 26648,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_ffn_expand_publish_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "235e4331e7e221a7ee9ad122563e5ac65099db05619193ef837299f947f47d2d",
+      "after_sha256": "235e4331e7e221a7ee9ad122563e5ac65099db05619193ef837299f947f47d2d",
+      "before_resources": {
+        "phoenix_global_attention_transformer_feed_forward_expand_publish": {
+          "REG": 148,
+          "STACK": 0,
+          "SHARED": 26648,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_feed_forward_expand_publish": {
+          "REG": 148,
+          "STACK": 0,
+          "SHARED": 26648,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_projection_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "63432572fcd1c21dad469ea4dda5c0569362fb80492f60b593505ff97a6f133c",
+      "after_sha256": "63432572fcd1c21dad469ea4dda5c0569362fb80492f60b593505ff97a6f133c",
+      "before_resources": {
+        "phoenix_global_attention_transformer_projection": {
+          "REG": 130,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_projection": {
+          "REG": 130,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_projection_wait_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "c3c2251492eda16347c6dc07d736867a0c7f2c268a3b49e4f49555638d995930",
+      "after_sha256": "c3c2251492eda16347c6dc07d736867a0c7f2c268a3b49e4f49555638d995930",
+      "before_resources": {
+        "phoenix_global_attention_transformer_projection_wait": {
+          "REG": 142,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_projection_wait": {
+          "REG": 142,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_qkv_chained_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "3e8034290d6ad6764b309936a2521cdf85fdfd891ecaa967e279b7571aa14a27",
+      "after_sha256": "3e8034290d6ad6764b309936a2521cdf85fdfd891ecaa967e279b7571aa14a27",
+      "before_resources": {
+        "phoenix_global_attention_transformer_query_key_value": {
+          "REG": 161,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_global_attention_transformer_query_key_value": {
+          "REG": 161,
+          "STACK": 0,
+          "SHARED": 10256,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "09daa63ea5214e7991debe94d19937ba34dd4bd95b3a9588916b9fc6c296828b",
+      "after_sha256": "09daa63ea5214e7991debe94d19937ba34dd4bd95b3a9588916b9fc6c296828b",
+      "before_resources": {
+        "phoenix_tokens_to_image": {
+          "REG": 20,
+          "STACK": 0,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_tokens_to_image": {
+          "REG": 20,
+          "STACK": 0,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    },
+    {
+      "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+      "identical": true,
+      "hash_scope": "complete sm_120 cubin, independently extracted from fatbin when needed",
+      "before_sha256": "e92476aed1066ef66c22f1a745abe23fa110a19a5611473f6d9afbe77e0a4859",
+      "after_sha256": "e92476aed1066ef66c22f1a745abe23fa110a19a5611473f6d9afbe77e0a4859",
+      "before_resources": {
+        "phoenix_image_to_tokens": {
+          "REG": 16,
+          "STACK": 0,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      },
+      "after_resources": {
+        "phoenix_image_to_tokens": {
+          "REG": 16,
+          "STACK": 0,
+          "SHARED": 0,
+          "LOCAL": 0
+        }
+      }
+    }
+  ],
+  "builds": {
+    "before": {
+      "native_graph_sha256": "47bb2d275e338a1956a28eeb75d734dafd9b71112a4ecc4af9808ae7a09f40f7",
+      "kernels": [
+        {
+          "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+          "entry": "phoenix_decoder_input_upsampling",
+          "binary_sha256": "287e4538d7f270b7facca6ff7aef1eda6256947e3ed2505e87efca2a6aababcb",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward",
+          "binary_sha256": "87f2bc05a9e111717b65f0c29cfbb0fa8f24695fb5b9ff2e76b51c81a5d6a60f",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync",
+          "binary_sha256": "8c05f47b18ada9f7d9bed7f57b197c967be5808ed1e0cbdc35b71b589749ed59",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection",
+          "binary_sha256": "415131569a0e1d1233a1f4fdf062c59cc107d0c0ede8e2c1559001fb040789c5",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view",
+          "binary_sha256": "24df3e8071a4b891bb887150187f34effedd3234d1bf4c7b5d98769d97b8c3e7",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_final_head_wait",
+          "binary_sha256": "d829e4b10f224fa0e58094de73d7859a743b9815a8fe1868405af39a322b48d9",
+          "parameter_bytes": 40,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection",
+          "binary_sha256": "c9c4095ab9fac0ac4996e8c0ee141d6b5974d71aeebeca77c60fdcb678d39d90",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_output_view_wait",
+          "binary_sha256": "0207e1eec99376ce807d392b9108762da01835235628eed7d85661984793870d",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_pool",
+          "binary_sha256": "ec99b1755584525631cf51c6e13c52b57359c598ddfff9864929edc7c01e0e78",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_query_key_value",
+          "binary_sha256": "10c75c903785098417d8e4ff1ff48d1b5593e9f7cc6e0ba084626a65c126d8df",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+          "entry": "phoenix_output_reconstruction",
+          "binary_sha256": "264298e7ee7697b562866d432e3f190a3bfd70b37db431a33268b6fad1ba44d9",
+          "parameter_bytes": 184,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+          "entry": "phoenix_input_preparation",
+          "binary_sha256": "e2b74d4afd32690e07cc9f97376cf3ad4e392cf7d29ce281fbbad4a228da2ca8",
+          "parameter_bytes": 264,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+          "entry": "phoenix_window_attention_channels_32_attention",
+          "binary_sha256": "d7f69e9bbe23b3dd8edce35a7ff413c4a98b6d9b45bd92b92344894bf8ded53a",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_downsample",
+          "binary_sha256": "3c00f1ed451ea80cb63b905afc3a3abaa8a0bbbb14e84758d1b784f4818d7fcc",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_input_view",
+          "binary_sha256": "f519893c4b2d46d3021af2d2d143bf7755db3b4364ba0eaf1e3b82b06a5edd10",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_output_view",
+          "binary_sha256": "b297e7a03f5dabd9c4f5afcd011ff20655e91c8b26acb510ebb895dc63d84449",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_upsample",
+          "binary_sha256": "86c14de74c9bd696e7d0a75470abed338218ad49ccdf26c5bbec4f854e7e8e97",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+          "entry": "phoenix_window_attention_channels_64_attention",
+          "binary_sha256": "0a3b2158504b0ff433a964b9f1fe821c194371322e46510486e84843a05f998c",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_downsample",
+          "binary_sha256": "ea4afe8d685b2e23d1e328801d34cc882933bfec626537bc25bf7e142c04e516",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_input_view",
+          "binary_sha256": "f6e28f16e4789b7d642c01cdf870e239ade4ac03542f3a98ae45fecfdc233123",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_output_view",
+          "binary_sha256": "7fad1a021dc94110e804c95661103fe6f42da25ec35ee1a1b2e78b6fd4623fae",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_upsample",
+          "binary_sha256": "9879b932119e1c98bf435883ac6822431eff2dbac5900523ccc83719e51db333",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+          "entry": "phoenix_window_attention_channels_128_attention",
+          "binary_sha256": "ee1c6a27bd364dbdbc4eeb60afe023b9173a1eb95c5e49f4f3046fa500c7a065",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_downsample",
+          "binary_sha256": "91683dd904487740f76f20b5043e8f2733e6ee615a9002ab06ad58fa4bcc5ea8",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_input_view",
+          "binary_sha256": "35c13b9755952c479a5c339967b0136985bf5c66923498cb708a71857e7e26f5",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_output_view",
+          "binary_sha256": "0fbb72ee478d3399c0a4f725771835aa1dbd69344cc5dd10dd3bbf759b987c1f",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_upsample",
+          "binary_sha256": "8a1f2bae977090816e056a176cf9aade863ca46a6ed7d61f5710d849ef0fac89",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+          "entry": "phoenix_window_attention_channels_256_attention",
+          "binary_sha256": "df3341cbac8f4d1fada632ebba7d18d3a8c2a53217dea6b026b0b9cb3ed5b623",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_downsample",
+          "binary_sha256": "860b7b727a919357d213284d605c33fbab16fbd3d0edb69649ff57e133e69898",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_input_view",
+          "binary_sha256": "aacba740f55ee328935d8b0dac909ac425bf717cb5c2d6412bca00ec358c0f26",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_output_view",
+          "binary_sha256": "b74e9f36e5a3c3f7fdcf13d41e57b3ea0ca8d062a56bd6c422384ce5cb93cde9",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_upsample",
+          "binary_sha256": "13c1a03081d77a54fdde028957218df7d6aaf9979ee18aceb3f25ea719ecc217",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_attention_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_attention",
+          "binary_sha256": "771fc1eedd5d8d1a4bc978a978afd20144d25020a33142a0a84eec54e3f0b08c",
+          "parameter_bytes": 64,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_contract_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_contract",
+          "binary_sha256": "b31614d14f375960fc6f2c12157c1aa32bc47a07f8b139f5e3931e38b54aa7ea",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand",
+          "binary_sha256": "10a0e5792fcc98d3991bd062deb92ce0fdafafed0a282ea3ad049e84278372fc",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_publish_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand_publish",
+          "binary_sha256": "235e4331e7e221a7ee9ad122563e5ac65099db05619193ef837299f947f47d2d",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_projection_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_projection",
+          "binary_sha256": "63432572fcd1c21dad469ea4dda5c0569362fb80492f60b593505ff97a6f133c",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_projection_wait_fp8",
+          "entry": "phoenix_global_attention_transformer_projection_wait",
+          "binary_sha256": "c3c2251492eda16347c6dc07d736867a0c7f2c268a3b49e4f49555638d995930",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_qkv_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_query_key_value",
+          "binary_sha256": "3e8034290d6ad6764b309936a2521cdf85fdfd891ecaa967e279b7571aa14a27",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+          "entry": "phoenix_tokens_to_image",
+          "binary_sha256": "09daa63ea5214e7991debe94d19937ba34dd4bd95b3a9588916b9fc6c296828b",
+          "parameter_bytes": 24,
+          "block": [
+            256,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+          "entry": "phoenix_image_to_tokens",
+          "binary_sha256": "e92476aed1066ef66c22f1a745abe23fa110a19a5611473f6d9afbe77e0a4859",
+          "parameter_bytes": 24,
+          "block": [
+            256,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    "after": {
+      "native_graph_sha256": "607624001f6b6653712174b6f9c0889962423582f702098c209e53ca74f0ea63",
+      "kernels": [
+        {
+          "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+          "entry": "phoenix_decoder_input_upsampling",
+          "binary_sha256": "eeadb15047d97d79f98fcd2a49b8250d3cea7c82c60d75074773e99f1a1ad7a6",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward",
+          "binary_sha256": "9a8d09a90a40673618ae7228795593f26cf425839a79ad7c7448555e1787ece7",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync",
+          "binary_sha256": "4216cd3f2460d7d0948801b64a4b6d96fe5a9e503476bfbfd042e6433df16a35",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection",
+          "binary_sha256": "b06143f91b74ac4b6edbd17020227c0309b653dab1cea0a7173535399eaffddd",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view",
+          "binary_sha256": "e3481cff04e2e4b3a77216df46a86411b44be1f74ccdce3a26e4c3e926901f76",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_final_head_wait",
+          "binary_sha256": "39015c2a960e8f3f8ce4aaacde145be217468f7f79ed91620d20bd4cd1c25902",
+          "parameter_bytes": 40,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection",
+          "binary_sha256": "da89dbaa85c725111a6e40a04fc9fe65921849b8d7155ced84b61dc519a2d1e9",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_output_view_wait",
+          "binary_sha256": "c8d5cb0277e35c43c1861b90f04f8a8b4b99b9e2cd70f5486654dfcd0bca4789",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_pool",
+          "binary_sha256": "695a072b9e1abaa287c2fdbca5b00ccbc944d431f4008bae3c9e252d3e989e8c",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_query_key_value",
+          "binary_sha256": "ec517426852ee446c2a27351b835f623e5a64ede456681b4a6dfc934df7fa092",
+          "parameter_bytes": 56,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+          "entry": "phoenix_output_reconstruction",
+          "binary_sha256": "cbfe13e7d67e19fc600cbea958639f8f4cf4d01f399edbe21d9eafdb37cbbbbd",
+          "parameter_bytes": 184,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+          "entry": "phoenix_input_preparation",
+          "binary_sha256": "899fded99b70866754a5dd31edf27a0f4a6f9b04d058b1b1aa6cacc8f1f1006e",
+          "parameter_bytes": 264,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+          "entry": "phoenix_window_attention_channels_32_attention",
+          "binary_sha256": "953e9060f40e99546eab5d13a55924edf7ad56c8a1d9c1481bc7f7079111ea76",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_downsample",
+          "binary_sha256": "3c5432ccd2755d78c446f325f4b9acfe8fd346ab3e82d50c214b63af05f99075",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_input_view",
+          "binary_sha256": "95d2fa00d6d5f973ce1f9d8d0d4db49ed2c4380f9bc50256a308ea31028bb44b",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_output_view",
+          "binary_sha256": "168131eee7f9e01a5549463cc34eb1f02bdc2fd91ab40a1488ed66fea544d094",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_upsample",
+          "binary_sha256": "345541a9d0e7a002e9386bd22ba5529fc72c87782c845cace439b24b98d67cbf",
+          "parameter_bytes": 96,
+          "block": [
+            32,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+          "entry": "phoenix_window_attention_channels_64_attention",
+          "binary_sha256": "129fa4a6e7dd1c05c0378d008bdd64b9998fa66f18dcc0c358e1b5b833d51cfd",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_downsample",
+          "binary_sha256": "afaae4a3aa1077a564f3fe12f87a4e27eb1864526a5fe802451508833fdc336f",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_input_view",
+          "binary_sha256": "dc9a7eb59464af03778f24e1cc527ae710019be736a58550cb6d29efbcf15f44",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_output_view",
+          "binary_sha256": "c97488d62b492e53cdb3f049cd3c88b995cb61048ab2429e8c0a54ab9b0f3aff",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_upsample",
+          "binary_sha256": "de7a1f86769b13f05b10c7a517cc6f15857e05901b587363b762e496adcceedc",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            2,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+          "entry": "phoenix_window_attention_channels_128_attention",
+          "binary_sha256": "4867d5ec3a7641f0be73ba92d42af4ca019537eb69544578ef7cd51d7f7fc7e9",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_downsample",
+          "binary_sha256": "77c77a2838c8af0a6f3d6fdd593a4467105603633f26589587a5a77e4cc34188",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_input_view",
+          "binary_sha256": "d199b45f4377c4922f2200f38469896a4dce0a5472430463da1098f868e828a6",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_output_view",
+          "binary_sha256": "ff093f28b28e1ef109ba7430a78151f657fa783f3d3baa39fdd8e472d7b91dec",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_upsample",
+          "binary_sha256": "d6b61391156ac9f44fa20ffd6ec7ed363dfd15483110a9a11de2143d8ed711e6",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+          "entry": "phoenix_window_attention_channels_256_attention",
+          "binary_sha256": "ac02907eab565a2bb7f348ab7ce414f9a742bf1a6fad910bdbdbcaf18631b86d",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_downsample",
+          "binary_sha256": "d9a7fdec5d6a6ef479c1b38c8cba66ef2eeb7fda41afb595a38e0f2f12abc311",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_input_view",
+          "binary_sha256": "1750d50cea4afc2a64d549d692e22917b33f108c4c450266772eb6d182a7a256",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_output_view",
+          "binary_sha256": "f2126679e2ccd19e33865d1b69a72d83fe075ec49fce1a349a63aa7409057c04",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_upsample",
+          "binary_sha256": "272356325810d46fb14383e3bb6a89f6da1ee46b8a3cdef954c9fabd99fbd1ce",
+          "parameter_bytes": 88,
+          "block": [
+            32,
+            8,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_attention_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_attention",
+          "binary_sha256": "d48ac1b5102b3b1dc0943e920d571827673b8d86c68ab23f47abe81c38d0c8aa",
+          "parameter_bytes": 64,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_contract_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_contract",
+          "binary_sha256": "b4cab7d2fda463a746a7b8eb05d4eba21a5d019028477f217c9b27741e691374",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand",
+          "binary_sha256": "86b5a803cdeb13b34614bd4b487a63b32eafe320d88b921d4ce4cbf60f3eb8fe",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_publish_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand_publish",
+          "binary_sha256": "9fd9a5b3bd1a935f6cb21e93eb91a495f9a9db78434291a6c8429ddb9dfeafd5",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_projection_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_projection",
+          "binary_sha256": "45eb478f9c8882a82069bbcdb706a36dddd1de8cbd878a4d785b936cdfdf5998",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_projection_wait_fp8",
+          "entry": "phoenix_global_attention_transformer_projection_wait",
+          "binary_sha256": "c2aeeefddb2a4f57d7d34b50126363e5127db003cb2054c1f03cb44d1395834c",
+          "parameter_bytes": 72,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_qkv_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_query_key_value",
+          "binary_sha256": "8358fd5a0839094ca6dc4733c5edbcb2be60046fdf5c0df4e0df544bdb07668b",
+          "parameter_bytes": 80,
+          "block": [
+            32,
+            4,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+          "entry": "phoenix_tokens_to_image",
+          "binary_sha256": "43e90b1f8ceff51d653e68ee1986ac121ee8dc87d69f083419bcfa45a49af14d",
+          "parameter_bytes": 24,
+          "block": [
+            256,
+            1,
+            1
+          ]
+        },
+        {
+          "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+          "entry": "phoenix_image_to_tokens",
+          "binary_sha256": "b93d2b24a93d51574e34f53da84ae8a2396feafbaf973aeae19dff70ce40c574",
+          "parameter_bytes": 24,
+          "block": [
+            256,
+            1,
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "probe_binaries": {
+    "four_model_probe.exe": "7e2a276f1967f92f3425f5fd779251db3e94d38d83eb294cb46fb1404e7b6bf0",
+    "phoenix-nvngx.dll": "698190979ffbc3819963233c83e1f0db75fd72457f23ddfd8c3ba384aae9075f"
+  },
+  "gpu_after": "NVIDIA GeForce RTX 5080, 616.64, 2041 MiB, 44, 2887 MHz, 214.18 W, 6 %",
+  "temporary_builds_removed": true,
+  "note": "Passed means exact tested outputs and successful probes, not a statistical guarantee of speed."
+}

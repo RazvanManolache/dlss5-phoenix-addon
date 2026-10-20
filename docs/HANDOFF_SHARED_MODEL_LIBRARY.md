@@ -8,6 +8,21 @@ implementations themselves, see [HANDOFF_MULTI_MODEL.md](HANDOFF_MULTI_MODEL.md)
 
 ## What is supported
 
+Additional DLL edition (current source): DLSS Everything now downloads the
+OpenNR FP16 compatibility 310.9.16 runtime from
+[NODIX Manager 1.3.7](https://github.com/NODIX-TECH/DLSS-5-MANAGER/releases/tag/1.3.7).
+It is stored under `<payload>/Nvidia/nodix-compat/1.3.7-ac6ddca163ea/`, SHA-256
+`cdfa6c1ec784867182164c7836f324f087b5c9f374d0c9fe46f54999feabf3ed`.
+The picker explicitly accepts that container and independently verifies each
+selected resource. Both resource hashes equal the NVIDIA reference. NVIDIA
+editions and the optional export catalogue below remain supported. This is a
+runtime-code variant, not a third network. Use the NVIDIA backend for its older-RTX
+code. Released Phoenix kernels target sm_120; the current source also builds
+experimental sm_75/86/89 variants, described in [NATIVE_ARCHITECTURES.md](NATIVE_ARCHITECTURES.md).
+CPU-only DLL verification is
+retained in `artifacts/current/nodix-compat-model-selection.json`; GPU/runtime
+parity on this DLL remains untested.
+
 The optional downloads currently provide **two alternative weight packages for
 the existing two networks**. They do not introduce additional trained networks.
 

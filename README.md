@@ -9,41 +9,87 @@ what actually changes. Better pixels shouldn't require blind trust. The
 alternate backends are our slightly obsessive portability side quest. Yes,
 we may have taken the side quest too far.
 
-**New in 0.11:**
+## Features
 
-- **Fewer impossible choices:** transport options reflect the game's architecture,
-  available runtimes and current settings. The regular native DX12 path is x64-only.
-- **Your paths count:** configured runtime folders are checked before defaults;
-  required DLL architecture, hashes and driver profiles are verified.
-- **Same-process first, helper last:** Automatic tries eligible internal routes
-  before the external helper and explains failed attempts. This is a preference,
-  not a claim that experimental internal routes are faster.
+- **Two sizes of neural rendering:** Original and the faster [Lightweight FP8](docs/SMALL_FP8.md).
+- **RTX 20 / 30 / 40 / 50:** an optional **RTX Compatibility** package includes
+  architecture-specific kernels for both models. Older RTX 20/30/40 paths are
+  experimental; RTX 50 retains its validated kernel images.
+- **Pick your renderer:** Phoenix DLSS5, NVIDIA DLSS5 or side-by-side comparison.
+- **Tune the look live:** tone, structure, skin, masks, intensity and appearance
+  styles, without restarting the model for every slider movement.
+- **32-bit and 64-bit games:** matching ReShade add-ons, eligible same-process
+  execution and an external x64 helper. Software-rendered games can use the helper.
+- **Bring your weights, not another DLL copy:** compatible NVIDIA model DLLs,
+  native model folders and the [shared model library](docs/SHARED_MODELS.md).
+  The pinned OpenNR FP16 compatibility DLL is also recognized.
+- **Your paths count:** configurable model/runtime locations, checked DLL
+  architecture, package hashes and driver profiles.
+- **Automatic route selection:** eligible internal routes first, helper fallback
+  when needed, and explanations for unavailable choices. In-process is not a speed guarantee.
+- **Compare the same frame:** input, enhanced, split and difference views, plus
+  diagnostics for processing time and execution location.
+- **Broad graphics capture:** D3D9/10/11/12, OpenGL and Vulkan integration, with
+  API- and architecture-specific limits documented below.
+- **Less housekeeping:** cached schedules, lazy appearance buffers, lower startup
+  peaks and conservative defaults for alternate backends.
 
-Retained from 0.10:
-
-- Software-rendered games route to the hardware helper; matching x86/x64 bridge fixes.
-
-Retained from 0.9:
-
-- **Two sizes of neural rendering:** Original and the faster
-  [Lightweight FP8](docs/SMALL_FP8.md) model from 310.9.16.
-- **Bring your weights, not another DLL copy:** load compatible model folders or
-  use the [shared native model library](docs/SHARED_MODELS.md), installed centrally
-  by DLSS Everything. New architectures still need a matching implementation.
-- **Less housekeeping:** cached schedule changes, lazy appearance buffers,
-  lower startup peaks and a safe Vulkan default.
-  [What changed and what we measured](docs/benchmarks/current/review-fixes.md).
-
-[Download addon 0.11](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.11) ·
-[Installation](docs/RELEASE_0.11.md) · [Controls](#a-quick-look) ·
+[Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
+[Installation and package choice](docs/RELEASE_0.12.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
+
+<details>
+<summary>RTX generations, compatibility DLLs and validation limits</summary>
+
+The model picker also accepts the **OpenNR FP16 compatibility build of
+310.9.16.0**, downloaded centrally by DLSS Everything from
+[NODIX DLSS-5-MANAGER 1.3.7](https://github.com/NODIX-TECH/DLSS-5-MANAGER/releases/tag/1.3.7).
+Its Original and Lightweight model resources match the NVIDIA reference byte
+for byte. NVIDIA's original DLLs and shared native model exports remain supported.
+The compatibility DLL matches [OpenNR's published identity](https://github.com/clshortfuse/openNR/blob/main/profiles/compat-fp16-310.9.16.json)
+(`cdfa6c1e…f3ed`); it is community-modified runtime code, not another trained model.
+
+**RTX 20 / 30 / 40 / 50 series support:** the optional **RTX Compatibility** addon supports both
+**Original and Lightweight** through Phoenix's Native RTX backend, and through
+the NVIDIA DLSS5 backend when using the **patched OpenNR compatibility DLL** above.
+
+| GPU generation | Phoenix Native RTX | NVIDIA DLSS5 with patched compatibility DLL |
+| --- | --- | --- |
+| RTX 20 | Experimental `sm_75` compatibility kernels | Experimental compatibility path |
+| RTX 30 | Experimental `sm_86` compatibility kernels | Experimental compatibility path |
+| RTX 40 | Experimental `sm_89` kernels | Experimental compatibility path |
+| RTX 50 | Existing `sm_120` kernels; tested on RTX 5080 | Supported device images; patched DLL execution untested here |
+
+For Phoenix, the NVIDIA driver automatically selects the matching kernels for
+the active processing GPU; no older-card switch is required. For NVIDIA DLSS5,
+select the patched compatibility DLL as the runtime to use its compatibility
+code. NVIDIA's original DLLs remain supported with their own hardware requirements.
+Older RTX 20/30/40 inference, visual quality and performance still need testing on
+those physical cards. All 41 Phoenix RTX 50 images are byte-identical to the
+validated SDK; see [native architecture support](docs/NATIVE_ARCHITECTURES.md).
+OpenNR's host patches cover D3D11/D3D12; its
+[support boundary](https://github.com/clshortfuse/openNR#support-boundary)
+does not claim CUDA/Vulkan backend compatibility. These additions require the
+RTX Compatibility package. The standard Windows package retains the
+single-target RTX 50 native payload. Do not install both add-ons together.
+
+A development **experimental Windows x64 addon** was built with all four
+targets. Its actual packaged payload passed both-model RTX 5080 reset/history
+comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
+1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
+[Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
+Those retained development timings are not measurements of every packaged route.
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.12.md)
+separates the fresh package checks from earlier measurements.
+
+</details>
 
 <!-- current-two-model-benchmark -->
 ## Native RTX: the main event
 
 **Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** Both Original and Lightweight have comparable isolated inference latency; this is not end-to-end game FPS or portable-backend performance.
 
-**Measured 20 October 2026:** pre-release development builds, RTX 5080, native x64, one pass. These benchmark identities are retained separately from the rebuilt 0.9 packages.
+**Measured 20 October 2026:** development builds, RTX 5080, native x64, one pass. Exact benchmark identities are retained in the detailed report; these are not measurements of every downloadable package.
 
 ![Original versus Lightweight within Phoenix DLSS5 and within NVIDIA DLSS5 at 1080p](docs/benchmarks/current/native-1080p.png)
 
@@ -69,13 +115,14 @@ Small timing margins vary between tests. Some higher-resolution cases have large
 [Full two-model report](docs/benchmarks/current/README.md) · [Machine-readable results](docs/benchmarks/current/measurements.json) · [Released/current comparison](docs/benchmarks/current/release-ab.md)
 <!-- /current-two-model-benchmark -->
 
-## Add-on 0.82: appearance controls and native correctness fixes
+## Appearance Controls
 
-[Download 0.82](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.82) adds experimental Phoenix intensity and Default/Natural/Cinematic styles, plus engine-fed surface maps, protected UI and distortion inputs. Per-surface editing requires engine-provided IDs/textures.
+- Experimental Phoenix intensity and Default/Natural/Cinematic styles.
+- Engine-fed surface maps, protected UI and distortion inputs. Per-surface editing
+  requires engine-provided IDs/textures; final-color capture cannot invent them.
+- Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-This update fixes the 1024x768 first-frame GPU hang and inconsistent 4K resets by shipping the corrected tile-aligned graph with the runtime. The release includes stale-layout rejection and graph-embedding/package checks. Earlier timing charts below retain their measured runtime identities.
-
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Release and installation](docs/RELEASE_0.82.md) · [Root cause](docs/NATIVE_CORRECTNESS_0.82.md) · [Validation](docs/VALIDATION_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.12.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 
@@ -109,12 +156,12 @@ excludes upload/readback and is not game frame time. Resolution planning and
 padding are corrected. Automatic kernel selection preserves the small-input
 register choices and switches two stages at 18.66 million neural input pixels
 (5760×3240 area). Wider memory reads improve three 64-channel stages.
-Current native kernels target **sm_120**; the tested GPU is an RTX 5080.
+The native kernels used for this study target **sm_120**; the tested GPU is an RTX 5080.
 At 8K the two Phoenix DLSS5 process medians span 60.94–63.74 ms;
 the chart shows their mean, not a fixed performance guarantee.
 
 This resolution and memory study uses a different sampling protocol from the
-0.81 execution tests below. Its VRAM figures have not been remeasured for 0.81.
+execution tests below. Its VRAM figures were not remeasured in that transport study.
 
 [Automatic kernel selection and memory tuning: measurements and limits](docs/NATIVE_MEMORY_INVESTIGATION_2026-10-13.md)
 
@@ -129,8 +176,8 @@ This resolution and memory study uses a different sampling protocol from the
 
 [Historical regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
-[Download ReShade addon 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81) ·
-[Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta) ·
+[Download ReShade addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
+[SDK build and integration guide](docs/LIBRARY.md) ·
 [Historical benchmark methodology and data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
 [Resolution report (HTML)](docs/benchmarks/2026-10-13/resolutions.html)
@@ -161,7 +208,7 @@ are necessary even if execution is batched together.
 
 **Yes, Phoenix DLSS5 also has a 32-bit game add-on.** Use `Phoenix.addon32` for an
 x86 game and `Phoenix.addon64` for an x64 game. Both are in the
-**[0.81 download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81)**.
+**[Windows download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest)**.
 This is support for 32-bit games on **64-bit Windows**, not 32-bit Windows or
 older GPUs without the required rendering capabilities.
 
@@ -171,7 +218,7 @@ NVIDIA DLSS5, and displays the processed result back in the game. The game stays
 32-bit; the neural renderer runs in the helper. No game EXE patch is needed.
 The extra image transfers add overhead, even when model inference is fast.
 
-0.81 also adds two **optional experiments** that keep native processing inside
+Two **optional experiments** keep native processing inside
 the x86 game's process instead of using that separate helper:
 
 | x86 execution choice | What happens | Renderers |
@@ -184,14 +231,14 @@ The experiments passed packaged-client inference, controls and switching tests
 on the verified Windows/driver profile. **Game presentation, resize and
 device-loss behavior for these new paths are not yet validated.** They require
 the separate experimental runtime package and a matching Windows/driver profile;
-they are never enabled automatically. Leave helper fallback on. The x86 Phoenix DLSS5
+Automatic considers them only when their prerequisites pass. Leave helper fallback on. The x86 Phoenix DLSS5
 host also requires an already large-address-aware game EXE and does not patch it.
 Both native experiments still stage CPU pixels: in-process is not zero-copy,
 crash isolation or a guaranteed performance improvement.
 
 [Installation, configuration and exact limits](docs/EXECUTION_MECHANISMS.md)
 
-## New in 0.81: More Ways To Run Phoenix DLSS5
+## Execution Choices
 
 The release includes **both x86 and x64 ReShade add-ons**, the retained x64
 helper, and optional experimental runtimes. Models and NVIDIA DLSS5 DLLs stay external.
@@ -224,13 +271,13 @@ helper, and optional experimental runtimes. Models and NVIDIA DLSS5 DLLs stay ex
   separate [Android preview](docs/VULKAN_FAST_MOBILE.md). These are not native RTX
   performance claims or new Android binaries in this add-on release.
 
-[0.81 release notes](docs/RELEASE_0.81.md) |
-[0.81 execution benchmark data and methodology](docs/benchmarks/0.81/README.md)
+[Execution configuration and limits](docs/EXECUTION_MECHANISMS.md) |
+[Historical execution benchmark data and methodology](docs/benchmarks/0.81/README.md)
 
 <details>
 <summary>Detailed execution benchmarks: in-process versus helper</summary>
 
-**Historical 0.81 execution study, Original model only.** These transport results
+**Historical execution study, Original model only.** These transport results
 were not rerun in the current two-model analysis above; they are not Lightweight
 FP8 or current-checkout transport measurements.
 
@@ -493,8 +540,11 @@ Install the **Desktop development with C++** workload, including the x64 compile
 and Windows SDK. The build scripts locate Visual Studio through `vswhere` and
 initialize its compiler environment automatically.
 
-Native kernels currently target **`sm_120`**. Running the native validation steps
-requires compatible NVIDIA hardware; the tested GPU is an RTX 5080. Compiling
+Published native kernels target **`sm_120`**. The current production builder also
+supports experimental **`sm_75/86/89`** images for older RTX cards; see
+[native architecture builds and validation](docs/NATIVE_ARCHITECTURES.md).
+Running the native validation steps requires compatible NVIDIA hardware; the
+tested GPU is an RTX 5080. Compiling
 the addon and its CPU/WARP tests does not require a model or physical NVIDIA GPU.
 
 HIP, SYCL and Vulkan have additional optional dependencies. See
@@ -534,7 +584,7 @@ embedded build, continue through the following sections.
 Build the selected native kernels with an explicit CUDA compiler path:
 
 ```powershell
-python tools/production_build_native_kernels.py native_release --compiler "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\bin\nvcc.exe" --jobs 4
+python tools/production_build_native_kernels.py native_release --compiler "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\bin\nvcc.exe" --jobs 4 --architectures sm_120
 ```
 
 Output: **`build/native_release/`**, containing 41 kernel modules, their graph

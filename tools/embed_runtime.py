@@ -11,6 +11,27 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def require_architecture_coverage(manifest):
+    architectures = manifest.get("architectures", [])
+    if len(architectures) > 1:
+        evidence = manifest.get("architecture_validation", {})
+        if set(evidence) != set(architectures) or any(evidence[arch] != "validated" for arch in architectures):
+            raise ValueError("Every native architecture needs device inference validation before packaging")
+
+
+def require_native_packaging(manifest, experimental=False):
+    if not manifest.get("passed"):
+        raise ValueError("Native kernel compilation must pass before packaging")
+    if experimental:
+        if (manifest.get("selection_status") not in ("compiled", "validated") or
+                manifest.get("model_weights_included") is not False):
+            raise ValueError("Experimental native bundle must be successfully compiled and model-free")
+        return
+    if manifest.get("selection_status") != "validated":
+        raise ValueError("Native kernels must be validated before packaging")
+    require_architecture_coverage(manifest)
+
+
 def native_graph_files(native, manifest):
     """Keep every selected graph and its pin together in the embedded payload."""
     native = Path(native)
@@ -61,7 +82,7 @@ def compress(data):
         cabinet.CloseCompressor(handle)
 
 
-def prepare(runtime, native, output, nr_forwarder=None):
+def prepare(runtime, native, output, nr_forwarder=None, *, experimental_native=False):
     runtime, native, output = map(
         lambda source_path: Path(source_path).resolve(), (runtime, native, output)
     )
@@ -69,9 +90,8 @@ def prepare(runtime, native, output, nr_forwarder=None):
     native_manifest = json.loads((native / "native_manifest.json").read_text(encoding="utf-8"))
     if not validation.get("passed") or not validation.get("inference_validated"):
         raise ValueError("Runtime must pass inference validation before packaging")
-    if not native_manifest.get("passed") or native_manifest.get("selection_status") != "validated":
-        raise ValueError("Native kernels must be validated before packaging")
-    if any("large_input_entry" in kernel for kernel in native_manifest["kernels"]):
+    require_native_packaging(native_manifest, experimental_native)
+    if not experimental_native and any("large_input_entry" in kernel for kernel in native_manifest["kernels"]):
         from validate_native import kernel_selection_digest, require_variant_coverage
 
         evidence = native_manifest.get("validation", {})
@@ -146,6 +166,9 @@ def prepare(runtime, native, output, nr_forwarder=None):
         "schema": "dlss5-phoenix-embedded-runtime/1",
         "model_data_included": False,
         "nvidia_dll_included": False,
+        "release_channel": "experimental" if experimental_native else "stable",
+        "native_architecture_validation": native_manifest.get("architecture_validation", {}),
+        "native_validation_pending": native_manifest.get("validation_pending", False),
         "files": entries,
     }
     manifest_path = output / "manifest.json"
@@ -159,4 +182,5 @@ def prepare(runtime, native, output, nr_forwarder=None):
         "packed_bytes": sum(resource_entry["packed_bytes"] for resource_entry in entries),
         "manifest_sha256": digest(manifest_path.read_bytes()),
         "model_data_included": False,
+        "release_channel": manifest["release_channel"],
     }

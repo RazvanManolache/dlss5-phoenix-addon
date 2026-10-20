@@ -59,7 +59,11 @@ extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Bounded paired inference with independent histories; not a production replacement or benchmark.";
 #else
 
+#if defined(PHOENIX_EXPERIMENTAL_NATIVE)
+extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 experimental RTX compatibility";
+#else
 extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 reconstructed NR";
+#endif
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Explicit-contract candidate NR integration; no native fallback for registered features.";
 #endif
@@ -5396,6 +5400,10 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
     ImGui::TextUnformatted("Phoenix DLSS5 Neural Rendering");
+#if defined(PHOENIX_EXPERIMENTAL_NATIVE)
+    ImGui::TextUnformatted("Experimental RTX compatibility build");
+    ImGui::TextWrapped("RTX 20/30/40 execution needs testing on those cards. RTX 5080 checks are listed in the package notes.");
+#endif
     if (ImGui::Button("Save configuration")) {
         save_live_controls(runtime);
         addon_state.settings_saved_at = GetTickCount64();

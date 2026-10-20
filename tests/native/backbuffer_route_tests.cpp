@@ -3,12 +3,12 @@
 #include "../../src/integration/compatibility/wow64/bridge_policy.h"
 #include <iostream>
 
-int main() {
+int main() try {
     using namespace phoenix_compat;
     using A = reshade::api::device_api;
     using F = reshade::api::format;
     unsigned checks = 0;
-    auto verify = [&](bool value) { ++checks; if (!value) throw std::runtime_error("Backbuffer route contract failed"); };
+    auto verify = [&](bool value) { ++checks; if (!value) throw std::runtime_error("Backbuffer route contract failed at check " + std::to_string(checks)); };
     using C=reshade::api::color_space;
     for(auto format:{F::r8g8b8a8_unorm,F::b8g8r8a8_unorm,F::b8g8r8x8_unorm})
         verify(sdr_backbuffer(C::unknown,format));
@@ -24,8 +24,10 @@ int main() {
     for(auto api:{A::d3d9,A::d3d10,A::opengl}) {
         auto legacy=base;legacy.api=api;legacy.bits=32;legacy.format=F::b8g8r8x8_unorm;
         legacy.sdr=sdr_backbuffer(C::unknown,legacy.format);
-        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeLibrary).route==BackbufferRoute::NativeLibrary);
-        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==BackbufferRoute::NativeDriver);
+        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeLibrary).route==
+            (api==A::opengl?BackbufferRoute::Unsupported:BackbufferRoute::NativeLibrary));
+        verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==
+            (api==A::opengl?BackbufferRoute::Unsupported:BackbufferRoute::NativeDriver));
         legacy.sdr=sdr_backbuffer(C::hdr10_pq,legacy.format);
         verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==BackbufferRoute::Unsupported);
     }
@@ -47,7 +49,7 @@ int main() {
     for (auto api : {A::d3d9, A::d3d10, A::d3d11, A::d3d12, A::opengl, A::vulkan}) {
         auto caps = base; caps.api = api; caps.bits = 32;
         verify(choose_backbuffer_route(caps, automatic).route ==
-               BackbufferRoute::NativeLibrary);
+               (api == A::opengl ? BackbufferRoute::Helper : BackbufferRoute::NativeLibrary));
         verify(choose_backbuffer_route(caps, ExecutionPreference::InProcess).route ==
                BackbufferRoute::Unsupported);
         caps.bits = 64;
@@ -131,11 +133,13 @@ int main() {
     for(auto api:{A::d3d9,A::d3d10,A::d3d11,A::d3d12,A::opengl,A::vulkan}) {
         auto caps=base;caps.bits=32;caps.api=api;
         for(auto preference:{ExecutionPreference::NativeLibrary,ExecutionPreference::NativeDriver}) {
-            const auto expected=preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::NativeDriver;
+            const auto expected=api==A::opengl?BackbufferRoute::Unsupported:
+                preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::NativeDriver;
             verify(choose_backbuffer_route(caps,preference).route==expected);
             caps.nvidia_required=true;
             verify(choose_backbuffer_route(caps,preference).route==
-                (preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::Helper));
+                (api==A::opengl?BackbufferRoute::Unsupported:
+                 preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::Helper));
             caps.nvidia_required=false;
             for(unsigned failure=0;failure<6;++failure) {
                 auto invalid=caps;
@@ -166,6 +170,13 @@ int main() {
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Portable);
     ordered.portable_available = false;
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Helper);
+    auto opengl = base; opengl.bits = 32; opengl.api = A::opengl;
+    verify(choose_backbuffer_route(opengl, automatic).route == BackbufferRoute::Helper);
+    opengl.portable_available = true;
+    verify(choose_backbuffer_route(opengl, automatic).route == BackbufferRoute::Portable);
+    const auto gl_choices = available_execution_preferences(opengl);
+    verify(std::find(gl_choices.begin(), gl_choices.end(), ExecutionPreference::NativeLibrary) == gl_choices.end());
+    verify(std::find(gl_choices.begin(), gl_choices.end(), ExecutionPreference::NativeDriver) == gl_choices.end());
     ordered.discovery_pending = true;
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Unsupported);
     verify(choose_backbuffer_route(ordered, ExecutionPreference::Helper).route == BackbufferRoute::Helper);
@@ -195,4 +206,7 @@ int main() {
     native.execution_device = "native"; native.automatic_budget = true;
     verify(*native_settings_unavailable_reason(native, false));
     std::cout << "{\"passed\":true,\"cpu_only\":true,\"checks\":" << checks << "}\n";
+} catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
 }

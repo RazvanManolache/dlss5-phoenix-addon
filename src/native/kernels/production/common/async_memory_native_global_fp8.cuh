@@ -120,7 +120,11 @@ __device__ __forceinline__ uint32_t select_half_operand(uint32_t value) {
 }
 
 __device__ __forceinline__ uint32_t pack_fp8_pair(uint32_t operand_a, uint32_t operand_c) {
+#if __CUDA_ARCH__ < 890
+    return uint32_t(phoenix_architecture::encode_fp8_pair(operand_a)) | (operand_c << 16);
+#else
     uint16_t fp8_pair;
     asm("cvt.rn.satfinite.e4m3x2.f16x2 %0,%1;" : "=h"(fp8_pair) : "r"(operand_a));
     return uint32_t(fp8_pair) | (operand_c << 16);
+#endif
 }

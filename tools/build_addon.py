@@ -37,9 +37,13 @@ def main():
     parser.add_argument(
         "--production-only", action="store_true", help="Omit the separate diagnostic addon"
     )
+    parser.add_argument("--experimental-native", action="store_true",
+                        help="Embed compiled native targets as explicitly experimental without claiming device validation")
     args = parser.parse_args()
     if bool(args.embed_runtime) != bool(args.embed_native):
         parser.error("Supply both embedded runtime and native bundle")
+    if args.experimental_native and not args.embed_native:
+        parser.error("--experimental-native requires an embedded native bundle")
     if not re.fullmatch(r"[A-Za-z0-9_]+", args.name):
         parser.error("Use a simple build directory name")
     sdk = args.ngx_sdk.resolve()
@@ -73,6 +77,8 @@ def main():
         "if errorlevel 1 exit /b 5",
     ]
     common = f'/experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
+    if args.experimental_native:
+        common += ' /DPHOENIX_EXPERIMENTAL_NATIVE=1'
     libraries = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib"
     minhook = " ".join(
         f'"{ROOT}/third_party/minhook/src/{source_path}"'
@@ -122,7 +128,8 @@ def main():
         subprocess.run(['cmd', '/d', '/c', str(wrapper_recipe)], cwd=out, check=True)
         if hashlib.sha256(forwarder_source.read_bytes()).hexdigest() != forwarder_digest:
             raise RuntimeError('NR forwarder source changed during compilation')
-        recipe, embedded_report = prepare(args.embed_runtime, args.embed_native, out / "embedded", forwarder)
+        recipe, embedded_report = prepare(args.embed_runtime, args.embed_native, out / "embedded", forwarder,
+                                          experimental_native=args.experimental_native)
         resource = f'"{out}/embedded/runtime.res"'
         lines.extend(
             [
@@ -179,6 +186,7 @@ def main():
         "compilation_completed": False,
         "contract_tests_passed": False,
         "artifact_verification_completed": False,
+        "release_channel": "experimental" if args.experimental_native else "stable",
     }
     if embedded_report:
         report["embedded_runtime"] = embedded_report

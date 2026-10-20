@@ -7,7 +7,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES 1
+#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
 #define DLSS5_TILE_SHARED_BYTES 3088
 #include "../../common/async_memory.cuh"
 #include "../../common/cached_vector_access.cuh"
@@ -23,9 +23,17 @@ atomic_add_four_half_pairs(uint64_t address, uint32_t word_x, uint32_t word_y, u
             atomicAdd(error_counts + 1, 1u);
             return;
         }
+#if __CUDA_ARCH__ >= 900
     asm volatile("red.global.add.noftz.v4.f16x2 [%0],{%1,%2,%3,%4};" ::"l"(address), "r"(word_x),
                  "r"(word_y), "r"(word_z), "r"(word_w)
                  : "memory");
+#else
+    asm volatile("red.global.add.noftz.f16x2 [%0],%1;\n"
+                 "red.global.add.noftz.f16x2 [%0+4],%2;\n"
+                 "red.global.add.noftz.f16x2 [%0+8],%3;\n"
+                 "red.global.add.noftz.f16x2 [%0+12],%4;"
+                 :: "l"(address), "r"(word_x), "r"(word_y), "r"(word_z), "r"(word_w) : "memory");
+#endif
 }
 template <bool CheckBounds>
 __device__ __forceinline__ uint32_t read_device_flag(uint64_t address,

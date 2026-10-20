@@ -9,9 +9,37 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import validate_native
 import validate_runners
+import embed_runtime
 
 
 class ValidationGateTests(unittest.TestCase):
+    def test_experimental_packaging_is_explicit_and_preserves_pending_status(self):
+        manifest = {"passed": True, "selection_status": "compiled", "model_weights_included": False,
+                    "validation_pending": True, "architectures": ["sm_75", "sm_120"],
+                    "architecture_validation": {"sm_75": "pending_device_inference", "sm_120": "pending_device_inference"}}
+        original = copy.deepcopy(manifest)
+        with self.assertRaisesRegex(ValueError, "validated"):
+            embed_runtime.require_native_packaging(manifest)
+        embed_runtime.require_native_packaging(manifest, experimental=True)
+        self.assertEqual(manifest, original)
+        for change in ({"passed": False}, {"selection_status": "failed"}, {"model_weights_included": True}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                embed_runtime.require_native_packaging({**manifest, **change}, experimental=True)
+
+    def test_one_gpu_cannot_validate_other_architecture_images(self):
+        embed_runtime.require_architecture_coverage({})
+        validate_native.require_single_architecture({"architectures": ["sm_120"]})
+        targets = ["sm_75", "sm_86", "sm_89", "sm_120"]
+        manifest = {"architectures": targets,
+                    "architecture_validation": {arch: "pending_device_inference" for arch in targets}}
+        manifest["architecture_validation"]["sm_120"] = "validated"
+        with self.assertRaisesRegex(ValueError, "Single-device"):
+            validate_native.require_single_architecture(manifest)
+        with self.assertRaisesRegex(ValueError, "Every native architecture"):
+            embed_runtime.require_architecture_coverage(manifest)
+        manifest["architecture_validation"] = {arch: "validated" for arch in targets}
+        embed_runtime.require_architecture_coverage(manifest)
+
     def setUp(self):
         self.job = {
             "width": 96,

@@ -1,7 +1,9 @@
 """Production catalogue consistency and invalid-input checks; no GPU required."""
 
 import copy
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import re
@@ -153,7 +155,7 @@ class ProductionInputsTests(unittest.TestCase):
 
             with (
                 patch.object(builder, "ROOT", root),
-                patch("sys.argv", ["builder", "test", "--compiler", str(compiler)]),
+                patch("sys.argv", ["builder", "test", "--compiler", str(compiler), "--architectures", "sm_120"]),
                 patch.object(builder.subprocess, "check_output", return_value="C:/VS"),
                 patch.object(builder.subprocess, "run", side_effect=simulate_compilation),
                 patch("builtins.print"),
@@ -188,6 +190,72 @@ class ProductionInputsTests(unittest.TestCase):
             self.assertEqual(
                 json.loads((root / "build/test/native_graph.json").read_text()), self.graph
             )
+            # An interrupted build must never reuse binaries after a source,
+            # graph or catalogue edit, even if the old files still exist.
+            changed_paths = [root / self.catalogue["kernels"][0]["source"],
+                             root / builder.GRAPH, root / builder.CATALOGUE]
+            for changed in changed_paths:
+                original = changed.read_bytes()
+                if changed.suffix == ".json":
+                    document = json.loads(original)
+                    document["resume_test_marker"] = True
+                    changed.write_text(json.dumps(document))
+                else:
+                    changed.write_text("changed source")
+                with (
+                    self.subTest(changed=changed.name),
+                    patch.object(builder, "ROOT", root),
+                    patch("sys.argv", ["builder", "test", "--compiler", str(compiler),
+                                       "--architectures", "sm_120", "--resume"]),
+                    patch.object(builder.subprocess, "check_output", return_value="C:/VS"),
+                    patch.object(builder.subprocess, "run") as compile_process,
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    with self.assertRaises(SystemExit):
+                        builder.main()
+                    compile_process.assert_not_called()
+                changed.write_bytes(original)
+
+    def preserved_fixture(self, root):
+        graph = root / "native_graph.json"
+        graph.write_text(json.dumps(self.graph))
+        kernels = []
+        for index, row in enumerate(self.catalogue["kernels"]):
+            binary = root / (str(index) + ".cubin")
+            data = bytearray(64)
+            data[:6] = b"\x7fELF\x02\x01"
+            data[18:20] = (190).to_bytes(2, "little")
+            data[48:52] = (120 << 8).to_bytes(4, "little")
+            binary.write_bytes(data)
+            kernels.append({**row, "binary": binary.name, "binary_sha256": builder.digest(binary)})
+        manifest = dict(passed=True, model_weights_included=False,
+                        native_graph_sha256=builder.digest(graph), kernels=kernels)
+        (root / "native_manifest.json").write_text(json.dumps(manifest))
+        return manifest
+
+    def test_preserved_fast_path_authenticates_every_image_and_launch_contract(self):
+        for fault in (None, "hash", "architecture", "abi", "graph", "path"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                manifest = self.preserved_fixture(root)
+                row = manifest["kernels"][0]
+                binary = root / row["binary"]
+                if fault == "hash": binary.write_bytes(binary.read_bytes() + b"tamper")
+                if fault == "architecture":
+                    data = bytearray(binary.read_bytes()); data[48:52] = (89 << 8).to_bytes(4, "little")
+                    binary.write_bytes(data); row["binary_sha256"] = builder.digest(binary)
+                if fault == "abi": row["parameter_bytes"] += 4
+                if fault == "path": row["binary"] = "../outside.cubin"
+                if fault == "graph":
+                    graph = root / "native_graph.json"
+                    changed = copy.deepcopy(self.graph); changed["layers"][0]["kernel"] = "other"
+                    graph.write_text(json.dumps(changed)); manifest["native_graph_sha256"] = builder.digest(graph)
+                (root / "native_manifest.json").write_text(json.dumps(manifest))
+                if fault:
+                    with self.assertRaises((ValueError, FileNotFoundError)):
+                        builder.preserved_kernels(root, self.catalogue)
+                else:
+                    self.assertEqual(len(builder.preserved_kernels(root, self.catalogue)), 41)
 
 
 if __name__ == "__main__":

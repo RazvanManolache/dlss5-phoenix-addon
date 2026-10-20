@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.11'
+VERSION = '0.12'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -114,7 +114,7 @@ def common_files():
             files['licenses/'+path.relative_to(ROOT/'third_party').as_posix()] = path.read_bytes()
     for name in (f'RELEASE_{VERSION}.md', f'VALIDATION_{VERSION}.md', 'RELEASE_0.10.md', 'VALIDATION_0.10.md', 'RELEASE_0.9.md', 'VALIDATION_0.9.md', 'NEURAL_CONTROLS.md', 'NATIVE_CORRECTNESS_0.82.md',
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
-                 'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md',
+                 'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
                  'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
@@ -132,7 +132,11 @@ def main():
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--runtime-x86', type=Path, required=True)
     parser.add_argument('--validation', type=Path, required=True)
+    parser.add_argument('--experimental-candidate', type=Path)
+    parser.add_argument('--experimental-validation', type=Path)
     args = parser.parse_args()
+    if bool(args.experimental_candidate) != bool(args.experimental_validation):
+        parser.error('Supply both the experimental candidate and its validation receipt')
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode:
         raise ValueError('Commit maintained source before assembling a release')
     commit = subprocess.check_output(['git', 'rev-parse', args.ref+'^{commit}'], cwd=ROOT, text=True).strip()
@@ -150,7 +154,7 @@ def main():
     if not build.get('passed'):
         raise ValueError('Add-on package build failed')
     for name,row in build['binaries'].items():
-        if sha((candidate/name).read_bytes())!=row['sha256']:
+        if sha((candidate/name).read_bytes())!=row['sha256'] or tests.get('binaries', {}).get(name) != row['sha256']:
             raise ValueError('Packaged add-on changed: '+name)
     output=CURRENT/f'release-{VERSION}'
     if output.exists():raise ValueError('Release output exists; inspect before replacing')
@@ -164,6 +168,31 @@ def main():
         assets={}
         name=f'DLSS5-Phoenix-{VERSION}-Windows.zip'
         assets[name]=write_archive(staging/name,files)
+        experimental = None
+        if args.experimental_candidate:
+            experimental = json.loads(args.experimental_validation.read_text())
+            if not experimental.get('passed') or not experimental.get('release_payload_checked'):
+                raise ValueError('Experimental release payload validation is incomplete')
+            folder = args.experimental_candidate.resolve()
+            experimental_build = json.loads((folder/'report.json').read_text())
+            if not experimental_build.get('passed') or experimental_build.get('release_channel') != 'experimental':
+                raise ValueError('Compatibility addon must retain its experimental release channel')
+            files = common_files()
+            for name,row in experimental_build['binaries'].items():
+                raw = (folder/name).read_bytes()
+                if sha(raw) != row['sha256'] or experimental.get('binaries', {}).get(name) != row['sha256']:
+                    raise ValueError('Experimental validation does not match the shipped binary: '+name)
+                files[name] = raw
+            for bits in (32,64):
+                audit_embedded(folder/f'Phoenix.addon{bits}', staging/f'experimental-{bits}')
+            files['README.txt'] += (
+                '\nEXPERIMENTAL RTX 20/30/40/50 COMPATIBILITY PACKAGE\n'
+                'Older RTX 20/30/40 cards have compiled kernel images, not physical-device qualification.\n'
+                'Both models are supported; inference, quality and performance on those cards need testing.\n'
+                'Do not install alongside another Phoenix addon; replace the matching architecture instead.\n').encode()
+            files['COMPATIBILITY_VALIDATION.json'] = json.dumps(experimental,indent=2).encode()
+            name=f'DLSS5-Phoenix-{VERSION}-RTX-Compatibility-Windows.zip'
+            assets[name]=write_archive(staging/name,files)
         files=common_files()
         for architecture,folder in (('win-x64',args.runtime),('win-x86',args.runtime_x86)):
             for path in folder.rglob('*'):
@@ -191,6 +220,7 @@ def main():
             source_audit_passed=True,archive_hashes_verified=True,model_free=True,
             private_paths_secrets_models_and_logs_excluded=True,retail_games_launched=False,
             vendor_parity=False,release_validation=tests,
+            experimental_compatibility_validation=experimental,
             embedded_resources={bits:row['resources'] for bits,row in embedded.items()},assets=assets)
         (staging/'VALIDATION.json').write_text(json.dumps(validation,indent=2)+'\n')
         (staging/'RELEASE_NOTES.md').write_text((ROOT/f'docs/RELEASE_{VERSION}.md').read_text(),encoding='utf-8')

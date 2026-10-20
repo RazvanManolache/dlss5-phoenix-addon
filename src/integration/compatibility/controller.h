@@ -118,6 +118,8 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
         value.native_driver_reason = value.runtime_availability.driver_reason;
     for (bool driver : {false, true}) {
         const char* reason = native_settings_unavailable_reason(settings, driver);
+        if (caps.bits == 32 && caps.api == reshade::api::device_api::opengl)
+            reason = "Cross-bitness native execution is unavailable with x86 OpenGL; use portable execution or the external helper.";
         if (!*reason && driver) {
             const auto image = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
             const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);

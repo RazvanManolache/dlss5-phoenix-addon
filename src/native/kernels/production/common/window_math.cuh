@@ -12,9 +12,15 @@ __device__ __forceinline__ uint32_t half_to_float_bits(uint32_t half_bits) {
 __device__ __forceinline__ uint32_t pack_half(uint32_t upper_float_bits,
                                               uint32_t lower_float_bits) {
     uint32_t half_pair;
+#if __CUDA_ARCH__ < 800
+    asm("{ .reg .b16 lo,hi; cvt.rn.f16.f32 hi,%1; cvt.rn.f16.f32 lo,%2; mov.b32 %0,{lo,hi}; }"
+        : "=r"(half_pair)
+        : "f"(__uint_as_float(upper_float_bits)), "f"(__uint_as_float(lower_float_bits)));
+#else
     asm("cvt.rn.f16x2.f32 %0,%1,%2;"
         : "=r"(half_pair)
         : "f"(__uint_as_float(upper_float_bits)), "f"(__uint_as_float(lower_float_bits)));
+#endif
     return half_pair;
 }
 // Keep the hardware approximation and flush-to-zero behavior used by native

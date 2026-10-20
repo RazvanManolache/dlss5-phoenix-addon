@@ -2,6 +2,10 @@
 #include "weight_source.h"
 
 namespace phoenix_model {
+// NODIX Manager 1.3.7 distributes OpenNR's inspected FP16 compatibility build.
+// Both resource hashes are still checked independently for the selected model.
+inline constexpr std::string_view compat_fp16_310_9_16_sha256 =
+    "cdfa6c1ec784867182164c7836f324f087b5c9f374d0c9fe46f54999feabf3ed";
 // The picker can feed NVIDIA-code execution routes too. Resource equivalence
 // alone is not approval to execute an arbitrary container's code.
 inline bool known_model_container(std::string_view sha256) {
@@ -9,7 +13,8 @@ inline bool known_model_container(std::string_view sha256) {
         if (!model.reference_dll_sha256.empty() && model.reference_dll_sha256 == sha256)
             return true;
     // Previously accepted local patched edition; preserve its existing picker support.
-    return sha256 == "8270b350cd82de5ce89806872cdd6b6a9249b80836b91bbeb3573470744cc206";
+    return sha256 == "8270b350cd82de5ce89806872cdd6b6a9249b80836b91bbeb3573470744cc206" ||
+           sha256 == compat_fp16_310_9_16_sha256;
 }
 
 inline bool resource_sha256_valid(std::string_view sha) {

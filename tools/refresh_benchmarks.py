@@ -60,7 +60,8 @@ def main():
             vulkan = fresh_build_directory(stack, 'benchmark_vulkan_')
             command('numeric_contracts', ['tools/test_numeric_contracts.py','--gpu','--output',output/'numeric-contracts.json'])
             command('native_kernels', ['tools/production_build_native_kernels.py',native.name,
-                '--compiler','C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/nvcc.exe','--jobs','4'])
+                '--compiler','C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin/nvcc.exe','--jobs','4',
+                '--architectures','sm_120'])
             command('vulkan_provider', ['tools/build_vulkan.py',vulkan.name,args.vulkan_deps.resolve()])
             command('runtime_and_probes', ['tools/prepare_readme_benchmark.py','--work',native,
                 '--native-bundle',native,'--vulkan-bundle',vulkan,'--output',output])
