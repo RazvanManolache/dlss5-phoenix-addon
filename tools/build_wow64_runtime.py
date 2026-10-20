@@ -77,7 +77,7 @@ def main():
             for path in extension.iterdir():
                 if path.is_file() and path.name.lower().startswith(('license','copying','lgpl')): shutil.copy2(path,licenses/path.name)
             (licenses/'WOW64Ext.txt').write_text('WOW64Ext by rewolf, LGPL-3.0. Dynamic unmodified dependency.\nSource: https://github.com/rwfpl/rewolf-wow64ext\nRevision: '+WOW64EXT_COMMIT+'\n',encoding='utf-8')
-            profile=dict(schema='phoenix-wow64-bootstrap/1',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
+            profile=dict(schema='phoenix-wow64-bootstrap/2',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
                 initializer_rva=symbols['initializer_rva'],allocator_rva=symbols['allocator_rva'],appcompat_offsets=symbols['appcompat_offsets'],
                 driver_directory=driver.name,cuda_sha256=digest(driver/'nvcuda64.dll'),
                 files={p.name:digest(p) for p in payload.glob('*.dll')})

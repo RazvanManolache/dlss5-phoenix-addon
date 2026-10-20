@@ -1,7 +1,7 @@
 """Generate Metal's reference kernels from the shared operator definition.
 
 Only language/ABI adaptations occur here. Numerical operator bodies stay in
-compute_ops.h so fixes to publication, indexing and reductions reach Metal too.
+compute_ops.h and fp8_grid.h so fixes to publication, indexing and rounding reach Metal too.
 The generated text also supports host execution for arithmetic regression tests.
 """
 import argparse
@@ -13,6 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def generate():
     source = (ROOT / "src/backends/hip_sycl/compute_ops.h").read_text()
+    # Metal ships one generated translation unit, so inline the maintained grid
+    # helper before removing host-language includes. Keep its arithmetic shared.
+    grid_include = '#include "fp8_grid.h"'
+    if source.count(grid_include) != 1:
+        raise ValueError("Update Metal adaptation for changed FP8 grid include")
+    source = source.replace(grid_include, (ROOT / "src/backends/hip_sycl/fp8_grid.h").read_text())
     source = re.sub(r"^#(?:pragma|include).*\n", "", source, flags=re.M)
     # Metal uses C++14: select the portable implementations of optional C++20
     # Math hooks, which the Metal math adapter deliberately does not implement.

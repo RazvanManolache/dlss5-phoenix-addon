@@ -1,6 +1,11 @@
 {
   "schema": "phoenix-native-graph/1",
   "supported_dll_sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+  "model_architecture": "phoenix-network37/1",
+  "reference_model_resource": {
+    "name": "WEIGHTS_HT",
+    "sha256": "836f445d06ecd2e59bb9f17b84b91c143396fd76ccda1c9dc7fe81d5edd548f4"
+  },
   "barriers_after": [
     1,
     2,

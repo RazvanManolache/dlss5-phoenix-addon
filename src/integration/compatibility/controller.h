@@ -141,12 +141,17 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
     auto &entry = sessions[runtime];
     if (!entry) {
         entry = std::make_unique<Session>();
+        bool library_folder_saved = false;
+        bool model_library_saved = false;
         phoenix_addon::phoenix::visit_settings(entry->settings, [&](const char *key, auto &value) {
             if constexpr (std::is_same_v<std::decay_t<decltype(value)>, std::string>) {
                 char text[4096]{};
                 size_t length = sizeof(text);
-                if (reshade::get_config_value(runtime, "Phoenix", key, text, &length))
+                if (reshade::get_config_value(runtime, "Phoenix", key, text, &length)) {
                     value.assign(text, strnlen_s(text, sizeof(text)));
+                    if (std::string_view(key) == "NvidiaDllFolder") library_folder_saved = true;
+                    if (std::string_view(key) == "ModelLibraryDirectory") model_library_saved = true;
+                }
             } else
                 reshade::get_config_value(runtime, "Phoenix", key, value);
         });
@@ -227,12 +232,17 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
                 if (config.contains("weight_source"))
                     entry->configured =
                         phoenix_model::WeightSource::config(config["weight_source"]);
+                if (!library_folder_saved)
+                    entry->settings.nvidia_dll_folder = config.value("nvidia_dll_folder", std::string());
+                if (!model_library_saved)
+                    entry->settings.model_library_directory = config.value("model_library_directory", std::string());
                 if (entry->portable_root.empty() && config.contains("portable_cpp"))
                     entry->portable_root = config["portable_cpp"].value("runtime_root", std::string());
             }
         } catch (const std::exception &error) {
             entry->message = error.what();
         }
+        entry->applied_settings.nvidia_dll_folder = entry->settings.nvidia_dll_folder;
     }
     if (entry->control.folder().empty()) {
         const auto window = uint64_t(reinterpret_cast<uintptr_t>(runtime->get_hwnd()));
@@ -449,7 +459,12 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     const bool native_requested=!value.native_failed &&
         (value.execution==ExecutionPreference::NativeLibrary ||
          (value.execution==ExecutionPreference::NativeDriver&&!needs_nvidia_dll(value.settings)));
+    ui.final_frame_source = true;
     ui.portable_backbuffer = (value.execution == ExecutionPreference::Portable && !needs_nvidia_dll(value.settings)) || native_requested;
+    ui.portable_gpu_budget = value.execution == ExecutionPreference::Portable &&
+        !needs_nvidia_dll(value.settings) && value.portable_device != "cpu" &&
+        info.contains("runtime") && info.at("runtime").is_object() &&
+        info.value("runtime", Json::object()).value("capabilities", Json::object()).contains("granular_controls");
     ui.fixed_native_blocks = value.execution==ExecutionPreference::NativeDriver && !value.native_failed && !needs_nvidia_dll(value.settings);
     if (resident_active(value)) ui.portable_wall_ms = info.value("frame_wall_ms", 0.0);
     ui.input_capture = !ui.portable_backbuffer && !native_active(value);
@@ -479,6 +494,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.active_model_source = value.applied_settings.model_source;
     ui.active_model_folder = value.applied_settings.model_folder;
     ui.active_model_dll = value.applied_settings.model_dll;
+    ui.active_nvidia_dll_folder = value.applied_settings.nvidia_dll_folder;
+    ui.active_model_id = value.applied_settings.model_id;
     ui.last_mode = info.value("last_mode", -1);
     ui.last_transformer_blocks = info.value("transformer_blocks", 8u);
     ui.live_resets_recorded = info.value("history_resets", uint64_t(0));
@@ -589,8 +606,7 @@ inline void poll_control(reshade::api::effect_runtime* runtime, Session& value) 
                 if (command.op == "save") { save(runtime, value); return "saved"; }
                 if (command.op == "validate_model") {
                     require(!value.validator.poll().busy, "Model validation is already running");
-                    const auto source = phoenix_model_tools::selection(value.settings.model_source,
-                        value.settings.model_folder, value.settings.model_dll, value.configured);
+                    const auto source = phoenix_model_tools::selection(value.settings, value.configured);
                     value.validator.validate(source, {}, module);
                     return "queued";
                 }
@@ -855,7 +871,14 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.message = "Previous in-process GPU work did not retire; restart the game before processing again.";
         return;
     }
-    if (!value.enabled) {
+    const auto& processing=value.applied_settings.processing;
+    if(processing.enabled && processing.hook!=0 && processing.hook!=3) {
+        value.message="This source is a final frame; select Present for explicit processing.";return;
+    }
+    if(processing.enabled && processing.hook==3 && processing.reuse_guides==2) {
+        value.message="Present requires current DLSS motion and depth guides; this final-frame source has none.";return;
+    }
+    if (!value.enabled || (processing.enabled && processing.hook==0)) {
         value.presented_revision = value.selection_revision;
         if (value.local) value.local->reset_history();
         else { remember_timing(value); value.bridge.reset(); value.readback.reset(); }

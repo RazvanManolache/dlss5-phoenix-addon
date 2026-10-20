@@ -7,6 +7,7 @@ from compare_native_methods import ROOT, build_comparison
 
 NAMES = {1: 'Native x64', 2: 'x64 library inside x86',
          3: 'x86 Phoenix DLSS5 + native driver', 4: 'External x64 helper'}
+RENDERERS = {'phoenix': 'Phoenix DLSS5', 'nvidia': 'NVIDIA DLSS5'}
 
 
 def main():
@@ -49,12 +50,12 @@ def main():
         '| --- | --- | ---: | ---: | ---: | ---: |']
     for row in result['rows']:
         if row['available']:
-            lines.append(f"| { {'phoenix':'Phoenix DLSS5','nvidia':'NVIDIA DLSS5'}[row['backend']]} | {row['execution']} | "
+            lines.append(f"| {RENDERERS[row['backend']]} | {row['execution']} | "
                 f"{row['gpu_mean_ms']:.3f} / {row['gpu_p95_ms']:.3f} | "
                 f"{row['wall_mean_ms']:.3f} / {row['wall_p95_ms']:.3f} | "
                 f"{row['samples']} | {row['completed_outputs_per_second']:.2f} |")
         else:
-            lines.append(f"| { {'phoenix':'Phoenix DLSS5','nvidia':'NVIDIA DLSS5'}[row['backend']]} | {row['execution']} | Not available | Not available | - | - |")
+            lines.append(f"| {RENDERERS[row['backend']]} | {row['execution']} | Not available | Not available | - | - |")
     lines += ['', '## Read the Scopes', '',
         '- **Native x64 / x64 library inside x86:** GPU-resident synchronized API calls.',
         '  The x86 experiment enters its x64 worker once, not once per frame.',

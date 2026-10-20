@@ -2,6 +2,10 @@
 /build/
 /dist/
 
+# Local editor configuration can contain private SDK and workspace paths.
+/.vscode/
+/.idea/
+
 # Python tooling caches
 __pycache__/
 .ruff_cache/

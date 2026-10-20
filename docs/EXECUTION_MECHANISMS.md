@@ -1,10 +1,18 @@
 # Execution Mechanisms
 
+For current model/backend availability and the Original-only x86 driver-host restriction, see [the support matrix](SUPPORT.md). [Current offline two-model benchmarks](benchmarks/current/README.md) measure native and portable inference separately; they are not new measurements of every transport mechanism.
+
 The compatibility panel's **Advanced transport** section selects where processing
 runs, independently of the game graphics API. It appears below the renderer
 controls, so renderer selection comes first. UI choices use descriptive names,
 not the investigation numbers used in the technical tables below. The x64 helper is retained.
 Installing an experimental portable runtime does not change automatic routing.
+
+**0.9 downloads:** the standard add-on and optional portable runtime packages
+include no profile-specific WOW64 bundle. The native x86 experiments below retain
+their earlier evidence, not fresh 0.9 Windows/driver-profile certification. They
+require a separately built and verified matching runtime. Automatic/helper
+transport remains available without it.
 
 ## Requested Native Routes
 

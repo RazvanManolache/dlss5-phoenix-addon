@@ -18,6 +18,7 @@
 #include "../../native/support/timing.h"
 #include "../../native/support/gpu_timing.h"
 #include "../../native/support/worker_timing.h"
+#include "../../native/support/worker_budget.h"
 #include "../../native/support/routing.h"
 #include "../../native/support/panel_visibility.h"
 #include "../../native/support/comparison.h"
@@ -25,6 +26,7 @@
 #include "../../native/support/control_bridge.h"
 #include "../../native/support/direct.h"
 #include "feeder_parameters.h"
+#include "../../native/support/present_guides.h"
 #include "../../native/support/offload.h"
 #include "../../native/support/device_catalog.h"
 #include "../../native/support/model_status.h"
@@ -67,6 +69,8 @@ using namespace phoenix_addon;
 static_assert(ngx_shim::kSuperSampling == static_cast<unsigned>(NVSDK_NGX_Feature_SuperSampling),
               "Direct-game SR routing must match the NGX SDK feature ID");
 thread_local unsigned phoenix_ngx_depth = 0;
+thread_local bool phoenix_render_stage = false, phoenix_present_stage = false;
+thread_local int phoenix_present_encoding = 2;
 using Evaluate = NVSDK_NGX_Result (*)(void*, ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
                                       const NVSDK_NGX_Parameter*, PFN_NVSDK_NGX_ProgressCallback);
 using Execute = void(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
@@ -176,6 +180,9 @@ struct State {
         State::NgxEvaluateFn evaluate_fn = nullptr;
         State::NgxReleaseFn release_fn = nullptr;
         ComPtr<ID3D12Resource> output;
+        struct Refinement { NVSDK_NGX_Handle* handle = nullptr; ComPtr<ID3D12Resource> output; };
+        std::vector<Refinement> refinement;
+        ID3D12Resource* result() const { return refinement.empty() ? output.Get() : refinement.back().output.Get(); }
         ComPtr<ID3D12Device> device;
         HMODULE nr_module = nullptr, core_module = nullptr, forward_module = nullptr;
         bool inited = false, nr_initialized = false, core_init_attempted = false, req_queried = false;
@@ -184,6 +191,8 @@ struct State {
         unsigned warmup = 0;
         bool failed = false, first = true;
         int bridge = -1, hdr_mode = -1, auto_exp = -1;
+        unsigned preset = 0, passes = 1;
+        std::string source_choice, requested_contract;
         uint64_t creates = 0, evaluates = 0;
         uint64_t depth_present = 0, depth_proven = 0, depth_typed = 0;
         unsigned long long last_create_result = 0, last_evaluate_result = 0;
@@ -209,6 +218,10 @@ struct State {
     std::string direct_nr_status;
     bool direct_srgb = false;
     std::unique_ptr<phoenix::direct::Runner> direct_runner;
+    std::unique_ptr<phoenix::direct::PresentGuides> present_guides;
+    std::unique_ptr<phoenix_compat::D3D12Bridge> present_bridge;
+    reshade::api::effect_runtime* present_runtime = nullptr;
+    uint64_t present_serial = 0;
     std::string direct_status = "Waiting for game DLSS evaluation";
     uint64_t direct_calls = 0, direct_deferred = 0, direct_busy = 0;
     uint64_t direct_status_tick = 0;
@@ -264,6 +277,7 @@ struct State {
     std::shared_ptr<phoenix::TimingArchive> timing_archive =
         std::make_shared<phoenix::TimingArchive>();
     phoenix::WorkerTiming worker_timing;
+    phoenix::WorkerBudgetFeedback worker_budget;
     unsigned pending_timing_slot = UINT_MAX;
     // Lifecycle and footprint observation. All of it is read-only.
     ComPtr<IDXGIAdapter3> adapter;
@@ -285,10 +299,10 @@ struct State {
     Json device_identity = Json::object();
     std::unique_ptr<phoenix_bundle::Bundle> bundle;
     std::vector<phoenix_kernel::Binary> candidates;
-    std::vector<uint8_t> weights;
     phoenix_model::WeightSource weight_source;
     phoenix_model::WeightSource configured_weight_source;
-    std::string active_model_source = "configured", active_model_folder, active_model_dll;
+    std::string active_model_source = "configured", active_model_folder, active_model_dll, active_model_id;
+    std::string active_nvidia_dll_folder;
     std::filesystem::path model_dll_path, portable_model_dll_path;
     phoenix::ModelDllMonitor model_dll_monitor;
     phoenix_model_tools::Task model_picker, model_validation;
@@ -404,6 +418,7 @@ void collect() {
 }
 void prepare_automatic(ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
                        const NVSDK_NGX_Parameter*);
+void capture_present_guides(ID3D12GraphicsCommandList*, const NVSDK_NGX_Parameter*);
 void direct_game_frame(ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
                        const NVSDK_NGX_Parameter*);
 void arm_input_capture(unsigned frames);
@@ -967,7 +982,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                 addon_state.panel.automatic_budget,
             unsigned(addon_state.panel.transformer_blocks),
             unsigned(addon_state.panel.minimum_blocks), addon_state.panel.budget_target_ms(),
-            addon_state.panel.budget_mode == 1);
+            addon_state.panel.budget_mode == 1, addon_state.panel.block_repeats);
         const unsigned blocks = mode == phoenix::ours && addon_state.panel.experimental &&
                                         addon_state.panel.automatic_budget
                                     ? addon_state.depth_budget.depth()
@@ -1391,6 +1406,8 @@ void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count,
         phoenix_crumb(crumb);
     }
     addon_state.original_execute(queue, count, lists);
+    try { if (addon_state.present_guides) addon_state.present_guides->submitted(queue,count,lists); }
+    catch(const std::exception& e) {addon_state.terminal=true;error(e.what());return;}
     if (direct_batch && addon_state.panel.log_level == 2) {
         reshade::log::message(reshade::log::level::info,
                               "[Phoenix DLSS5] execute: claimed game list submitted");
@@ -1663,6 +1680,16 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
             --phoenix_ngx_depth;
         }
     } depth;
+    try {
+        std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+        const auto* obs = feature ? addon_state.ngx_observed.find(native_feature_key(feature)) : nullptr;
+        if (phoenix_ngx_depth == 1 && addon_state.direct_game && !addon_state.direct_feeder &&
+            obs && ngx_shim::is_direct_game_feature(obs->feature_id) &&
+            addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 1) {
+            struct RenderScope { RenderScope(){phoenix_render_stage=true;} ~RenderScope(){phoenix_render_stage=false;} } scope;
+            direct_game_frame(cmd, feature, params);
+        }
+    } catch (...) {}
     const auto result = next(cmd, feature, params, progress_callback);
     try {
         std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
@@ -1680,7 +1707,10 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
             const auto* obs = addon_state.ngx_observed.find(native_feature_key(feature));
             if (addon_state.direct_game && !addon_state.direct_feeder && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
                 obs && ngx_shim::is_direct_game_feature(obs->feature_id)) {
-                direct_game_frame(cmd, feature, params);
+                if (addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3)
+                    capture_present_guides(cmd, params);
+                else if (!addon_state.panel.processing.enabled || addon_state.panel.processing.hook == 2)
+                    direct_game_frame(cmd, feature, params);
                 if (addon_state.panel.mode == phoenix::nvidia)
                     phoenix_crumb("nr-frame: evaluate returned to game");
             }
@@ -1847,6 +1877,18 @@ sl::Result sl_export_settag(const sl::FrameToken& frame, const sl::ViewportHandl
     auto next = addon_state.sl_settag;
     if (!next)
         return sl::Result::eErrorInvalidParameter;
+    std::vector<sl::ResourceTag> filtered;
+    {
+        std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+        const auto& p=addon_state.panel.processing;
+        if(tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
+            !addon_state.terminal && gpu_gate() && addon_state.panel.uplift &&
+            addon_state.panel.mode!=phoenix::input && p.enabled && p.hook==3 && p.block_hudless) {
+            filtered.assign(tags,tags+numTags);
+            for(auto& tag:filtered)if(tag.type==sl_shim::kTagHUDLessColor)tag.resource=nullptr;
+            tags=filtered.data();
+        }
+    }
     const auto result = next(frame, viewport, tags, numTags, cmdBuffer);
     try {
         if (tags && numTags && numTags < 256) {
@@ -1898,6 +1940,18 @@ sl::Result sl_export_settag_old(const sl::ViewportHandle& viewport, const sl::Re
     auto next = addon_state.sl_settag_old;
     if (!next)
         return sl::Result::eErrorInvalidParameter;
+    std::vector<sl::ResourceTag> filtered;
+    {
+        std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+        const auto& p=addon_state.panel.processing;
+        if(tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
+            !addon_state.terminal && gpu_gate() && addon_state.panel.uplift &&
+            addon_state.panel.mode!=phoenix::input && p.enabled && p.hook==3 && p.block_hudless) {
+            filtered.assign(tags,tags+numTags);
+            for(auto& tag:filtered)if(tag.type==sl_shim::kTagHUDLessColor)tag.resource=nullptr;
+            tags=filtered.data();
+        }
+    }
     const auto result = next(viewport, tags, numTags, cmdBuffer);
     try {
         if (tags && numTags && numTags < 256) {
@@ -2064,7 +2118,13 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
                              int want_fid, unsigned host_flags) {
     auto& addon_state = state();
     auto& selfdrive_state = addon_state.selfdrive;
-    if (selfdrive_state.requested_feature != want_fid) {
+    const auto preset = phoenix::nvidia_preset(addon_state.panel.nvidia_model,
+        addon_state.panel.model_id.empty() ? addon_state.weight_source.model().id : addon_state.panel.model_id);
+    const auto source_choice = addon_state.panel.model_source + "\n" + addon_state.panel.model_folder + "\n" + addon_state.panel.model_dll + "\n" + addon_state.panel.nvidia_dll_folder;
+    const auto requested_contract=Json::array({want_fid,width,height,want_bridge,want_hdr,want_autoexp,
+        preset,addon_state.panel.refinement_passes,source_choice}).dump();
+    if (selfdrive_state.requested_contract != requested_contract) {
+        selfdrive_state.requested_contract=requested_contract;
         selfdrive_state.failed = false;
         selfdrive_state.abandons = 0;
         selfdrive_state.attempts = 0;
@@ -2074,7 +2134,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     }
     if (selfdrive_state.failed)
         return;
-    check(!GetModuleHandleW(L"renodx-dlss5.addon64"),
+    check((!GetModuleHandleW(L"renodx-dlss5.addon64") && !GetModuleHandleW(L"renodx-dlss.addon64")),
           "phoenix NR self-host refuses a foreign NR driver");
     check(device && width && height, "phoenix NR self-host geometry missing");
     check(want_fid == 13 || want_fid == 18, "phoenix NR feature id unsupported");
@@ -2099,10 +2159,17 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
         if (selfdrive_state.in_w == width && selfdrive_state.in_h == height &&
             selfdrive_state.bridge == want_bridge && selfdrive_state.hdr_mode == want_hdr &&
             selfdrive_state.auto_exp == (want_autoexp ? 1 : 0) &&
-            selfdrive_state.feature_id == unsigned(want_fid))
+            selfdrive_state.feature_id == unsigned(want_fid) && selfdrive_state.preset == preset &&
+            selfdrive_state.passes == unsigned(addon_state.panel.refinement_passes) &&
+            selfdrive_state.source_choice == source_choice)
             return;
+        check(!addon_state.direct_runner || addon_state.direct_runner->idle(),
+              "NVIDIA feature change waits for previous frame retirement");
         if (selfdrive_state.release_fn)
             selfdrive_state.release_fn(selfdrive_state.handle);
+        for (auto& pass : selfdrive_state.refinement)
+            if (pass.handle && selfdrive_state.release_fn) selfdrive_state.release_fn(pass.handle);
+        selfdrive_state.refinement.clear();
         selfdrive_state.handle = nullptr;
         selfdrive_state.output.Reset();
         selfdrive_state.device.Reset();
@@ -2180,21 +2247,35 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
                   selfdrive_state.release_fn,
               "phoenix NGX core lacks feature exports");
     } else {
+        const auto selected_source=phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
+        auto dll=selected_source.dll.empty()
+            ? phoenix_model::find_nvidia_dll({}, std::filesystem::path(dir),
+                std::filesystem::u8path(addon_state.panel.nvidia_dll_folder))
+            : selected_source.dll;
+        check(!dll.empty(), "NVIDIA DLSS5 runtime not found locally or in the configured search folder");
+        if(!selected_source.dll.empty()) {
+            check(phoenix_model::known_model_container(selected_source.dll_sha256) &&
+                  phoenix_embedded::file_digest(selected_source.dll)==selected_source.dll_sha256,
+                  "Selected NVIDIA runtime is not an authenticated known DLL");
+            dll=selected_source.dll;
+        }
+        if(selfdrive_state.nr_module) {
+            wchar_t loaded_path[32768]{};
+            check(GetModuleFileNameW(selfdrive_state.nr_module,loaded_path,32768) &&
+                  std::filesystem::equivalent(std::filesystem::path(loaded_path),dll),
+                  "NVIDIA runtime DLL selection changed; restart before using the newly selected library");
+        }
         if (!selfdrive_state.nr_module) {
-            auto dll = std::filesystem::path(dir) / L"nvngx_dlssnr.dll";
-            // A compatibility helper and standalone host can use the externally
-            // selected DLL directly. Do not duplicate a 160 MB model into every
-            // helper session merely to satisfy a game-directory convention.
-            if(!std::filesystem::is_regular_file(dll) && !addon_state.weight_source.dll.empty())
-                dll=addon_state.weight_source.dll;
             WIN32_FILE_ATTRIBUTE_DATA fad{};
             check(GetFileAttributesExW(dll.c_str(), GetFileExInfoStandard, &fad) &&
                       !(fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY),
-                  "phoenix NR runtime absent beside the game");
+                  "NVIDIA DLSS5 runtime is missing or is not a file");
             selfdrive_state.dll_bytes = (uint64_t(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
             selfdrive_state.nr_module = LoadLibraryW(dll.c_str());
             check(selfdrive_state.nr_module, "phoenix NR runtime failed to load");
         }
+        check(preset != 2 || FindResourceW(selfdrive_state.nr_module,L"WEIGHTS_CC_SMALL_FP8",MAKEINTRESOURCEW(10)),
+              "Loaded NVIDIA DLL has no Lightweight FP8 model; select the 310.9.16 DLL and restart");
         if (!selfdrive_state.forward_module) {
             const auto wrapper = addon_state.embedded.runtime / L"phoenix-nvngx.dll";
             selfdrive_state.forward_module = LoadLibraryExW(wrapper.c_str(), nullptr,
@@ -2295,7 +2376,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     selfdrive_state.params->Set("DLSSNR.ScalingRatio", 1.0f);
     selfdrive_state.params->Set("MV.Scale.X", 1.0f);
     selfdrive_state.params->Set("MV.Scale.Y", 1.0f);
-    selfdrive_state.params->Set("DLSSNR.Hint.Render.Preset", 0u);
+    selfdrive_state.params->Set("DLSSNR.Hint.Render.Preset", preset);
     // The game creates its RR at DLAA quality (5); MaxPerf (0) is refused for
     // 13 with InvalidParameter. 18 keeps the proven zero.
     selfdrive_state.params->Set("PerfQualityValue", want_core ? 5u : 0u);
@@ -2334,6 +2415,7 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     // context for our own create. Rely on the game's init; the retry cooldown
     // covers creates that race ahead of it.
     ++selfdrive_state.attempts;
+    addon_state.feeder_nr_initialization_recorded = addon_state.direct_feeder || phoenix_present_stage;
     selfdrive_state.last_create_result =
         guarded_ngx_create(selfdrive_state.create_fn, cmd, static_cast<NVSDK_NGX_Feature>(want_fid),
                            selfdrive_state.params, &selfdrive_state.handle);
@@ -2356,8 +2438,22 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
     }
     check(NVSDK_NGX_SUCCEED(selfdrive_state.last_create_result) && selfdrive_state.handle,
           "phoenix NR feature creation refused");
+    // Each additional evaluate owns a distinct temporal feature and output.
+    // Repeatedly evaluating one feature would advance its history within a frame.
+    for (unsigned index = 1; index < unsigned(addon_state.panel.refinement_passes); ++index) {
+        selfdrive_state.refinement.push_back({});
+        auto& pass = selfdrive_state.refinement.back();
+        const auto result = guarded_ngx_create(selfdrive_state.create_fn, cmd,
+            static_cast<NVSDK_NGX_Feature>(want_fid), selfdrive_state.params, &pass.handle);
+        check(NVSDK_NGX_SUCCEED(result) && pass.handle, "NVIDIA refinement feature creation refused");
+        pass.output = phoenix_native::image(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, true);
+    }
     ++selfdrive_state.creates;
-    addon_state.feeder_nr_initialization_recorded = addon_state.direct_feeder;
+    addon_state.feeder_nr_initialization_recorded = addon_state.direct_feeder || phoenix_present_stage;
+    selfdrive_state.source_choice = source_choice;
+    selfdrive_state.preset = preset;
+    selfdrive_state.passes = unsigned(addon_state.panel.refinement_passes);
     selfdrive_state.feature_id = unsigned(want_fid);
     selfdrive_state.in_w = width;
     selfdrive_state.in_h = height;
@@ -2463,6 +2559,22 @@ void selfdrive_direct_run(ID3D12GraphicsCommandList* cmd, ID3D12Resource* proxy,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     selfdrive_state.last_evaluate_result =
         guarded_ngx_evaluate(selfdrive_state.evaluate_fn, cmd, selfdrive_state.handle, parameters);
+    check(NVSDK_NGX_SUCCEED(selfdrive_state.last_evaluate_result), "NVIDIA first pass refused");
+    auto* previous = selfdrive_state.output.Get();
+    for (auto& pass : selfdrive_state.refinement) {
+        phoenix_native::transition(cmd, previous, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        parameters->Set("DLSSNR.Color", previous);
+        parameters->Set("Color", previous);
+        parameters->Set("DLSSNR.Output", pass.output.Get());
+        parameters->Set("Output", pass.output.Get());
+        selfdrive_state.last_evaluate_result =
+            guarded_ngx_evaluate(selfdrive_state.evaluate_fn, cmd, pass.handle, parameters);
+        phoenix_native::transition(cmd, previous, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        check(NVSDK_NGX_SUCCEED(selfdrive_state.last_evaluate_result), "NVIDIA refinement pass refused");
+        previous = pass.output.Get();
+    }
     if (depth)
         phoenix_native::transition(cmd, depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    depth_state);
@@ -2517,18 +2629,7 @@ void install_dispatch_audit() {
 }
 
 std::string sha_file(const wchar_t* path) {
-    std::ifstream stream(path, std::ios::binary);
-    check(bool(stream), "phoenix cannot read native DLL identity");
-    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(stream)), {});
-    check(!bytes.empty() && bytes.size() <= ULONG_MAX, "phoenix native DLL size invalid");
-    unsigned char digest[32];
-    check(BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, bytes.data(), ULONG(bytes.size()),
-                     digest, sizeof(digest)) >= 0,
-          "phoenix native DLL hash failed");
-    char result[65]{};
-    for (unsigned iteration_index = 0; iteration_index < 32; ++iteration_index)
-        sprintf_s(result + iteration_index * 2, 3, "%02x", unsigned(digest[iteration_index]));
-    return result;
+    return phoenix_model::mapped_file_digest(std::filesystem::path(path));
 }
 
 // Installed from the first registered queue, before any feature exists, so
@@ -2583,13 +2684,18 @@ void preload_nr_runtime() {
     // Gated on renodx's absence. One attempt per process: a failing
     // LoadLibrary walks the DLL search path every present otherwise.
     // Used by the native path; the direct stage loads by absolute path.
+    static std::string tried_folder;
     static bool tried = false;
-    if (tried || GetModuleHandleW(L"nvngx_dlssnr.dll"))
+    const auto& folder = state().panel.nvidia_dll_folder;
+    if ((tried && tried_folder == folder) || GetModuleHandleW(L"nvngx_dlssnr.dll"))
         return;
     if (GetModuleHandleW(L"renodx-dlss5.addon64"))
         return;
     tried = true;
-    if (LoadLibraryW(L"nvngx_dlssnr.dll"))
+    tried_folder = folder;
+    const auto dll = phoenix_model::find_nvidia_dll({}, phoenix_model_tools::local_library_directory(),
+                                                   std::filesystem::u8path(folder));
+    if (!dll.empty() && LoadLibraryW(dll.c_str()))
         reshade::log::message(reshade::log::level::info,
                               "[Phoenix DLSS5] NR runtime pre-loaded (nvngx_dlssnr.dll)");
 }
@@ -2706,6 +2812,10 @@ void configure() {
         check(wcscpy_s(path, sidecar.c_str()) == 0, "Phoenix DLSS5 sidecar path too long");
     }
     auto config = phoenix_bundle::json_file(path);
+    if (!addon_state.live_loaded)
+        addon_state.panel.nvidia_dll_folder = config.value("nvidia_dll_folder", std::string());
+    if (!addon_state.live_loaded)
+        addon_state.panel.model_library_directory = config.value("model_library_directory", std::string());
     addon_state.embedded = phoenix_embedded::install(addon_state.self);
     if (!addon_state.embedded.root.empty()) {
         config["bundle"] = phoenix_model::source_path_string(addon_state.embedded.native);
@@ -2834,12 +2944,12 @@ void configure() {
             phoenix_model::WeightSource::config(config.value("weight_source", Json::object()));
         addon_state.weight_source = addon_state.configured_weight_source;
         if (addon_state.live_loaded && phoenix::uses_ours(addon_state.panel.mode))
-            addon_state.weight_source = phoenix_model_tools::selection(
-                addon_state.panel.model_source, addon_state.panel.model_folder,
-                addon_state.panel.model_dll, addon_state.configured_weight_source);
+            addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
         addon_state.active_model_source = addon_state.panel.model_source;
         addon_state.active_model_folder = addon_state.panel.model_folder;
         addon_state.active_model_dll = addon_state.panel.model_dll;
+        addon_state.active_model_id = addon_state.panel.model_id;
+        addon_state.active_nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
     }
     // Marker-based control is opt-in for production and retained for diagnostic runs.
     addon_state.require_gpu_ready_file =
@@ -3216,7 +3326,6 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
               "phoenix owned game requires proven complete weights");
         addon_state.candidates =
             phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
-        addon_state.weights = addon_state.bundle->load_weights();
     }
     const Json* selected = &addon_state.bundle->select_frame(
         unsigned(desc.Width), desc.Height, [&](const Json& frame) {
@@ -3284,8 +3393,9 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     // is empty on a rebuilt session; the engine side is untouched (its reset
     // still comes only from its own parameters). Both Session record gates
     // admit the first frame on this basis, exactly as at feature birth.
+    const auto packed_weights = addon_state.bundle->load_weights();
     auto session = std::make_shared<Session>(
-        device.Get(), queue, *selected, addon_state.weights, addon_state.candidates, desc.Format,
+        device.Get(), queue, *selected, packed_weights, addon_state.candidates, desc.Format,
         motion ? motion->GetDesc().Format : DXGI_FORMAT_R32G32_FLOAT,
         addon_state.fresh_claim || addon_state.cold_restart, allocation_generation,
         addon_state.hdr_bridge, addon_state.hdr_control_override);
@@ -3389,6 +3499,42 @@ static std::string phoenix_describe(ID3D12Resource* resource, D3D12_RESOURCE_STA
              (unsigned)description.Flags, phoenix_state_name(assumed));
     return text;
 }
+void capture_present_guides(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Parameter* params) {
+    auto& value=state();
+    if(!params || value.panel.processing.reuse_guides==0)return;
+    auto* cmd=resolve_native_list(supplied);auto* queue=resolve_queue(cmd);
+    auto* motion=parameter_resource(params,NVSDK_NGX_Parameter_MotionVectors);
+    auto* depth=parameter_resource(params,NVSDK_NGX_Parameter_Depth);
+    auto* output=parameter_resource(params,NVSDK_NGX_Parameter_Output);
+    D3D12_RESOURCE_STATES ms{},ds{};
+    if(!output||!motion||!depth||!observation::epoch_state(cmd,motion,ms)||
+       !observation::epoch_state(cmd,depth,ds))return;
+    phoenix::direct::Resources resources(output,motion);
+    FrameEvidence proof;
+    proof.queue=queue;
+    proof.binding_lease=observation::resolve(cmd,&resources,proof,false);
+    struct RestoreBindings {
+        FrameEvidence& proof;
+        ID3D12GraphicsCommandList* command;
+        ~RestoreBindings() {
+            if(proof.restore_bindings)proof.restore_bindings(proof.restore_context,command);
+        }
+    } restore{proof,cmd};
+    if(value.present_guides&&!value.present_guides->owner(queue)) {
+        if(!value.present_guides->idle())return;
+        value.present_guides.reset();
+    }
+    if(!value.present_guides) {
+        ComPtr<ID3D12Device> device;phoenix_native::hr(cmd->GetDevice(IID_PPV_ARGS(&device)));
+        value.present_guides=std::make_unique<phoenix::direct::PresentGuides>(device.Get(),queue);
+    }
+    float sx=1,sy=1;unsigned flags=0;
+    params->Get("MV.Scale.X",&sx);params->Get("MV.Scale.Y",&sy);
+    params->Get("DLSS.Feature.Create.Flags",&flags);
+    const auto d=output->GetDesc();
+    value.present_guides->record(cmd,motion,ms,depth,ds,unsigned(d.Width),d.Height,
+                                value.present_serial,sx,sy,(flags&8)!=0);
+}
 void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Handle* feature,
                        const NVSDK_NGX_Parameter* params) {
     auto& addon_state = state();
@@ -3397,7 +3543,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
     ++addon_state.direct_calls;
     bool recording = false;
     try {
-        check(!GetModuleHandleW(L"renodx-dlss5.addon64"),
+        check((!GetModuleHandleW(L"renodx-dlss5.addon64") && !GetModuleHandleW(L"renodx-dlss.addon64")),
               "Another neural-rendering addon is loaded; disable it to prevent double processing");
         if (addon_state.panel.mode == phoenix::input) {
             addon_state.direct_status = "Game output unchanged; showing the game DLSS input";
@@ -3408,7 +3554,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.display_tick = GetTickCount64();
             return;
         }
-        if (!addon_state.panel.uplift) {
+        if (!addon_state.panel.uplift ||
+            (addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 0)) {
             // Master switch off: return BEFORE any GPU timing begin(). The old
             // late return opened a timing slot without end(); the next submit
             // hook then threw "Phoenix DLSS5 timing submission identity" and latched
@@ -3440,12 +3587,15 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                      cmd ? int(cmd->GetType()) : -1, queue ? int(queue->GetDesc().Type) : -1);
             phoenix_crumb(ctx);
         }
-        auto* color = parameter_resource(params, NVSDK_NGX_Parameter_Output, true);
+        auto* color = parameter_resource(params, phoenix_render_stage ? NVSDK_NGX_Parameter_Color : NVSDK_NGX_Parameter_Output, true);
         auto* motion = parameter_resource(params, NVSDK_NGX_Parameter_MotionVectors, true);
         const auto color_description = color->GetDesc(), motion_description = motion->GetDesc();
         const bool own_route = phoenix::uses_ours(addon_state.panel.mode);
         const bool native_network = own_route && addon_state.panel.execution_device == "native";
-        const auto resolution = phoenix::choose_resolution(
+        const auto resolution = addon_state.panel.processing.enabled
+            ? phoenix::processing_resolution(unsigned(color_description.Width), color_description.Height,
+                                              addon_state.panel.processing, native_network)
+            : phoenix::choose_resolution(
             unsigned(color_description.Width), color_description.Height,
             addon_state.panel.resolution_mode, addon_state.panel.resolution_quality,
             addon_state.panel.resolution_aspect, addon_state.panel.resolution_ratio_width,
@@ -3465,9 +3615,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         check(!native_network ||
                   phoenix::direct::extent_supported(resolution.width, resolution.height),
               "Native resolution must be between 1 and 16384 pixels per axis");
-        check(motion_description.Width == color_description.Width &&
-                  motion_description.Height == color_description.Height,
-              "Direct mode currently requires DLAA/native-size motion guides");
+
         if (!phoenix::direct::source_format(color_description.Format) ||
             !phoenix::direct::motion_format(motion_description.Format))
             throw std::runtime_error(
@@ -3547,12 +3695,12 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.depth_budget.reset_samples();
         }
         if (own_route && !addon_state.bundle && !addon_state.direct_runner) {
-            addon_state.weight_source = phoenix_model_tools::selection(
-                addon_state.panel.model_source, addon_state.panel.model_folder,
-                addon_state.panel.model_dll, addon_state.configured_weight_source);
+            addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
             addon_state.active_model_source = addon_state.panel.model_source;
             addon_state.active_model_folder = addon_state.panel.model_folder;
             addon_state.active_model_dll = addon_state.panel.model_dll;
+            addon_state.active_model_id = addon_state.panel.model_id;
+            addon_state.active_nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
         }
         if (native_network && !addon_state.bundle) {
             addon_state.bundle = std::make_unique<phoenix_bundle::Bundle>(
@@ -3563,7 +3711,6 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                   "Direct weights incomplete");
             addon_state.candidates =
                 phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
-            addon_state.weights = addon_state.bundle->load_weights();
         }
         if (!addon_state.direct_runner) {
             Json portable_plan = {{"width", resolution.width}, {"height", resolution.height}};
@@ -3596,14 +3743,17 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     addon_state.worker_hip_build, addon_state.worker_sycl_build,
                     addon_state.weight_source, unsigned(addon_state.panel.cpu_threads));
             }
+            const auto packed_weights = native_network ? addon_state.bundle->load_weights()
+                                                      : std::vector<uint8_t>{};
             addon_state.direct_runner = std::make_unique<phoenix::direct::Runner>(
-                choice.device.Get(), queue, *selected, addon_state.weights, addon_state.candidates,
+                choice.device.Get(), queue, *selected, packed_weights, addon_state.candidates,
                 color_description.Format, motion_description.Format, addon_state.direct_srgb,
                 unsigned(addon_state.panel.refinement_passes), addon_state.panel.block_repeats,
                 std::move(executor), &addon_state.panel,
                 addon_state.owned_allocations.begin(unsigned(color_description.Width),
                                                     color_description.Height),
-                true, unsigned(color_description.Width), color_description.Height);
+                true, unsigned(color_description.Width), color_description.Height, std::filesystem::path{},
+                motion_description.Width != color_description.Width || motion_description.Height != color_description.Height);
             addon_state.timing_settings_dirty = true;
             if (addon_state.live_timing) {
                 addon_state.live_timing->budget(nullptr);
@@ -3698,7 +3848,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 addon_state.panel.automatic_budget,
             unsigned(addon_state.panel.transformer_blocks),
             unsigned(addon_state.panel.minimum_blocks), addon_state.panel.budget_target_ms(),
-            addon_state.panel.budget_mode == 1);
+            addon_state.panel.budget_mode == 1, addon_state.panel.block_repeats);
         unsigned blocks = addon_state.panel.experimental && addon_state.panel.mode == phoenix::ours
                               ? (addon_state.panel.automatic_budget
                                      ? addon_state.depth_budget.depth()
@@ -3735,9 +3885,18 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         addon_state.live_timing->begin(cmd, unsigned(addon_state.panel.mode), blocks,
                                        unsigned(color_description.Width),
                                        unsigned(color_description.Height));
+        {
+            float host_white = 100, host_exposure = 1;
+            get("DLSSNR.DiffuseWhiteNits", host_white);
+            get("DLSS.Pre.Exposure", host_exposure);
+            addon_state.direct_runner->processing_frame(host_white, host_exposure,
+                phoenix_present_stage ? phoenix_present_encoding :
+                addon_state.direct_feeder && addon_state.direct_srgb ? 2 : 1);
+        }
         // Self-hosted native NR, evaluated before our network so wipe sides
         // can stage its image. NR failure only withholds the NVIDIA source;
         // the DLSS5 Phoenix frame below still records.
+        const int desired_nr_hdr = addon_state.panel.processing.enabled ? 0 : addon_state.panel.host_hdr;
         const bool need_nr = addon_state.panel.mode == phoenix::nvidia ||
                              (addon_state.panel.mode == phoenix::split &&
                               (addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1));
@@ -3745,7 +3904,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         // Creation records GPU work too. Keep NVIDIA's optional runtime idle
         // until a displayed source requests it, rather than initializing it
         // during startup resizes while Phoenix is the selected backend.
-        if (need_nr && !GetModuleHandleW(L"renodx-dlss5.addon64")) {
+        if (need_nr && (!GetModuleHandleW(L"renodx-dlss5.addon64") && !GetModuleHandleW(L"renodx-dlss.addon64"))) {
             auto& selfdrive_state = addon_state.selfdrive;
             const auto now = GetTickCount64();
             const bool geom_changed =
@@ -3753,9 +3912,14 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 (selfdrive_state.in_w != resolution.width ||
                  selfdrive_state.in_h != resolution.height ||
                  selfdrive_state.bridge != addon_state.panel.host_bridge ||
-                 selfdrive_state.hdr_mode != addon_state.panel.host_hdr ||
+                 selfdrive_state.hdr_mode != desired_nr_hdr ||
                  selfdrive_state.auto_exp != (addon_state.panel.nr_auto_exposure ? 1 : 0) ||
-                 selfdrive_state.feature_id != unsigned(addon_state.panel.nr_feature));
+                 selfdrive_state.feature_id != unsigned(addon_state.panel.nr_feature) ||
+                 selfdrive_state.preset != phoenix::nvidia_preset(addon_state.panel.nvidia_model,
+                     addon_state.panel.model_id.empty() ? addon_state.weight_source.model().id : addon_state.panel.model_id) ||
+                 selfdrive_state.passes != unsigned(addon_state.panel.refinement_passes) ||
+                 selfdrive_state.source_choice != addon_state.panel.model_source + "\n" +
+                     addon_state.panel.model_folder + "\n" + addon_state.panel.model_dll + "\n" + addon_state.panel.nvidia_dll_folder);
             try {
                 if (addon_state.panel.uplift && (!selfdrive_state.handle || geom_changed) &&
                     (selfdrive_state.requested_feature != addon_state.panel.nr_feature ||
@@ -3765,7 +3929,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     check(nr_owner.resolved, "phoenix NR allocation device unresolved");
                     selfdrive_direct_ensure(cmd, nr_owner.device.Get(), resolution.width,
                                             resolution.height, addon_state.panel.host_bridge,
-                                            addon_state.panel.host_hdr,
+                                            desired_nr_hdr,
                                             addon_state.panel.nr_auto_exposure,
                                             addon_state.panel.nr_feature, host_flags);
                 }
@@ -3790,18 +3954,24 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             proof.restore_bindings(proof.restore_context, cmd);
                     }
                     {
-                        const float sd_tone = phoenix::host_strength(addon_state.live.enabled,
+                        const float sd_tone = addon_state.panel.processing.enabled ? controls.tone : phoenix::host_strength(addon_state.live.enabled,
                                                                      addon_state.live.tone, 1.0f);
-                        const float sd_structure = phoenix::host_strength(
+                        const float sd_structure = addon_state.panel.processing.enabled ? controls.structure : phoenix::host_strength(
                             addon_state.live.enabled, addon_state.live.structure, 1.0f);
-                        const float sd_skin = phoenix::host_strength(addon_state.live.advanced,
+                        float sd_skin = addon_state.panel.processing.enabled ? controls.skin : phoenix::host_strength(addon_state.live.advanced,
                                                                      addon_state.live.skin, -1.0f);
-                        const unsigned sd_mask =
-                            (!addon_state.live.advanced || addon_state.live.auto_mask) ? 1u : 0u;
-                        const unsigned sd_style = unsigned(phoenix::host_strength(
-                            addon_state.panel.native_options, addon_state.panel.style, 0));
-                        const unsigned sd_uicorr = unsigned(phoenix::host_strength(
-                            addon_state.panel.native_options, addon_state.panel.ui_correction, 1));
+                        const unsigned sd_mask = addon_state.panel.processing.enabled
+                            ? unsigned(controls.auto_mask != 0)
+                            : ((!addon_state.live.advanced || addon_state.live.auto_mask) ? 1u : 0u);
+                        if (!sd_mask) sd_skin = 0;
+                        const unsigned sd_style = addon_state.panel.processing.enabled && !addon_state.panel.native_options
+                            ? controls.style : unsigned(phoenix::host_strength(
+                                addon_state.panel.native_options, addon_state.panel.style, 0));
+                        unsigned host_ui_correction = 0;
+                        get("DLSSNR.UICorrection", host_ui_correction);
+                        const unsigned sd_uicorr = addon_state.panel.processing.enabled
+                            ? unsigned(addon_state.panel.processing.correction(host_ui_correction != 0))
+                            : unsigned(phoenix::host_strength(addon_state.panel.native_options, addon_state.panel.ui_correction, 1));
                         float sd_jx = 0.0f, sd_jy = 0.0f;
                         if (addon_state.panel.host_jitter) {
                             if (!NVSDK_NGX_SUCCEED(params->Get("Jitter.Offset.X", &sd_jx)))
@@ -3855,15 +4025,18 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             resolution.scaled() ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
                                                 : proof.motion_state,
                             controls.reset, controls.motion_x, controls.motion_y,
-                            addon_state.panel.intensity, sd_tone, sd_structure, sd_skin, sd_mask,
+                            addon_state.panel.processing.enabled && !addon_state.panel.native_options
+                                ? controls.intensity : addon_state.panel.intensity,
+                            sd_tone, sd_structure, sd_skin, sd_mask,
                             sd_style, sd_uicorr, addon_state.panel.host_globaltone,
-                            addon_state.panel.host_exposure, addon_state.panel.host_exposure_scale,
+                            addon_state.panel.processing.enabled ? 1.f : addon_state.panel.host_exposure,
+                            addon_state.panel.processing.enabled ? 1.f : addon_state.panel.host_exposure_scale,
                             sd_jx * resolution.motion_x(), sd_jy * resolution.motion_y(), sd_flags,
                             native_depth,
                             resolution.scaled() ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
                                                 : sd_depth_state,
                             controls.inverted, selfdrive_state.in_w, selfdrive_state.in_h);
-                        nr_image = selfdrive_state.output.Get();
+                        nr_image = selfdrive_state.result();
                         addon_state.live_timing->native_end();
                         if (addon_state.panel.mode == phoenix::nvidia &&
                             addon_state.panel.log_level == 2) {
@@ -4003,11 +4176,22 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         }
         addon_state.direct_runner->set_nr(nr_image);
         auto developer_textures=harvest_appearance(cmd,params,proof);
+        if(addon_state.panel.processing.enabled) {
+            unsigned host_ui=0;params->Get("DLSSNR.UICorrection",&host_ui);
+            controls.ui_correction = addon_state.panel.processing.correction(host_ui!=0);
+            if(controls.ui_correction && !developer_textures.ui && !developer_textures.alpha) {
+                check(addon_state.panel.processing.ui_policy != 2,
+                      "UI correction On requires an explicit UI or alpha coverage plane");
+                controls.ui_correction=0;
+            }
+            if(!controls.auto_mask)controls.skin=0;
+        }
         unsigned appearance_generation=0;params->Get("Phoenix.Appearance.Generation",&appearance_generation);
         const auto before = addon_state.direct_runner->launches();
         recording = true;
         addon_state.direct_runner->record(cmd, color, motion, proof, controls, addon_state.panel,
-                                          blocks, worker_depth, worker_depth_state,&developer_textures,appearance_generation);
+                                          blocks, worker_depth, worker_depth_state,&developer_textures,appearance_generation,
+                                          addon_state.depth_budget.epoch());
         addon_state.live_timing->upscaler_status(addon_state.direct_runner->upscale_status());
         addon_state.live_timing->end();
         const auto launches = addon_state.direct_runner->launches() - before;
@@ -4029,6 +4213,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         addon_state.direct_status = "Own network output written back to the game DLSS output";
         if (addon_state.direct_runner->external()) {
             const auto execution = addon_state.direct_runner->execution_status();
+            addon_state.worker_budget.sample(addon_state.depth_budget, execution,
+                addon_state.panel.model_id.empty() ? addon_state.weight_source.model_id : addon_state.panel.model_id);
             const auto status = execution.value("state", std::string());
             std::string label = addon_state.panel.execution_device;
             for (const auto& device_info : addon_state.execution_devices)
@@ -4126,6 +4312,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
 void command_reset(ID3D12GraphicsCommandList* cmd, bool success) {
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    if (success && addon_state.present_guides) addon_state.present_guides->abandoned(cmd);
     if (success && addon_state.direct_runner && addon_state.direct_runner->pending(cmd)) {
         addon_state.direct_runner->invalidate();
         addon_state.terminal = true;
@@ -4166,6 +4353,13 @@ void command_close(ID3D12GraphicsCommandList* cmd, bool success) {
         addon_state.endpoint.session->uncertain_submission();
         addon_state.terminal = true;
         error("phoenix candidate command Close failed");
+    }
+}
+void destroy_present_runtime(reshade::api::effect_runtime* runtime) {
+    auto& value=state();std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    if(value.present_runtime==runtime) {
+        value.present_bridge.reset();value.present_runtime=nullptr;
+        value.live.reset_requested=true;
     }
 }
 void init_resource(reshade::api::device* device, const reshade::api::resource_desc&,
@@ -4403,7 +4597,7 @@ bool set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, v
     return false; // observation only; never change what the engine asked for
 }
 
-void present(reshade::api::command_queue* queue, reshade::api::swapchain*, const reshade::api::rect*,
+void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain, const reshade::api::rect*,
              const reshade::api::rect*, uint32_t, const reshade::api::rect*) {
     if(queue && queue->get_device()->get_api()!=reshade::api::device_api::d3d12)return;
     auto& addon_state = state();
@@ -4414,6 +4608,31 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain*, const
             return;
         if (!addon_state.terminal)
             install_native(nullptr);
+        if (!addon_state.terminal && addon_state.direct_game && !addon_state.direct_feeder &&
+            addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3 &&
+            addon_state.panel.uplift && addon_state.present_runtime && swapchain && queue &&
+            addon_state.present_runtime->get_hwnd() == swapchain->get_hwnd()) {
+            struct PresentScope { PresentScope(){phoenix_present_stage=true;} ~PresentScope(){phoenix_present_stage=false;} } scope;
+            try {
+                auto* runtime = addon_state.present_runtime;
+                check(runtime->get_command_queue() == queue, "Present requires the observed graphics queue");
+                const auto space=swapchain->get_color_space();
+                phoenix_present_encoding = space==reshade::api::color_space::hdr10_st2084 ? 3 :
+                    space==reshade::api::color_space::extended_srgb_linear ? 4 : 2;
+                const auto back = swapchain->get_current_back_buffer();
+                const auto desc = queue->get_device()->get_resource_desc(back);
+                if (addon_state.present_bridge && !addon_state.present_bridge->matches(desc))
+                    addon_state.present_bridge.reset();
+                if (!addon_state.present_bridge)
+                    addon_state.present_bridge = std::make_unique<phoenix_compat::D3D12Bridge>(runtime,desc);
+                addon_state.present_bridge->frame(back,addon_state.panel,true);
+            } catch (const std::exception& e) {
+                addon_state.direct_status = std::string("Present deferred: ")+e.what();
+                addon_state.live.reset_requested=true;
+            }
+        }
+        if (!addon_state.present_runtime || !swapchain ||
+            addon_state.present_runtime->get_hwnd()==swapchain->get_hwnd()) ++addon_state.present_serial;
         collect();
         poll_route_pairs();
         const auto now = GetTickCount64();
@@ -4552,6 +4771,8 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
     phoenix::Settings saved;
     saved.worker_engine =
         addon_state.panel.worker_engine; // Legacy deployment default; saved selection wins.
+    saved.nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
+    saved.model_library_directory = addon_state.panel.model_library_directory;
     phoenix::visit_settings(saved, [&](const char* key, auto& value) {
         load_phoenix_value(runtime, "Phoenix", key, value);
     });
@@ -4568,9 +4789,7 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
         // The selected source becomes active only before runner initialization.
         // Model validation reports invalid paths without changing a running model.
         try {
-            addon_state.weight_source = phoenix_model_tools::selection(
-                addon_state.panel.model_source, addon_state.panel.model_folder,
-                addon_state.panel.model_dll, addon_state.configured_weight_source);
+            addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
         } catch (const std::exception& feature_entry) {
             addon_state.terminal = true;
             error(feature_entry.what());
@@ -4578,6 +4797,8 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
         addon_state.active_model_source = addon_state.panel.model_source;
         addon_state.active_model_folder = addon_state.panel.model_folder;
         addon_state.active_model_dll = addon_state.panel.model_dll;
+        addon_state.active_model_id = addon_state.panel.model_id;
+        addon_state.active_nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
     }
     for (unsigned iteration_index = 0; iteration_index < 4; ++iteration_index) {
         phoenix::Settings preset;
@@ -4822,9 +5043,10 @@ Json bridge_snapshot() {
           {"path", phoenix_model::source_path_string(addon_state.weight_source.disk_model() ? addon_state.weight_source.folder
                                                            : addon_state.weight_source.dll)},
           {"restart_required",
+           addon_state.panel.nvidia_dll_folder != addon_state.active_nvidia_dll_folder ||
            addon_state.panel.model_source != addon_state.active_model_source ||
                (addon_state.panel.model_folder != addon_state.active_model_folder ||
-                addon_state.panel.model_dll != addon_state.active_model_dll)}}},
+                (addon_state.panel.model_dll != addon_state.active_model_dll || addon_state.panel.model_id != addon_state.active_model_id))}}},
         {"embedded_runtime",
          {{"identity", addon_state.embedded.identity},
           {"files", addon_state.embedded.files},
@@ -4947,9 +5169,7 @@ void poll_control_bridge(reshade::api::effect_runtime* runtime) {
                 check(!addon_state.model_validation.poll().busy,
                       "Model validation is already running");
                 addon_state.model_validation.validate(
-                    phoenix_model_tools::selection(
-                        addon_state.panel.model_source, addon_state.panel.model_folder,
-                        addon_state.panel.model_dll, addon_state.configured_weight_source),
+                    phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source),
                     phoenix::portable::native_runtime_root());
                 phase = "queued";
             } else if (cmd.op == "reset_history") {
@@ -4991,6 +5211,7 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
+    addon_state.present_runtime = runtime;
     phoenix_ui::sanitize_bindings(addon_state.hotkeys);
     if (runtime && !addon_state.output_directory.empty() &&
         addon_state.screenshot_runtime != runtime) {
@@ -5104,6 +5325,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
                            value.capture_hotkey, value.hotkey_deadline, value.model_picker,
                            value.execution_devices, value.error, value.markers};
     ui.direct_game = value.direct_game;
+    ui.host_controls_stage = value.direct_feeder;
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
     ui.appearance=value.bridge_inputs.value("appearance",Json::object());
@@ -5120,6 +5342,8 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.active_model_source = value.active_model_source;
     ui.active_model_folder = value.active_model_folder;
     ui.active_model_dll = value.active_model_dll;
+    ui.active_nvidia_dll_folder = value.active_nvidia_dll_folder;
+    ui.active_model_id = value.active_model_id;
     ui.override_status = value.override_status;
     ui.last_transformer_blocks = value.last_transformer_blocks;
     ui.last_mode = value.last_mode;
@@ -5444,7 +5668,7 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     try {
-        check(!CNR_PHOENIX_DIAGNOSTIC && addon_state.direct_feeder && addon_state.direct_game,
+        check(!CNR_PHOENIX_DIAGNOSTIC && (addon_state.direct_feeder || phoenix_present_stage) && addon_state.direct_game,
               "Direct feeder API requires input_provider=feeder_d3d12 in a live addon");
         check(!addon_state.terminal, "Phoenix DLSS5 direct feeder is terminal");
         check(gpu_gate(), "Phoenix DLSS5 direct feeder is not armed");
@@ -5538,7 +5762,8 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
         direct_game_frame(cmd, nullptr, &parameters);
         result->recorded_frames = addon_state.recorded;
         if (addon_state.terminal) return E_FAIL;
-        if (addon_state.panel.mode == phoenix::input || !addon_state.panel.uplift) {
+        if (addon_state.panel.mode == phoenix::input || !addon_state.panel.uplift ||
+            (addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 0)) {
             result->status = PhoenixFeederStatusV1::Bypass;
             return S_OK;
         }
@@ -5650,7 +5875,7 @@ void observe_backbuffer_input(reshade::api::effect_runtime* runtime,
     auto& value = state();
     std::lock_guard<std::recursive_mutex> lock(value.mutex);
     configure();
-    check(value.direct_feeder && value.direct_game && gpu_gate() && !value.terminal,
+    check((value.direct_feeder || phoenix_present_stage) && value.direct_game && gpu_gate() && !value.terminal,
           "In-process observation requires an armed feeder_d3d12 configuration");
     check(!backbuffer_owner || backbuffer_owner == runtime,
           "Another window owns the in-process Phoenix DLSS5 session");
@@ -5662,15 +5887,16 @@ void prepare_backbuffer_input(reshade::api::effect_runtime* runtime,
     auto& value = state();
     std::lock_guard<std::recursive_mutex> lock(value.mutex);
     configure();
-    check(value.direct_feeder && value.direct_game && gpu_gate() && !value.terminal,
+    check((value.direct_feeder || phoenix_present_stage) && value.direct_game && gpu_gate() && !value.terminal,
           "In-process backbuffer processing requires an armed feeder_d3d12 configuration");
     check(!backbuffer_owner || backbuffer_owner == runtime,
           "Another window owns the in-process Phoenix DLSS5 session; use an isolated helper for this window");
-    check(settings.valid() && settings.execution_device == "native", "Unsupported in-process settings");
+    check(settings.valid() && settings.execution_device == "native",
+          "Game Present requires Native RTX; use a final-frame frontend for portable processing");
     const bool model_changed = settings.model_source != value.active_model_source ||
-        settings.model_folder != value.active_model_folder || settings.model_dll != value.active_model_dll;
-    const auto selected = phoenix_model_tools::selection(settings.model_source, settings.model_folder,
-                                                        settings.model_dll, value.configured_weight_source);
+        settings.nvidia_dll_folder != value.active_nvidia_dll_folder ||
+        settings.model_folder != value.active_model_folder || (settings.model_dll != value.active_model_dll || settings.model_id != value.active_model_id);
+    const auto selected = phoenix_model_tools::selection(settings, value.configured_weight_source);
     if (model_changed) {
         check(!value.direct_runner || value.direct_runner->idle(), "Model change waits for retired in-process work");
         if (value.direct_runner) {
@@ -5678,11 +5904,13 @@ void prepare_backbuffer_input(reshade::api::effect_runtime* runtime,
             value.completed_retired += value.direct_runner->completed();
             value.direct_runner.reset();
         }
-        value.bundle.reset(); value.weights.clear(); value.candidates.clear();
+        value.bundle.reset(); value.candidates.clear();
         value.weight_source = selected;
         value.active_model_source = settings.model_source;
         value.active_model_folder = settings.model_folder;
         value.active_model_dll = settings.model_dll;
+        value.active_nvidia_dll_folder = settings.nvidia_dll_folder;
+        value.active_model_id = settings.model_id;
     }
     const bool reset = value.live.reset_requested ||
         phoenix_compat::helper_settings_changed(value.panel, settings);
@@ -5835,7 +6063,7 @@ extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederProgressJson(ch
             completed += session->completed();
         const Json progress{
             {"schema", "production-game-phoenix/2"},
-            {"input_provider", addon_state.direct_feeder ? "feeder_d3d12" : "game_dlss"},
+            {"input_provider", (addon_state.direct_feeder || phoenix_present_stage) ? "feeder_d3d12" : "game_dlss"},
             {"terminal", addon_state.terminal},
             {"completed_frames", completed},
             {"phoenix_routing", {{"frames", addon_state.routed_frames}, {"active_mode", addon_state.last_mode}}},
@@ -6103,7 +6331,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
                      {"sessions", sessions},
                      {"submitted_session_reference_slots", addon_state.submitted_lists.size()},
                      {"unique_referenced_sessions", seen.size()},
-                     {"shared_weight_capacity_bytes", addon_state.weights.capacity()},
+                     {"shared_weight_capacity_bytes", 0},
                      {"shared_kernel_byte_capacity", binaries},
                      {"ledger_pending_transitions", addon_state.states.transition_entries()},
                      {"ledger_destroyed_pending_entries",
@@ -6331,6 +6559,11 @@ bool addon_attach(HMODULE module) {
     phoenix_compat::in_process_api = {prepare_backbuffer_input, release_backbuffer_input, observe_backbuffer_input,
         forget_backbuffer_commands, CnrPHOENIXFeederEvaluate, CnrPHOENIXFeederProgressJson, CnrPHOENIXFeederUiJson,
         CnrPHOENIXFeederUiAction, update_live_tuning};
+    phoenix_compat::in_process_api.present_guides = [](ID3D12GraphicsCommandList* cmd,
+        ID3D12CommandQueue* queue, PhoenixFeederFrameV1& frame) {
+        auto& value=state();
+        return value.present_guides && value.present_guides->acquire(cmd,queue,value.present_serial,frame);
+    };
 #endif
     phoenix_compat::attach(module);
     phoenix::direct::phoenix_crumb = phoenix_crumb;
@@ -6367,6 +6600,7 @@ bool addon_attach(HMODULE module) {
     reshade::register_event<reshade::addon_event::set_fullscreen_state>(set_fullscreen_state);
     reshade::register_event<reshade::addon_event::present>(present);
     reshade::register_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
+    reshade::register_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);
     reshade::register_event<reshade::addon_event::reshade_present>(live_runtime_tick);
     reshade::register_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);
     reshade::register_overlay("Phoenix DLSS5", draw_phoenix_overlay);
@@ -6387,6 +6621,7 @@ void addon_detach(HMODULE module) {
     reshade::unregister_event<reshade::addon_event::reshade_present>(live_runtime_tick);
     reshade::unregister_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);
     reshade::unregister_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
+    reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);
     reshade::unregister_event<reshade::addon_event::present>(present);
     reshade::unregister_event<reshade::addon_event::set_fullscreen_state>(set_fullscreen_state);
     reshade::unregister_event<reshade::addon_event::destroy_swapchain>(destroy_swapchain);

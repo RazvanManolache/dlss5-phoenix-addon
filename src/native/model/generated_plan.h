@@ -4,6 +4,7 @@
 #pragma once
 #include "../../../third_party/nlohmann/json.hpp"
 #include "../support/controls.h"
+#include "native_layout.h"
 #include <map>
 #include <regex>
 #include <algorithm>
@@ -88,13 +89,14 @@ struct Tensor {
     uint64_t bytes, offset = 0;
 };
 inline void validate_tile_layout(const Json& graph) {
-    check(graph.at("layers").size() == 154 &&
-              graph.at("layers").at(56).at("grid").at(0) == "T32",
+    const auto layout = phoenix_model::native_layout(graph.value("model_architecture", std::string("phoenix-network37/1")));
+    check(graph.at("layers").size() == layout.launches() &&
+              graph.at("layers").at(layout.repack_in()).at("grid").at(0) == "T32",
           "Native graph lacks tile-aligned repack; update the native kernel bundle graph");
     for (const auto& item : graph.at("tensors").items()) {
         const auto& spec = item.value();
         const auto producer = spec.at("producer").get<unsigned>();
-        if (producer >= 57 && producer <= 97) {
+        if (producer >= layout.repack_in() + 1 && producer <= layout.repack_out()) {
             const auto& shape = spec.at("shape");
             check(shape.size() == 2 && shape.at(0) == "T32",
                   "Native graph lacks 32-token transformer storage; update the native kernel bundle graph");
@@ -118,7 +120,8 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         offsets["weight:" + weight_record.at("name").get<std::string>()] =
             weight_record.at("offset");
     const auto& layers = graph.at("layers");
-    check(layers.size() == 154, "Generated graph extent");
+    const auto layout = phoenix_model::native_layout(graph.value("model_architecture", std::string("phoenix-network37/1")));
+    check(layers.size() == layout.launches(), "Generated graph extent");
     uint64_t counter_bytes = 0;
     for (const auto& layer : layers) {
         uint64_t cells = 1;
@@ -141,7 +144,7 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         for (const auto& position : graph.at("barriers_after"))
             if (position.get<unsigned>() - 1 >= launch)
                 return position.get<unsigned>() - 1;
-        return 154u;
+        return layout.launches();
     };
     auto group_begin = [&](unsigned launch) {
         unsigned start = 1;
@@ -213,6 +216,7 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         {"width", width},
         {"height", height},
         {"frame", 1},
+        {"model_architecture", graph.value("model_architecture", std::string("phoenix-network37/1"))},
         {"barriers_captured", false},
         {"barrier_policy", "phoenix-native-graph/1"},
         {"arenas",
@@ -289,7 +293,7 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         const unsigned index = layer.at("index");
         if (index == 1)
             phoenix_addon::patch_stem(raw.data(), raw.size(), controls);
-        if (index == 154)
+        if (index == layout.launches())
             phoenix_addon::patch_head(raw.data(), raw.size(), controls);
         Json grid = Json::array();
         for (const auto& axis : layer.at("grid"))
@@ -297,7 +301,7 @@ inline Json frame(const Json& graph, const Json& kernels, const Json& weights, u
         emit(index, name, grid, kernel.at("block"), bytes, layer.at("bindings"),
              layer.at("descriptors"), raw);
     }
-    emit(155, "cg2r_copy_kernel",
+    emit(layout.launches() + 1, "cg2r_copy_kernel",
          Json::array({unsigned(align(width, 32) / 32), unsigned(align(height, 8) / 8), 1}),
          Json::array({32, 8, 1}), 72, Json::object(),
          {{"0", {{"role", "post_copy_source_texture"}, {"binding", "output"}}},

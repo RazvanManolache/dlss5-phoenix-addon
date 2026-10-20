@@ -4,7 +4,9 @@
 #pragma once
 #include "launch_plan.h"
 #include "weight_source.h"
+#include "resource_identity.h"
 #include "generated_plan.h"
+#include "models/small_fp8/native_graph.h"
 #include "../../../third_party/nlohmann/json.hpp"
 #include <filesystem>
 #include <fstream>
@@ -83,6 +85,7 @@ struct Bundle {
     bool generated = false;
     phoenix_model::WeightSource weight_source;
     std::vector<uint8_t> embedded_weights;
+    phoenix_model::ResourceIdentity model_resource;
     // Production bundles generate geometry on demand. Legacy validation
     // bundles retain their captured frames, including recurrence preflight.
     const Json& select_frame(unsigned width, unsigned height,
@@ -109,8 +112,11 @@ struct Bundle {
     }
     std::vector<uint8_t> load_weights() {
         if (weight_source.external()) {
-            require(!embedded_weights.empty(), "External model weights already consumed");
-            return std::move(embedded_weights);
+            if (!embedded_weights.empty()) return std::move(embedded_weights);
+            // Rehydrate only for a new device/session. Keep the authenticated
+            // catalogue, not a second permanent host copy of the GPU weights.
+            return phoenix_model::model_weights(weight_source, weights,
+                                                 phoenix_model::mapped_file_digest);
         }
         std::ifstream input(folder / "weights.bin", std::ios::binary);
         require(bool(input), "Missing complete file weights");
@@ -120,6 +126,7 @@ struct Bundle {
            phoenix_model::WeightSource source = {})
         : folder(std::move(path)), weight_source(std::move(source)) {
         weight_source.validate();
+        phoenix_model::require_implemented(weight_source.model());
         if (fs::exists(folder / "native_manifest.json")) {
             require(weight_source.external(),
                     "Generated native bundle requires an external model source");
@@ -144,12 +151,16 @@ struct Bundle {
                 require(graph.at("schema") == "phoenix-native-graph/1",
                         "Native tile-aligned graph schema");
             }
-            const auto supported_dll = graph.at("supported_dll_sha256").get<std::string>();
-            require(
-                weight_source.disk_model() || weight_source.dll_sha256 == supported_dll ||
-                    phoenix_model::equivalent_model_dll(weight_source.dll_sha256, supported_dll),
-                "Native graph does not support this DLL version");
+            if (weight_source.model().architecture == phoenix_model::models::small_fp8.architecture &&
+                graph.value("model_architecture", std::string(phoenix_model::models::original.architecture)) ==
+                    phoenix_model::models::original.architecture)
+                graph = phoenix_model::models::small_native_graph(graph);
+            phoenix_model::require_graph_model(
+                weight_source.model(),
+                graph.value("model_architecture", std::string(phoenix_model::models::original.architecture)));
             auto model = phoenix_model::packed_model(weight_source, digest);
+            phoenix_model::require_native_resource(graph, weight_source, model.resource);
+            model_resource = std::move(model.resource);
             weights = std::move(model.catalogue);
             embedded_weights = std::move(model.bytes);
             kernels = Json::object();
@@ -171,6 +182,7 @@ struct Bundle {
             generated = true;
             return;
         }
+        phoenix_model::require_graph_model(weight_source.model(), phoenix_model::models::original.architecture);
         manifest = json_file(folder / "validation.json");
         require(manifest.at("schema") == "native-fp8-plan-y37/1", "unsupported schema");
         const std::array<const char*, 6> required{"weights.bin", "weights.json", "kernels.json",

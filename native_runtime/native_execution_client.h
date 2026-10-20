@@ -167,6 +167,8 @@ class WorkerClient {
                     answer["kernel_engine"] = "native-cpp";
                     answer["frame_id"] = serial;
                     answer["generation"] = generation;
+                    answer["budget_epoch"] = metadata.value("budget_epoch", uint64_t(0));
+                    answer["requested_transformer_blocks"] = metadata.value("transformer_blocks", 8u);
                     answer["device"] = config["device"];
                     answer["requested_device"] = config["device"];
                 }
@@ -213,7 +215,7 @@ class WorkerClient {
         auto kind = device_id == "cpu" ? "cpu" : device_id.substr(0, device_id.find(':'));
         config["backend"] = kind;
         config["device"] = device_id;
-        if (source.external())
+        if (source.external() || source.model_id != phoenix_model::models::original.id)
             config["weight_source"] = source.configuration();
         config["cpu_threads"] = cpu_threads;
         if (occupied().exchange(true))

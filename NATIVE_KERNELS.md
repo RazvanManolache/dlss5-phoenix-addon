@@ -1,5 +1,25 @@
 # Reading the native kernels
 
+<!-- current-two-model-evidence -->
+The current source-built bundle supports Original (154 full neural launches) and Lightweight FP8 (78), using the shared 41 modules and a model-specific graph. Current kernels target sm_120; RTX 5080 is the measured device. See [the support matrix](docs/SUPPORT.md) and [fresh two-model timings/parity](docs/benchmarks/current/README.md).
+<!-- /current-two-model-evidence -->
+
+For the current shared-helper, ABI and frame-boundary cleanup, see the
+[structure review](docs/KERNEL_STRUCTURE_REVIEW.md). It distinguishes refactored
+contracts from the instruction-oriented compute bodies that still need semantic
+reconstruction, and describes the numerical/performance acceptance checks.
+
+The [boundary kernel guide](docs/BOUNDARY_KERNELS.md) documents the shared padding
+clear: component/row/column mapping, stride units, store policies, overflow rules,
+a worked address example and the model-free address-order tests.
+
+The [current two-model register/spill recheck](docs/benchmarks/current/register-limits.md)
+revisits the older tuning with Original and Lightweight FP8. The
+[experiment guide](docs/REGISTER_PRESSURE.md) explains register pressure versus
+integer overflow, static spill counts versus traffic, and how to test budgets
+without changing production choices. Historical tuning results below retain
+their original model/build scope.
+
 The production catalogue selects 41 CUDA modules for the 154-operation model
 graph. Each module now exports a function named for its operation, such as
 `phoenix_image_to_tokens` or `phoenix_window_attention_channels_128_attention`.
@@ -299,12 +319,17 @@ payloads pass. Backup tag: `backup/native-before-retuning-20261011`.
 No game deployment was performed.
 
 
-## Tile-aligned graph packages
+## Tile-aligned graph selection
 
-Current native execution requires complete 32-token transformer storage and
-persistent downsample padding. Bundles may add a separately pinned
-`native_graph_v2.json`; the loader prefers it while retaining the original graph
-for older SDK readers. Both graph files are included when embedding a bundle.
-Fresh bundles use the current source graph directly. Packaging rejects a stale
-active graph, and the runtime rejects obsolete layouts before launch.
-See [the 0.82 correctness investigation](docs/NATIVE_CORRECTNESS_0.82.md).
+The retained local kernel bundle includes an additive `native_graph_v2.json`
+with its own `native_graph_v2_sha256` manifest pin. Current runtimes prefer this
+layout; the original `native_graph.json` and its hash remain for unchanged SDK
+readers. This adds metadata without duplicating kernel binaries or model weights.
+Fresh source-built bundles already use the current graph as `native_graph.json`.
+
+Native transformer storage and the first repack must cover complete 32-token
+tiles (`T32`). The rounded spatial downsample border must retain its dedicated
+zero-padding lifetime. Current generation rejects obsolete layouts before
+launch, and experimental-candidate packaging checks the active graph against
+the source graph. Merely rebuilding a DLL does not refresh an external bundle.
+See [the correctness investigation](artifacts/current/native-correctness/REPORT.md).

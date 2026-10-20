@@ -87,6 +87,7 @@ def main():
         ("diagnostic_tests", "diagnostic_tests.cpp"),
         ("dispatch_tests", "dispatch_cpu_tests.cpp"),
         ("direct_tests", "direct_tests.cpp"),
+        ("processing_tests", "processing_tests.cpp"),
         ("dll_loader_tests", "dll_loader_tests.cpp"),
         ("generated_plan_tests", "generated_plan_tests.cpp"),
         ("model_status_tests", "model_status_tests.cpp"),

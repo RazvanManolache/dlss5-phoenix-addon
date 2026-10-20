@@ -8,7 +8,10 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#ifndef _WIN32
+#include <string_view>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -81,7 +84,39 @@ inline std::string portable_sha256(const uint8_t *data, size_t size) {
             result += hex[(word >> shift) & 15];
     return result;
 }
-#ifndef _WIN32
+#ifdef _WIN32
+class ReadOnlyModelFile {
+    HANDLE file_ = INVALID_HANDLE_VALUE, mapping_ = nullptr;
+    const uint8_t* data_ = nullptr;
+    size_t size_ = 0;
+    void close() noexcept {
+        if (data_) UnmapViewOfFile(data_);
+        if (mapping_) CloseHandle(mapping_);
+        if (file_ != INVALID_HANDLE_VALUE) CloseHandle(file_);
+    }
+  public:
+    explicit ReadOnlyModelFile(const std::filesystem::path& path) {
+        try {
+            file_ = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            LARGE_INTEGER size{};
+            if (file_ == INVALID_HANDLE_VALUE || !GetFileSizeEx(file_, &size) ||
+                size.QuadPart <= 0 || uint64_t(size.QuadPart) > UINT32_MAX ||
+                uint64_t(size.QuadPart) > SIZE_MAX)
+                throw std::runtime_error("Model file is unreadable or exceeds addressable extent");
+            size_ = size_t(size.QuadPart);
+            mapping_ = CreateFileMappingW(file_, nullptr, PAGE_READONLY, 0, 0, nullptr);
+            if (mapping_)
+                data_ = static_cast<const uint8_t*>(MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0));
+            if (!data_) throw std::runtime_error("Model read-only mapping failed");
+        } catch (...) { close(); throw; }
+    }
+    ReadOnlyModelFile(const ReadOnlyModelFile&) = delete;
+    ReadOnlyModelFile& operator=(const ReadOnlyModelFile&) = delete;
+    ~ReadOnlyModelFile() { close(); }
+    std::span<const uint8_t> bytes() const { return {data_, size_}; }
+};
+#else
 class ReadOnlyModelFile {
     int descriptor_ = -1;
     void *mapping_ = MAP_FAILED;
@@ -105,6 +140,7 @@ class ReadOnlyModelFile {
         }
     }
     ReadOnlyModelFile(const ReadOnlyModelFile &) = delete;
+    ReadOnlyModelFile& operator=(const ReadOnlyModelFile&) = delete;
     ~ReadOnlyModelFile() {
         munmap(mapping_, size_);
         close(descriptor_);
@@ -114,9 +150,12 @@ class ReadOnlyModelFile {
     }
 };
 #endif
-// Locate PE RCDATA/WEIGHTS_HT without Windows headers. Every offset stays inside
+// Locate a named PE RCDATA resource without Windows headers. Every offset stays inside
 // both its containing resource table and the physical file section.
-inline std::span<const uint8_t> pe_weight_resource(std::span<const uint8_t> file) {
+inline std::span<const uint8_t> pe_weight_resource(std::span<const uint8_t> file,
+                                                 std::string_view resource_name = "WEIGHTS_HT") {
+    if (resource_name.empty() || resource_name.find('\0') != std::string_view::npos)
+        throw std::runtime_error("Invalid model resource name");
     auto range = [&](size_t offset, size_t size) {
         if (offset > file.size() || size > file.size() - offset)
             throw std::runtime_error("Truncated PE model file");
@@ -181,10 +220,10 @@ inline std::span<const uint8_t> pe_weight_resource(std::span<const uint8_t> file
                 table_range(text, 2);
                 const auto length = word(base + text);
                 table_range(text + 2, size_t(length) * 2);
-                constexpr char expected[] = "WEIGHTS_HT";
-                match = length == sizeof(expected) - 1;
+                match = length == resource_name.size();
                 for (unsigned character = 0; match && character < length; ++character)
-                    match = word(base + text + 2 + character * 2) == expected[character];
+                    match = word(base + text + 2 + character * 2) ==
+                            static_cast<unsigned char>(resource_name[character]);
             }
             if (!match)
                 continue;
@@ -205,7 +244,7 @@ inline std::span<const uint8_t> pe_weight_resource(std::span<const uint8_t> file
             break;
         }
         if (!found)
-            throw std::runtime_error("DLL has no WEIGHTS_HT resource");
+            throw std::runtime_error("DLL has no selected model resource: " + std::string(resource_name));
     }
     throw std::runtime_error("Invalid PE resource tree");
 }

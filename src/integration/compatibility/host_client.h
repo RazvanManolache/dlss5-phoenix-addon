@@ -9,6 +9,7 @@
 #include "protocol.h"
 #include "owned_worker.h"
 #include "portable_policy.h"
+#include "processing_pixels.h"
 #include "wow64/bridge_policy.h"
 #include "wow64/graph32.h"
 #include "../../../native_runtime/runtime_api.h"
@@ -141,12 +142,10 @@ class HostState : public std::enable_shared_from_this<HostState> {
                         build.height == build.output_height,
                     "Portable execution requires same-size pixel transport");
             require(!needs_nvidia_dll(settings), "NVIDIA DLSS5 evaluation requires the helper");
-            require(settings.resolution_mode == 0 && !settings.host_unjitter &&
-                        !settings.automatic_budget,
-                    "Portable backbuffer execution requires normal resolution, no unjitter and fixed blocks");
+            require(settings.resolution_mode == 0 && !settings.host_unjitter,
+                    "Portable backbuffer execution requires normal resolution and no unjitter");
             require(options.root.is_absolute(), "Portable runtime path must be absolute");
-            source = phoenix_model_tools::selection(settings.model_source, settings.model_folder,
-                                                    settings.model_dll, source);
+            source = phoenix_model_tools::selection(settings, source);
             require(source.external(), "No model selected for portable execution");
             Json config = Json::object();
             std::ifstream file(options.root / "phoenix_native_cpp.json");
@@ -188,9 +187,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
             config["cpu_threads"] = settings.cpu_threads;
             if (options.allow_unvalidated) config["allow_unvalidated"] = true;
             phoenix_cpp::RuntimeApi runtime;
-            runtime.open(options.root, config.dump(), build.width, build.height);
+            const auto working = settings.processing.enabled
+                ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
+                : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
+            runtime.open(options.root, config.dump(), working.image_width, working.image_height);
             auto snapshot = [&](Json status) {
+                const auto schedule = status.value("network_schedule", Json::object());
                 return Json{{"schema", "phoenix-panel/1"}, {"runtime", status},
+                    {"transformer_blocks", schedule.value("transformer_blocks", 8u)},
+                    {"budget_estimate_ms", schedule.value("estimate_ms", 0.0)},
                     {"runtime_root", phoenix_model::source_path_string(options.root)},
                     {"processing_location", "in_process_portable"},
                     {"inference_pid", GetCurrentProcessId()}, {"device", options.device},
@@ -230,8 +235,16 @@ class HostState : public std::enable_shared_from_this<HostState> {
                         "Portable input extent mismatch");
                 const auto started = std::chrono::steady_clock::now();
                 auto color = portable_color(pixels);
+                std::optional<pixels::Frame> processing;
+                if (frame_settings.processing.enabled) {
+                    processing.emplace(color,build.width,build.height,frame_settings.processing);
+                    color=processing->encoded;
+                }
                 std::vector<float> enhanced(color.size());
                 auto metadata = portable_metadata(frame_settings, true);
+                if (metadata.contains("adaptive_budget"))
+                    require(Json::parse(runtime.status_json()).value("capabilities", Json::object()).contains("granular_controls"),
+                            "Adaptive portable controls require the matching updated runtime");
                 for (unsigned iteration = 0; iteration < request.iterations; ++iteration) {
                     require(!stopping_, "Portable execution cancelled");
                     if (iteration) color = enhanced;
@@ -239,6 +252,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                                 nullptr, metadata.dump().c_str(), enhanced.data()) != 0)
                         throw std::runtime_error(runtime.error());
                 }
+                if (processing) enhanced=processing->finish(std::move(enhanced));
                 auto result = portable_compose(pixels, enhanced, build.width, frame_settings);
                 auto status = snapshot(Json::parse(runtime.status_json()));
                 const auto wall_ms = std::chrono::duration<double, std::milli>(
@@ -274,13 +288,17 @@ class HostState : public std::enable_shared_from_this<HostState> {
             require(!stopping_,"Native execution cancelled");
             require(build.cpu_bridge&&build.width==build.output_width&&build.height==build.output_height,"Native execution requires same-size pixel transport");
             validate_native_settings(settings,options.driver_host);
-            source=phoenix_model_tools::selection(settings.model_source,settings.model_folder,settings.model_dll,source);
+            source=phoenix_model_tools::selection(settings, source);
             require(source.external(),"No model selected for native execution");
             const auto bundle=options.root/"native";
-            phoenix_wow64::FrameSession renderer(options.root,bundle,source,build.width,build.height,settings,options.driver_host);
+            const auto working = settings.processing.enabled
+                ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
+                : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
+            phoenix_wow64::FrameSession renderer(options.root,bundle,source,working.image_width,working.image_height,settings,options.driver_host);
             std::unique_lock lock(mutex_);
             auto snapshot=[&](double wall) {return Json{{"schema","phoenix-panel/1"},{"processing_location",native_mode_},
                 {"inference_pid",GetCurrentProcessId()},{"helper_pid",0},{"frame_wall_ms",wall},{"ui_clear_revision",ui_clear_revision_},
+                {"nvidia",renderer.nvidia_status()},
                 {"runtime",{{"backend",native_mode_},{"gpu_processing_ms",renderer.gpu_ms()}}}};};
             ui_snapshot_=snapshot(0);phase_=Phase::Ready;
             while(!stopping_) {
@@ -296,14 +314,20 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 auto pixels=std::move(input_);lock.unlock();
                 const auto started=std::chrono::steady_clock::now();
                 auto phi=portable_color(pixels);std::vector<float> nv;
+                std::optional<pixels::Frame> processing;
+                std::vector<uint8_t> working_pixels;
+                if(frame_settings.processing.enabled) {
+                    processing.emplace(phi,build.width,build.height,frame_settings.processing);
+                    working_pixels.resize(size_t(processing->working_width)*processing->working_height*4,255);
+                }
                 auto evaluate=[&](unsigned backend) {
-                    std::vector<float> result;
-                    const unsigned passes=request.iterations*(backend==3?unsigned(frame_settings.refinement_passes):1u);
+                    std::vector<float> result=processing?processing->encoded:std::vector<float>{};
+                    const unsigned passes=request.iterations*unsigned(frame_settings.refinement_passes);
                     for(unsigned i=0;i<passes;++i) {
                         require(!stopping_,"Native execution cancelled");
-                        result=renderer.evaluate(pixels,frame_settings,backend,i?&result:nullptr);
+                        result=renderer.evaluate(processing?working_pixels:pixels,frame_settings,backend,processing||i?&result:nullptr);
                     }
-                    return result;
+                    return processing?processing->finish(std::move(result)):result;
                 };
                 if(phoenix_addon::phoenix::uses_ours(frame_settings.mode)) phi=evaluate(3);
                 if(needs_nvidia_dll(frame_settings)) nv=evaluate(1);
@@ -410,7 +434,13 @@ class HostState : public std::enable_shared_from_this<HostState> {
         // the game's panel. Restarting applies model/device/geometry changes.
         std::ofstream ini(folder / "ReShade.ini");
         ini << "[GENERAL]\nEffectSearchPaths=\nPresetPath=ReShadePreset.ini\n\n[Phoenix]\n";
-        phoenix_addon::phoenix::visit_settings(settings, [&](const char* name, const auto& value) {
+        auto helper_settings = settings;
+        if (!helper_settings.nvidia_dll_folder.empty()) {
+            auto folder_path = fs::u8path(helper_settings.nvidia_dll_folder);
+            if (!folder_path.is_absolute()) folder_path = phoenix_model_tools::local_library_directory() / folder_path;
+            helper_settings.nvidia_dll_folder = phoenix_model::source_path_string(folder_path.lexically_normal());
+        }
+        phoenix_addon::phoenix::visit_settings(helper_settings, [&](const char* name, const auto& value) {
             Json encoded = value;
             ini << name << '='
                 << (encoded.is_string()    ? encoded.template get<std::string>()
@@ -425,8 +455,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         fs::path folder;
         const char* stage = "model selection";
         try {
-            source = phoenix_model_tools::selection(settings.model_source, settings.model_folder,
-                                                    settings.model_dll, source);
+            source = phoenix_model_tools::selection(settings, source);
             require(source.external(),
                     "No model selected. Browse to your NVIDIA DLSS5 DLL or a compatible model folder.");
             phoenix_addon::phoenix::normalize_direct_comparison(settings);

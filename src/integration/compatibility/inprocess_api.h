@@ -17,6 +17,7 @@ struct InProcessApi {
     PhoenixFeederProgressJsonProc progress = nullptr, ui = nullptr;
     BOOL(WINAPI* action)(uint32_t, uint32_t) = nullptr;
     std::function<void(const Settings&)> update_tuning;
+    std::function<bool(ID3D12GraphicsCommandList*, ID3D12CommandQueue*, PhoenixFeederFrameV1&)> present_guides;
     bool available() const { return prepare && release && observe && forget && evaluate && progress && ui && action && update_tuning; }
 };
 inline InProcessApi in_process_api;

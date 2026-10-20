@@ -10,6 +10,7 @@
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/device_memory_scalar.cuh"
+#include "../../../common/attention_tail.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
     parameter_input_q_low_0 = 0,
@@ -3080,32 +3081,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
 
     index_word_8 = index_word_3 & 0x1fu;
     if (condition_0) {
-        index_word_3 = 0x2dbbu;
-
-        address_word_4 = __float_as_uint(__uint2float_rn(address_word_4));
-
-        index_word_3 = fused_multiply_add_half_pairs(
-            select_half_operand<0, false, false>(0u),
-            select_half_operand<0, false, false>(index_word_3), 0x3ed63ed6u);
-
-        index_word_3 =
-            maximum_half_pairs(select_half_operand<2, false, false>(index_word_3), 0x3dc23dc2u);
-
-        index_word_3 =
-            minimum_half_pairs(select_half_operand<2, false, false>(index_word_3), 0x3fe93fe9u);
-
-        index_word_3 = (index_word_3 << 0x4u) + 0x4000u;
-
-        index_word_3 = half_to_float_bits((index_word_3 & 65535u) * 65537u);
-
-        asm("mul.rn.ftz.f32 %0,%1,%2;"
-            : "=f"(reinterpret_cast<float&>(index_word_3))
-            : "f"(__uint_as_float(index_word_3)), "f"(__uint_as_float(address_word_4)));
-
-        index_word_3 = pack_half(0u, index_word_3);
-
-        packed_half_119 = add_half_pairs(select_half_operand<2, false, false>(packed_half_119),
-                                         select_half_operand<0, false, true>(index_word_3));
+        packed_half_119 = subtract_attention_tail(packed_half_119, address_word_4);
     }
     index_word_8 = index_word_5 + index_word_8;
 

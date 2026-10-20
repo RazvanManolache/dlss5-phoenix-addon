@@ -5,6 +5,7 @@
 #include "../../native/support/comparison.h"
 #include "../../native/support/cpu_threads.h"
 #include "../../native/support/model_tools.h"
+#include "../../native/model/model_library.h"
 #include "../../native/support/panel_visibility.h"
 #include "panel_contract.h"
 #include <cfloat>
@@ -48,10 +49,12 @@ struct Context {
     std::vector<phoenix::ExecutionDevice> &execution_devices;
     std::string &error;
     uint64_t &markers;
+    bool final_frame_source = false, host_controls_stage = false;
     bool direct_game = true, direct_nr_ready = true, runtime_available = true;
     bool real_guides = true, temporal_history = true, comparison_views = true, input_capture = true;
     bool fps_budget = true;
     bool portable_backbuffer = false;
+    bool portable_gpu_budget = false;
     bool fixed_native_blocks = false;
     bool* processing_enabled = nullptr;
     bool processing_changed = false, live_selection_changed = false, live_tuning_changed = false;
@@ -69,7 +72,7 @@ struct Context {
     phoenix_model::WeightSource configured_weight_source;
     std::filesystem::path model_path, runtime_root, bundle_path, overrides_path;
     bool disk_model = false;
-    std::string active_model_source, active_model_folder, active_model_dll, override_status;
+    std::string active_model_source, active_model_folder, active_model_dll, active_model_id, active_nvidia_dll_folder, override_status;
     uint64_t live_resets_recorded = 0, switches = 0;
     unsigned last_transformer_blocks = 8;
     int last_mode = -1;
@@ -133,7 +136,7 @@ inline bool draw_controls(Context &addon_state) {
         ImGui::TextWrapped("NVIDIA DLSS5 NR: %s", addon_state.nvidia_status.c_str());
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game) {
-        ImGui::BeginDisabled(addon_state.portable_backbuffer);
+        ImGui::BeginDisabled(addon_state.portable_backbuffer || addon_state.panel.processing.enabled);
         const char *modes[]{"Normal", "Super resolution"};
         changed = ImGui::Combo("Resolution mode", &addon_state.panel.resolution_mode, modes, 2) ||
                   changed;
@@ -191,7 +194,10 @@ inline bool draw_controls(Context &addon_state) {
             ImGui::Text("Processing: %u x %u (image %u x %u) | Output: %u x %u", geometry.width,
                         geometry.height, geometry.image_width, geometry.image_height,
                         geometry.output_width, geometry.output_height);
-            const auto requested = phoenix::choose_resolution(
+            const auto requested = addon_state.panel.processing.enabled
+                ? phoenix::processing_resolution(geometry.output_width,geometry.output_height,
+                    addon_state.panel.processing,phoenix::uses_ours(addon_state.panel.mode) && addon_state.panel.execution_device=="native")
+                : phoenix::choose_resolution(
                 geometry.output_width, geometry.output_height, addon_state.panel.resolution_mode,
                 addon_state.panel.resolution_quality, addon_state.panel.resolution_aspect,
                 addon_state.panel.resolution_ratio_width, addon_state.panel.resolution_ratio_height,
@@ -208,7 +214,168 @@ inline bool draw_controls(Context &addon_state) {
             changed = true;
         }
     }
+    if (visible.native() && addon_state.direct_game) {
+        const char* presets[]{"Match Phoenix architecture", "DLL default", "Original (preset 1)",
+                               "Lightweight FP8 (preset 2)"};
+        int choice = addon_state.panel.nvidia_model + 1;
+        if (ImGui::Combo("NVIDIA neural model", &choice, presets, 4)) {
+            addon_state.panel.nvidia_model = choice - 1;
+            changed = true;
+        }
+        const auto& model_id=addon_state.panel.model_id.empty()
+            ? addon_state.configured_weight_source.model().id : std::string_view(addon_state.panel.model_id);
+        const auto preset=phoenix::nvidia_preset(addon_state.panel.nvidia_model,model_id);
+        if(preset)ImGui::Text("NVIDIA preset: %u (%s)",preset,preset==2?"Lightweight FP8":"Original");
+        else ImGui::TextUnformatted("NVIDIA preset: DLL default (version dependent)");
+        ImGui::TextWrapped("Architecture selection is independent of the artistic Style. "
+                           "Lightweight requires the 310.9.16 model DLL.");
+    }
+    if (visible.neural() && addon_state.direct_game && ImGui::CollapsingHeader("Processing pipeline")) {
+        auto& p = addon_state.panel.processing;
+        if (ImGui::Button("Defaults##processing")) { p = {}; addon_state.panel.refinement_passes=1; changed = true; }
+        if (ImGui::Checkbox("Explicit scaling and color controls", &p.enabled)) {
+            if (p.enabled) {
+                addon_state.panel.upscaler = 0;
+                addon_state.panel.host_unjitter = false;
+                if(addon_state.final_frame_source)p.hook=3;
+            }
+            changed = true;
+        }
+        ImGui::BeginDisabled(!p.enabled);
+        const char* stages[]{"Off", "Render (before upscaling)", "Upscaled", "Present"};
+        ImGui::BeginDisabled(addon_state.host_controls_stage);
+        if(ImGui::BeginCombo("Hook method",stages[p.hook])) {
+            for(int stage=0;stage<4;++stage) {
+                const bool unsupported=stage==3 && !addon_state.final_frame_source &&
+                    phoenix::uses_ours(addon_state.panel.mode) && addon_state.panel.execution_device!="native";
+                ImGui::BeginDisabled(unsupported);
+                if(ImGui::Selectable(stages[stage],p.hook==stage)) {p.hook=stage;changed=true;}
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
+        if(!addon_state.final_frame_source && phoenix::uses_ours(addon_state.panel.mode) &&
+            addon_state.panel.execution_device!="native")
+            ImGui::TextWrapped("Game Present uses Native RTX. Portable Present uses a final-frame frontend; Render and Upscaled use this game's observed guides.");
+        ImGui::EndDisabled();
+        if(addon_state.host_controls_stage)ImGui::TextWrapped("The external feeder chooses insertion timing; color and resolution controls apply to its supplied frame.");
+        if (addon_state.final_frame_source)
+            ImGui::TextWrapped("This source is the final frame. Render and Upscaled hooks "
+                               "require a D3D12 game with an observed DLSS feature.");
+        const char* reuse[]{"Never", "Optional", "Required"};
+        ImGui::BeginDisabled(p.hook!=3 || addon_state.host_controls_stage);
+        changed |= ImGui::Combo("Present DLSS guide reuse", &p.reuse_guides, reuse, 3);
+        ImGui::EndDisabled();
+        changed |= ImGui::SliderFloat("Resolution scale", &p.scale, 0, 200, "%.0f%%",
+                                       ImGuiSliderFlags_AlwaysClamp);
+        ImGui::TextWrapped("0%% uses the minimum supported canvas. This resizes the NR working "
+                           "image; NR input and output remain the same size.");
+        const char* domains[]{"scRGB-nl", "Signed PQ", "Linear"};
+        const char* down[]{"Area", "Bilinear", "Nearest"};
+        const char* up[]{"Bilinear", "Bicubic", "Nearest"};
+        const char* reconstruction[]{"RGB residual", "Processed image"};
+        changed |= ImGui::Combo("Scaling domain", &p.domain, domains, 3);
+        changed |= ImGui::Combo("Downsample filter", &p.downsample, down, 3);
+        changed |= ImGui::Combo("Upsample filter", &p.upsample, up, 3);
+        changed |= ImGui::Combo("Scale reconstruction", &p.reconstruction, reconstruction, 2);
+        const char* encodings[]{"Auto", "Linear BT.709", "sRGB", "HDR10", "scRGB", "scRGB-nl"};
+        const char* signals[]{"sRGB", "PQ SDR", "Linear SDR"};
+        changed |= ImGui::Combo("Input encoding", &p.encoding, encodings, 6);
+        changed |= ImGui::Combo("NR signal encoding", &p.signal, signals, 3);
+        changed |= ImGui::Checkbox("Override diffuse white", &p.white_override);
+        ImGui::BeginDisabled(!p.white_override);
+        changed |= ImGui::SliderFloat("Diffuse white (nits)", &p.white_nits, 48, 500, "%.0f",
+                                       ImGuiSliderFlags_AlwaysClamp);
+        ImGui::EndDisabled();
+        changed |= ImGui::SliderFloat("Exposure multiplier", &p.exposure, 0, 100, "%.2fx",
+                                       ImGuiSliderFlags_AlwaysClamp);
+        const char* exposure_modes[]{"Off", "On", "Inverse"};
+        changed |= ImGui::Combo("Use exposure value", &p.exposure_mode, exposure_modes, 3);
+        ImGui::TextUnformatted("Effective exposure is bounded to 0-10x before inversion.");
+        ImGui::BeginDisabled(p.hook!=3 || addon_state.host_controls_stage || addon_state.final_frame_source);
+        changed |= ImGui::Checkbox("Block Hudless", &p.block_hudless);
+        ImGui::EndDisabled();
+        const char* correction[]{"Auto", "Off", "On"};
+        changed |= ImGui::Combo("UI correction policy", &p.ui_policy, correction, 3);
+        ImGui::TextWrapped("Auto follows the host UI policy. Phoenix correction requires an "
+                           "explicit UI coverage plane; unavailable coverage is reported.");
+        ImGui::EndDisabled();
+        changed |= ImGui::SliderInt("Processing passes", &addon_state.panel.refinement_passes,
+                                     1, 10, "%d", ImGuiSliderFlags_AlwaysClamp);
+    }
+    const auto library_pick = addon_state.model_picker.poll();
+    if (!library_pick.busy && library_pick.key == "dll_search_folder" && !library_pick.picked.empty()) {
+        addon_state.panel.nvidia_dll_folder = library_pick.picked;
+        addon_state.model_picker.clear_pick();
+        changed = true;
+    }
+    std::array<char, 4096> library_text{};
+    memcpy(library_text.data(), addon_state.panel.nvidia_dll_folder.data(),
+           std::min(addon_state.panel.nvidia_dll_folder.size(), library_text.size() - 1));
+    if (ImGui::InputText("NVIDIA DLL search folder", library_text.data(), library_text.size())) {
+        addon_state.panel.nvidia_dll_folder = library_text.data();
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(library_pick.busy);
+    if (ImGui::Button("Browse...##nvidia_library"))
+        addon_state.model_picker.browse(true, GetActiveWindow(),
+            std::filesystem::u8path(addon_state.panel.nvidia_dll_folder), "dll_search_folder");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose a shared folder containing your NVIDIA DLSS5 DLL. Local files take precedence.");
+    if (library_pick.key == "dll_search_folder" && !library_pick.busy &&
+        !library_pick.passed && !library_pick.cancelled && !library_pick.message.empty())
+        ImGui::TextWrapped("%s", library_pick.message.c_str());
+    if (addon_state.panel.nvidia_dll_folder != addon_state.active_nvidia_dll_folder)
+        ImGui::TextWrapped("DLL search folder saved. A loaded NVIDIA library requires a game restart to change.");
     if (visible.own_details()) {
+        const auto& installed_models = phoenix_model::available_models(
+            std::filesystem::u8path(addon_state.panel.model_library_directory));
+        if (!installed_models.empty()) {
+            std::string current = "Choose an installed model";
+            for (const auto& installed : installed_models)
+                if (addon_state.panel.model_source == "model_folder" &&
+                    std::filesystem::u8path(addon_state.panel.model_folder).lexically_normal() == installed.folder.lexically_normal())
+                    current = installed.label;
+            if (ImGui::BeginCombo("Shared native models", current.c_str())) {
+                for (const auto& installed : installed_models) {
+                    if (addon_state.fixed_native_blocks && installed.model_id != "original") continue;
+                    if (ImGui::Selectable(installed.label.c_str(), current == installed.label)) {
+                        addon_state.panel.model_source = "model_folder";
+                        addon_state.panel.model_folder = phoenix_model::source_path_string(installed.folder);
+                        addon_state.panel.model_id = installed.model_id;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TextWrapped("Installed by DLSS Everything. Native full-resolution processing; weights stay in the shared library.");
+        }
+        const auto& configured_model = addon_state.configured_weight_source.model();
+        const auto selected_model_id = addon_state.panel.model_id.empty()
+                                          ? std::string(configured_model.id)
+                                          : addon_state.panel.model_id;
+        const auto& selected_model = phoenix_model::definition(selected_model_id);
+        if (ImGui::BeginCombo("Neural model", std::string(selected_model.label).c_str())) {
+            for (const auto& model : phoenix_model::registry().entries()) {
+                ImGui::BeginDisabled(!model.implemented || (addon_state.fixed_native_blocks && model.id == "small-fp8"));
+                if (ImGui::Selectable(std::string(model.label).c_str(), model.id == selected_model_id)) {
+                    addon_state.panel.model_id = std::string(model.id);
+                    changed = true;
+                }
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
+        if (addon_state.fixed_native_blocks)
+            ImGui::TextWrapped("The experimental x86 driver host supports Original only. Use the x64-library or helper route for Lightweight FP8.");
+        if (selected_model.id == phoenix_model::models::small_fp8.id)
+            ImGui::TextWrapped("Lightweight needs a matching native model folder or the NVIDIA DLSS5 310.9.16 DLL.");
+        const auto profile = phoenix::model_profile(selected_model_id);
+        ImGui::Text("%u learned blocks | %u tensors | %u records | %u native launches",
+                    profile.learned_blocks, profile.tensors, profile.records, profile.native_launches);
+        ImGui::TextWrapped("Both models have 8 central transformer blocks. Lightweight uses a "
+                           "smaller encoder and decoder, with FP8 weight storage.");
         const char *model_sources[]{"Configured source", "Model folder on disk", "NVIDIA DLSS5 DLL file"};
         int model_selection = addon_state.panel.model_source == "model_folder" ? 1
                               : addon_state.panel.model_source == "nvidia_dll" ? 2
@@ -261,9 +428,7 @@ inline bool draw_controls(Context &addon_state) {
         if (ImGui::Button("Validate model")) {
             try {
                 addon_state.model_validation.validate(
-                    phoenix_model_tools::selection(
-                        addon_state.panel.model_source, addon_state.panel.model_folder,
-                        addon_state.panel.model_dll, addon_state.configured_weight_source),
+                    phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source),
                     addon_state.runtime_root);
             } catch (const std::exception &feature_entry) {
                 addon_state.error = feature_entry.what();
@@ -276,9 +441,7 @@ inline bool draw_controls(Context &addon_state) {
             bool current = false;
             try {
                 current = validation.key ==
-                          phoenix_model_tools::selection(
-                              addon_state.panel.model_source, addon_state.panel.model_folder,
-                              addon_state.panel.model_dll, addon_state.configured_weight_source)
+                          phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source)
                               .configuration()
                               .dump();
             } catch (const std::exception &) {
@@ -287,8 +450,9 @@ inline bool draw_controls(Context &addon_state) {
                                current ? "" : "Previous selection: ", validation.message.c_str());
         }
         if (addon_state.panel.model_source != addon_state.active_model_source ||
-            (addon_state.panel.model_folder != addon_state.active_model_folder ||
-             addon_state.panel.model_dll != addon_state.active_model_dll))
+            addon_state.panel.model_folder != addon_state.active_model_folder ||
+            addon_state.panel.model_dll != addon_state.active_model_dll ||
+            addon_state.panel.model_id != addon_state.active_model_id)
             ImGui::TextWrapped("%s", addon_state.model_restart.c_str());
         ImGui::TextWrapped("Active model source: %s", disk_model ? "Model folder" : "NVIDIA DLSS5 DLL");
     } else if (addon_state.panel.mode == phoenix::nvidia) {
@@ -557,13 +721,14 @@ inline bool draw_controls(Context &addon_state) {
                     addon_state.panel.intensity = 1;
                     changed = true;
                 }
-                const char *styles[]{"Default", "Natural", "Cinematic"};
+                const char *styles[]{"Model A", "Model B", "Model C"};
                 changed |= ImGui::Combo("Style", &addon_state.panel.style, styles, 3);
                 ImGui::SameLine();
                 if (ImGui::SmallButton("R##nr_style")) {
                     addon_state.panel.style = 0;
                     changed = true;
                 }
+                ImGui::BeginDisabled(addon_state.panel.processing.enabled);
                 bool correction = addon_state.panel.ui_correction != 0;
                 if (ImGui::Checkbox("UI correction", &correction)) {
                     addon_state.panel.ui_correction = correction ? 1 : 0;
@@ -589,6 +754,7 @@ inline bool draw_controls(Context &addon_state) {
                     addon_state.panel.host_exposure_scale = 1;
                     changed = true;
                 }
+                ImGui::EndDisabled();
                 changed |=
                     ImGui::SliderFloat("Host global tone", &addon_state.panel.host_globaltone, 0.f,
                                        2.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
@@ -607,6 +773,7 @@ inline bool draw_controls(Context &addon_state) {
                     addon_state.panel.host_jitter = 1;
                     changed = true;
                 }
+                ImGui::BeginDisabled(addon_state.panel.processing.enabled);
                 int host_hdr = addon_state.panel.host_hdr;
                 const char *hdr_modes[]{"SDR declare", "HDR declare"};
                 if (ImGui::Combo("Host HDR declare", &host_hdr, hdr_modes, 2)) {
@@ -616,6 +783,7 @@ inline bool draw_controls(Context &addon_state) {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Experimental DLL declaration. Both proxy paths encode sRGB, "
                                       "so SDR is the supported setting.");
+                ImGui::EndDisabled();
                 changed |= ImGui::Checkbox("NR auto exposure", &addon_state.panel.nr_auto_exposure);
                 ImGui::TextUnformatted("Native NR: feature 18 (DLSSNR runtime)");
                 if (addon_state.panel.nr_feature != 18) {
@@ -661,10 +829,18 @@ inline bool draw_controls(Context &addon_state) {
                     addon_state.live.reset_requested ? " (pending)" : "");
     }
     if (visible.experiments() && ImGui::CollapsingHeader("Phoenix DLSS5 experiments")) {
+        const auto selected_model = addon_state.panel.model_id.empty()
+                                        ? addon_state.configured_weight_source.model_id
+                                        : addon_state.panel.model_id;
+        const auto execution_profile = phoenix::model_profile(selected_model);
+        const bool lightweight = selected_model == "small-fp8";
+        ImGui::Text("%s: transformer blocks %u-%u in the learned graph",
+                    lightweight ? "Lightweight FP8" : "Original",
+                    execution_profile.first_transformer, execution_profile.first_transformer + 7);
         if (addon_state.direct_game) {
             changed |=
                 ImGui::SliderInt("Network passes per frame", &addon_state.panel.refinement_passes,
-                                 1, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
+                                 1, 10, "%d", ImGuiSliderFlags_AlwaysClamp);
             ImGui::TextWrapped(
                 "Each pass refines the preceding output; each has separate previous-frame history. "
                 "More passes cost GPU time and memory and may overprocess the image.");
@@ -676,6 +852,11 @@ inline bool draw_controls(Context &addon_state) {
                     changed |=
                         ImGui::SliderInt(label, &addon_state.panel.block_repeats[iteration_index],
                                          0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s learned block %u; each repetition uses 5 native neural launches.",
+                                          lightweight ? "Lightweight FP8" : "Original",
+                                          execution_profile.first_transformer + iteration_index);
+                    }
                 }
                 ImGui::TextWrapped(
                     "0 skips a block and passes its input forward; 1 is the trained default. "
@@ -706,15 +887,16 @@ inline bool draw_controls(Context &addon_state) {
             ImGui::EndDisabled();
             addon_state.panel.minimum_blocks =
                 std::min(addon_state.panel.minimum_blocks, addon_state.panel.transformer_blocks);
-            ImGui::BeginDisabled(addon_state.portable_backbuffer);
+            const bool measured_budget = !addon_state.portable_backbuffer || addon_state.portable_gpu_budget;
+            ImGui::BeginDisabled(!measured_budget);
             changed |= ImGui::Checkbox("Adaptive blocks", &addon_state.panel.automatic_budget);
             ImGui::EndDisabled();
-            if (addon_state.portable_backbuffer && addon_state.panel.automatic_budget &&
+            if (!measured_budget && addon_state.panel.automatic_budget &&
                 ImGui::Button("Use fixed blocks for portable processing")) {
                 addon_state.panel.automatic_budget = false;
                 changed = true;
             }
-            if (visible.budget() && !addon_state.portable_backbuffer) {
+            if (visible.budget() && measured_budget) {
                 const char *target_names[]{"Phoenix DLSS5 GPU time", "Desired game FPS"};
                 if (ImGui::BeginCombo("Target", target_names[addon_state.panel.budget_mode])) {
                     for (int target = 0; target < 2; ++target) {
@@ -754,19 +936,28 @@ inline bool draw_controls(Context &addon_state) {
                 changed |= ImGui::SliderInt("Minimum blocks", &addon_state.panel.minimum_blocks, 1,
                                             addon_state.panel.transformer_blocks, "%d",
                                             ImGuiSliderFlags_AlwaysClamp);
+                ImGui::TextWrapped(
+                    "Adapts the selected model's transformer depth within these limits and keeps "
+                    "your per-block repetition counts. Skipped blocks add no work. The fixed "
+                    "encoder/decoder and processing passes still cost time at minimum depth.");
             }
-            unsigned repeat_launches = 114;
-            for (unsigned iteration_index = 0;
-                 iteration_index < addon_state.last_transformer_blocks; ++iteration_index)
-                repeat_launches +=
-                    5 * unsigned(addon_state.direct_game
-                                     ? addon_state.panel.block_repeats[iteration_index]
-                                     : 1);
-            ImGui::Text(
-                "Depth: %u / 8 | launches per frame: %u", addon_state.last_transformer_blocks,
-                repeat_launches *
-                    unsigned(addon_state.direct_game ? addon_state.panel.refinement_passes : 1));
+            const auto effective_repeats = addon_state.direct_game
+                                               ? addon_state.panel.block_repeats
+                                               : std::array<int, 8>{{1, 1, 1, 1, 1, 1, 1, 1}};
+            const unsigned repeat_launches = execution_profile.scheduled_launches(
+                addon_state.last_transformer_blocks, effective_repeats);
+            if (lightweight && addon_state.panel.execution_device != "native")
+                ImGui::Text("Transformer depth: %u / 8", addon_state.last_transformer_blocks);
+            else
+                ImGui::Text(
+                    "Depth: %u / 8 | launches per frame: %u", addon_state.last_transformer_blocks,
+                    repeat_launches *
+                        unsigned(addon_state.direct_game ? addon_state.panel.refinement_passes : 1));
             ImGui::TextWrapped("Below 8: untrained approximation, quality may deteriorate.");
+            ImGui::TextWrapped(
+                "Native neural work per pass: %u fixed launches plus 5 per retained repetition. "
+                "Launch counts describe the graph; timing is measured for this configuration.",
+                execution_profile.native_launches - 40);
             if (ImGui::Button("Restore full network")) {
                 addon_state.panel.experimental = false;
                 addon_state.panel.transformer_blocks = 8;
@@ -774,7 +965,9 @@ inline bool draw_controls(Context &addon_state) {
                 addon_state.panel.block_repeats.fill(1);
                 changed = true;
             }
-            ImGui::TextUnformatted("Production scheduling: chained groups, full barriers.");
+            ImGui::TextUnformatted(lightweight && addon_state.panel.execution_device != "native"
+                                              ? "Portable scheduling follows the selected model graph."
+                                              : "Production scheduling: chained groups, full barriers.");
         }
     }
     if (ImGui::CollapsingHeader("Hotkeys")) {
@@ -843,7 +1036,7 @@ inline bool draw_controls(Context &addon_state) {
     if (visible.own_details() && ImGui::CollapsingHeader("Phoenix DLSS5 model")) {
         ImGui::TextWrapped("%s",
                            phoenix_model::source_path_string(addon_state.bundle_path).c_str());
-        ImGui::Text("Model graph: 41 modules / %u transformer blocks",
+        ImGui::Text("Kernel bundle: 41 modules / %u transformer blocks",
                     addon_state.last_transformer_blocks);
     }
     addon_state.live_selection_changed = phoenix::copy_live_selection(before, addon_state.panel);

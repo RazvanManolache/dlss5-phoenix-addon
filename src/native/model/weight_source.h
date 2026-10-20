@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 #endif
 #include "portable_model_io.h"
+#include "registry.h"
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -21,12 +22,6 @@
 
 namespace phoenix_model {
 using Json = nlohmann::json;
-// These local DLL editions have byte-identical WEIGHTS_HT resources. This
-// compatibility applies to resource-only model loading, never NVIDIA code hooks.
-inline bool equivalent_model_dll(const std::string& actual, const std::string& expected) {
-    return expected == "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e" &&
-           actual == "8270b350cd82de5ce89806872cdd6b6a9249b80836b91bbeb3573470744cc206";
-}
 inline std::string source_path_string(const std::filesystem::path& path) {
     const auto utf8 = path.u8string();
     return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
@@ -36,6 +31,10 @@ struct WeightSource {
     std::string dll_sha256;
     std::filesystem::path folder;
     bool folder_mode = false;
+    std::string model_id = std::string(models::original.id);
+    const Definition& model() const {
+        return definition(model_id);
+    }
     bool disk_model() const {
         return folder_mode || !folder.empty();
     }
@@ -44,24 +43,33 @@ struct WeightSource {
     }
     Json configuration() const {
         validate();
+        Json result;
         if (disk_model())
-            return {{"kind", "model_folder"}, {"path", source_path_string(folder)}};
-        if (!dll.empty())
-            return {
+            result = {{"kind", "model_folder"}, {"path", source_path_string(folder)}};
+        else if (!dll.empty())
+            result = {
                 {"kind", "nvidia_dll"}, {"path", source_path_string(dll)}, {"sha256", dll_sha256}};
-        return {{"kind", "files"}};
+        else
+            result = {{"kind", "files"}};
+        // Preserve the serialized shape of existing default configurations.
+        if (model_id != models::original.id)
+            result["model"] = model_id;
+        return result;
     }
     static WeightSource config(const Json& value) {
         const auto kind = value.value("kind", std::string("files"));
+        WeightSource result;
+        result.model_id = value.value("model", std::string(models::original.id));
+        (void)result.model();
         if (kind == "files") {
             if (value.contains("path") || value.contains("sha256"))
                 throw std::runtime_error("File weight source does not accept DLL fields");
-            return {};
+            result.validate();
+            return result;
         }
         if (kind == "model_folder") {
             if (value.contains("sha256"))
                 throw std::runtime_error("Model folder checksum belongs in model.json");
-            WeightSource result;
             result.folder_mode = true;
             result.folder = std::filesystem::u8path(value.at("path").get<std::string>());
             if (result.folder.empty())
@@ -71,12 +79,13 @@ struct WeightSource {
         }
         if (kind != "nvidia_dll")
             throw std::runtime_error("Unknown weight source");
-        WeightSource result{std::filesystem::u8path(value.at("path").get<std::string>()),
-                            value.at("sha256").get<std::string>()};
+        result.dll = std::filesystem::u8path(value.at("path").get<std::string>());
+        result.dll_sha256 = value.at("sha256").get<std::string>();
         result.validate();
         return result;
     }
     void validate() const {
+        (void)model();
         if (disk_model()) {
             if (folder.empty() || !dll.empty() || !dll_sha256.empty() || !folder.is_absolute() ||
                 folder.native().find(std::filesystem::path::value_type(0)) !=
@@ -110,12 +119,30 @@ inline std::string weight_digest(const uint8_t* data, size_t bytes) {
     return portable_sha256(data, bytes);
 #endif
 }
+inline std::string mapped_file_digest(const std::filesystem::path& path) {
+    ReadOnlyModelFile file(path);
+    return weight_digest(file.bytes().data(), file.bytes().size());
+}
+
 // Bounds are checked before every record access. The output remains packed;
 // only the already authenticated catalogue supplies native offsets/padding.
 struct WeightRecord {
     size_t byte_offset, bytes;
 };
-inline std::map<std::string, WeightRecord> resource_records(const uint8_t* data, size_t bytes) {
+namespace resource_format {
+// Packed little-endian resource protocol; do not map a naturally aligned C++
+// struct onto it. In particular the payload begins at byte 20, not byte 24.
+inline constexpr size_t length_bytes = sizeof(uint64_t);
+inline constexpr size_t body_size_offset = 0;
+inline constexpr size_t payload_size_offset = body_size_offset + length_bytes;
+inline constexpr size_t device_offset = payload_size_offset + length_bytes;
+inline constexpr size_t payload_offset = device_offset + sizeof(uint32_t);
+inline constexpr size_t maximum_name_bytes = 4096;
+inline constexpr uint32_t maximum_device_tag = 1;
+static_assert(payload_offset == 20);
+} // namespace resource_format
+inline std::map<std::string, WeightRecord> resource_records(
+    const uint8_t* data, size_t bytes, const Definition& model = models::original) {
     auto range = [bytes](size_t byte_offset, size_t count) {
         if (byte_offset > bytes || count > bytes - byte_offset)
             throw std::runtime_error("Truncated DLL weight resource");
@@ -135,37 +162,41 @@ inline std::map<std::string, WeightRecord> resource_records(const uint8_t* data,
     if (u64(0) != bytes)
         throw std::runtime_error("DLL weight resource size mismatch");
     std::map<std::string, WeightRecord> records;
-    size_t position = 8;
+    size_t position = resource_format::length_bytes;
     while (position < bytes) {
         const auto length = u64(position);
-        if (!length || length > 4096)
+        if (!length || length > resource_format::maximum_name_bytes)
             throw std::runtime_error("DLL weight record name extent");
-        position += 8;
+        position += resource_format::length_bytes;
         range(position, size_t(length));
         std::string name(reinterpret_cast<const char*>(data + position), size_t(length));
         position += size_t(length);
         const auto body = u64(position);
-        position += 8;
-        if (body < 20 || body > bytes - position)
+        position += resource_format::length_bytes;
+        if (body < resource_format::payload_offset || body > bytes - position)
             throw std::runtime_error("DLL weight record body extent");
-        const auto inner = u64(position), payload = u64(position + 8);
-        const auto device = u32(position + 16);
-        if (inner != body || device > 1 || !payload || payload > body - 20)
+        const auto inner = u64(position + resource_format::body_size_offset);
+        const auto payload = u64(position + resource_format::payload_size_offset);
+        const auto device = u32(position + resource_format::device_offset);
+        if (inner != body || device > resource_format::maximum_device_tag || !payload ||
+            payload > body - resource_format::payload_offset)
             throw std::runtime_error("Invalid DLL weight record");
-        if (!records.emplace(name, WeightRecord{position + 20, size_t(payload)}).second)
+        if (!records.emplace(name, WeightRecord{position + resource_format::payload_offset,
+                                                size_t(payload)}).second)
             throw std::runtime_error("Duplicate DLL weight record");
         position += size_t(body);
     }
-    if (records.size() != 153)
+    if (records.size() != model.record_count)
         throw std::runtime_error("Unsupported native model record count");
     return records;
 }
 inline std::vector<uint8_t> reconstruct_weights(const uint8_t* data, size_t bytes,
-                                                const Json& catalogue) {
-    const auto records = resource_records(data, bytes);
+                                                const Json& catalogue,
+                                                const Definition& model = models::original) {
+    const auto records = resource_records(data, bytes, model);
     const auto extent = catalogue.at("bytes").get<uint64_t>();
     if (extent > UINT32_MAX || records.size() != catalogue.at("records").size() ||
-        records.size() != 153 || catalogue.at("unknown_gap_bytes") != 0)
+        records.size() != model.record_count || catalogue.at("unknown_gap_bytes") != 0)
         throw std::runtime_error("DLL weights do not match the complete native catalogue");
     std::vector<uint8_t> result(size_t(extent), 0);
     for (const auto& expected : catalogue.at("records")) {
@@ -184,15 +215,36 @@ inline std::vector<uint8_t> reconstruct_weights(const uint8_t* data, size_t byte
         throw std::runtime_error("DLL reconstructed weight allocation differs");
     return result;
 }
+struct ResourceIdentity {
+    std::string name, architecture, sha256;
+};
+inline ResourceIdentity resource_identity(const uint8_t* data, size_t bytes,
+                                           const Definition& model) {
+    return {std::string(model.resource), std::string(model.architecture), weight_digest(data, bytes)};
+}
 struct PackedModel {
     Json catalogue;
     std::vector<uint8_t> bytes;
+    ResourceIdentity resource;
 };
+inline Json model_catalogue(const Registry& models = registry()) {
+    Json result = Json::array();
+    for (const auto& model : models.entries())
+        result.push_back({{"id", model.id}, {"label", model.label},
+                          {"architecture", model.architecture}, {"resource", model.resource},
+                          {"implemented", model.implemented},
+                          {"portable_implemented", model.implemented},
+                          {"native_rtx_implemented", model.implemented && model.native.launches != 0},
+                          {"unavailable_reason", model.unavailable_reason}});
+    return result;
+}
 // The native ABI packs records lexically, each starting on a 512-byte boundary.
 // Sizes and payloads come from the authenticated DLL, never a saved catalogue.
-inline PackedModel pack_resource(const uint8_t* data, size_t size) {
-    const auto records = resource_records(data, size);
+inline PackedModel pack_resource(const uint8_t* data, size_t size,
+                                 const Definition& model = models::original) {
+    const auto records = resource_records(data, size, model);
     PackedModel result;
+    result.resource = resource_identity(data, size, model);
     result.catalogue = {
         {"records", Json::array()}, {"unknown_gap_bytes", 0}, {"source", "dll_resource"}};
     size_t extent = 0;
@@ -216,12 +268,16 @@ inline PackedModel pack_resource(const uint8_t* data, size_t size) {
     result.catalogue["sha256"] = weight_digest(result.bytes.data(), extent);
     return result;
 }
+inline void validate_model_layout(const uint8_t* data, size_t bytes, const Definition& model);
+
 template <class Read>
 inline auto
 with_dll_resource(const WeightSource& source,
                   const std::function<std::string(const std::filesystem::path&)>& file_digest,
                   Read read) {
     source.validate();
+    const auto& model = source.model();
+    require_implemented(model);
     if (source.dll.empty() || file_digest(source.dll) != source.dll_sha256)
         throw std::runtime_error("DLL weight source SHA-256 mismatch");
 #ifdef _WIN32
@@ -236,21 +292,24 @@ with_dll_resource(const WeightSource& source,
                              LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)};
     if (!mapping.handle)
         throw std::runtime_error("DLL resource mapping failed");
-    const auto resource = FindResourceW(mapping.handle, L"WEIGHTS_HT", MAKEINTRESOURCEW(10));
+    const std::wstring resource_name(model.resource.begin(), model.resource.end());
+    const auto resource = FindResourceW(mapping.handle, resource_name.c_str(), MAKEINTRESOURCEW(10));
     if (!resource)
-        throw std::runtime_error("DLL has no WEIGHTS_HT resource");
+        throw std::runtime_error("DLL has no selected model resource: " + std::string(model.resource));
     const auto bytes = SizeofResource(mapping.handle, resource);
     const auto loaded = LoadResource(mapping.handle, resource);
     const auto data = static_cast<const uint8_t*>(LockResource(loaded));
     if (!data || !bytes)
         throw std::runtime_error("DLL weight resource unavailable");
+    validate_model_layout(data, size_t(bytes), model);
     return read(data, size_t(bytes));
 #else
     ReadOnlyModelFile mapping(source.dll);
-    const auto resource = pe_weight_resource(mapping.bytes());
+    const auto resource = pe_weight_resource(mapping.bytes(), model.resource);
     // Authenticate the exact mapped bytes too, closing the hash/open race.
     if (weight_digest(mapping.bytes().data(), mapping.bytes().size()) != source.dll_sha256)
         throw std::runtime_error("Mapped DLL weight source SHA-256 mismatch");
+    validate_model_layout(resource.data(), resource.size(), model);
     return read(resource.data(), resource.size());
 #endif
 }
@@ -258,28 +317,32 @@ inline std::vector<uint8_t>
 dll_weights(const WeightSource& source, const Json& catalogue,
             const std::function<std::string(const std::filesystem::path&)>& file_digest) {
     return with_dll_resource(source, file_digest, [&](const uint8_t* data, size_t bytes) {
-        return reconstruct_weights(data, bytes, catalogue);
+        return reconstruct_weights(data, bytes, catalogue, source.model());
     });
 }
 inline PackedModel
 dll_packed_model(const WeightSource& source,
                  const std::function<std::string(const std::filesystem::path&)>& file_digest) {
-    return with_dll_resource(source, file_digest, pack_resource);
+    return with_dll_resource(source, file_digest, [&](const uint8_t* data, size_t bytes) {
+        return pack_resource(data, bytes, source.model());
+    });
 }
 
 // Architecture metadata only: the digest covers sorted record names and sizes,
 // not weights. Compatible replacement values use the same fixed graph ABI.
 inline constexpr const char* network37_layout_sha256 =
-    "531a2a237808c9a5a1b040b506a5cd480caa497f6725ec595ae63f5891771680";
-inline void validate_model_layout(const uint8_t* data, size_t bytes) {
+    models::original.layout_sha256.data();
+inline void validate_model_layout(const uint8_t* data, size_t bytes,
+                                  const Definition& model = models::original) {
     std::string layout;
-    for (const auto& [name, record] : resource_records(data, bytes))
+    for (const auto& [name, record] : resource_records(data, bytes, model))
         layout += name + '\t' + std::to_string(record.bytes) + '\n';
     if (weight_digest(reinterpret_cast<const uint8_t*>(layout.data()), layout.size()) !=
-        network37_layout_sha256)
-        throw std::runtime_error("Model record names or sizes do not match phoenix-network37/1");
+        model.layout_sha256)
+        throw std::runtime_error("Model record names or sizes do not match " + std::string(model.architecture));
 }
-inline Json folder_manifest(const std::filesystem::path& folder) {
+inline Json folder_manifest(const std::filesystem::path& folder,
+                             const Definition& model = models::original) {
     std::ifstream file(folder / "model.json", std::ios::binary);
     if (!file)
         throw std::runtime_error("Model folder has no readable model.json");
@@ -290,7 +353,8 @@ inline Json folder_manifest(const std::filesystem::path& folder) {
     text.resize(size_t(file.gcount()));
     auto manifest = Json::parse(text);
     if (manifest.at("schema") != "dlss5-phoenix-model/1" ||
-        manifest.at("architecture") != "phoenix-network37/1")
+        manifest.at("architecture").get<std::string>() != model.architecture ||
+        manifest.value("model", std::string(model.id)) != model.id)
         throw std::runtime_error("Unsupported disk model schema or architecture");
     return manifest;
 }
@@ -322,9 +386,11 @@ inline std::filesystem::path folder_resource_path(const std::filesystem::path& f
 }
 template <class Read> inline auto with_folder_resource(const WeightSource& source, Read read) {
     source.validate();
+    const auto& model = source.model();
+    require_implemented(model);
     if (source.folder.empty())
         throw std::runtime_error("Model folder is not configured");
-    const auto manifest = folder_manifest(source.folder);
+    const auto manifest = folder_manifest(source.folder, model);
     const auto& resource = manifest.at("resource");
     const auto& extent = resource.at("bytes");
     if (!extent.is_number_integer() || extent <= 0 || extent > 512ull * 1024 * 1024)
@@ -372,7 +438,7 @@ template <class Read> inline auto with_folder_resource(const WeightSource& sourc
 #endif
     if (weight_digest(data, bytes) != checksum)
         throw std::runtime_error("Model resource SHA-256 mismatch");
-    validate_model_layout(data, bytes);
+    validate_model_layout(data, bytes, model);
     return read(data, bytes);
 }
 template <class Read>
@@ -387,13 +453,15 @@ with_model_resource(const WeightSource& source,
 inline PackedModel
 packed_model(const WeightSource& source,
              const std::function<std::string(const std::filesystem::path&)>& file_digest) {
-    return with_model_resource(source, file_digest, pack_resource);
+    return with_model_resource(source, file_digest, [&](const uint8_t* data, size_t bytes) {
+        return pack_resource(data, bytes, source.model());
+    });
 }
 inline std::vector<uint8_t>
 model_weights(const WeightSource& source, const Json& catalogue,
               const std::function<std::string(const std::filesystem::path&)>& file_digest) {
     return with_model_resource(source, file_digest, [&](const uint8_t* data, size_t bytes) {
-        return reconstruct_weights(data, bytes, catalogue);
+        return reconstruct_weights(data, bytes, catalogue, source.model());
     });
 }
 } // namespace phoenix_model

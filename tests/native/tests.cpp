@@ -1560,7 +1560,7 @@ int main() {
         check(!bad.valid(), "zero refinement rejected");
         ++cases;
         bad = {};
-        bad.refinement_passes = 5;
+        bad.refinement_passes = 11;
         check(!bad.valid(), "unbounded refinement rejected");
         ++cases;
         for (unsigned destination_index = 0; destination_index < 8; ++destination_index) {

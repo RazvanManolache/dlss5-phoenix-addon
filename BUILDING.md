@@ -1,10 +1,21 @@
 # Build Phoenix DLSS5
 
+<!-- current-two-model-evidence -->
+Current two-model support and platform requirements are listed in [the support matrix](docs/SUPPORT.md). The [current benchmark report](docs/benchmarks/current/README.md) includes reproducible preparation/run commands and identifies the measured development binaries; it is separate from published packages.
+<!-- /current-two-model-evidence -->
+
 For the standalone C library, Linux/Android builds and experimental Apple silicon
 Metal backend, see [the library build and integration guide](docs/LIBRARY.md).
 The instructions below build the Windows ReShade addon and its existing runners.
 
 Build from this repository with Python 3.11 or newer, Visual Studio C++ x64 build tools and Windows SDK 10.0.26100 or newer. Python is used for building; the compiled runners do not require it at runtime.
+
+Public Windows SDK builds use MSVC deterministic path mapping so diagnostic
+source locations do not disclose the builder's workspace. When building the
+portable runners with `tools/build_portable_cpp.py` for distribution, also set
+`CL` to `/experimental:deterministic /pathmap:C:\SourceRoot=PROJECT_SOURCE`,
+replacing the example root with the parent of your checkout. Run the package
+privacy checks on the final binaries, not only on their source archive.
 
 Provide NVIDIA NGX SDK headers separately. They are not included here. Native RTX kernels also require a CUDA toolkit supporting the architecture in `src/native/model/production_kernel_contracts.json` (currently `sm_120`).
 
@@ -13,7 +24,11 @@ for SDK installation sources, required runtime libraries and optional backend co
 
 Run `python tools/audit_release.py --git-visible` in a Git checkout to check that
 every source-package file is in Git's index and that model/binary payloads are
-excluded. In a source ZIP without Git, run the same command without `--git-visible`.
+excluded. The auditor requires a Git checkout. Local editor configuration is
+excluded even if Git lists it. C++ architecture/layout sources under
+`native_runtime/models/` and `src/native/model/models/`, plus `models/README.md`,
+are included; downloaded/extracted model data remains forbidden. Commit the
+audited source changes before preparing a release archive.
 
 ## Addon and tests
 
@@ -242,3 +257,13 @@ needed for this packaging step. The publisher's default is a read-only preflight
 `--publish` explicitly pushes a clean public-identity snapshot/tag and creates
 a release. It uses existing Git Credential Manager authentication and verifies
 public downloads without writing credentials to files or logs.
+
+## Maintained source contracts
+
+Run `python tools/generate_weight_layouts.py --check` and
+`python tools/verify_source_provenance.py` before rebuilding maintained sources.
+The first verifies both Original and Lightweight FP8 declarations; the second checks the
+compatibility helper's current source inputs separately from its declared import
+hashes. Compatibility builds also run that input check automatically. See
+[source maintenance](docs/SOURCE_MAINTENANCE.md) for regeneration, intentional
+source updates, numerical boundaries, and focused model-free tests.

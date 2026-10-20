@@ -5,6 +5,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <bit>
 
 // Pure CPU preflight. No file reads, driver calls, allocations of GPU objects,
 // or production_network include. Binary identity remains load_catalog's job.
@@ -21,7 +22,7 @@ struct PreflightInfo {
     unsigned synchronization_bindings = 0;
     // Exclusive endpoints in the 154-element neural array (clear excluded).
     std::vector<unsigned> group_ends;
-    std::array<bool, 154> barrier_after{};
+    std::vector<bool> barrier_after;
 };
 
 namespace policy_detail {
@@ -50,7 +51,7 @@ struct Abi {
     std::string name;
     unsigned bytes, block_width, block_height, z;
 };
-inline std::vector<Abi> schedule() {
+inline std::vector<Abi> schedule(phoenix_model::NativeLayout layout = {}) {
     std::vector<Abi> launch_schedule;
     auto add = [&](std::string name, unsigned bytes, unsigned block_height = 1,
                    unsigned block_width = 32) {
@@ -62,9 +63,7 @@ inline std::vector<Abi> schedule() {
                             std::to_string(heads * 32) + "_" + std::to_string(heads) + "_";
         const unsigned bytes = heads == 1 ? 96 : 88;
         add(prefix + "inpview_tilesync_fp8", bytes, heads);
-        for (unsigned iteration_index = 0; iteration_index < (heads < 4    ? 2u
-                                                              : heads == 4 ? 4u
-                                                                           : 6u);
+        for (unsigned iteration_index = 0; iteration_index < layout.schedule->fused_interior_pairs[std::countr_zero(heads)];
              ++iteration_index)
             add(prefix + "chained_fp8", bytes, heads);
         add(prefix + "ds_wait_fp8", bytes, heads);
@@ -72,11 +71,11 @@ inline std::vector<Abi> schedule() {
     const std::string split = "cc_split_swin_16h_";
     add(split + "ffwd_inpview_512_tilesync_fp8", 56, 4);
     add(split + "ffwd_proj_inpview_512_chained_fp8", 72, 4);
-    for (unsigned iteration_index = 0; iteration_index < 8; ++iteration_index) {
+    for (unsigned iteration_index = 0; iteration_index < layout.schedule->split_blocks; ++iteration_index) {
         add(split + "qkv_512_chained_fp8", 56, 4);
-        add(split + (iteration_index == 7 ? "proj_pool_512_chained_fp8" : "proj_512_chained_fp8"),
-            iteration_index == 7 ? 80 : 72, iteration_index == 7 ? 4 : 8);
-        if (iteration_index < 7) {
+        const bool last = iteration_index + 1 == layout.schedule->split_blocks;
+        add(split + (last ? "proj_pool_512_chained_fp8" : "proj_512_chained_fp8"), last ? 80 : 72, last ? 4 : 8);
+        if (!last) {
             add(split + "ffwd_512_chained_fp8", 56, 8);
             add(split + "ffwd_proj_512_chained_fp8", 72, 4);
         }
@@ -96,21 +95,19 @@ inline std::vector<Abi> schedule() {
     }
     add("cc_vit_1d_repack_1d_to_2d_fp8", 24, 1, 256);
     add("cc_dec_input_upsample_1024_512_tilesync_fp8", 80, 2);
-    for (unsigned iteration_index = 0; iteration_index < 8; ++iteration_index) {
+    for (unsigned iteration_index = 0; iteration_index < layout.schedule->split_blocks; ++iteration_index) {
         add(split + "ffwd_512_chained_fp8", 56, 8);
         add(split + "ffwd_proj_512_chained_fp8", 72, 4);
         add(split + "qkv_512_chained_fp8", 56, 4);
-        add(split + (iteration_index == 7 ? "proj_512_outview_wait_fp8" : "proj_512_chained_fp8"),
-            72, iteration_index == 7 ? 4 : 8);
+        const bool last = iteration_index + 1 == layout.schedule->split_blocks;
+        add(split + (last ? "proj_512_outview_wait_fp8" : "proj_512_chained_fp8"), 72, last ? 4 : 8);
     }
     for (unsigned heads : {8u, 4u, 2u, 1u}) {
         const auto prefix = "cc_tinlayout_fused_swin_" + std::to_string(heads) + "h_" +
                             std::to_string(heads * 32) + "_" + std::to_string(heads) + "_";
         const unsigned bytes = heads == 1 ? 96 : 88;
         add(prefix + "upsample_tilesync_fp8", bytes, heads);
-        for (unsigned iteration_index = 0; iteration_index < (heads < 4    ? 2u
-                                                              : heads == 4 ? 4u
-                                                                           : 6u);
+        for (unsigned iteration_index = 0; iteration_index < layout.schedule->fused_interior_pairs[std::countr_zero(heads)];
              ++iteration_index)
             add(prefix + "chained_fp8", bytes, heads);
         add(prefix + "outview_wait_fp8", bytes, heads);
@@ -255,11 +252,15 @@ inline void rectangle(const std::vector<uint8_t>& bytes, unsigned offset, unsign
 inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
                                const std::vector<phoenix_kernel::Spec>& candidates) {
     using namespace policy_detail;
-    static const auto graph = schedule();
-    check(graph.size() == 154 && candidates.size() == 41, "policy candidate/launch count");
+    const auto layout = phoenix_model::native_layout(frame.value("model_architecture", std::string("phoenix-network37/1")));
+    const auto graph = schedule(layout);
+    const unsigned neural = layout.launches();
+    check(graph.size() == neural && candidates.size() == 41, "policy candidate/launch count");
     std::map<std::string, Abi> expected;
     for (const auto& abi : graph)
         expected.emplace(abi.name, abi);
+    // Small stages omit chained fused variants, but authenticate all 41 shared modules.
+    for (const auto& abi : schedule()) expected.emplace(abi.name, abi);
     check(expected.size() == 41, "policy internal catalog count");
     std::set<std::string> seen;
     for (const auto& spec : candidates) {
@@ -279,15 +280,18 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
     const auto weights = integer(frame.at("arenas").at("weights").at("bytes"), 1ull << 36);
     check(workspace && weights, "policy arena extent");
     const auto& launches = frame.at("launches");
-    check(launches.is_array() && launches.size() == 156, "policy launch count");
-    check(launches[0].at("name") == "cc_cb_clear" && launches[155].at("name") == "cg2r_copy_kernel",
+    check(launches.is_array() && launches.size() == neural + 2, "policy launch count");
+    check(launches[0].at("name") == "cc_cb_clear" && launches[neural + 1].at("name") == "cg2r_copy_kernel",
           "policy boundary symbols");
     check(phoenix_bundle::has_barrier_policy(frame), "policy missing barrier declaration");
-    constexpr std::array<unsigned, 15> positions{1,  2,  6,   10,  16,  24,  57, 58,
-                                                 98, 99, 132, 140, 146, 150, 154};
+    auto positions = layout.group_ends();
+    for (unsigned index = unsigned(positions.size()) - 1; index > 0; --index) positions[index] = positions[index - 1] + 1;
+    positions[0] = 1;
     const auto& barriers = frame.at("neural_region_barriers");
     check(barriers.is_array() && barriers.size() == positions.size(), "policy barrier coverage");
     PreflightInfo info;
+    info.neural_launches = neural;
+    info.barrier_after.resize(neural);
     for (size_t iteration_index = 0; iteration_index < positions.size(); ++iteration_index) {
         const auto& binding_record = barriers[iteration_index];
         check(integer(binding_record.at("after_launch")) == positions[iteration_index] &&
@@ -300,7 +304,7 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
             info.barrier_after[positions[iteration_index] - 2] = true;
         }
     }
-    info.group_ends.push_back(154);
+    info.group_ends.push_back(neural);
     const auto clear = phoenix_bundle::hex(launches[0].at("template_hex").get<std::string>());
     check(clear.size() == 16, "policy clear ABI");
     info.clear_words = word(clear, 8);
@@ -308,11 +312,11 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
     check(info.clear_words && info.counter_bytes < workspace, "policy clear extent");
     const std::array<phoenix_launch_plan::Arena, 2> arenas{
         {{0x1000000000ull, workspace}, {0x8000000000ull, weights}}};
-    for (unsigned index = 0; index < 156; ++index) {
+    for (unsigned index = 0; index < neural + 2; ++index) {
         const auto& source = launches[index];
         check(integer(source.at("index")) == index, "policy launch order");
         const std::string name = source.at("name");
-        const unsigned extent = index == 0 ? 16 : index == 155 ? 72 : graph[index - 1].bytes;
+        const unsigned extent = index == 0 ? 16 : index == neural + 1 ? 72 : graph[index - 1].bytes;
         check(integer(source.at("argument_bytes")) == extent &&
                   integer(source.at("dynamic_shared_bytes")) == 0,
               "policy launch ABI");
@@ -323,7 +327,7 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
             check(integer(source.at("grid")[axis], UINT32_MAX) > 0, "policy launch grid");
             check(integer(source.at("block")[axis], 1024) > 0, "policy launch block");
         }
-        if (index > 0 && index < 155) {
+        if (index > 0 && index < neural + 1) {
             const auto& expected_abi = graph[index - 1];
             check(name == expected_abi.name &&
                       source.at("block") ==
@@ -414,7 +418,7 @@ inline PreflightInfo preflight(const phoenix_bundle::Json& frame,
               "policy scalar coverage");
         auto launch = phoenix_bundle::launch(source, [](const Json&) { return uint64_t(1); });
         phoenix_launch_plan::materialize(launch, arenas);
-        if (index == 1 || index == 154) {
+        if (index == 1 || index == neural) {
             for (unsigned offset : index == 1 ? std::array<unsigned, 3>{40, 64, 136}
                                               : std::array<unsigned, 3>{64, 116, 140})
                 rectangle(raw, offset, width, height);

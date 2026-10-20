@@ -3,6 +3,8 @@
 #include "budget.h"
 #include "device_selection.h"
 #include "resolution.h"
+#include "processing.h"
+#include "../model/registry.h"
 #include <variant>
 #include <array>
 #include <vector>
@@ -46,16 +48,17 @@ struct Settings {
     int resolution_mode = 0, resolution_quality = 0, resolution_aspect = 0;
     int upscaler = 0; // Spatial, NVIDIA DLSS SR, or Intel XeSS.
     int resolution_ratio_width = 16, resolution_ratio_height = 9;
-    std::string model_source = "configured", model_folder, model_dll;
+    std::string model_source = "configured", model_folder, model_dll, model_id;
+    std::string nvidia_dll_folder; // Optional shared DLL fallback; local selection wins.
+    std::string model_library_directory; // Explicit shared native-model index root.
     PhoenixLiveControls controls;
+    Processing processing;
+    int nvidia_model = -1; // Match Phoenix, DLL default, Original, Lightweight FP8.
     bool native_options = false;
     float intensity = 1, divider = 2.f / 3.f;
     int style = 0, ui_correction = 0;
     // The master neural-rendering switch: false skips
     // every native override block, leaving the game's own NR controls alone.
-    // DLSSNR.Hint.Render.Preset is deliberately NOT mirrored: presets 0-3
-    // measured byte-identical on the shipped NR build, so a preset widget
-    // would be placebo UI.
     bool uplift = true;
     // Self-drive host recipe (mirrors the reference NR host): explicit
     // exposure globals, global tone, and the jitter source for our own NR
@@ -116,7 +119,7 @@ struct Settings {
         for (int repeat_count : block_repeats)
             if (repeat_count < 0 || repeat_count > 4)
                 return false;
-        return upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
+        return processing.valid() && nvidia_model >= -1 && nvidia_model <= 2 && upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
                controls.valid() && resolution_mode >= 0 && resolution_mode <= 1 &&
                resolution_quality >= 0 && resolution_quality <= 2 && resolution_aspect >= 0 &&
                resolution_aspect <= 5 && resolution_ratio_width >= 1 &&
@@ -124,8 +127,12 @@ struct Settings {
                resolution_ratio_height <= 100 && valid_execution_device(execution_device) &&
                (model_source == "configured" || model_source == "model_folder" ||
                 model_source == "nvidia_dll") &&
+               (model_id.empty() || std::any_of(phoenix_model::definitions.begin(), phoenix_model::definitions.end(),
+                    [&](const auto& model) { return model.id == model_id; })) &&
                model_folder.size() < 4096 && model_folder.find('\0') == std::string::npos &&
                model_dll.size() < 4096 && model_dll.find('\0') == std::string::npos &&
+               nvidia_dll_folder.size() < 4096 && nvidia_dll_folder.find('\0') == std::string::npos &&
+               model_library_directory.size() < 4096 && model_library_directory.find('\0') == std::string::npos &&
                (worker_engine == "auto" || worker_engine == "portable" ||
                 worker_engine == "matrix" || worker_engine == "fp8") &&
                offload_age_frames >= 1 && offload_age_frames <= kMaxOffloadAgeFrames &&
@@ -139,7 +146,7 @@ struct Settings {
                std::isfinite(budget_ms) && budget_ms >= .1f && budget_ms <= 100.f &&
                budget_mode >= 0 && budget_mode <= 1 && std::isfinite(desired_fps) &&
                desired_fps >= 10.f && desired_fps <= 360.f && refinement_passes >= 1 &&
-               refinement_passes <= 4 && host_jitter >= 0 && host_jitter <= 1 && host_bridge >= 0 &&
+               refinement_passes <= 10 && host_jitter >= 0 && host_jitter <= 1 && host_bridge >= 0 &&
                host_bridge <= 1 && host_hdr >= 0 && host_hdr <= 1 &&
                std::isfinite(host_white_nits) && host_white_nits >= 1 && host_white_nits <= 10000 &&
                std::isfinite(host_exposure) && host_exposure >= 0.05f && host_exposure <= 4.0f &&
@@ -209,9 +216,14 @@ inline bool copy_live_tuning(Settings& target, const Settings& source) {
     return changed;
 }
 template <class Visitor> void visit_settings(Settings& settings, Visitor visit) {
+    visit_processing(settings.processing, visit);
+    visit("NvidiaModel", settings.nvidia_model);
     visit("ModelSource", settings.model_source);
+    visit("ModelId", settings.model_id);
     visit("ModelFolder", settings.model_folder);
     visit("ModelDll", settings.model_dll);
+    visit("NvidiaDllFolder", settings.nvidia_dll_folder);
+    visit("ModelLibraryDirectory", settings.model_library_directory);
     visit("ExecutionDevice", settings.execution_device);
     visit("WorkerEngine", settings.worker_engine);
     visit("OffloadAgeFrames", settings.offload_age_frames);
@@ -278,6 +290,7 @@ inline void reset_neural_section(Settings& settings) {
     settings.host_unjitter = false;
 }
 inline void reset_native_section(Settings& settings) {
+    settings.nvidia_model = -1;
     settings.native_options = false;
     settings.intensity = 1;
     settings.style = 0;

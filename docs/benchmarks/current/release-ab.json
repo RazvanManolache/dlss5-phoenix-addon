@@ -1,0 +1,2856 @@
+{
+  "passed": true,
+  "started_utc": "2026-10-20T13:26:03.116113+03:00",
+  "finished_utc": "2026-10-20T13:32:34.508966+03:00",
+  "source_refs": {
+    "released": "75ebec5d87deceb0e8f2216fe1d25f5440e4cc42",
+    "current": "977c2eac7433786ff5fc6593ab756fb4d76ae4c9"
+  },
+  "common_harness_sha256": "70d4f9c045bce5b314276e214ca35f60cb0fa544bc69a2afb79e96eff092fa21",
+  "model_dll_sha256": {
+    "310.8": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+    "310.9.16": "2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f"
+  },
+  "model": "original",
+  "passes": 1,
+  "transformer_blocks": 8,
+  "repeats": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "fixture": "Current structured SDR RGB fixture quantized through FP16; zero motion; no depth; fixed seed; automatic mask; default tone/structure",
+  "warmup_seconds": 1.0,
+  "measurement_seconds": 3.0,
+  "scope": "Common GPU-resident D3D12 probe; engine work and matching output copy; upload/readback excluded; full call records/submits/waits",
+  "limitations": [
+    "Clocks and OS scheduling are not locked.",
+    "Released means current origin/main source, not the earlier commit that produced historical README numbers.",
+    "Fixed Original-only benchmark frontend; not addon UI, transport, game FPS or startup-to-first-image."
+  ],
+  "gpu_before": "NVIDIA GeForce RTX 5080, 616.64, 3924 MiB, 34, 562 MHz, 13.77 W, 3 %",
+  "gpu_after": "NVIDIA GeForce RTX 5080, 616.64, 4157 MiB, 48, 585 MHz, 25.60 W, 1 %",
+  "builds": {
+    "released": {
+      "source_archive_sha256": "554f470efd7449dffc63e2b987ba8b57bb9d1743eec7084739ceb06ad53605c0",
+      "probe_sha256": "8b729f561ecc8fee3b394bac6390afb35bc0ec83ae6137dca549f477715d7594",
+      "forwarder_sha256": "11fb8aa5dfa9d3159b855db2658cabed6dfbb6bfbd9fbcee391118baecd94053",
+      "native_manifest_sha256": "884786efe8d42ba83109d3b6025a646b8ecfe61aa3f8c212506807243f73669e",
+      "native_graph_sha256": "47bb2d275e338a1956a28eeb75d734dafd9b71112a4ecc4af9808ae7a09f40f7",
+      "kernels": [
+        {
+          "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+          "entry": "phoenix_decoder_input_upsampling",
+          "binary_sha256": "287e4538d7f270b7facca6ff7aef1eda6256947e3ed2505e87efca2a6aababcb"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward",
+          "binary_sha256": "87f2bc05a9e111717b65f0c29cfbb0fa8f24695fb5b9ff2e76b51c81a5d6a60f"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync",
+          "binary_sha256": "8c05f47b18ada9f7d9bed7f57b197c967be5808ed1e0cbdc35b71b589749ed59"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection",
+          "binary_sha256": "415131569a0e1d1233a1f4fdf062c59cc107d0c0ede8e2c1559001fb040789c5"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view",
+          "binary_sha256": "24df3e8071a4b891bb887150187f34effedd3234d1bf4c7b5d98769d97b8c3e7"
+        },
+        {
+          "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_final_head_wait",
+          "binary_sha256": "d829e4b10f224fa0e58094de73d7859a743b9815a8fe1868405af39a322b48d9"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection",
+          "binary_sha256": "c9c4095ab9fac0ac4996e8c0ee141d6b5974d71aeebeca77c60fdcb678d39d90"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_output_view_wait",
+          "binary_sha256": "0207e1eec99376ce807d392b9108762da01835235628eed7d85661984793870d"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_pool",
+          "binary_sha256": "ec99b1755584525631cf51c6e13c52b57359c598ddfff9864929edc7c01e0e78"
+        },
+        {
+          "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_query_key_value",
+          "binary_sha256": "10c75c903785098417d8e4ff1ff48d1b5593e9f7cc6e0ba084626a65c126d8df"
+        },
+        {
+          "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+          "entry": "phoenix_output_reconstruction",
+          "binary_sha256": "264298e7ee7697b562866d432e3f190a3bfd70b37db431a33268b6fad1ba44d9"
+        },
+        {
+          "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+          "entry": "phoenix_input_preparation",
+          "binary_sha256": "e2b74d4afd32690e07cc9f97376cf3ad4e392cf7d29ce281fbbad4a228da2ca8"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+          "entry": "phoenix_window_attention_channels_32_attention",
+          "binary_sha256": "d7f69e9bbe23b3dd8edce35a7ff413c4a98b6d9b45bd92b92344894bf8ded53a"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_downsample",
+          "binary_sha256": "3c00f1ed451ea80cb63b905afc3a3abaa8a0bbbb14e84758d1b784f4818d7fcc"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_input_view",
+          "binary_sha256": "f519893c4b2d46d3021af2d2d143bf7755db3b4364ba0eaf1e3b82b06a5edd10"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_output_view",
+          "binary_sha256": "b297e7a03f5dabd9c4f5afcd011ff20655e91c8b26acb510ebb895dc63d84449"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_upsample",
+          "binary_sha256": "86c14de74c9bd696e7d0a75470abed338218ad49ccdf26c5bbec4f854e7e8e97"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+          "entry": "phoenix_window_attention_channels_64_attention",
+          "binary_sha256": "0a3b2158504b0ff433a964b9f1fe821c194371322e46510486e84843a05f998c"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_downsample",
+          "binary_sha256": "ea4afe8d685b2e23d1e328801d34cc882933bfec626537bc25bf7e142c04e516"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_input_view",
+          "binary_sha256": "f6e28f16e4789b7d642c01cdf870e239ade4ac03542f3a98ae45fecfdc233123"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_output_view",
+          "binary_sha256": "7fad1a021dc94110e804c95661103fe6f42da25ec35ee1a1b2e78b6fd4623fae"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_upsample",
+          "binary_sha256": "9879b932119e1c98bf435883ac6822431eff2dbac5900523ccc83719e51db333"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+          "entry": "phoenix_window_attention_channels_128_attention",
+          "binary_sha256": "ee1c6a27bd364dbdbc4eeb60afe023b9173a1eb95c5e49f4f3046fa500c7a065"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_downsample",
+          "binary_sha256": "91683dd904487740f76f20b5043e8f2733e6ee615a9002ab06ad58fa4bcc5ea8"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_input_view",
+          "binary_sha256": "35c13b9755952c479a5c339967b0136985bf5c66923498cb708a71857e7e26f5"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_output_view",
+          "binary_sha256": "0fbb72ee478d3399c0a4f725771835aa1dbd69344cc5dd10dd3bbf759b987c1f"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_upsample",
+          "binary_sha256": "8a1f2bae977090816e056a176cf9aade863ca46a6ed7d61f5710d849ef0fac89"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+          "entry": "phoenix_window_attention_channels_256_attention",
+          "binary_sha256": "df3341cbac8f4d1fada632ebba7d18d3a8c2a53217dea6b026b0b9cb3ed5b623"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_downsample",
+          "binary_sha256": "860b7b727a919357d213284d605c33fbab16fbd3d0edb69649ff57e133e69898"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_input_view",
+          "binary_sha256": "aacba740f55ee328935d8b0dac909ac425bf717cb5c2d6412bca00ec358c0f26"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_output_view",
+          "binary_sha256": "b74e9f36e5a3c3f7fdcf13d41e57b3ea0ca8d062a56bd6c422384ce5cb93cde9"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_upsample",
+          "binary_sha256": "13c1a03081d77a54fdde028957218df7d6aaf9979ee18aceb3f25ea719ecc217"
+        },
+        {
+          "name": "cc_vit_1d_attention_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_attention",
+          "binary_sha256": "771fc1eedd5d8d1a4bc978a978afd20144d25020a33142a0a84eec54e3f0b08c"
+        },
+        {
+          "name": "cc_vit_1d_ffn_contract_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_contract",
+          "binary_sha256": "b31614d14f375960fc6f2c12157c1aa32bc47a07f8b139f5e3931e38b54aa7ea"
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand",
+          "binary_sha256": "10a0e5792fcc98d3991bd062deb92ce0fdafafed0a282ea3ad049e84278372fc"
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_publish_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand_publish",
+          "binary_sha256": "235e4331e7e221a7ee9ad122563e5ac65099db05619193ef837299f947f47d2d"
+        },
+        {
+          "name": "cc_vit_1d_projection_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_projection",
+          "binary_sha256": "63432572fcd1c21dad469ea4dda5c0569362fb80492f60b593505ff97a6f133c"
+        },
+        {
+          "name": "cc_vit_1d_projection_wait_fp8",
+          "entry": "phoenix_global_attention_transformer_projection_wait",
+          "binary_sha256": "c3c2251492eda16347c6dc07d736867a0c7f2c268a3b49e4f49555638d995930"
+        },
+        {
+          "name": "cc_vit_1d_qkv_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_query_key_value",
+          "binary_sha256": "3e8034290d6ad6764b309936a2521cdf85fdfd891ecaa967e279b7571aa14a27"
+        },
+        {
+          "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+          "entry": "phoenix_tokens_to_image",
+          "binary_sha256": "09daa63ea5214e7991debe94d19937ba34dd4bd95b3a9588916b9fc6c296828b"
+        },
+        {
+          "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+          "entry": "phoenix_image_to_tokens",
+          "binary_sha256": "e92476aed1066ef66c22f1a745abe23fa110a19a5611473f6d9afbe77e0a4859"
+        }
+      ]
+    },
+    "current": {
+      "source_archive_sha256": "582b51d9a33cc565ee7dee201c4a0d0a9a125caedeaf503c01dcfa62a2e00705",
+      "probe_sha256": "7aa1c4002cc070ce3d0bdc3ad0689c641027a77cc042b83043d0e1872a976ba8",
+      "forwarder_sha256": "91981aebf58d6f233b0bc7e983d3c4adfef7655575e2bc94f68cd78f7fa4947b",
+      "native_manifest_sha256": "e3111b55f05f90d0d7244ae31cecec3df412b073d89c851bddab32c2a3be885e",
+      "native_graph_sha256": "607624001f6b6653712174b6f9c0889962423582f702098c209e53ca74f0ea63",
+      "kernels": [
+        {
+          "name": "cc_dec_input_upsample_1024_512_tilesync_fp8",
+          "entry": "phoenix_decoder_input_upsampling",
+          "binary_sha256": "69f35ae93a1260919bcdb18c40f9b408d2e6ed0cbb70073ced1cd26e70b60267"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward",
+          "binary_sha256": "7270dbb6f614e6c2d4ba418d806c5bafac7f746fdde873d9fcbb1afa6889f61d"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_inpview_512_tilesync_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_input_view_tile_sync",
+          "binary_sha256": "8c05f47b18ada9f7d9bed7f57b197c967be5808ed1e0cbdc35b71b589749ed59"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection",
+          "binary_sha256": "a0b2e939c319b546345cf068284c63ffcf83adedd8339c46dc10cc09fc32d4e9"
+        },
+        {
+          "name": "cc_split_swin_16h_ffwd_proj_inpview_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_feed_forward_projection_input_view",
+          "binary_sha256": "cc9d8631f6a9270817ff64aa19cf2d160fc4f14b2e63040596969b5f60774031"
+        },
+        {
+          "name": "cc_split_swin_16h_final_head_512_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_final_head_wait",
+          "binary_sha256": "1a815eae464456bc0b1d9313b4f307f30ec68aa1cb68321d9397f1b433d4d077"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection",
+          "binary_sha256": "1277c44e5248c60f0524ec8be4be606a6bc1d1ab618b7c81b40653217f771def"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_512_outview_wait_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_output_view_wait",
+          "binary_sha256": "71b8990a8ebe3baac0dd94b6d9b9dd6101d15896b02d4afdb0b356714994bd5c"
+        },
+        {
+          "name": "cc_split_swin_16h_proj_pool_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_projection_pool",
+          "binary_sha256": "a7de87221fd0c524a63fef56a6e0c63978056b6a2dcc8f3d47363cd901e22224"
+        },
+        {
+          "name": "cc_split_swin_16h_qkv_512_chained_fp8",
+          "entry": "phoenix_global_attention_split_heads_512_query_key_value",
+          "binary_sha256": "f74cc802bfc373bc09d5f42162d561b0eaba8f80d8835cbe1df3a83eac4eaca7"
+        },
+        {
+          "name": "cc_tinlayout_fused_post_block_swin_1h_32_fp8",
+          "entry": "phoenix_output_reconstruction",
+          "binary_sha256": "264298e7ee7697b562866d432e3f190a3bfd70b37db431a33268b6fad1ba44d9"
+        },
+        {
+          "name": "cc_tinlayout_fused_pre_block_swin_1h_32_1_ds_fp8",
+          "entry": "phoenix_input_preparation",
+          "binary_sha256": "6755d00ee5c26beca60aed0dc63af6fb77d5c92970a4d83eed330844aa0e783b"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_chained_fp8",
+          "entry": "phoenix_window_attention_channels_32_attention",
+          "binary_sha256": "d7f69e9bbe23b3dd8edce35a7ff413c4a98b6d9b45bd92b92344894bf8ded53a"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_downsample",
+          "binary_sha256": "083ee965ed09946f744b0a848aa09e8fe6432222f5779e3d0123f2b9c7a14352"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_input_view",
+          "binary_sha256": "f519893c4b2d46d3021af2d2d143bf7755db3b4364ba0eaf1e3b82b06a5edd10"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_32_output_view",
+          "binary_sha256": "b297e7a03f5dabd9c4f5afcd011ff20655e91c8b26acb510ebb895dc63d84449"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_1h_32_1_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_32_upsample",
+          "binary_sha256": "86c14de74c9bd696e7d0a75470abed338218ad49ccdf26c5bbec4f854e7e8e97"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_chained_fp8",
+          "entry": "phoenix_window_attention_channels_64_attention",
+          "binary_sha256": "0a3b2158504b0ff433a964b9f1fe821c194371322e46510486e84843a05f998c"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_downsample",
+          "binary_sha256": "9422aa4c647712b18d37bd5cd810d3cb9c2dba1950a2a7248396b74a58a53748"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_input_view",
+          "binary_sha256": "f6e28f16e4789b7d642c01cdf870e239ade4ac03542f3a98ae45fecfdc233123"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_64_output_view",
+          "binary_sha256": "7fad1a021dc94110e804c95661103fe6f42da25ec35ee1a1b2e78b6fd4623fae"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_2h_64_2_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_64_upsample",
+          "binary_sha256": "9879b932119e1c98bf435883ac6822431eff2dbac5900523ccc83719e51db333"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_chained_fp8",
+          "entry": "phoenix_window_attention_channels_128_attention",
+          "binary_sha256": "ee1c6a27bd364dbdbc4eeb60afe023b9173a1eb95c5e49f4f3046fa500c7a065"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_downsample",
+          "binary_sha256": "33f3e9ef82a4327c16363f00a379a27b7f0bea665377bc7f2e5f40613f82ef88"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_input_view",
+          "binary_sha256": "35c13b9755952c479a5c339967b0136985bf5c66923498cb708a71857e7e26f5"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_128_output_view",
+          "binary_sha256": "0fbb72ee478d3399c0a4f725771835aa1dbd69344cc5dd10dd3bbf759b987c1f"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_4h_128_4_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_128_upsample",
+          "binary_sha256": "8a1f2bae977090816e056a176cf9aade863ca46a6ed7d61f5710d849ef0fac89"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_chained_fp8",
+          "entry": "phoenix_window_attention_channels_256_attention",
+          "binary_sha256": "df3341cbac8f4d1fada632ebba7d18d3a8c2a53217dea6b026b0b9cb3ed5b623"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_ds_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_downsample",
+          "binary_sha256": "d53a4df9aefbc70a7b60a239a74f9fb9f59b2cd83e986f88e4cfa375ea84f90b"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_inpview_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_input_view",
+          "binary_sha256": "aacba740f55ee328935d8b0dac909ac425bf717cb5c2d6412bca00ec358c0f26"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_outview_wait_fp8",
+          "entry": "phoenix_window_attention_channels_256_output_view",
+          "binary_sha256": "b74e9f36e5a3c3f7fdcf13d41e57b3ea0ca8d062a56bd6c422384ce5cb93cde9"
+        },
+        {
+          "name": "cc_tinlayout_fused_swin_8h_256_8_upsample_tilesync_fp8",
+          "entry": "phoenix_window_attention_channels_256_upsample",
+          "binary_sha256": "13c1a03081d77a54fdde028957218df7d6aaf9979ee18aceb3f25ea719ecc217"
+        },
+        {
+          "name": "cc_vit_1d_attention_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_attention",
+          "binary_sha256": "180331039ac1e9cad2f4792b00696db4d2bbacbfcb2f2c788fae098edfdf0d56"
+        },
+        {
+          "name": "cc_vit_1d_ffn_contract_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_contract",
+          "binary_sha256": "cbabaa3c6ca085a65292f4d749c8b4a29425fc86b7f532a8526e377e746e5f9e"
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand",
+          "binary_sha256": "ed33193a5895969bafa789473f40a451b0167c64f49e31b1e19676e700be0af0"
+        },
+        {
+          "name": "cc_vit_1d_ffn_expand_publish_fp8",
+          "entry": "phoenix_global_attention_transformer_feed_forward_expand_publish",
+          "binary_sha256": "c05923e050cef8cb8cf4af9710943dfd82fffe208383ba360d7b1b92bac91902"
+        },
+        {
+          "name": "cc_vit_1d_projection_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_projection",
+          "binary_sha256": "f2000b6bf4d3b41ba72588db17b7bce5b8909d2af1aded93482ddb1cd02656f6"
+        },
+        {
+          "name": "cc_vit_1d_projection_wait_fp8",
+          "entry": "phoenix_global_attention_transformer_projection_wait",
+          "binary_sha256": "38b8f55215364b4d7f32895ffcb238354ed680a31b9a93a27048f04d54fd9abf"
+        },
+        {
+          "name": "cc_vit_1d_qkv_chained_fp8",
+          "entry": "phoenix_global_attention_transformer_query_key_value",
+          "binary_sha256": "17f93501b87247c50bce4eb9d88aaeafcc60d6fd2f6809a00ff0373914275811"
+        },
+        {
+          "name": "cc_vit_1d_repack_1d_to_2d_fp8",
+          "entry": "phoenix_tokens_to_image",
+          "binary_sha256": "09daa63ea5214e7991debe94d19937ba34dd4bd95b3a9588916b9fc6c296828b"
+        },
+        {
+          "name": "cc_vit_1d_repack_2d_to_1d_fp8",
+          "entry": "phoenix_image_to_tokens",
+          "binary_sha256": "e92476aed1066ef66c22f1a745abe23fa110a19a5611473f6d9afbe77e0a4859"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 3.346848,
+        "mean_ms": 2.582857939629991,
+        "median_ms": 2.528512,
+        "min_ms": 2.485696,
+        "p95_ms": 2.863136,
+        "samples": 1027
+      },
+      "wall": {
+        "max_ms": 3.9098,
+        "mean_ms": 2.918511197663095,
+        "median_ms": 2.8507,
+        "min_ms": 2.7529,
+        "p95_ms": 3.2,
+        "samples": 1027
+      },
+      "create_ms": 544.443,
+      "memory": {
+        "device_local_bytes": 421064704,
+        "device_nonlocal_bytes": 42815488,
+        "host_peak_working_set_bytes": 387371008,
+        "host_private_bytes": 593952768,
+        "host_working_set_bytes": 152678400,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1280x720-p0.json",
+      "result_sha256": "6064411b0c3ef6b617583ac511e7d9f03b4e12b414e5bde97a65e66644684953",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 3986 MiB, 33, 547 MHz, 15.07 W, 11 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4012 MiB, 39, 2880 MHz, 195.37 W, 1 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 3.247328,
+        "mean_ms": 2.5385552592592617,
+        "median_ms": 2.496384,
+        "min_ms": 2.471552,
+        "p95_ms": 2.686208,
+        "samples": 1053
+      },
+      "wall": {
+        "max_ms": 3.5926,
+        "mean_ms": 2.846975023741692,
+        "median_ms": 2.8023,
+        "min_ms": 2.7134,
+        "p95_ms": 3.013,
+        "samples": 1053
+      },
+      "create_ms": 632.5557,
+      "memory": {
+        "device_local_bytes": 421064704,
+        "device_nonlocal_bytes": 42815488,
+        "host_peak_working_set_bytes": 387399680,
+        "host_private_bytes": 591396864,
+        "host_working_set_bytes": 152633344,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1280x720-p0.json",
+      "result_sha256": "a1b0da9bf7b0a70a36eb89585b2128d6230aea15a1004d5479d94ed375132530",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4012 MiB, 39, 2880 MHz, 195.37 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4012 MiB, 42, 2820 MHz, 228.37 W, 3 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 3.437824,
+        "mean_ms": 2.693007128468655,
+        "median_ms": 2.62368,
+        "min_ms": 2.592096,
+        "p95_ms": 3.066784,
+        "samples": 973
+      },
+      "wall": {
+        "max_ms": 3.9488,
+        "mean_ms": 3.080221993833506,
+        "median_ms": 3.0019,
+        "min_ms": 2.9115,
+        "p95_ms": 3.483,
+        "samples": 973
+      },
+      "create_ms": 963.7212,
+      "memory": {
+        "device_local_bytes": 564871168,
+        "device_nonlocal_bytes": 45699072,
+        "host_peak_working_set_bytes": 558518272,
+        "host_private_bytes": 797106176,
+        "host_working_set_bytes": 354140160,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1280x720-p0.json",
+      "result_sha256": "90cf58bb81b6f673e43348e4bbd3b59f49a8e3ca1f717aef5d4cf80b57fc7426",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4012 MiB, 42, 2820 MHz, 228.37 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4011 MiB, 40, 2902 MHz, 99.36 W, 0 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 3.508768,
+        "mean_ms": 2.6978168205128243,
+        "median_ms": 2.626176,
+        "min_ms": 2.592288,
+        "p95_ms": 3.038592,
+        "samples": 936
+      },
+      "wall": {
+        "max_ms": 3.8914,
+        "mean_ms": 3.200290705128201,
+        "median_ms": 3.1541,
+        "min_ms": 2.9195,
+        "p95_ms": 3.535,
+        "samples": 936
+      },
+      "create_ms": 966.9249,
+      "memory": {
+        "device_local_bytes": 564871168,
+        "device_nonlocal_bytes": 45699072,
+        "host_peak_working_set_bytes": 558600192,
+        "host_private_bytes": 792199168,
+        "host_working_set_bytes": 351404032,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1280x720-p0.json",
+      "result_sha256": "5de59099c4d334ffc9d0f74283a557d359fff7bb54792fc0436ffffa6e18ba90",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4011 MiB, 40, 2902 MHz, 99.36 W, 0 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4025 MiB, 41, 2902 MHz, 106.77 W, 1 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 3.155424,
+        "mean_ms": 2.667445625263156,
+        "median_ms": 2.617152,
+        "min_ms": 2.583872,
+        "p95_ms": 2.947808,
+        "samples": 950
+      },
+      "wall": {
+        "max_ms": 3.825,
+        "mean_ms": 3.154694631578946,
+        "median_ms": 3.121,
+        "min_ms": 2.9048,
+        "p95_ms": 3.4281,
+        "samples": 950
+      },
+      "create_ms": 904.102,
+      "memory": {
+        "device_local_bytes": 564871168,
+        "device_nonlocal_bytes": 45699072,
+        "host_peak_working_set_bytes": 558534656,
+        "host_private_bytes": 793968640,
+        "host_working_set_bytes": 351510528,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1280x720-p1.json",
+      "result_sha256": "36c00e043aa1624feb01b1fe5bc4ffb8f10ac4d4d4aa3a26d09c80eb3cf422ac",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4025 MiB, 41, 2902 MHz, 106.77 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4018 MiB, 42, 2902 MHz, 48.14 W, 1 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 3.202624,
+        "mean_ms": 2.674863154334041,
+        "median_ms": 2.623104,
+        "min_ms": 2.588448,
+        "p95_ms": 2.952288,
+        "samples": 946
+      },
+      "wall": {
+        "max_ms": 3.8415,
+        "mean_ms": 3.1681831923890043,
+        "median_ms": 3.1307,
+        "min_ms": 2.9626,
+        "p95_ms": 3.4553,
+        "samples": 946
+      },
+      "create_ms": 1305.8375,
+      "memory": {
+        "device_local_bytes": 564871168,
+        "device_nonlocal_bytes": 45699072,
+        "host_peak_working_set_bytes": 558583808,
+        "host_private_bytes": 794345472,
+        "host_working_set_bytes": 351641600,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1280x720-p1.json",
+      "result_sha256": "33b6d7916be7f5f4bf47e7b22a8168bfd395749fac8c347d9407f9c2848b58da",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4018 MiB, 42, 2902 MHz, 48.14 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4037 MiB, 42, 2887 MHz, 53.50 W, 3 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 3.199296,
+        "mean_ms": 2.542583992329819,
+        "median_ms": 2.49488,
+        "min_ms": 2.465696,
+        "p95_ms": 2.815936,
+        "samples": 1043
+      },
+      "wall": {
+        "max_ms": 3.774,
+        "mean_ms": 2.874811697027801,
+        "median_ms": 2.8271,
+        "min_ms": 2.7252,
+        "p95_ms": 3.1198,
+        "samples": 1043
+      },
+      "create_ms": 594.0168,
+      "memory": {
+        "device_local_bytes": 421064704,
+        "device_nonlocal_bytes": 42815488,
+        "host_peak_working_set_bytes": 386838528,
+        "host_private_bytes": 594874368,
+        "host_working_set_bytes": 152014848,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1280x720-p1.json",
+      "result_sha256": "7b8073dc3138f81a94cba3bc04d2d2827592539ea761dd8dfc46b7c1fe3cf371",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4037 MiB, 42, 2887 MHz, 53.50 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4035 MiB, 45, 2887 MHz, 157.02 W, 3 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 3.36416,
+        "mean_ms": 2.642557170731707,
+        "median_ms": 2.529728,
+        "min_ms": 2.48416,
+        "p95_ms": 2.973312,
+        "samples": 984
+      },
+      "wall": {
+        "max_ms": 3.8699,
+        "mean_ms": 3.045371239837397,
+        "median_ms": 2.9868,
+        "min_ms": 2.7589,
+        "p95_ms": 3.3787,
+        "samples": 984
+      },
+      "create_ms": 550.704,
+      "memory": {
+        "device_local_bytes": 421064704,
+        "device_nonlocal_bytes": 42815488,
+        "host_peak_working_set_bytes": 386785280,
+        "host_private_bytes": 596164608,
+        "host_working_set_bytes": 152199168,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "9c815eb53a319749bd4f2522a7fc3d4bcc90782a8df238bf3ac6514e27e651b0",
+        "reset_a": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3",
+        "reset_b": "b1299b2e5971e188a7d6b6f1abeb3c4d4736efc25c7e0ddbba8e80d3292073b3"
+      },
+      "input_sha256": "fbf7e8c998017381da891c6cc5a262fa6c8a40d9f86a152f8c665c428889298b",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1280x720-p1.json",
+      "result_sha256": "4a2afa325d1bf2f781b6265f7fcae6e538195ce4795164798d0975496942e8a6",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4035 MiB, 45, 2887 MHz, 157.02 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4141 MiB, 46, 2887 MHz, 184.33 W, 7 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.757184,
+        "mean_ms": 4.051061846616543,
+        "median_ms": 4.028448,
+        "min_ms": 3.84544,
+        "p95_ms": 4.579872,
+        "samples": 665
+      },
+      "wall": {
+        "max_ms": 5.371,
+        "mean_ms": 4.506335789473683,
+        "median_ms": 4.4258,
+        "min_ms": 4.1486,
+        "p95_ms": 5.0591,
+        "samples": 665
+      },
+      "create_ms": 570.6082,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409784320,
+        "host_private_bytes": 792862720,
+        "host_working_set_bytes": 175206400,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1920x1080-p0.json",
+      "result_sha256": "241bc8fba83af77b55b982ac90a7da18baf71af4f34dbc69cf92035203daafb7",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4159 MiB, 46, 2887 MHz, 184.33 W, 7 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4144 MiB, 48, 2887 MHz, 199.95 W, 3 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.724224,
+        "mean_ms": 4.009501078055961,
+        "median_ms": 3.862976,
+        "min_ms": 3.83504,
+        "p95_ms": 4.5968,
+        "samples": 679
+      },
+      "wall": {
+        "max_ms": 5.2404,
+        "mean_ms": 4.414413696612665,
+        "median_ms": 4.3097,
+        "min_ms": 4.1309,
+        "p95_ms": 4.9651,
+        "samples": 679
+      },
+      "create_ms": 583.518,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409825280,
+        "host_private_bytes": 791695360,
+        "host_working_set_bytes": 173428736,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1920x1080-p0.json",
+      "result_sha256": "1ca1c8b62c6b24621c7308fa58f95293f44fa3a63c027d4fdf3ca56f038ed290",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4056 MiB, 46, 2887 MHz, 85.90 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 48, 2887 MHz, 100.27 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.721664,
+        "mean_ms": 4.048884218181812,
+        "median_ms": 3.912576,
+        "min_ms": 3.885856,
+        "p95_ms": 4.558304,
+        "samples": 660
+      },
+      "wall": {
+        "max_ms": 5.4377,
+        "mean_ms": 4.54463121212121,
+        "median_ms": 4.4714,
+        "min_ms": 4.2495,
+        "p95_ms": 5.0572,
+        "samples": 660
+      },
+      "create_ms": 1048.2125,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581750784,
+        "host_private_bytes": 987561984,
+        "host_working_set_bytes": 377671680,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1920x1080-p0.json",
+      "result_sha256": "351e04a66d326af4799159c48e1f4b9e2efb68e27135f10c05d9a483acf855f1",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 48, 2887 MHz, 100.27 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 47, 2887 MHz, 52.38 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.756256,
+        "mean_ms": 4.048426795763991,
+        "median_ms": 3.91232,
+        "min_ms": 3.88816,
+        "p95_ms": 4.541728,
+        "samples": 661
+      },
+      "wall": {
+        "max_ms": 5.4177,
+        "mean_ms": 4.539255068078673,
+        "median_ms": 4.4628,
+        "min_ms": 4.2433,
+        "p95_ms": 5.0287,
+        "samples": 661
+      },
+      "create_ms": 933.0902,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581754880,
+        "host_private_bytes": 983859200,
+        "host_working_set_bytes": 374673408,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1920x1080-p0.json",
+      "result_sha256": "c7527fa8b87d174bdbf91b52fdd79abbeb655aa70a7c002ef36c3259a0734c87",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 46, 1012 MHz, 41.99 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 48, 2887 MHz, 52.81 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.673856,
+        "mean_ms": 4.0128203593519896,
+        "median_ms": 3.878944,
+        "min_ms": 3.846432,
+        "p95_ms": 4.582848,
+        "samples": 679
+      },
+      "wall": {
+        "max_ms": 5.2246,
+        "mean_ms": 4.414084388807069,
+        "median_ms": 4.3156,
+        "min_ms": 4.1094,
+        "p95_ms": 4.9606,
+        "samples": 679
+      },
+      "create_ms": 718.4653,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409894912,
+        "host_private_bytes": 795090944,
+        "host_working_set_bytes": 175394816,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.9.16-phoenix-1920x1080-p0.json",
+      "result_sha256": "1d0db1415febd4938dcb9af8bd338f78925ba67e3d6c48c209e0b8b830959616",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 46, 1350 MHz, 44.76 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 50, 2887 MHz, 173.24 W, 5 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 4.856768,
+        "mean_ms": 3.953329321100911,
+        "median_ms": 3.831584,
+        "min_ms": 3.794848,
+        "p95_ms": 4.41392,
+        "samples": 654
+      },
+      "wall": {
+        "max_ms": 11.4312,
+        "mean_ms": 4.58044556574924,
+        "median_ms": 4.4812,
+        "min_ms": 4.1757,
+        "p95_ms": 5.112,
+        "samples": 654
+      },
+      "create_ms": 1006.6636,
+      "memory": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582197248,
+        "host_private_bytes": 888549376,
+        "host_working_set_bytes": 349106176,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.9.16-nvidia-1920x1080-p0.json",
+      "result_sha256": "a5d0b9aff9b18ee16af891b1a637c4e0ced59510b3741f01c98d9352b4b78c52",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 50, 2887 MHz, 173.24 W, 5 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4042 MiB, 48, 2775 MHz, 49.83 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 4.66576,
+        "mean_ms": 3.9309606099706764,
+        "median_ms": 3.833088,
+        "min_ms": 3.79264,
+        "p95_ms": 4.382016,
+        "samples": 682
+      },
+      "wall": {
+        "max_ms": 5.0974,
+        "mean_ms": 4.400141788856307,
+        "median_ms": 4.3207,
+        "min_ms": 4.1173,
+        "p95_ms": 4.8293,
+        "samples": 682
+      },
+      "create_ms": 1013.5825,
+      "memory": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582561792,
+        "host_private_bytes": 889290752,
+        "host_working_set_bytes": 349728768,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.9.16-nvidia-1920x1080-p1.json",
+      "result_sha256": "fd4ffe392ca0737c473cfbc90f019c722f50828660c6efb6cc23f672fa21047c",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4039 MiB, 48, 2775 MHz, 49.83 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4045 MiB, 49, 2887 MHz, 52.56 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 5.148992,
+        "mean_ms": 4.02408808395802,
+        "median_ms": 3.888,
+        "min_ms": 3.85392,
+        "p95_ms": 4.463456,
+        "samples": 667
+      },
+      "wall": {
+        "max_ms": 5.846,
+        "mean_ms": 4.4959370314842575,
+        "median_ms": 4.409,
+        "min_ms": 4.1681,
+        "p95_ms": 5.0153,
+        "samples": 667
+      },
+      "create_ms": 682.4006,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409870336,
+        "host_private_bytes": 794513408,
+        "host_working_set_bytes": 175013888,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.9.16-phoenix-1920x1080-p1.json",
+      "result_sha256": "ecdf253063ed41544ccb60d936f60cfdf32d103cbc4e4bfa1a179680d72547f0",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4045 MiB, 49, 2887 MHz, 52.56 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4060 MiB, 54, 2872 MHz, 199.46 W, 6 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 5.04288,
+        "mean_ms": 4.094593817034699,
+        "median_ms": 3.932832,
+        "min_ms": 3.898272,
+        "p95_ms": 4.573152,
+        "samples": 634
+      },
+      "wall": {
+        "max_ms": 6.4072,
+        "mean_ms": 4.728593848580441,
+        "median_ms": 4.6639,
+        "min_ms": 4.2959,
+        "p95_ms": 5.3048,
+        "samples": 634
+      },
+      "create_ms": 900.5828,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581693440,
+        "host_private_bytes": 982966272,
+        "host_working_set_bytes": 374620160,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1920x1080-p1.json",
+      "result_sha256": "dce2556497fb2d15f2f9a0fc7e275ad36add293374b41fde555e0a27a489050d",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4060 MiB, 54, 2872 MHz, 199.46 W, 6 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4063 MiB, 50, 2887 MHz, 52.55 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 4.775104,
+        "mean_ms": 4.0763226417445475,
+        "median_ms": 3.932416,
+        "min_ms": 3.895968,
+        "p95_ms": 4.59888,
+        "samples": 642
+      },
+      "wall": {
+        "max_ms": 5.5776,
+        "mean_ms": 4.668603115264799,
+        "median_ms": 4.601,
+        "min_ms": 4.2846,
+        "p95_ms": 5.1746,
+        "samples": 642
+      },
+      "create_ms": 1138.0866,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581636096,
+        "host_private_bytes": 983318528,
+        "host_working_set_bytes": 374382592,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1920x1080-p1.json",
+      "result_sha256": "3bc4871917cf11731028b3e9ce2e42a999ba322327a9b91298e48fc21ac07e5b",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4063 MiB, 50, 2887 MHz, 52.55 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4055 MiB, 48, 1312 MHz, 45.55 W, 3 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 4.747136,
+        "mean_ms": 3.9948916534508023,
+        "median_ms": 3.886464,
+        "min_ms": 3.859104,
+        "p95_ms": 4.462496,
+        "samples": 681
+      },
+      "wall": {
+        "max_ms": 5.1526,
+        "mean_ms": 4.404871071953012,
+        "median_ms": 4.321,
+        "min_ms": 4.1695,
+        "p95_ms": 4.8662,
+        "samples": 681
+      },
+      "create_ms": 560.9189,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409890816,
+        "host_private_bytes": 794238976,
+        "host_working_set_bytes": 174960640,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1920x1080-p1.json",
+      "result_sha256": "0bc8fc0f07762edeb594a7ac4d8bc23cb96253bdadd2318566393e892d5fb65f",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4055 MiB, 48, 1312 MHz, 45.55 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4055 MiB, 51, 2872 MHz, 110.44 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 4.787072,
+        "mean_ms": 3.995851870967741,
+        "median_ms": 3.890976,
+        "min_ms": 3.870944,
+        "p95_ms": 4.460064,
+        "samples": 682
+      },
+      "wall": {
+        "max_ms": 5.3188,
+        "mean_ms": 4.395434750733141,
+        "median_ms": 4.3145,
+        "min_ms": 4.1519,
+        "p95_ms": 4.8121,
+        "samples": 682
+      },
+      "create_ms": 520.8429,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409817088,
+        "host_private_bytes": 793313280,
+        "host_working_set_bytes": 175083520,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1920x1080-p1.json",
+      "result_sha256": "e1976adceb41321f1e0b7a0f163a085cadbbe348903eaed26c82d7d28c6cd9b2",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4055 MiB, 51, 2872 MHz, 110.44 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 53, 2872 MHz, 246.36 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.82832,
+        "mean_ms": 4.0011796959064325,
+        "median_ms": 3.891392,
+        "min_ms": 3.865728,
+        "p95_ms": 4.41792,
+        "samples": 684
+      },
+      "wall": {
+        "max_ms": 5.2004,
+        "mean_ms": 4.387200292397659,
+        "median_ms": 4.2952,
+        "min_ms": 4.1605,
+        "p95_ms": 4.8342,
+        "samples": 684
+      },
+      "create_ms": 506.0422,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409837568,
+        "host_private_bytes": 793673728,
+        "host_working_set_bytes": 174096384,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1920x1080-p2.json",
+      "result_sha256": "cfbaedf113607899634d9aba1e049c02e101858685ef2d791ce5adc36236d123",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4042 MiB, 52, 2872 MHz, 119.18 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 54, 2872 MHz, 239.62 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.731712,
+        "mean_ms": 4.0138037668161495,
+        "median_ms": 3.895072,
+        "min_ms": 3.843904,
+        "p95_ms": 4.51536,
+        "samples": 669
+      },
+      "wall": {
+        "max_ms": 10.6484,
+        "mean_ms": 4.480844843049329,
+        "median_ms": 4.3646,
+        "min_ms": 4.1853,
+        "p95_ms": 5.019,
+        "samples": 669
+      },
+      "create_ms": 602.8646,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409882624,
+        "host_private_bytes": 792276992,
+        "host_working_set_bytes": 175120384,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1920x1080-p2.json",
+      "result_sha256": "3b5bf0961982e38a1d82a5ffc4600b216b00b53b9e3ce104ca2ff677bc849421",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4047 MiB, 52, 2872 MHz, 111.95 W, 4 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4031 MiB, 52, 2872 MHz, 140.16 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.734272,
+        "mean_ms": 4.046800578313254,
+        "median_ms": 3.935328,
+        "min_ms": 3.91408,
+        "p95_ms": 4.448256,
+        "samples": 664
+      },
+      "wall": {
+        "max_ms": 5.4035,
+        "mean_ms": 4.517196385542169,
+        "median_ms": 4.4296,
+        "min_ms": 4.2467,
+        "p95_ms": 4.9365,
+        "samples": 664
+      },
+      "create_ms": 962.7128,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581697536,
+        "host_private_bytes": 983859200,
+        "host_working_set_bytes": 374681600,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1920x1080-p2.json",
+      "result_sha256": "ff8cca8388c797842338374a2103162f0cd5bc7d2b639d0ab284ebfecf98157d",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4031 MiB, 52, 2872 MHz, 140.16 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4036 MiB, 52, 2880 MHz, 56.67 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.752992,
+        "mean_ms": 4.0485636440422335,
+        "median_ms": 3.935264,
+        "min_ms": 3.913376,
+        "p95_ms": 4.450624,
+        "samples": 663
+      },
+      "wall": {
+        "max_ms": 5.5025,
+        "mean_ms": 4.520490799396687,
+        "median_ms": 4.442,
+        "min_ms": 4.2698,
+        "p95_ms": 4.9364,
+        "samples": 663
+      },
+      "create_ms": 909.6171,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581619712,
+        "host_private_bytes": 983269376,
+        "host_working_set_bytes": 374390784,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1920x1080-p2.json",
+      "result_sha256": "77e4329c3772fb268deecffe6b5f9d869cf4ad3bfbff8ee2fe1434879826435b",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4036 MiB, 52, 2880 MHz, 56.67 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4044 MiB, 52, 2872 MHz, 57.45 W, 4 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.878944,
+        "mean_ms": 4.078940030257186,
+        "median_ms": 4.056544,
+        "min_ms": 3.865856,
+        "p95_ms": 4.542976,
+        "samples": 661
+      },
+      "wall": {
+        "max_ms": 5.2879,
+        "mean_ms": 4.536795007564294,
+        "median_ms": 4.4851,
+        "min_ms": 4.1595,
+        "p95_ms": 5.0173,
+        "samples": 661
+      },
+      "create_ms": 672.9166,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409907200,
+        "host_private_bytes": 792100864,
+        "host_working_set_bytes": 175095808,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.9.16-phoenix-1920x1080-p2.json",
+      "result_sha256": "ed888706d8e3ce05037279e724600782efe38f19a0609926deb222af682a6160",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4044 MiB, 51, 2887 MHz, 54.24 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4045 MiB, 53, 2872 MHz, 161.55 W, 4 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 2,
+      "gpu": {
+        "max_ms": 4.80608,
+        "mean_ms": 3.961784963855419,
+        "median_ms": 3.839488,
+        "min_ms": 3.820928,
+        "p95_ms": 4.432544,
+        "samples": 664
+      },
+      "wall": {
+        "max_ms": 5.4955,
+        "mean_ms": 4.512836897590358,
+        "median_ms": 4.4336,
+        "min_ms": 4.1801,
+        "p95_ms": 4.9843,
+        "samples": 664
+      },
+      "create_ms": 1077.3041,
+      "memory": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582193152,
+        "host_private_bytes": 889729024,
+        "host_working_set_bytes": 348839936,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.9.16-nvidia-1920x1080-p2.json",
+      "result_sha256": "6aef88c6184b43f6d5972679a52f78f2a8ce595c743f3706cde68a8205bd6923",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4045 MiB, 53, 2872 MHz, 161.55 W, 4 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 51, 2872 MHz, 54.83 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 4.62656,
+        "mean_ms": 3.943814545454544,
+        "median_ms": 3.838624,
+        "min_ms": 3.820896,
+        "p95_ms": 4.426528,
+        "samples": 660
+      },
+      "wall": {
+        "max_ms": 5.3996,
+        "mean_ms": 4.5436654545454545,
+        "median_ms": 4.4695,
+        "min_ms": 4.2381,
+        "p95_ms": 5.0196,
+        "samples": 660
+      },
+      "create_ms": 1227.8954,
+      "memory": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582479872,
+        "host_private_bytes": 889761792,
+        "host_working_set_bytes": 350441472,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.9.16-nvidia-1920x1080-p3.json",
+      "result_sha256": "6ca7e902c80682171fae4483253ea89389ca8cf111d3ada38b3d9c5ca7adcc57",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 51, 2872 MHz, 54.83 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 51, 2887 MHz, 55.14 W, 1 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 4.876448,
+        "mean_ms": 4.000976072180446,
+        "median_ms": 3.891072,
+        "min_ms": 3.867104,
+        "p95_ms": 4.45632,
+        "samples": 665
+      },
+      "wall": {
+        "max_ms": 6.3599,
+        "mean_ms": 4.50259248120301,
+        "median_ms": 4.4081,
+        "min_ms": 4.1891,
+        "p95_ms": 4.9965,
+        "samples": 665
+      },
+      "create_ms": 680.1531,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409833472,
+        "host_private_bytes": 794193920,
+        "host_working_set_bytes": 175173632,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.9.16-phoenix-1920x1080-p3.json",
+      "result_sha256": "1825853ceb98fe8cfb03e03079ae20d984e1bb3168396d5232d535c7437ad0ed",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 51, 2887 MHz, 55.14 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 53, 2872 MHz, 129.04 W, 6 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 4.995008,
+        "mean_ms": 4.069065612167297,
+        "median_ms": 3.922592,
+        "min_ms": 3.86384,
+        "p95_ms": 4.61248,
+        "samples": 526
+      },
+      "wall": {
+        "max_ms": 26.2383,
+        "mean_ms": 5.693732889733844,
+        "median_ms": 5.2443,
+        "min_ms": 4.4583,
+        "p95_ms": 8.3301,
+        "samples": 526
+      },
+      "create_ms": 2884.9303,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581836800,
+        "host_private_bytes": 984375296,
+        "host_working_set_bytes": 374566912,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-1920x1080-p3.json",
+      "result_sha256": "6c7261f882034e0c3d10ad95df262308a47e0640739e290fa69b526a0234e7aa",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4054 MiB, 53, 2872 MHz, 129.04 W, 6 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4049 MiB, 48, 645 MHz, 27.80 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 5.029344,
+        "mean_ms": 4.028821196799999,
+        "median_ms": 3.928384,
+        "min_ms": 3.877216,
+        "p95_ms": 4.438752,
+        "samples": 625
+      },
+      "wall": {
+        "max_ms": 8.3206,
+        "mean_ms": 4.793062400000001,
+        "median_ms": 4.7392,
+        "min_ms": 4.2925,
+        "p95_ms": 5.3228,
+        "samples": 625
+      },
+      "create_ms": 1492.3945,
+      "memory": {
+        "device_local_bytes": 736509952,
+        "device_nonlocal_bytes": 54939648,
+        "host_peak_working_set_bytes": 581636096,
+        "host_private_bytes": 983162880,
+        "host_working_set_bytes": 374558720,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-1920x1080-p3.json",
+      "result_sha256": "46e9fd14c7f6417305693a493efaf0186db3bf3b6abd381e04f8f6917ef270e2",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4049 MiB, 48, 645 MHz, 27.80 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4053 MiB, 50, 2887 MHz, 53.54 W, 4 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 4.982528,
+        "mean_ms": 4.036499569044002,
+        "median_ms": 3.89296,
+        "min_ms": 3.8656,
+        "p95_ms": 4.532704,
+        "samples": 659
+      },
+      "wall": {
+        "max_ms": 5.5509,
+        "mean_ms": 4.547625341426398,
+        "median_ms": 4.487,
+        "min_ms": 4.19,
+        "p95_ms": 5.0579,
+        "samples": 659
+      },
+      "create_ms": 606.4389,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409853952,
+        "host_private_bytes": 792088576,
+        "host_working_set_bytes": 175038464,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-1920x1080-p3.json",
+      "result_sha256": "2feaf83b0f07cd63cac0589e0c9a9aca744aa3a0301c2560a13ccb5802403074",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4053 MiB, 50, 2887 MHz, 53.54 W, 4 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4087 MiB, 52, 2872 MHz, 175.48 W, 3 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "repeat": 3,
+      "gpu": {
+        "max_ms": 5.897376,
+        "mean_ms": 4.008363958146488,
+        "median_ms": 3.890848,
+        "min_ms": 3.864832,
+        "p95_ms": 4.455264,
+        "samples": 669
+      },
+      "wall": {
+        "max_ms": 6.4925,
+        "mean_ms": 4.481977279521675,
+        "median_ms": 4.4076,
+        "min_ms": 4.1812,
+        "p95_ms": 4.977,
+        "samples": 669
+      },
+      "create_ms": 583.1369,
+      "memory": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 409862144,
+        "host_private_bytes": 794132480,
+        "host_working_set_bytes": 174022656,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "dda217c310826c4336228e5502d1daaab09d353055c86fc74acf91c11b47cf4c",
+        "reset_a": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163",
+        "reset_b": "b07cc3160567f8aa9817ff5be0a046b77780acd1a8d0b9c9128e28d5a88c2163"
+      },
+      "input_sha256": "72d29223eea8b298519f3bb17b5747a629bbd5de6c587a245db8254ffaa7d4ed",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-1920x1080-p3.json",
+      "result_sha256": "69f2791791b8dfad1ab07f81354eff6da37b96ab49a59fb37de6aa370b4aefd1",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4087 MiB, 52, 2872 MHz, 175.48 W, 3 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4076 MiB, 53, 2872 MHz, 212.55 W, 2 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 15.155296,
+        "mean_ms": 13.505513719626173,
+        "median_ms": 13.336416,
+        "min_ms": 13.141312,
+        "p95_ms": 14.240256,
+        "samples": 214
+      },
+      "wall": {
+        "max_ms": 15.8212,
+        "mean_ms": 14.050329439252332,
+        "median_ms": 13.8824,
+        "min_ms": 13.5592,
+        "p95_ms": 14.8505,
+        "samples": 214
+      },
+      "create_ms": 536.415,
+      "memory": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534134784,
+        "host_private_bytes": 1815015424,
+        "host_working_set_bytes": 299577344,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-3840x2160-p0.json",
+      "result_sha256": "13270725c353bbc8aed2dfbd781e91c33c11b100f77cefd953ee397b39917ccd",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4076 MiB, 51, 2872 MHz, 53.68 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4096 MiB, 49, 855 MHz, 35.08 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 15.371072,
+        "mean_ms": 13.610368600938973,
+        "median_ms": 13.412256,
+        "min_ms": 13.1624,
+        "p95_ms": 14.518144,
+        "samples": 213
+      },
+      "wall": {
+        "max_ms": 15.8695,
+        "mean_ms": 14.09609154929578,
+        "median_ms": 13.8967,
+        "min_ms": 13.5965,
+        "p95_ms": 14.9861,
+        "samples": 213
+      },
+      "create_ms": 570.0065,
+      "memory": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534261760,
+        "host_private_bytes": 1818103808,
+        "host_working_set_bytes": 299630592,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-3840x2160-p0.json",
+      "result_sha256": "42b42e60a07187348e4775d2989a3ab6d57b9ba98cb663221942d0a86eccdd2e",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4096 MiB, 49, 607 MHz, 26.81 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4095 MiB, 50, 1162 MHz, 48.67 W, 1 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 15.290304,
+        "mean_ms": 13.267482344186048,
+        "median_ms": 13.005088,
+        "min_ms": 12.692384,
+        "p95_ms": 14.678784,
+        "samples": 215
+      },
+      "wall": {
+        "max_ms": 18.1981,
+        "mean_ms": 13.984805581395337,
+        "median_ms": 13.6931,
+        "min_ms": 13.3478,
+        "p95_ms": 15.4988,
+        "samples": 215
+      },
+      "create_ms": 1034.5169,
+      "memory": {
+        "device_local_bytes": 1584611328,
+        "device_nonlocal_bytes": 104681472,
+        "host_peak_working_set_bytes": 705978368,
+        "host_private_bytes": 1956663296,
+        "host_working_set_bytes": 498843648,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-3840x2160-p0.json",
+      "result_sha256": "aa26a1faaaf0cfaae63e57e694d9215bf5f27025bdcff1f2c871f133c593b47c",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4095 MiB, 50, 1162 MHz, 48.67 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4106 MiB, 50, 2760 MHz, 49.30 W, 5 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 0,
+      "gpu": {
+        "max_ms": 15.323008,
+        "mean_ms": 13.655508194174756,
+        "median_ms": 13.655136,
+        "min_ms": 12.802848,
+        "p95_ms": 14.655968,
+        "samples": 206
+      },
+      "wall": {
+        "max_ms": 16.4598,
+        "mean_ms": 14.582510194174759,
+        "median_ms": 14.4983,
+        "min_ms": 13.4995,
+        "p95_ms": 15.8811,
+        "samples": 206
+      },
+      "create_ms": 1263.1369,
+      "memory": {
+        "device_local_bytes": 1584611328,
+        "device_nonlocal_bytes": 104681472,
+        "host_peak_working_set_bytes": 706125824,
+        "host_private_bytes": 1958842368,
+        "host_working_set_bytes": 499220480,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-3840x2160-p0.json",
+      "result_sha256": "259b82236e8e3077b0b48b063d6dde459e8c82d05a3e23b49f1321b2e35d25af",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4106 MiB, 50, 2760 MHz, 49.57 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 3952 MiB, 48, 465 MHz, 24.74 W, 1 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 15.007168,
+        "mean_ms": 13.125354175115202,
+        "median_ms": 12.98256,
+        "min_ms": 12.802784,
+        "p95_ms": 13.935456,
+        "samples": 217
+      },
+      "wall": {
+        "max_ms": 15.9781,
+        "mean_ms": 13.850931336405528,
+        "median_ms": 13.7115,
+        "min_ms": 13.3523,
+        "p95_ms": 14.7914,
+        "samples": 217
+      },
+      "create_ms": 1181.824,
+      "memory": {
+        "device_local_bytes": 1584611328,
+        "device_nonlocal_bytes": 104681472,
+        "host_peak_working_set_bytes": 705937408,
+        "host_private_bytes": 1958125568,
+        "host_working_set_bytes": 498819072,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 156,
+      "result_file": "current-310.8-nvidia-3840x2160-p1.json",
+      "result_sha256": "a24da7c7cbfa017bb8d41806deeb41ba7352d3018dc9cc5fbbb9a2c3f9fc1f48",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 3952 MiB, 48, 465 MHz, 24.74 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 3952 MiB, 48, 517 MHz, 24.19 W, 0 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 14.407744,
+        "mean_ms": 13.249750280373826,
+        "median_ms": 13.101344,
+        "min_ms": 12.743168,
+        "p95_ms": 13.968416,
+        "samples": 214
+      },
+      "wall": {
+        "max_ms": 15.487,
+        "mean_ms": 14.038280373831777,
+        "median_ms": 13.9412,
+        "min_ms": 13.3881,
+        "p95_ms": 14.8247,
+        "samples": 214
+      },
+      "create_ms": 916.7207,
+      "memory": {
+        "device_local_bytes": 1584611328,
+        "device_nonlocal_bytes": 104681472,
+        "host_peak_working_set_bytes": 705925120,
+        "host_private_bytes": 1959735296,
+        "host_working_set_bytes": 499032064,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 156,
+      "result_file": "released-310.8-nvidia-3840x2160-p1.json",
+      "result_sha256": "4e79d5ecd1283474ef1899fd32341c00a9c41aaaabab45298b66869030b5638b",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 3952 MiB, 48, 517 MHz, 24.19 W, 0 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4135 MiB, 48, 765 MHz, 27.58 W, 2 %"
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 15.289696,
+        "mean_ms": 13.691123412322264,
+        "median_ms": 13.626848,
+        "min_ms": 13.22256,
+        "p95_ms": 14.374976,
+        "samples": 211
+      },
+      "wall": {
+        "max_ms": 15.8165,
+        "mean_ms": 14.263175355450235,
+        "median_ms": 14.1671,
+        "min_ms": 13.6884,
+        "p95_ms": 14.979,
+        "samples": 211
+      },
+      "create_ms": 629.9833,
+      "memory": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534257664,
+        "host_private_bytes": 1817239552,
+        "host_working_set_bytes": 299454464,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 154,
+      "result_file": "current-310.8-phoenix-3840x2160-p1.json",
+      "result_sha256": "d20a34fd79861df45b5a9a6417828182a8866c5adf435d8a47c6d7bdd2e7f0d8",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4127 MiB, 48, 727 MHz, 27.07 W, 2 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4142 MiB, 48, 600 MHz, 29.59 W, 1 %"
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "repeat": 1,
+      "gpu": {
+        "max_ms": 15.944352,
+        "mean_ms": 13.466592149532723,
+        "median_ms": 13.31488,
+        "min_ms": 13.088928,
+        "p95_ms": 14.561568,
+        "samples": 214
+      },
+      "wall": {
+        "max_ms": 16.7212,
+        "mean_ms": 14.024158878504672,
+        "median_ms": 13.8545,
+        "min_ms": 13.5601,
+        "p95_ms": 15.1512,
+        "samples": 214
+      },
+      "create_ms": 506.64,
+      "memory": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534151168,
+        "host_private_bytes": 1817350144,
+        "host_working_set_bytes": 299397120,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "captures": {
+        "history": "20c86219a7f08aa3cb78b3e30b1b71ef1539c0c5f7458d1159d4cec857ace78c",
+        "reset_a": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6",
+        "reset_b": "84e093ec93f1e449b6e9443b8c24a10248adefb45bbd3ee27e59e373b2b1ada6"
+      },
+      "input_sha256": "f215c02586ed8cc3108c7371567850d4738d3026f63d9f490ec604e604df13a4",
+      "observed_launches": 154,
+      "result_file": "released-310.8-phoenix-3840x2160-p1.json",
+      "result_sha256": "97d61c9224bb4bf49530b12d7b05d54a5afe3f8372041bc64e00918ace42cd0b",
+      "telemetry_before": "NVIDIA GeForce RTX 5080, 616.64, 4142 MiB, 48, 600 MHz, 29.59 W, 1 %",
+      "telemetry_after": "NVIDIA GeForce RTX 5080, 616.64, 4157 MiB, 48, 937 MHz, 27.48 W, 0 %"
+    }
+  ],
+  "summary": [
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 2.52912,
+        "process_medians_ms": [
+          2.528512,
+          2.529728
+        ],
+        "process_range_ms": [
+          2.528512,
+          2.529728
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 2.91875,
+        "process_medians_ms": [
+          2.8507,
+          2.9868
+        ],
+        "process_range_ms": [
+          2.8507,
+          2.9868
+        ]
+      },
+      "create_ms": [
+        544.443,
+        550.704
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1280,
+        720
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 2.495632,
+        "process_medians_ms": [
+          2.496384,
+          2.49488
+        ],
+        "process_range_ms": [
+          2.49488,
+          2.496384
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 2.8147,
+        "process_medians_ms": [
+          2.8023,
+          2.8271
+        ],
+        "process_range_ms": [
+          2.8023,
+          2.8271
+        ]
+      },
+      "create_ms": [
+        632.5557,
+        594.0168
+      ]
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 2.623392,
+        "process_medians_ms": [
+          2.62368,
+          2.623104
+        ],
+        "process_range_ms": [
+          2.623104,
+          2.62368
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 3.0663,
+        "process_medians_ms": [
+          3.0019,
+          3.1307
+        ],
+        "process_range_ms": [
+          3.0019,
+          3.1307
+        ]
+      },
+      "create_ms": [
+        963.7212,
+        1305.8375
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1280,
+        720
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 2.621664,
+        "process_medians_ms": [
+          2.626176,
+          2.617152
+        ],
+        "process_range_ms": [
+          2.617152,
+          2.626176
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 3.13755,
+        "process_medians_ms": [
+          3.1541,
+          3.121
+        ],
+        "process_range_ms": [
+          3.121,
+          3.1541
+        ]
+      },
+      "create_ms": [
+        966.9249,
+        904.102
+      ]
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.9254160000000002,
+        "process_medians_ms": [
+          4.028448,
+          3.890976,
+          3.891392,
+          3.890848
+        ],
+        "process_range_ms": [
+          3.890848,
+          4.028448
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.360775,
+        "process_medians_ms": [
+          4.4258,
+          4.3145,
+          4.2952,
+          4.4076
+        ],
+        "process_range_ms": [
+          4.2952,
+          4.4258
+        ]
+      },
+      "create_ms": [
+        570.6082,
+        520.8429,
+        506.0422,
+        583.1369
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.8843680000000003,
+        "process_medians_ms": [
+          3.862976,
+          3.886464,
+          3.895072,
+          3.89296
+        ],
+        "process_range_ms": [
+          3.862976,
+          3.895072
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.3705750000000005,
+        "process_medians_ms": [
+          4.3097,
+          4.321,
+          4.3646,
+          4.487
+        ],
+        "process_range_ms": [
+          4.3097,
+          4.487
+        ]
+      },
+      "create_ms": [
+        583.518,
+        560.9189,
+        602.8646,
+        606.4389
+      ]
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.9271760000000002,
+        "process_medians_ms": [
+          3.912576,
+          3.932416,
+          3.935328,
+          3.928384
+        ],
+        "process_range_ms": [
+          3.912576,
+          3.935328
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.5603,
+        "process_medians_ms": [
+          4.4714,
+          4.601,
+          4.4296,
+          4.7392
+        ],
+        "process_range_ms": [
+          4.4296,
+          4.7392
+        ]
+      },
+      "create_ms": [
+        1048.2125,
+        1138.0866,
+        962.7128,
+        1492.3945
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.925752,
+        "process_medians_ms": [
+          3.91232,
+          3.932832,
+          3.935264,
+          3.922592
+        ],
+        "process_range_ms": [
+          3.91232,
+          3.935264
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.70325,
+        "process_medians_ms": [
+          4.4628,
+          4.6639,
+          4.442,
+          5.2443
+        ],
+        "process_range_ms": [
+          4.442,
+          5.2443
+        ]
+      },
+      "create_ms": [
+        933.0902,
+        900.5828,
+        909.6171,
+        2884.9303
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "phoenix",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.9286399999999997,
+        "process_medians_ms": [
+          3.878944,
+          3.888,
+          4.056544,
+          3.891072
+        ],
+        "process_range_ms": [
+          3.878944,
+          4.056544
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.40445,
+        "process_medians_ms": [
+          4.3156,
+          4.409,
+          4.4851,
+          4.4081
+        ],
+        "process_range_ms": [
+          4.3156,
+          4.4851
+        ]
+      },
+      "create_ms": [
+        718.4653,
+        682.4006,
+        672.9166,
+        680.1531
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.9.16",
+      "engine": "nvidia",
+      "extent": [
+        1920,
+        1080
+      ],
+      "processes": 4,
+      "gpu": {
+        "mean_process_median_ms": 3.835696,
+        "process_medians_ms": [
+          3.831584,
+          3.833088,
+          3.839488,
+          3.838624
+        ],
+        "process_range_ms": [
+          3.831584,
+          3.839488
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 4.4262500000000005,
+        "process_medians_ms": [
+          4.4812,
+          4.3207,
+          4.4336,
+          4.4695
+        ],
+        "process_range_ms": [
+          4.3207,
+          4.4812
+        ]
+      },
+      "create_ms": [
+        1006.6636,
+        1013.5825,
+        1077.3041,
+        1227.8954
+      ]
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 13.325648000000001,
+        "process_medians_ms": [
+          13.336416,
+          13.31488
+        ],
+        "process_range_ms": [
+          13.31488,
+          13.336416
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 13.86845,
+        "process_medians_ms": [
+          13.8824,
+          13.8545
+        ],
+        "process_range_ms": [
+          13.8545,
+          13.8824
+        ]
+      },
+      "create_ms": [
+        536.415,
+        506.64
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "phoenix",
+      "extent": [
+        3840,
+        2160
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 13.519552000000001,
+        "process_medians_ms": [
+          13.412256,
+          13.626848
+        ],
+        "process_range_ms": [
+          13.412256,
+          13.626848
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 14.0319,
+        "process_medians_ms": [
+          13.8967,
+          14.1671
+        ],
+        "process_range_ms": [
+          13.8967,
+          14.1671
+        ]
+      },
+      "create_ms": [
+        570.0065,
+        629.9833
+      ]
+    },
+    {
+      "build": "released",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 13.053215999999999,
+        "process_medians_ms": [
+          13.005088,
+          13.101344
+        ],
+        "process_range_ms": [
+          13.005088,
+          13.101344
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 13.81715,
+        "process_medians_ms": [
+          13.6931,
+          13.9412
+        ],
+        "process_range_ms": [
+          13.6931,
+          13.9412
+        ]
+      },
+      "create_ms": [
+        1034.5169,
+        916.7207
+      ]
+    },
+    {
+      "build": "current",
+      "dll": "310.8",
+      "engine": "nvidia",
+      "extent": [
+        3840,
+        2160
+      ],
+      "processes": 2,
+      "gpu": {
+        "mean_process_median_ms": 13.318848,
+        "process_medians_ms": [
+          13.655136,
+          12.98256
+        ],
+        "process_range_ms": [
+          12.98256,
+          13.655136
+        ]
+      },
+      "wall": {
+        "mean_process_median_ms": 14.1049,
+        "process_medians_ms": [
+          14.4983,
+          13.7115
+        ],
+        "process_range_ms": [
+          13.7115,
+          14.4983
+        ]
+      },
+      "create_ms": [
+        1263.1369,
+        1181.824
+      ]
+    }
+  ],
+  "temporary_builds_removed": true,
+  "games_launched": false,
+  "installed_files_modified": false,
+  "model_files_modified": false
+}

@@ -10,52 +10,8 @@
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 17424
 #include "../../../common/async_memory.cuh"
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y, uint32_t& word_z,
-                       uint32_t& word_w, const MemoryRange* memory_ranges, uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldca(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_global_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y,
-                              uint32_t& word_z, uint32_t& word_w, const MemoryRange* memory_ranges,
-                              uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldcg(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-store_four_words_streaming(uint64_t address, uint32_t word_x, uint32_t word_y, uint32_t word_z,
-                           uint32_t word_w, const MemoryRange* memory_ranges,
-                           uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, true, memory_ranges, error_counts))
-        return;
-    uint4* word_pointer = reinterpret_cast<uint4*>(address);
-    __stcs(word_pointer, make_uint4(word_x, word_y, word_z, word_w));
-}
+#include "../../../common/cached_vector_access.cuh"
 
-__device__ __forceinline__ uint32_t broadcast_active_lane(uint32_t value) {
-    const unsigned mask = __activemask();
-    return __shfl_sync(mask, value, __ffs(mask) - 1);
-}
 template <bool CheckBounds>
 __device__ __forceinline__ void
 atomic_add_four_half_pairs(uint64_t address, uint32_t word_x, uint32_t word_y, uint32_t word_z,
@@ -96,6 +52,8 @@ __device__ __forceinline__ void write_device_flag(uint64_t address, uint32_t val
     asm volatile("st.relaxed.gpu.global.u32 [%0],%1;" ::"l"(address), "r"(value) : "memory");
 }
 #include "../../../common/feed_forward_reduction.cuh"
+
+#include "../../../common/token_dispatch.cuh"
 
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
@@ -328,131 +286,26 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
 
     address_word_5 = uint32_t(int32_t(address_word_4) >> 0x1fu);
 
-    packed_half_0 = uint32_t(combine_words(address_word_5, 0u) << 0x7u >> 32) + address_word_4;
-
-    address_word_6 = uint32_t(int32_t(packed_half_0) >> 0x7u);
+    address_word_6 = truncate_signed_power_of_two<7>(address_word_4);
 
     condition_1 = (matrix_accumulator_13 | matrix_fragment_86) != 0;
 
     address_word_7 = address_word_6 + 0x1u;
 
-    matrix_accumulator_11 = int32_t(address_word_7) < 0 ? 0u - address_word_7 : address_word_7;
-
-    matrix_accumulator_12 = int32_t(address_word_7) < 0 ? 0u - address_word_7 : address_word_7;
-
-    packed_half_0 = __float_as_uint(__int2float_ru(matrix_accumulator_11));
-
-    uniform_condition_0 = vote_warp_predicate<true>(condition_1);
-
-    uniform_condition_1 = vote_warp_predicate<true>(condition_1);
-
-    packed_half_0 = reciprocal_bits(packed_half_0);
-
-    matrix_accumulator_2 = packed_half_0 + 0xffffffeu;
-
-    packed_half_0 =
-        int32_t(matrix_accumulator_10) < 0 ? 0u - matrix_accumulator_10 : matrix_accumulator_10;
-
-    matrix_accumulator_3 = __float2uint_rz(__uint_as_float(matrix_accumulator_2));
-
-    matrix_accumulator_2 = 0u;
-
-    matrix_accumulator_8 = 0u - matrix_accumulator_3;
-
-    matrix_accumulator_9 = matrix_accumulator_8 * matrix_accumulator_11;
-
-    matrix_accumulator_8 = matrix_fragment_86 * 0x40u;
-
-    matrix_accumulator_3 = uint32_t(uint64_t(matrix_accumulator_3) * matrix_accumulator_9 +
-                                        combine_words(matrix_accumulator_2, matrix_accumulator_3) >>
-                                    32);
-
-    matrix_accumulator_2 = 0u - matrix_accumulator_12;
-
-    matrix_accumulator_3 = uint32_t(uint64_t(matrix_accumulator_3) * packed_half_0 >> 32);
-
-    packed_half_0 = matrix_accumulator_3 * matrix_accumulator_2 + packed_half_0;
-
-    if (!condition_1) {
-        matrix_accumulator_2 = blockDim.x;
-    }
-
-    condition_2 = uint32_t(matrix_accumulator_11) > uint32_t(packed_half_0);
-
-    if (!condition_1) {
-        matrix_accumulator_9 = blockDim.y;
-    }
-
-    if (!condition_2) {
-        packed_half_0 = packed_half_0 + (0u - matrix_accumulator_11);
-
-        matrix_accumulator_3 = matrix_accumulator_3 + 0x1u;
-    }
-
-    condition_0 = uint32_t(packed_half_0) >= uint32_t(matrix_accumulator_11);
-
-    packed_half_0 = address_word_7 ^ matrix_accumulator_10;
-
-    if (!condition_1) {
-        matrix_accumulator_11 = 0u;
-    }
-
-    condition_2 = int32_t(packed_half_0) >= int32_t(0u);
-
-    if (!condition_1) {
-        packed_half_0 = 0x400u;
-
-        matrix_accumulator_9 = matrix_accumulator_2 * matrix_accumulator_9;
-    }
-
-    if (condition_0) {
-        matrix_accumulator_3 = matrix_accumulator_3 + 0x1u;
-    }
-
-    condition_0 = int32_t(address_word_7) != int32_t(0u);
-
-    uniform_address_word_4 =
-        broadcast_warp_word(matrix_accumulator_9, !condition_1, uniform_address_word_4);
-
-    matrix_accumulator_9 = matrix_accumulator_8 & 0x40u;
-
-    if (!condition_1) {
-        matrix_accumulator_8 = packed_half_0 + 0x4000u;
-    }
-
-    address_word_132 = matrix_accumulator_3;
-
+    // Keep work assignment and copy synchronization out of matrix operands.
+    const auto work = token_tile_work(matrix_accumulator_10, address_word_7);
+    const auto copy = tile_copy_schedule<shared_bytes, 2>(!condition_1, blockDim.x * blockDim.y);
+    uniform_condition_0 = copy.without_block_leader;
+    uniform_condition_1 = copy.without_block_leader;
+    uniform_address_word_4 = copy.wait_word_low;
+    uniform_address_word_5 = copy.wait_word_high;
+    uniform_address_word_6 = copy.barrier_byte_offset;
+    address_word_132 = work.group;
     matrix_accumulator_2 = parameters[parameter_trained_weights_low_6];
     matrix_accumulator_3 = parameters[parameter_trained_weights_high_7];
-
-    if (!condition_2) {
-        address_word_132 = 0u - address_word_132;
-    }
-
-    if (!condition_0) {
-        address_word_132 = ~address_word_7;
-    }
-
-    if (!uniform_condition_0) {
-        uniform_address_word_4 = 0u - uniform_address_word_4 + 0x100000u;
-
-        uniform_address_word_5 = uniform_address_word_4 << (0xbu & 31u);
-
-        uniform_address_word_4 = uniform_address_word_4 << (0x1u & 31u);
-    }
-
-    uniform_condition_0 = vote_warp_predicate<true>(condition_1);
-
-    packed_half_0 = address_word_132 * 0x80u + matrix_accumulator_9;
-
-    if (!condition_1) {
-        matrix_accumulator_8 = (matrix_accumulator_11 << 0x18u) + matrix_accumulator_8;
-    }
-
-    reused_word_136 = packed_half_0 * 0x8u;
-
-    uniform_address_word_6 =
-        broadcast_warp_word(matrix_accumulator_8, !condition_1, uniform_address_word_6);
+    const uint32_t row_in_pair = (matrix_fragment_86 * 64u) & 64u;
+    packed_half_0 = work.group * 128u + row_in_pair;
+    reused_word_136 = packed_half_0 * 8u;
 
     condition_0 = (matrix_fragment_86 & 0x1u) != 0;
 
@@ -480,8 +333,6 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
 
     address_word_4 = address_word_4 & 0xffffffe0u;
 
-    index_word_135 = address_word_6 * address_word_132 + address_word_132;
-
     split_address_words(matrix_accumulator_2, matrix_accumulator_3,
                         int64_t(int32_t(matrix_accumulator_15)) * int64_t(int32_t(0x10u)) +
                             combine_words(matrix_accumulator_2, matrix_accumulator_3));
@@ -490,7 +341,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
 
     matrix_fragment_84 = address_word_4 + 0x20u;
 
-    index_word_135 = 0u - index_word_135 + matrix_accumulator_10;
+    index_word_135 = work.tile;
 
     address_word_4 = 0u;
 

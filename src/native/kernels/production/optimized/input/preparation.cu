@@ -7,6 +7,7 @@
 #define DLSS5_D3D12_SAMPLER
 #include "../../common/texture_sampling.cuh"
 #include "../../common/frame_boundary_memory.cuh"
+#include "../../common/boundary_clear.cuh"
 
 // The by-value parameter block matches the runtime's existing binary launch interface.
 struct alignas(8) KernelArguments {
@@ -271,8 +272,7 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
         uniform_word_7 = parameters[25];
         packed_word_2 = packed_word_2 & 0x7u;
         packed_word_30 = blockIdx.y;
-        uniform_word_4 = parameters[8];
-        uniform_word_5 = parameters[9];
+        const uint64_t optional_input_handle = combine_words(parameters[8], parameters[9]);
         packed_word_8 = parameters[46];
         packed_word_9 = parameters[47];
         uniform_word_28 = parameters[48];
@@ -284,12 +284,15 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
         packed_word_20 = reciprocal_bits(uniform_word_6);
         uniform_word_34 = parameters[2];
         uniform_word_35 = parameters[3];
-        condition_0 = 0ull != combine_words(uniform_word_4, uniform_word_5);
+        condition_0 = optional_input_handle != 0;
         uniform_word_6 = 0u;
         packed_word_23 = __float_as_uint(__int2float_rn(int32_t(packed_word_7)));
+        // This is a floating scalar, with a lifetime separate from texture handles.
+        float doubled_parameter;
+        const float scalar_parameter = __uint_as_float(uniform_word_29);
         asm("add.rn.ftz.f32 %0,%1,%2;"
-            : "=f"(reinterpret_cast<float&>(uniform_word_4))
-            : "f"(__uint_as_float(uniform_word_29)), "f"(__uint_as_float(uniform_word_29)));
+            : "=f"(doubled_parameter) : "f"(scalar_parameter), "f"(scalar_parameter));
+        uniform_word_4 = __float_as_uint(doubled_parameter);
         uniform_word_31 = parameters[38];
         condition_0 = 0u != uint32_t(uniform_word_28) && !condition_0;
         packed_word_28 = reciprocal_bits(packed_word_23);
@@ -7362,44 +7365,11 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
         uniform_word_14 = parameters[62];
         uniform_word_15 = parameters[63];
         if (!condition_0) {
-            packed_word_10 = __float_as_uint(__uint2float_ru(packed_word_5));
-            packed_word_8 = packed_word_8 + packed_word_17;
-            packed_word_14 = 0u - packed_word_5;
-            condition_2 = uint32_t(packed_word_5) != 0u;
-
+            const uint32_t next_boundary_index =
+                ((packed_word_8 + packed_word_17) * uniform_word_9 + packed_word_15) *
+                    uniform_word_8 + packed_word_19;
             packed_word_20 = packed_word_6;
-            packed_word_8 = packed_word_8 * uniform_word_9 + packed_word_15;
-            packed_word_8 = packed_word_8 * uniform_word_8 + packed_word_19;
-            packed_word_19 = packed_word_14;
-            packed_word_10 = reciprocal_bits(packed_word_10);
-            condition_0 = uint32_t(packed_word_8) >= uint32_t(0x40u);
-            packed_word_15 = !true ? min(packed_word_8, 0x40u) : max(packed_word_8, 0x40u);
-            packed_word_12 = packed_word_10 + 0xffffffeu;
-            packed_word_10 = condition_0 ? 0u : 0x1u;
-            packed_word_13 = __float2uint_rz(__uint_as_float(packed_word_12));
-            packed_word_8 = packed_word_15 + (0u - packed_word_8) + (0u - packed_word_10);
-            packed_word_12 = 0u;
-            packed_word_19 = packed_word_19 * packed_word_13;
-            packed_word_13 = uint32_t(uint64_t(packed_word_13) * packed_word_19 +
-                                          combine_words(packed_word_12, packed_word_13) >>
-                                      32);
-            packed_word_13 = uint32_t(uint64_t(packed_word_13) * packed_word_8 >> 32);
-            packed_word_12 = 0u - packed_word_13;
-            packed_word_8 = packed_word_5 * packed_word_12 + packed_word_8;
-            condition_0 = uint32_t(packed_word_8) >= uint32_t(packed_word_5);
-            if (condition_0) {
-                packed_word_8 = 0u - packed_word_5 + packed_word_8;
-
-                packed_word_13 = packed_word_13 + 0x1u;
-            }
-            condition_1 = uint32_t(packed_word_8) >= uint32_t(packed_word_5);
-            if (condition_1) {
-                packed_word_13 = packed_word_13 + 0x1u;
-            }
-            if (!condition_2) {
-                packed_word_13 = ~packed_word_5;
-            }
-            packed_word_10 = packed_word_10 + packed_word_13;
+            packed_word_10 = boundary_tail_steps<false>(next_boundary_index, 64u, packed_word_5);
             packed_word_8 = packed_word_10 + 0x1u;
             {
                 uint32_t loaded_word;
@@ -7691,41 +7661,9 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
         packed_word_15 = packed_word_4 * packed_word_15;
         condition_0 = int32_t(packed_word_6) >= int32_t(packed_word_15);
         if (!condition_0) {
-            packed_word_14 = __float_as_uint(__uint2float_ru(packed_word_5));
-            packed_word_10 = packed_word_5 + packed_word_6;
-            packed_word_17 = 0u - packed_word_5;
-            condition_2 = uint32_t(packed_word_5) != 0u;
-
-            condition_0 = int32_t(packed_word_10) >= int32_t(packed_word_15);
-            packed_word_13 = max(int32_t(packed_word_15), int32_t(packed_word_10));
-            packed_word_12 = condition_0 ? 0u : 0x1u;
-            packed_word_14 = reciprocal_bits(packed_word_14);
-            packed_word_10 = packed_word_13 + (0u - packed_word_10) + (0u - packed_word_12);
-            packed_word_8 = packed_word_14 + 0xffffffeu;
             packed_word_14 = packed_word_6;
-            packed_word_9 = __float2uint_rz(__uint_as_float(packed_word_8));
-            packed_word_8 = 0u;
-            packed_word_17 = packed_word_17 * packed_word_9;
-            packed_word_9 = uint32_t(uint64_t(packed_word_9) * packed_word_17 +
-                                         combine_words(packed_word_8, packed_word_9) >>
-                                     32);
-            packed_word_9 = uint32_t(uint64_t(packed_word_9) * packed_word_10 >> 32);
-            packed_word_8 = 0u - packed_word_9;
-            packed_word_10 = packed_word_5 * packed_word_8 + packed_word_10;
-            condition_0 = uint32_t(packed_word_10) >= uint32_t(packed_word_5);
-            if (condition_0) {
-                packed_word_10 = 0u - packed_word_5 + packed_word_10;
-
-                packed_word_9 = packed_word_9 + 0x1u;
-            }
-            condition_1 = uint32_t(packed_word_10) >= uint32_t(packed_word_5);
-            if (condition_1) {
-                packed_word_9 = packed_word_9 + 0x1u;
-            }
-            if (!condition_2) {
-                packed_word_9 = ~packed_word_5;
-            }
-            packed_word_9 = packed_word_12 + packed_word_9;
+            packed_word_9 = boundary_tail_steps<true>(
+                packed_word_5 + packed_word_6, packed_word_15, packed_word_5);
             packed_word_8 = packed_word_9 + 0x1u;
             condition_0 = uint32_t(packed_word_9) >= uint32_t(0x3u);
             {
@@ -7735,7 +7673,7 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
                 condition_1 = loaded_word != 0;
             }
             if (condition_1) {
-                packed_word_18 = int32_t(packed_word_11) < 0 ? 0u - packed_word_11 : packed_word_11;
+                packed_word_18 = signed_word_magnitude(packed_word_11);
                 condition_2 = int32_t(packed_word_11) != int32_t(0u);
                 packed_word_10 = 0u - packed_word_10;
                 packed_word_12 = __float_as_uint(__int2float_ru(packed_word_18));
@@ -7755,9 +7693,9 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
                     packed_word_11 = uniform_word_7;
                     packed_word_10 = packed_word_10 + 0x1u;
                     packed_word_9 =
-                        int32_t(packed_word_20) < 0 ? 0u - packed_word_20 : packed_word_20;
+                        signed_word_magnitude(packed_word_20);
                     packed_word_22 =
-                        int32_t(packed_word_11) < 0 ? 0u - packed_word_11 : packed_word_11;
+                        signed_word_magnitude(packed_word_11);
                     packed_word_8 = uint32_t(uint64_t(packed_word_16) * packed_word_9 >> 32);
                     packed_word_12 = 0u - packed_word_8;
                     packed_word_9 = packed_word_22 * packed_word_12 + packed_word_9;
@@ -7814,7 +7752,7 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
             }
 
             if (condition_0) {
-                packed_word_35 = int32_t(packed_word_11) < 0 ? 0u - packed_word_11 : packed_word_11;
+                packed_word_35 = signed_word_magnitude(packed_word_11);
                 packed_word_8 = packed_word_5 + packed_word_14;
                 packed_word_10 = packed_word_14 & 0x3u;
                 packed_word_16 = __float_as_uint(__int2float_ru(packed_word_35));
@@ -7839,15 +7777,15 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
                     packed_word_24 = uint32_t(uint32_t(packed_word_14) >> 0x2u);
                     packed_word_18 = packed_word_5 + packed_word_14;
                     packed_word_23 =
-                        int32_t(packed_word_11) < 0 ? 0u - packed_word_11 : packed_word_11;
+                        signed_word_magnitude(packed_word_11);
                     packed_word_16 =
-                        int32_t(packed_word_24) < 0 ? 0u - packed_word_24 : packed_word_24;
+                        signed_word_magnitude(packed_word_24);
                     packed_word_20 = __float_as_uint(__int2float_ru(packed_word_23));
                     packed_word_26 = uint32_t(uint32_t(packed_word_18) >> 0x2u);
                     packed_word_10 = uint32_t(uint64_t(packed_word_37) * packed_word_16 >> 32);
                     packed_word_28 = packed_word_5 + packed_word_18;
                     packed_word_18 =
-                        int32_t(packed_word_26) < 0 ? 0u - packed_word_26 : packed_word_26;
+                        signed_word_magnitude(packed_word_26);
                     packed_word_25 = packed_word_11 ^ packed_word_24;
                     packed_word_19 = 0u - packed_word_10;
                     packed_word_32 = packed_word_5 + packed_word_28;
@@ -7859,9 +7797,9 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
                     packed_word_34 = uint32_t(uint32_t(packed_word_32) >> 0x2u);
                     condition_0 = uint32_t(packed_word_35) > uint32_t(packed_word_14);
                     packed_word_19 =
-                        int32_t(packed_word_30) < 0 ? 0u - packed_word_30 : packed_word_30;
+                        signed_word_magnitude(packed_word_30);
                     packed_word_22 =
-                        int32_t(packed_word_34) < 0 ? 0u - packed_word_34 : packed_word_34;
+                        signed_word_magnitude(packed_word_34);
                     condition_3 = int32_t(packed_word_11) != int32_t(0u);
                     packed_word_31 = ~packed_word_11;
                     packed_word_28 = packed_word_28 & 0x3u;
@@ -8084,301 +8022,21 @@ __device__ __forceinline__ void run_input_preparation(const uint32_t* parameters
     if (condition_0) {
         return;
     }
-    packed_word_11 = __float_as_uint(__uint2float_ru(packed_word_5));
-    packed_word_12 = packed_word_5 + packed_word_6;
-    packed_word_13 = 0u - packed_word_5;
-    packed_word_8 = 0u;
-    condition_2 = uint32_t(packed_word_5) != 0u;
-    uniform_word_4 = parameters[62];
-    uniform_word_5 = parameters[63];
-    condition_0 = int32_t(packed_word_12) >= int32_t(packed_word_23);
-    packed_word_7 = max(int32_t(packed_word_12), int32_t(packed_word_23));
-
-    packed_word_10 = condition_0 ? 0u : 0x1u;
-    packed_word_11 = reciprocal_bits(packed_word_11);
-    packed_word_9 = packed_word_11 + 0xffffffeu;
-    packed_word_9 = __float2uint_rz(__uint_as_float(packed_word_9));
-    packed_word_13 = packed_word_13 * packed_word_9;
-    packed_word_13 = uint32_t(uint64_t(packed_word_9) * packed_word_13 +
-                                  combine_words(packed_word_8, packed_word_9) >>
-                              32);
-    packed_word_8 = packed_word_7 + (0u - packed_word_12) + (0u - packed_word_10);
-    packed_word_7 = uint32_t(uint64_t(packed_word_13) * packed_word_8 >> 32);
-    packed_word_9 = 0u - packed_word_7;
-    packed_word_8 = packed_word_5 * packed_word_9 + packed_word_8;
-    condition_0 = uint32_t(packed_word_8) >= uint32_t(packed_word_5);
-    if (condition_0) {
-        packed_word_8 = 0u - packed_word_5 + packed_word_8;
-
-        packed_word_7 = packed_word_7 + 0x1u;
-    }
-    condition_1 = uint32_t(packed_word_8) >= uint32_t(packed_word_5);
-    if (condition_1) {
-        packed_word_7 = packed_word_7 + 0x1u;
-    }
-    if (!condition_2) {
-        packed_word_7 = ~packed_word_5;
-    }
-    packed_word_10 = packed_word_10 + packed_word_7;
-    packed_word_7 = packed_word_10 + 0x1u;
-    condition_3 = uint32_t(packed_word_10) >= uint32_t(0x3u);
-    {
-        uint32_t loaded_word;
-        loaded_word = packed_word_7 & 0x3u;
-        packed_word_7 = loaded_word;
-        condition_0 = loaded_word != 0;
-    }
-    if (condition_0) {
-        packed_word_10 = __float_as_uint(__uint2float_ru(packed_word_2));
-        packed_word_11 = 0u - packed_word_2;
-        condition_2 = uint32_t(packed_word_2) != 0u;
-        packed_word_7 = 0u - packed_word_7;
-        packed_word_13 = ~packed_word_2;
-        packed_word_10 = reciprocal_bits(packed_word_10);
-        packed_word_8 = packed_word_10 + 0xffffffeu;
-        packed_word_9 = __float2uint_rz(__uint_as_float(packed_word_8));
-        packed_word_8 = 0u;
-        packed_word_11 = packed_word_11 * packed_word_9;
-        packed_word_12 = uint32_t(uint64_t(packed_word_9) * packed_word_11 +
-                                      combine_words(packed_word_8, packed_word_9) >>
-                                  32);
-        do {
-            packed_word_11 = uint32_t(uint32_t(packed_word_6) >> 0x2u);
-            packed_word_7 = packed_word_7 + 0x1u;
-            packed_word_8 = uint32_t(uint64_t(packed_word_12) * packed_word_11 >> 32);
-            packed_word_9 = 0u - packed_word_8;
-            packed_word_9 = packed_word_2 * packed_word_9 + packed_word_11;
-            condition_0 = uint32_t(packed_word_9) >= uint32_t(packed_word_2);
-            if (condition_0) {
-                packed_word_9 = 0u - packed_word_2 + packed_word_9;
-
-                packed_word_8 = packed_word_8 + 0x1u;
-            }
-            condition_1 = uint32_t(packed_word_9) >= uint32_t(packed_word_2);
-            if (condition_1) {
-                packed_word_8 = packed_word_8 + 0x1u;
-            }
-            packed_word_15 = !condition_2 ? packed_word_13 : packed_word_8;
-            packed_word_8 = packed_word_6 & 0x3u;
-            packed_word_6 = packed_word_5 + packed_word_6;
-            packed_word_10 = 0u - packed_word_15;
-            split_address_words(packed_word_8, packed_word_9,
-                                int64_t(int32_t(packed_word_8)) * int64_t(int32_t(packed_word_3)) +
-                                    0ull);
-            packed_word_11 = packed_word_2 * packed_word_10 + packed_word_11;
-            split_address_words(packed_word_8, packed_word_9,
-                                int64_t(int32_t(packed_word_4)) * int64_t(int32_t(packed_word_15)) +
-                                    combine_words(packed_word_8, packed_word_9));
-            packed_word_11 = packed_word_0 + packed_word_11;
-            split_address_words(packed_word_8, packed_word_9,
-                                int64_t(int32_t(packed_word_11)) * int64_t(int32_t(0x4u)) +
-                                    combine_words(packed_word_8, packed_word_9));
-            const uint64_t byte_address_10 =
-                scaled_word_address(combine_words(uniform_word_4, uniform_word_5),
-                                    combine_words(packed_word_8, packed_word_9));
-            packed_word_10 = uint32_t(byte_address_10);
-            packed_word_11 = uint32_t(byte_address_10 >> 32);
-            condition_0 = uint32_t(packed_word_7) != 0u;
-            write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11), 0u,
-                                             memory_ranges, error_counts);
-            write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0x4ull,
-                                             0u, memory_ranges, error_counts);
-            write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0x8ull,
-                                             0u, memory_ranges, error_counts);
-            write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0xcull,
-                                             0u, memory_ranges, error_counts);
-        } while (condition_0);
-    }
-
-    if (!condition_3) {
-        return;
-    }
-    packed_word_7 = __float_as_uint(__uint2float_ru(packed_word_2));
-    packed_word_20 = packed_word_5 + packed_word_6;
-    packed_word_11 = 0u - packed_word_2;
-    packed_word_18 = packed_word_6 & 0x3u;
-    uniform_word_4 = parameters[62];
-    uniform_word_5 = parameters[63];
-    condition_0 = uint32_t(packed_word_2) != 0u;
-    packed_word_20 = packed_word_20 & 0x3u;
-    packed_word_33 = ~packed_word_2;
-    split_address_words(packed_word_18, packed_word_19,
-                        int64_t(int32_t(packed_word_18)) * int64_t(int32_t(packed_word_3)) + 0ull);
-    split_address_words(packed_word_20, packed_word_21,
-                        int64_t(int32_t(packed_word_20)) * int64_t(int32_t(packed_word_3)) + 0ull);
-    packed_word_7 = reciprocal_bits(packed_word_7);
-    packed_word_8 = packed_word_7 + 0xffffffeu;
-    packed_word_9 = __float2uint_rz(__uint_as_float(packed_word_8));
-    packed_word_8 = 0u;
-    packed_word_11 = packed_word_11 * packed_word_9;
-    packed_word_24 = uint32_t(uint64_t(packed_word_9) * packed_word_11 +
-                                  combine_words(packed_word_8, packed_word_9) >>
-                              32);
-    do {
-        packed_word_17 = uint32_t(uint32_t(packed_word_6) >> 0x2u);
-        packed_word_6 = packed_word_5 + packed_word_6;
-        packed_word_10 = uint32_t(uint64_t(packed_word_24) * packed_word_17 >> 32);
-        packed_word_9 = uint32_t(uint32_t(packed_word_6) >> 0x2u);
-        packed_word_8 = packed_word_5 + packed_word_6;
-        packed_word_7 = 0u - packed_word_10;
-        packed_word_6 = uint32_t(uint64_t(packed_word_24) * packed_word_9 >> 32);
-        packed_word_25 = uint32_t(uint32_t(packed_word_8) >> 0x2u);
-        packed_word_22 = packed_word_5 + packed_word_8;
-        packed_word_27 = packed_word_2 * packed_word_7 + packed_word_17;
-        packed_word_7 = 0u - packed_word_6;
-        packed_word_11 = uint32_t(uint64_t(packed_word_24) * packed_word_25 >> 32);
-        packed_word_29 = uint32_t(uint32_t(packed_word_22) >> 0x2u);
-        condition_4 = uint32_t(packed_word_27) >= uint32_t(packed_word_2);
-        packed_word_7 = packed_word_2 * packed_word_7 + packed_word_9;
-        packed_word_13 = 0u - packed_word_11;
-        packed_word_12 = uint32_t(uint64_t(packed_word_24) * packed_word_29 >> 32);
-        condition_3 = uint32_t(packed_word_7) >= uint32_t(packed_word_2);
-        packed_word_13 = packed_word_2 * packed_word_13 + packed_word_25;
-        packed_word_15 = 0u - packed_word_12;
-        condition_1 = uint32_t(packed_word_13) >= uint32_t(packed_word_2);
-        if (condition_4) {
-            packed_word_27 = 0u - packed_word_2 + packed_word_27;
-        }
-        packed_word_15 = packed_word_2 * packed_word_15 + packed_word_29;
-        if (condition_4) {
-            packed_word_10 = packed_word_10 + 0x1u;
-        }
-        condition_5 = uint32_t(packed_word_27) >= uint32_t(packed_word_2);
-        condition_2 = uint32_t(packed_word_15) >= uint32_t(packed_word_2);
-        if (condition_3) {
-            packed_word_7 = 0u - packed_word_2 + packed_word_7;
-
-            packed_word_6 = packed_word_6 + 0x1u;
-        }
-        condition_4 = uint32_t(packed_word_7) >= uint32_t(packed_word_2);
-        if (condition_1) {
-            packed_word_13 = 0u - packed_word_2 + packed_word_13;
-
-            packed_word_11 = packed_word_11 + 0x1u;
-        }
-        if (condition_5) {
-            packed_word_10 = packed_word_10 + 0x1u;
-        }
-        condition_5 = uint32_t(packed_word_13) >= uint32_t(packed_word_2);
-        if (condition_2) {
-            packed_word_15 = 0u - packed_word_2 + packed_word_15;
-
-            packed_word_12 = packed_word_12 + 0x1u;
-        }
-        packed_word_7 = !condition_0 ? packed_word_33 : packed_word_10;
-        condition_3 = uint32_t(packed_word_15) >= uint32_t(packed_word_2);
-        if (condition_4) {
-            packed_word_6 = packed_word_6 + 0x1u;
-        }
-        packed_word_10 = 0u - packed_word_7;
-        packed_word_13 = !condition_0 ? packed_word_33 : packed_word_6;
-        if (condition_5) {
-            packed_word_11 = packed_word_11 + 0x1u;
-        }
-        packed_word_17 = packed_word_2 * packed_word_10 + packed_word_17;
-        packed_word_10 = packed_word_8 & 0x3u;
-        split_address_words(packed_word_6, packed_word_7,
-                            int64_t(int32_t(packed_word_4)) * int64_t(int32_t(packed_word_7)) +
-                                combine_words(packed_word_18, packed_word_19));
-        packed_word_15 = 0u - packed_word_13;
-        packed_word_27 = !condition_0 ? packed_word_33 : packed_word_11;
-        if (condition_3) {
-            packed_word_12 = packed_word_12 + 0x1u;
-        }
-        packed_word_17 = packed_word_0 + packed_word_17;
-        split_address_words(packed_word_10, packed_word_11,
-                            int64_t(int32_t(packed_word_10)) * int64_t(int32_t(packed_word_3)) +
-                                0ull);
-        packed_word_14 = 0u - packed_word_27;
-        packed_word_31 = !condition_0 ? packed_word_33 : packed_word_12;
-        packed_word_15 = packed_word_2 * packed_word_15 + packed_word_9;
-        packed_word_12 = packed_word_22 & 0x3u;
-        split_address_words(packed_word_6, packed_word_7,
-                            int64_t(int32_t(packed_word_17)) * int64_t(int32_t(0x4u)) +
-                                combine_words(packed_word_6, packed_word_7));
-        packed_word_16 = 0u - packed_word_31;
-        packed_word_17 = packed_word_0 + packed_word_15;
-        split_address_words(packed_word_8, packed_word_9,
-                            int64_t(int32_t(packed_word_4)) * int64_t(int32_t(packed_word_13)) +
-                                combine_words(packed_word_20, packed_word_21));
-        packed_word_25 = packed_word_2 * packed_word_14 + packed_word_25;
-        split_address_words(packed_word_12, packed_word_13,
-                            int64_t(int32_t(packed_word_12)) * int64_t(int32_t(packed_word_3)) +
-                                0ull);
-        packed_word_25 = packed_word_0 + packed_word_25;
-        split_address_words(packed_word_14, packed_word_15,
-                            int64_t(int32_t(packed_word_4)) * int64_t(int32_t(packed_word_27)) +
-                                combine_words(packed_word_10, packed_word_11));
-        packed_word_29 = packed_word_2 * packed_word_16 + packed_word_29;
-        split_address_words(packed_word_10, packed_word_11,
-                            int64_t(int32_t(packed_word_17)) * int64_t(int32_t(0x4u)) +
-                                combine_words(packed_word_8, packed_word_9));
-        const uint64_t byte_address_11 =
-            scaled_word_address(combine_words(uniform_word_4, uniform_word_5),
-                                combine_words(packed_word_6, packed_word_7));
-        packed_word_8 = uint32_t(byte_address_11);
-        packed_word_29 = packed_word_0 + packed_word_29;
-        split_address_words(packed_word_16, packed_word_17,
-                            int64_t(int32_t(packed_word_4)) * int64_t(int32_t(packed_word_31)) +
-                                combine_words(packed_word_12, packed_word_13));
-        const uint64_t byte_address_12 =
-            scaled_word_address(combine_words(uniform_word_4, uniform_word_5),
-                                combine_words(packed_word_10, packed_word_11));
-        packed_word_12 = uint32_t(byte_address_12);
-        packed_word_9 = uint32_t(byte_address_11 >> 32);
-        split_address_words(packed_word_14, packed_word_15,
-                            int64_t(int32_t(packed_word_25)) * int64_t(int32_t(0x4u)) +
-                                combine_words(packed_word_14, packed_word_15));
-        packed_word_13 = uint32_t(byte_address_12 >> 32);
-        packed_word_6 = packed_word_5 + packed_word_22;
-        split_address_words(packed_word_16, packed_word_17,
-                            int64_t(int32_t(packed_word_29)) * int64_t(int32_t(0x4u)) +
-                                combine_words(packed_word_16, packed_word_17));
-        const uint64_t byte_address_13 =
-            scaled_word_address(combine_words(uniform_word_4, uniform_word_5),
-                                combine_words(packed_word_14, packed_word_15));
-        packed_word_10 = uint32_t(byte_address_13);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_8, packed_word_9), 0u,
-                                         memory_ranges, error_counts);
-        packed_word_11 = uint32_t(byte_address_13 >> 32);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_8, packed_word_9) + 0x4ull, 0u,
-                                         memory_ranges, error_counts);
-        const uint64_t byte_address_14 =
-            scaled_word_address(combine_words(uniform_word_4, uniform_word_5),
-                                combine_words(packed_word_16, packed_word_17));
-        packed_word_14 = uint32_t(byte_address_14);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_8, packed_word_9) + 0x8ull, 0u,
-                                         memory_ranges, error_counts);
-        packed_word_15 = uint32_t(byte_address_14 >> 32);
-        condition_1 = int32_t(packed_word_6) >= int32_t(packed_word_23);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_8, packed_word_9) + 0xcull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_12, packed_word_13), 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_12, packed_word_13) + 0x4ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_12, packed_word_13) + 0x8ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_12, packed_word_13) + 0xcull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11), 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0x4ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0x8ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_10, packed_word_11) + 0xcull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_14, packed_word_15), 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_14, packed_word_15) + 0x4ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_14, packed_word_15) + 0x8ull, 0u,
-                                         memory_ranges, error_counts);
-        write_boundary_word<CheckBounds>(combine_words(packed_word_14, packed_word_15) + 0xcull, 0u,
-                                         memory_ranges, error_counts);
-    } while (!condition_1);
-    return;
+    // Clear the final column-padding region only. Earlier tile/edge publication
+    // and its synchronization stay here; see docs/BOUNDARY_KERNELS.md.
+    const BoundaryVectorLayout padding_layout{
+        combine_words(parameters[62], parameters[63]),
+        packed_word_3, // component stride, uint32 words
+        packed_word_4, // row stride, uint32 words
+        packed_word_0}; // column origin, signed-word bits
+    const uint32_t padding_width = packed_word_2;
+    const uint32_t first_padding_item = packed_word_6;
+    const uint32_t padding_extent = packed_word_23;
+    const uint32_t block_thread_count = packed_word_5;
+    clear_boundary_rows<2>(padding_layout, padding_width, first_padding_item,
+                           padding_extent, block_thread_count, [&](uint64_t address) {
+        write_boundary_word<CheckBounds>(address, 0u, memory_ranges, error_counts);
+    });
 }
 
 extern "C" __global__

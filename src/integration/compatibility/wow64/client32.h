@@ -23,6 +23,51 @@ inline std::string file_digest(const std::filesystem::path& path) {
     for(unsigned i=0;i<32;++i) sprintf_s(text+i*2,3,"%02x",unsigned(result[i])); return text;
 }
 #ifndef _WIN64
+class NativeActivationContext {
+    using Call=uint64_t(__cdecl*)(uint64_t,int,...);
+    using Read=BOOL(__cdecl*)(HANDLE,uint64_t,void*,SIZE_T,SIZE_T*);
+    using Write=BOOL(__cdecl*)(HANDLE,uint64_t,const void*,SIZE_T,SIZE_T*);
+    using Proc=uint64_t(__cdecl*)(uint64_t,const char*);
+    Call call_=nullptr;
+    Write write_=nullptr;
+    uint64_t slot_=0,original_=0,allocated_=0,free_=0;
+  public:
+    NativeActivationContext(HMODULE extension,uint64_t ntdll) {
+        using phoenix_bundle::require;
+        call_=reinterpret_cast<Call>(GetProcAddress(extension,"X64Call"));
+        write_=reinterpret_cast<Write>(GetProcAddress(extension,"WriteProcessMemory64"));
+        const auto read=reinterpret_cast<Read>(GetProcAddress(extension,"ReadProcessMemory64"));
+        const auto proc=reinterpret_cast<Proc>(GetProcAddress(extension,"GetProcAddress64"));
+        require(call_&&write_&&read&&proc,"Native activation bridge unavailable");
+        const auto query=proc(ntdll,"NtQueryInformationThread");
+        const auto allocate=proc(ntdll,"RtlAllocateActivationContextStack");
+        free_=proc(ntdll,"RtlFreeActivationContextStack");
+        require(query&&allocate&&free_,"Native activation exports unavailable");
+        struct Basic { int32_t status;uint32_t padding;uint64_t teb,pid,tid,affinity;int32_t priority,base_priority; } info{};
+        static_assert(sizeof(Basic)==48);
+        require(int32_t(call_(query,5,uint64_t(-2),uint64_t(0),uint64_t(uintptr_t(&info)),
+            uint64_t(sizeof(info)),uint64_t(0)))>=0&&info.teb,"Native worker TEB unavailable");
+        // _TEB.ActivationContextStackPointer is verified for the hash-bound
+        // ntdll profile before this scope is constructed. Fresh x86 workers
+        // lack it; loading native KernelBase otherwise dereferences null.
+        slot_=info.teb+0x2c8;
+        require(read(GetCurrentProcess(),slot_,&original_,sizeof(original_),nullptr)!=0,"Native activation slot unreadable");
+        if(original_)return;
+        uint64_t allocated=0;
+        require(int32_t(call_(allocate,1,uint64_t(uintptr_t(&allocated))))>=0&&allocated,"Native activation stack allocation failed");
+        if(!write_(GetCurrentProcess(),slot_,&allocated,sizeof(allocated),nullptr)) {
+            call_(free_,1,allocated);
+            throw std::runtime_error("Native activation stack installation failed");
+        }
+        allocated_=allocated;
+    }
+    NativeActivationContext(const NativeActivationContext&)=delete;
+    ~NativeActivationContext() {
+        if(allocated_&&write_(GetCurrentProcess(),slot_,&original_,sizeof(original_),nullptr))
+            call_(free_,1,allocated_);
+    }
+};
+
 class NativeThread {
     using Call=uint64_t(__cdecl*)(uint64_t,int,...);
     using Module=uint64_t(__cdecl*)(const wchar_t*);
@@ -62,7 +107,7 @@ class NativeThread {
     void start(const std::filesystem::path& root,phoenix_driver_probe::Channel& channel,unsigned kind,void* packet) {
         using phoenix_bundle::require;
         const auto profile=phoenix_bundle::json_file(root/"bootstrap.json");
-        require(profile.at("schema")=="phoenix-wow64-bootstrap/1","Unsupported native bootstrap profile");
+        require(profile.at("schema")=="phoenix-wow64-bootstrap/2","Update the matching addon and native runtime together; this bootstrap requires GUI callback support");
         wchar_t windows[MAX_PATH]{}; require(GetWindowsDirectoryW(windows,MAX_PATH)!=0,"Windows path unavailable");
         const auto system=std::filesystem::path(windows);
         require(file_digest(system/"Sysnative/ntdll.dll")==profile.at("ntdll_sha256").get<std::string>(),
@@ -97,6 +142,7 @@ class NativeThread {
             require(rva&&rva<pe.OptionalHeader.SizeOfImage,"Invalid native TLS routine offset");
         }
         const auto bootstrap=(root/"phoenix_bootstrap64.dll").wstring();
+        NativeActivationContext activation(extension_,ntdll);
         struct String64 { uint16_t length,capacity; uint32_t padding; uint64_t data; } name{
             uint16_t(bootstrap.size()*2),uint16_t((bootstrap.size()+1)*2),0,pointer(bootstrap.c_str())};
         require(bootstrap.size()<30000,"Native runtime path too long"); uint64_t library=0;

@@ -10,47 +10,8 @@
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/async_memory.cuh"
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y, uint32_t& word_z,
-                       uint32_t& word_w, const MemoryRange* memory_ranges, uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldca(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_global_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y,
-                              uint32_t& word_z, uint32_t& word_w, const MemoryRange* memory_ranges,
-                              uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldcg(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-store_four_words_streaming(uint64_t address, uint32_t word_x, uint32_t word_y, uint32_t word_z,
-                           uint32_t word_w, const MemoryRange* memory_ranges,
-                           uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, true, memory_ranges, error_counts))
-        return;
-    uint4* word_pointer = reinterpret_cast<uint4*>(address);
-    __stcs(word_pointer, make_uint4(word_x, word_y, word_z, word_w));
-}
+#include "../../../common/cached_vector_access.cuh"
+#include "../../../common/token_dispatch.cuh"
 
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
@@ -292,8 +253,10 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     matrix_fragment_69 = blockIdx.z;
 
-    matrix_accumulator_12 = parameters[parameter_trained_weights_low_8];
-    matrix_accumulator_13 = parameters[parameter_trained_weights_high_9];
+    // Address setup has its own lifetime; matrix accumulators below no longer
+    // double as pointers before their first multiply/accumulate operation.
+    uint32_t weight_address_low = parameters[parameter_trained_weights_low_8];
+    uint32_t weight_address_high = parameters[parameter_trained_weights_high_9];
 
     matrix_fragment_19 = threadIdx.x & 31u;
 
@@ -303,131 +266,26 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     uniform_address_word_10 = uint32_t(int32_t(uniform_address_word_6) >> 0x1fu);
 
-    uniform_index_word_4 =
-        uint32_t(combine_words(uniform_address_word_10, 0u) << 0x7u >> 32) + uniform_address_word_6;
-
     condition_1 = (matrix_fragment_17 & 0x1u) != 0;
 
-    uniform_address_word_11 = uint32_t(int32_t(uniform_index_word_4) >> 0x7u);
+    uniform_address_word_11 = truncate_signed_power_of_two<7>(uniform_address_word_6);
 
     uniform_index_word_14 = uniform_address_word_11 + 0x1u;
 
     matrix_fragment_70 = !condition_1 ? 0u : 0x60u;
 
-    uniform_condition_2 = int32_t(uniform_index_word_14) != int32_t(0u);
-
-    index_word_0 = uniform_index_word_14;
-
-    matrix_accumulator_2 = int32_t(index_word_0) < 0 ? 0u - index_word_0 : index_word_0;
-
-    matrix_fragment_4 = int32_t(index_word_0) < 0 ? 0u - index_word_0 : index_word_0;
-
-    uniform_float_bits_15 = matrix_accumulator_2;
-
-    matrix_accumulator_2 = blockIdx.x;
-
-    matrix_fragment_4 = 0u - matrix_fragment_4;
-
-    uniform_index_word_4 = __float_as_uint(__int2float_ru(uniform_float_bits_15));
-
-    matrix_accumulator_3 = reciprocal_bits(uniform_index_word_4);
-
-    matrix_accumulator_2 =
-        int32_t(matrix_accumulator_2) < 0 ? 0u - matrix_accumulator_2 : matrix_accumulator_2;
-
-    index_word_0 = matrix_accumulator_2;
-
-    uniform_index_word_4 = matrix_accumulator_3;
-
-    uniform_address_word_9 = index_word_0;
-
-    index_word_0 = matrix_fragment_4;
-
-    uniform_address_word_13 = index_word_0;
-
-    uniform_index_word_4 = uniform_index_word_4 + 0xffffffeu;
-
+    const auto work = token_tile_work(blockIdx.x, uniform_index_word_14);
     index_word_0 = matrix_fragment_17 | matrix_fragment_68;
     condition_0 = index_word_0 != 0;
-
-    uniform_index_word_5 = __float2uint_rz(__uint_as_float(uniform_index_word_4));
-
-    uniform_index_word_4 = 0u;
-
-    matrix_accumulator_3 = 0u - uniform_index_word_5;
-
-    if (!condition_0) {
-        matrix_accumulator_2 = blockDim.x;
-    }
-
-    uniform_address_word_8 = matrix_accumulator_3;
-
-    if (!condition_0) {
-        matrix_accumulator_3 = blockDim.y;
-    }
-
-    uniform_address_word_8 = uniform_address_word_8 * uniform_float_bits_15;
-
-    uniform_index_word_4 = uint32_t(uint64_t(uniform_index_word_5) * uniform_address_word_8 +
-                                        combine_words(uniform_index_word_4, uniform_index_word_5) >>
-                                    32);
-
-    split_address_words(uniform_index_word_4, uniform_index_word_5,
-                        uint64_t(uint32_t(uniform_index_word_4)) *
-                            uint64_t(uint32_t(uniform_address_word_9)));
-
-    uniform_index_word_4 = uniform_index_word_5 * uniform_address_word_13 + uniform_address_word_9;
-
-    uniform_condition_0 = uint32_t(uniform_float_bits_15) > uint32_t(uniform_index_word_4);
-
-    if (!condition_0) {
-        matrix_accumulator_2 = matrix_accumulator_2 * matrix_accumulator_3;
-    }
-
-    uniform_address_word_8 =
-        broadcast_warp_word(matrix_accumulator_2, !condition_0, uniform_address_word_8);
-
+    const auto copy = tile_copy_schedule<shared_bytes, 2>(!condition_0, blockDim.x * blockDim.y);
+    uniform_index_word_5 = work.group;
+    uniform_index_word_4 = copy.barrier_byte_offset;
+    uniform_address_word_8 = copy.wait_word_low;
+    uniform_address_word_9 = copy.wait_word_high;
+    uniform_condition_0 = copy.without_block_leader;
+    uniform_condition_1 = copy.without_block_leader;
+    uniform_condition_2 = copy.without_block_leader;
     matrix_accumulator_2 = matrix_fragment_69 * 0xc00u;
-
-    if (!uniform_condition_0) {
-        uniform_index_word_4 = uniform_index_word_4 + (0u - uniform_float_bits_15);
-
-        uniform_index_word_5 = uniform_index_word_5 + 0x1u;
-    }
-
-    uniform_condition_1 = uint32_t(uniform_index_word_4) >= uint32_t(uniform_float_bits_15);
-
-    uniform_index_word_4 = uniform_address_word_12 ^ uniform_index_word_14;
-
-    uniform_condition_0 = int32_t(uniform_index_word_4) >= int32_t(0u);
-
-    if (uniform_condition_1) {
-        uniform_index_word_5 = uniform_index_word_5 + 0x1u;
-    }
-
-    uniform_condition_1 = vote_warp_predicate<true>(condition_0);
-
-    if (!uniform_condition_0) {
-        uniform_index_word_5 = 0u - uniform_index_word_5;
-    }
-
-    if (!uniform_condition_1) {
-        uniform_address_word_9 = 0u;
-
-        uniform_index_word_4 = 0x400u;
-    }
-
-    if (!uniform_condition_2) {
-        uniform_index_word_5 = ~uniform_index_word_14;
-    }
-
-    if (!uniform_condition_1) {
-        uniform_index_word_4 = uniform_index_word_4 + 0x2000u;
-    }
-
-    uniform_condition_0 = vote_warp_predicate<true>(condition_0);
-
-    uniform_condition_2 = vote_warp_predicate<true>(condition_0);
 
     uniform_index_word_14 = 0u;
     uniform_float_bits_15 = 0u;
@@ -448,16 +306,6 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     matrix_accumulator_3 = uint32_t(int64_t(int32_t(matrix_fragment_70)) * (1ll << 0x1cu) >> 32) +
                            matrix_accumulator_2;
-
-    if (!uniform_condition_1) {
-        uniform_index_word_4 = (uniform_address_word_9 << 0x18u) + uniform_index_word_4;
-
-        uniform_address_word_8 = 0u - uniform_address_word_8 + 0x100000u;
-
-        uniform_address_word_9 = uniform_address_word_8 << (0xbu & 31u);
-
-        uniform_address_word_8 = uniform_address_word_8 << (0x1u & 31u);
-    }
 
     matrix_fragment_4 = uint32_t(int64_t(int32_t(matrix_fragment_71)) * (1ll << 0x1cu) >> 32) +
                         matrix_accumulator_2;
@@ -482,7 +330,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     split_address_words(matrix_fragment_4, matrix_fragment_5,
                         int64_t(int32_t(matrix_fragment_5)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     matrix_fragment_9 = matrix_fragment_8 << (0x7u & 31u);
 
@@ -498,15 +346,15 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     split_address_words(matrix_accumulator_2, matrix_accumulator_3,
                         int64_t(int32_t(matrix_accumulator_3)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     split_address_words(matrix_fragment_6, matrix_fragment_7,
                         int64_t(int32_t(matrix_fragment_7)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     split_address_words(matrix_fragment_8, matrix_fragment_9,
                         int64_t(int32_t(matrix_fragment_9)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     if (!uniform_condition_2) {
 #if DLSS5_ENABLE_ASYNC_COPIES
@@ -516,11 +364,11 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     split_address_words(matrix_fragment_10, matrix_fragment_11,
                         int64_t(int32_t(matrix_fragment_11)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
-    split_address_words(matrix_accumulator_12, matrix_accumulator_13,
+    split_address_words(weight_address_low, weight_address_high,
                         int64_t(int32_t(matrix_accumulator_15)) * int64_t(int32_t(0x4u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     split_address_words(matrix_accumulator_2, matrix_accumulator_3,
                         int64_t(int32_t(matrix_fragment_19)) * int64_t(int32_t(0x10u)) +
@@ -544,9 +392,9 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
                         int64_t(int32_t(matrix_fragment_19)) * int64_t(int32_t(0x10u)) +
                             combine_words(matrix_fragment_10, matrix_fragment_11));
 
-    split_address_words(matrix_accumulator_12, matrix_accumulator_13,
+    split_address_words(weight_address_low, weight_address_high,
                         int64_t(int32_t(matrix_fragment_19)) * int64_t(int32_t(0x10u)) +
-                            combine_words(matrix_accumulator_12, matrix_accumulator_13));
+                            combine_words(weight_address_low, weight_address_high));
 
     load_four_words_cached<CheckBounds>(
         combine_words(matrix_accumulator_2, matrix_accumulator_3) + 0x80ull, matrix_fragment_80,
@@ -569,13 +417,10 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
         matrix_fragment_29, matrix_fragment_30, matrix_fragment_31, memory_ranges, error_counts);
 
     load_four_words_cached<CheckBounds>(
-        combine_words(matrix_accumulator_12, matrix_accumulator_13) + 0x80ull, matrix_fragment_72,
+        combine_words(weight_address_low, weight_address_high) + 0x80ull, matrix_fragment_72,
         matrix_fragment_73, matrix_fragment_74, matrix_fragment_75, memory_ranges, error_counts);
 
     uniform_condition_0 = uint32_t(uniform_parameter_word_7) != 0u;
-
-    uniform_parameter_word_7 =
-        uniform_address_word_11 * uniform_index_word_5 + uniform_index_word_5;
 
     uniform_index_word_4 = 0u;
 
@@ -583,7 +428,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     address_word_36 = 0u;
 
-    uniform_parameter_word_7 = 0u - uniform_parameter_word_7 + uniform_address_word_12;
+    uniform_parameter_word_7 = work.tile;
 
     uniform_index_word_17 = uniform_parameter_word_7 << (0x3u & 31u);
 
@@ -5736,16 +5581,16 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     matrix_fragment_11 = blockIdx.x;
 
-    matrix_fragment_7 = int32_t(index_word_0) < 0 ? 0u - index_word_0 : index_word_0;
+    matrix_fragment_7 = signed_word_magnitude(index_word_0);
 
-    matrix_accumulator_12 = int32_t(index_word_0) < 0 ? 0u - index_word_0 : index_word_0;
+    matrix_accumulator_12 = matrix_fragment_7;
 
     matrix_fragment_6 = __float_as_uint(__int2float_ru(matrix_fragment_7));
 
     matrix_fragment_6 = reciprocal_bits(matrix_fragment_6);
 
     matrix_fragment_10 =
-        int32_t(matrix_fragment_11) < 0 ? 0u - matrix_fragment_11 : matrix_fragment_11;
+        signed_word_magnitude(matrix_fragment_11);
 
     matrix_fragment_4 = matrix_fragment_6 + 0xffffffeu;
 

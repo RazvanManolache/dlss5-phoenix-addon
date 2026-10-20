@@ -1,5 +1,9 @@
 # Phoenix appearance and optional inputs
 
+<!-- current-two-model-evidence -->
+Both Phoenix models expose the eight model-specific central transformer controls, 0-4 repetitions and addon/portable 1-10 passes. See [support and integration limits](SUPPORT.md), [portable scheduling](PORTABLE_MODEL_CONTROLS.md) and [current measured control costs](benchmarks/current/README.md#granular-and-appearance-controls). Experimental appearance options are not vendor-parity modes.
+<!-- /current-two-model-evidence -->
+
 The shared panel exposes an experimental Phoenix appearance switch, global
 intensity (0-2), and Default/Natural/Cinematic styles. Values take effect as
 live tuning edits and remain separate from the NVIDIA-only overrides.

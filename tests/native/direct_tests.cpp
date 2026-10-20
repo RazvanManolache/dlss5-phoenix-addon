@@ -240,15 +240,15 @@ int main() {
                 device["settings"] = {{"ExecutionDevice", "cpu"}};
                 test(validate(device).settings.execution_device == "cpu");
                 device["settings"] = {
-                    {"ExecutionDevice", "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d"}};
+                    {"ExecutionDevice", "cuda:GPU-01234567-89ab-cdef-0123-456789abcdef"}};
                 test(validate(device).settings.valid());
                 device["settings"] = {
-                    {"ExecutionDevice", "vulkan:00000000740000000000000000000000"}};
+                    {"ExecutionDevice", "vulkan:0123456789abcdef0123456789abcdef"}};
                 test(validate(device).settings.valid());
                 for (const auto& device_id :
                      {Json("cuda:0"), Json("cuda:GPU-bad"), Json("vulkan:0"),
                       Json("vulkan:0000000074000000000000000000000G"),
-                      Json("vulkan:000000007400000000000000000000000"), Json("native "), Json(1),
+                      Json("vulkan:0123456789abcdef0123456789abcdef0"), Json("native "), Json(1),
                       Json(true)}) {
                     device["settings"] = {{"ExecutionDevice", device_id}};
                     test(reject(device));
@@ -481,7 +481,7 @@ int main() {
                 test(!capture_meta_parse(capture_meta_write(repeated), parsed));
                 test(capture_meta_parse(capture_meta_write(repeated), parsed, true) &&
                      parsed.block_repeats[4] == 0);
-                repeated.refinement_passes = 5;
+                repeated.refinement_passes = 11;
                 test(!capture_meta_parse(capture_meta_write(repeated), parsed, true));
             }
             test(back.width == 1920 && back.height == 1080 && back.color_format == 10 &&

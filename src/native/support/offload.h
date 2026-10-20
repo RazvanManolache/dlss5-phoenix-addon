@@ -162,6 +162,8 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
     Json request(const ExecutorFrame& frame) const {
         const auto& controls = frame.controls;
         Json request_body{{"has_motion", true},
+                          {"budget_epoch", frame.budget_epoch},
+                          {"transformer_blocks", frame.transformer_blocks},
                           {"output_stage","neural_only"},
                           {"has_control_mask",frame.appearance.mask!=nullptr},
                           {"has_distortion",frame.appearance.field!=nullptr},

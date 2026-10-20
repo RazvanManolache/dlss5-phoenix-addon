@@ -27,12 +27,15 @@ class FrameSession {
         const phoenix_compat::Settings& settings,bool driver):driver_(driver) {
         phoenix_compat::validate_native_settings(settings,driver);
         if(driver) {
+            phoenix_bundle::require(source.model().id=="original",
+                "Experimental x86 driver host requires Original; use the x64-library or helper for Lightweight FP8");
             const auto image=reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
             const auto dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
             const auto pe=reinterpret_cast<const IMAGE_NT_HEADERS32*>(image+dos->e_lfanew);
             phoenix_bundle::require((pe->FileHeader.Characteristics&IMAGE_FILE_LARGE_ADDRESS_AWARE)!=0,
                 "Native x86 driver processing requires a large-address-aware game; its executable is not modified. Use the helper.");
         }
+        packet_.bytes=sizeof(packet_);
         auto& c=packet_.base; c.caller_bits=32; c.width=width; c.height=height;
         color_.resize(size_t(width)*height*4); output_.resize(color_.size());
         c.color=uint64_t(uintptr_t(color_.data())); c.output=uint64_t(uintptr_t(output_.data())); c.plane_bytes=color_.size()*2;
@@ -61,6 +64,7 @@ class FrameSession {
             config_=Json{{"width",width},{"height",height},{"bundle_path",phoenix_model::source_path_string(bundle)},
                 {"weight_source",source.configuration()},{"native_library",phoenix_model::source_path_string(root/"phoenix_native.dll")},
                 {"initial_backend",phoenix_compat::needs_nvidia_dll(settings)?1:3},
+                {"nvidia_preset",phoenix_addon::phoenix::nvidia_preset(settings.nvidia_model, source.model().id)},
                 {"repeats",repeats}}.dump();
             packet_.config_json=uint64_t(uintptr_t(config_.c_str()));
         }
@@ -82,7 +86,8 @@ class FrameSession {
             }
         }
         std::fill(output_.begin(),output_.end(),uint16_t(0x7e00));
-        const auto controls=settings.controls.apply(phoenix_addon::Controls{});
+        auto controls=settings.controls.apply(phoenix_addon::Controls{});
+        if(settings.processing.enabled && !controls.auto_mask)controls.skin=0;
         if(driver_) {
             phoenix_bundle::require(backend==3,"Native x86 driver host is Phoenix DLSS5-only");
             const auto resolved=phoenix_addon::resolve_controls(controls,c.width,c.height,false,false,0);
@@ -108,7 +113,11 @@ class FrameSession {
         } else {
             packet_.backend=backend;
             parameters_=Json{{"tone",controls.tone},{"structure",controls.structure},{"skin",controls.skin},
-                {"auto_mask",controls.auto_mask!=0}}.dump();
+                {"auto_mask",controls.auto_mask!=0},
+                {"intensity",settings.native_options?settings.intensity:1.f},
+                {"style",settings.native_options?settings.style:0},
+                {"ui_correction",settings.processing.enabled?int(settings.processing.correction(false)):
+                    (settings.native_options?settings.ui_correction:0)}}.dump();
             packet_.parameters_json=uint64_t(uintptr_t(parameters_.c_str()));
         }
         thread_.frame(); ++frames_;
@@ -120,6 +129,13 @@ class FrameSession {
         return output;
     }
     double gpu_ms() const {return packet_.base.gpu_ms;}
+    Json nvidia_status() const {
+        return Json{{"ready",!driver_&&packet_.nvidia_creates>0&&packet_.nvidia_evaluates>0&&
+            packet_.nvidia_create_result==1&&packet_.nvidia_evaluate_result==1},
+            {"creates",packet_.nvidia_creates},{"evaluates",packet_.nvidia_evaluates},
+            {"create_result",packet_.nvidia_create_result},{"evaluate_result",packet_.nvidia_evaluate_result},
+            {"feature",18}};
+    }
     void retire() {
         thread_.close();
         const auto& c=packet_.base;

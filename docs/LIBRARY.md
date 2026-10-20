@@ -1,11 +1,30 @@
 # Standalone Phoenix DLSS5 library (experimental)
 
+<!-- current-two-model-evidence -->
+Current Original/Lightweight support, platform requirements and API limits are summarized in [SUPPORT.md](SUPPORT.md). The [current benchmark](benchmarks/current/README.md) reports synchronous host-plane calls separately from native GPU execution, with CPU/AMD/NVIDIA coverage and initialization/memory data.
+<!-- /current-two-model-evidence -->
+
 Phoenix DLSS5 can be embedded without ReShade through the C interface in
 [`native_runtime/phoenix.h`](../native_runtime/phoenix.h). The addon remains the
 main game integration. This portable interface uses the portable graph and
 host-plane frame boundary; its performance must not be inferred from native RTX
 charts. Windows x64 also has a separate [native RTX and spatial extension](NATIVE_LIBRARY.md)
 with D3D12 textures, owned/borrowed devices and optional host-buffer transfers.
+
+## Model selection
+
+Model selection uses a shared [architecture registry](MULTI_MODEL.md). Existing
+configurations still select the original model. The `small-fp8` ID selects the
+[Lightweight FP8 decoder and graph](SMALL_FP8.md) through portable backends and the
+Windows x64 native RTX extension. Native bundles authenticate
+the selected resource independently of its DLL container, so verified identical original
+weights can be read from either DLL version while retaining whole-file checksum checks.
+
+Both models share the portable [granular scheduling controls](PORTABLE_MODEL_CONTROLS.md):
+per-transformer skips/repeats, depth ceilings/floors, 1–10 passes, measured GPU-time
+adaptation and caller-presentation FPS adaptation. This applies to Metal, Vulkan,
+HIP/AMD, SYCL and CUDA as well as fixed scheduling on CPU. Check the runtime's
+`granular_controls` capability before sending the new metadata to an older library.
 
 ## Frame-boundary development changes
 
@@ -47,6 +66,12 @@ extent. Zero stride means packed rows. Color/output are RGB, motion RG in pixel
 units, depth/validity R. Zero-initialize absent descriptors. All bounded inputs
 are snapshotted before execution, so input/output aliasing is supported.
 Preflight failures leave output/history untouched. Session calls are serialized.
+
+For portable history reprojection, omitting the optional validity plane means
+all pixels are eligible, just like an all-one plane. Reprojected coordinates
+must still be inside the frame. Out-of-frame conditioning and resolve samples
+are independently invalidated and contribute zero history instead of a clamped
+edge sample.
 
 V3 embeds V2 as `base`; set `base.struct_bytes=sizeof(phoenix_frame_v3)` and
 `base.version=PHOENIX_FRAME_VERSION_3`. It adds:

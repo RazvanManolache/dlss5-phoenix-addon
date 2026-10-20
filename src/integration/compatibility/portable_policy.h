@@ -17,15 +17,25 @@ inline std::string portable_backend(const std::string& device) {
 }
 inline SettingsJson portable_metadata(const Settings& settings, bool reset) {
     auto controls = settings.controls.apply(phoenix_addon::Controls{});
+    if(settings.processing.enabled && !controls.auto_mask)controls.skin=0;
     auto repeats = settings.block_repeats;
     for (unsigned index = settings.blocks_for(settings.mode); index < repeats.size(); ++index)
         repeats[index] = 0;
-    return {{"reset", reset}, {"has_motion", false}, {"has_depth", false},
+    SettingsJson metadata = {{"reset", reset}, {"has_motion", false}, {"has_depth", false},
         {"has_history_validity", false}, {"repeats", repeats},
         {"passes", settings.refinement_passes}, {"controls", {
             {"intensity", 1.f}, {"style", 0},
             {"local_tone", controls.tone}, {"local_structure", controls.structure},
             {"skin_structure", controls.skin}, {"auto_mask", controls.auto_mask != 0}}}};
+    if (settings.mode == phoenix_addon::phoenix::ours && settings.experimental && settings.automatic_budget) {
+        if (settings.budget_mode != 0)
+            throw std::runtime_error("Portable final-frame FPS adaptation needs application presentation timestamps");
+        metadata["repeats"] = settings.block_repeats;
+        metadata["transformer_blocks"] = settings.transformer_blocks;
+        metadata["adaptive_budget"] = {{"enabled", true}, {"mode", "gpu_time"},
+            {"target_ms", settings.budget_ms}, {"minimum_blocks", settings.minimum_blocks}};
+    }
+    return metadata;
 }
 inline std::vector<float> portable_color(const std::vector<uint8_t>& rgba) {
     if (rgba.empty() || rgba.size() % 4)

@@ -2,9 +2,21 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string_view>
 
 namespace phoenix_cpp {
+// Both 310.9.16 descriptors have byte-identical control/style data at +0x20..+0x290.
+// Compatible custom weight editions still need separately verified preset data.
+inline bool has_recovered_style_table(std::string_view resource_sha256) {
+    return resource_sha256 == "836f445d06ecd2e59bb9f17b84b91c143396fd76ccda1c9dc7fe81d5edd548f4" ||
+           resource_sha256 == "f743e8eb320f42bc9bdc992ee2bf51f7bb7c8688ced4ecf5ce6807ec4eef7962";
+}
 using RGB = std::array<float, 3>;
+struct StyleProfile {
+    float exposure_stops, contrast, saturation_reduction;
+};
+inline constexpr StyleProfile style_one{-.1f, -.25f, .1f};
+inline constexpr StyleProfile style_two{0, 0, .15f};
 inline float saturate(float x) { return std::clamp(x, 0.f, 1.f); }
 // Independently authored HSL saturation update; hue/lightness remain unchanged.
 inline RGB scale_saturation(RGB rgb, float scale) {
@@ -18,20 +30,21 @@ inline RGB scale_saturation(RGB rgb, float scale) {
     for (auto& channel : rgb) channel = saturate(light + (channel - light) * factor);
     return rgb;
 }
-// Edition 310.8's preset data was independently checked in the selected DLL.
+// Preset data was independently checked in 310.8 and both 310.9.16 descriptors.
 // The host arithmetic/activation remains a recovered contract, not certification.
 inline RGB style_grade(RGB rgb, unsigned style, float tone) {
     const float amount = saturate(tone);
     if (style == 1) {
-        const float exposure = std::exp2(-.1f * amount), contrast = -.25f * amount;
+        const float exposure = std::exp2(style_one.exposure_stops * amount);
+        const float contrast = style_one.contrast * amount;
         for (auto& channel : rgb) {
             channel = saturate(channel * exposure);
             channel = saturate(channel + contrast *
                 (channel * channel * (3.f - 2.f * channel) - channel));
         }
-        return scale_saturation(rgb, 1.f - .1f * amount);
+        return scale_saturation(rgb, 1.f - style_one.saturation_reduction * amount);
     }
-    return style == 2 ? scale_saturation(rgb, 1.f - .15f * amount) : rgb;
+    return style == 2 ? scale_saturation(rgb, 1.f - style_two.saturation_reduction * amount) : rgb;
 }
 struct DisplayInputs {
     const float* control_mask = nullptr; // RGBA, full active extent

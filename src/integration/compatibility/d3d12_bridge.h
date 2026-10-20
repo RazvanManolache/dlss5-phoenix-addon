@@ -107,6 +107,7 @@ public:
             return DXGI_FORMAT_B8G8R8A8_UNORM;
         if (format == F::r10g10b10a2_unorm || format == F::r10g10b10a2_typeless)
             return DXGI_FORMAT_R10G10B10A2_UNORM;
+        if (format == F::r16g16b16a16_float) return DXGI_FORMAT_R16G16B16A16_FLOAT;
         throw std::runtime_error("No in-process SDR conversion for this backbuffer format");
     }
     D3D12Bridge(reshade::api::effect_runtime* runtime, const reshade::api::resource_desc& desc)
@@ -232,7 +233,16 @@ public:
         // This path synthesizes zero motion, not engine motion vectors. Match
         // the helper's spatial history policy rather than accumulating stale
         // screen-space history when switching between backends or moving.
-        frame.reset = backbuffer_requires_reset(false, reset_) ? 1u : 0u;
+        bool have_guides = false;
+        if (settings.processing.enabled && settings.processing.hook == 3 &&
+            settings.processing.reuse_guides != 0 && in_process_api.present_guides)
+            have_guides = in_process_api.present_guides(r.list.Get(),r.queue.Get(),frame);
+        if (settings.processing.enabled && settings.processing.hook == 3 &&
+            settings.processing.reuse_guides == 2 && !have_guides) {
+            checked(r.list->Close(), "Cannot discard Present without required guides");
+            reset_history(); return false;
+        }
+        frame.reset = backbuffer_requires_reset(have_guides, reset_) ? 1u : 0u;
         PhoenixFeederResultV1 result;
         const auto status = in_process_api.evaluate(&frame, &result);
         if (status == S_FALSE && result.status == PhoenixFeederStatusV1::Deferred) {

@@ -1,10 +1,27 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
 
 namespace phoenix_cpp {
 inline constexpr const char* frame_boundary_contract = "phoenix-portable/3";
+
+// Right/bottom padding reflects once and then clamps. This is deliberately not
+// periodic mirror addressing; far padding and extent-one images must stay put.
+inline int reflect_once_then_clamp(int coordinate, int extent) {
+    return std::clamp(coordinate < extent ? coordinate : 2 * extent - coordinate - 2,
+                      0, extent - 1);
+}
+
+// Each half conversion is observable. Combining this into one final conversion
+// changes halfway cases and therefore the network's conditioning input.
+template <class Math>
+inline float centered_half_feature(Math& math, float value) {
+    const float rounded_input = math.half(value);
+    const float centered = math.half(rounded_input - .5f);
+    return math.half(centered * .125f);
+}
 // Shared by execution and diagnostic stage capture. Invalid history never reads
 // or multiplies a head value (including NaN on an unused gate).
 inline float resolve_gate(float logit, bool valid, float model_gain) {

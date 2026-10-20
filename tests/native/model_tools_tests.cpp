@@ -39,6 +39,11 @@ int main(int argc, char** argv) {
         using phoenix_model_tools::selection;
         phoenix_model::WeightSource configured;
         check(!selection("configured", "", "", configured).external());
+        configured.model_id = "small-fp8";
+        check(selection("configured", "", "", configured).model_id == "small-fp8");
+        check(selection("configured", "", "", configured, "original").model_id == "original");
+        check(selection("model_folder", "C:/fixture", "", configured).model_id == "small-fp8");
+        configured.model_id = "original";
         rejects([&] { selection("unknown", "", "", configured); });
         rejects([&] { selection("model_folder", "", "", configured); });
         rejects([&] { selection("nvidia_dll", "", "", configured); });
@@ -52,12 +57,68 @@ int main(int argc, char** argv) {
                 visited = true;
         });
         check(visited);
+        settings.nvidia_dll_folder = "C:/shared-model-library";
+        check(settings.valid());
+        bool library_visited = false;
+        phoenix_addon::phoenix::visit_settings(settings, [&](const char* key, auto&) {
+            if (std::string_view(key) == "NvidiaDllFolder") library_visited = true;
+        });
+        check(library_visited);
+        settings.nvidia_dll_folder = std::string(4096, 'a');
+        check(!settings.valid());
+        settings.nvidia_dll_folder = std::string("bad\0folder", 10);
+        check(!settings.valid());
+        settings.nvidia_dll_folder.clear();
         settings.model_dll = std::string(4096, 'a');
         check(!settings.valid());
+        // Tiny fake DLLs exercise location precedence only; no vendor binary is
+        // loaded, copied, hashed as a valid model or used for inference here.
+        const auto local = long_directory / "game", shared = long_directory / "shared";
+        std::filesystem::create_directories(local);
+        std::filesystem::create_directories(shared);
+        const auto name = std::filesystem::path("nvngx_dlssnr.dll");
+        using phoenix_model::find_nvidia_dll;
+        check(find_nvidia_dll({}, local, shared).empty());
+        std::ofstream(shared / name) << "shared fixture";
+        check(find_nvidia_dll({}, local, shared) == shared / name);
+        check(find_nvidia_dll(local / name, local, shared) == shared / name);
+        check(find_nvidia_dll(name, local, "../shared") == shared / name);
+        std::ofstream(local / name) << "local fixture";
+        check(find_nvidia_dll({}, local, shared) == local / name);
+        check(find_nvidia_dll({}, local) == local / name);
+        check(find_nvidia_dll(local / name, local, shared) == local / name);
+        check(find_nvidia_dll(shared / name, local, "missing") == shared / name);
+        std::filesystem::create_directory(shared / "directory.dll");
+        check(find_nvidia_dll("directory.dll", local, shared).empty());
+        rejects([&] { find_nvidia_dll({}, "relative", shared); });
+        rejects([&] { find_nvidia_dll("C:ambiguous.dll", local, shared); });
+        rejects([&] { find_nvidia_dll(std::filesystem::path(std::wstring(L"bad\0.dll", 8)), local, shared); });
+        rejects([&] { find_nvidia_dll({}, local, std::filesystem::path(std::wstring(L"bad\0folder", 10))); });
+        // A local incompatible file must not be silently replaced by shared.
+        rejects([&] { selection("configured", "", "", {}, "original", phoenix_model::source_path_string(shared)); });
         Json result{{"passed", true},
                     {"cpu_only", true},
                     {"path_contracts", true},
                     {"model_selection_contracts", true}};
+        result["shared_dll_search_contracts"] = true;
+        if (argc == 4 && std::string_view(argv[1]) == "--validate-model") {
+            Json configuration;
+            std::ifstream(argv[2]) >> configuration;
+            auto selected_source = phoenix_model::WeightSource::config(configuration.at("weight_source"));
+            check(selected_source.model_id == "small-fp8");
+            phoenix_model_tools::Task validation;
+            validation.validate(selected_source, std::filesystem::absolute(std::filesystem::u8path(argv[3])));
+            const auto deadline = GetTickCount64() + 90000;
+            auto state = validation.poll();
+            while (state.busy && GetTickCount64() < deadline) {
+                Sleep(50);
+                state = validation.poll();
+            }
+            if (!state.passed) throw std::runtime_error(state.message);
+            check(state.message.find("77 records") != std::string::npos);
+            result["bits"] = sizeof(void*) * 8;
+            result["small_model_cpu_validator"] = state.message;
+        }
         if (argc == 3) {
             const auto path = std::filesystem::u8path(argv[1]);
             const auto module =

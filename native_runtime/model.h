@@ -11,14 +11,12 @@
 namespace phoenix_cpp {
 
 #include "weight_layouts.h"
+#include "models/small_fp8/weight_layouts.h"
 
 using Json = nlohmann::json;
 
 inline std::string file_sha(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    demand(bool(file), "Model DLL open failed");
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
-    return phoenix_model::weight_digest(bytes.data(), bytes.size());
+    return phoenix_model::mapped_file_digest(path);
 }
 
 struct TensorBytes {
@@ -28,8 +26,10 @@ struct TensorBytes {
 // Decodes a supplied model resource into named tensors. This class owns the
 // decoded host copies; the graph uploads its weights before discarding them.
 class Model {
-    std::map<std::string, TensorBytes> tensors_;
+    mutable std::map<std::string, TensorBytes> tensors_;
+    phoenix_model::WeightSource source_;
     std::string resource_sha256_;
+    const phoenix_model::Definition* definition_ = &phoenix_model::models::original;
     phx::Kernel<HostMath> math_{};
 
     // Convert a row/column coordinate into the resource's tiled FP8 layout.
@@ -59,7 +59,28 @@ class Model {
                 column_parity);
     }
 
+#include "models/common/decoder.inc"
+#include "models/original/decoder.inc"
+#include "models/small_fp8/decoder.inc"
+
+    using Decoder = void (Model::*)(const uint8_t*, size_t);
+    static Decoder decoder_for(const phoenix_model::Definition& model) {
+        phoenix_model::require_implemented(model);
+        struct Entry { std::string_view architecture; Decoder decode; };
+        static constexpr std::array handlers{
+            Entry{phoenix_model::models::original.architecture, &Model::decode_original},
+            Entry{phoenix_model::models::small_fp8.architecture, &Model::decode_small_fp8}};
+        for (const auto& handler : handlers)
+            if (handler.architecture == model.architecture)
+                return handler.decode;
+        throw std::runtime_error("No Phoenix DLSS5 tensor decoder for architecture: " + std::string(model.architecture));
+    }
+
   public:
+    static void require_supported(const phoenix_model::Definition& model) {
+        (void)decoder_for(model);
+    }
+    const phoenix_model::Definition& definition() const { return *definition_; }
     const std::string& resource_sha256() const { return resource_sha256_; }
     bool decoded() const {
         return !tensors_.empty();
@@ -74,107 +95,23 @@ class Model {
             visitor(name, tensor.data);
     }
 
-    explicit Model(const phoenix_model::WeightSource& source) {
+    explicit Model(const phoenix_model::WeightSource& source) : source_(source), definition_(&source.model()) {
+        const auto decode = decoder_for(definition());
         phoenix_model::with_model_resource(
             source, file_sha, [&](const uint8_t* resource_bytes, size_t resource_size) {
                 resource_sha256_ = phoenix_model::weight_digest(resource_bytes, resource_size);
-                auto records = phoenix_model::resource_records(resource_bytes, resource_size);
-
-                for (auto& [record_name, record] : records) {
-                    auto separator = record_name.rfind('.');
-                    demand(separator != std::string::npos, "Malformed tensor name");
-                    auto layer_prefix = record_name.substr(0, separator);
-                    auto record_bytes = resource_bytes + record.byte_offset;
-
-                    auto store_tensor = [&](std::string field, std::vector<uint8_t> bytes) {
-                        demand(
-                            tensors_
-                                .emplace(layer_prefix + '.' + field, TensorBytes{std::move(bytes)})
-                                .second,
-                            "Duplicate tensor");
-                    };
-
-                    // Standalone fields already have their final byte layout.
-                    if (record_name.substr(separator + 1) != "layer") {
-                        store_tensor(record_name.substr(separator + 1),
-                                     {record_bytes, record_bytes + record.bytes});
-                        continue;
-                    }
-                    if (record.bytes == 2) {
-                        store_tensor("scale", {record_bytes, record_bytes + 2});
-                        continue;
-                    }
-
-                    // Larger layer records contain several tensors. The
-                    // generated table supplies each tensor's extent and kind.
-                    visit_layout(record.bytes, [&](TensorPartLayout part) {
-                        demand(part.byte_end <= record.bytes, "Tensor part out of bounds");
-                        std::vector<uint8_t> decoded_bytes(part.byte_end - part.byte_begin);
-                        auto packed_bytes = record_bytes + part.byte_begin;
-
-                        if (part.encoding == RawBytes)
-                            std::memcpy(decoded_bytes.data(), packed_bytes, decoded_bytes.size());
-
-                        if (part.encoding == PackedFp8) {
-                            // Restore ordinary row-major FP8 matrices without
-                            // changing their encoded numerical values.
-                            for (unsigned row = 0; row < part.rows; ++row) {
-                                for (unsigned column = 0; column < part.columns; ++column) {
-                                    auto code = packed_bytes[packed_offset(
-                                        row, column, part.rows, part.columns, part.inner_tiles)];
-                                    demand((code & 127) != 127, "NaN FP8 weight");
-                                    decoded_bytes[size_t(row) * part.columns + column] = code;
-                                }
-                            }
-                        }
-
-                        if (part.encoding == InterleavedQkv) {
-                            // The global-attention Q/K/V matrices share tiled
-                            // storage. Separate them into three 1024x1024 arrays.
-                            for (unsigned matrix_index = 0; matrix_index < 3; ++matrix_index) {
-                                std::vector<uint8_t> matrix(1024 * 1024);
-                                for (unsigned row = 0; row < 1024; ++row) {
-                                    for (unsigned column = 0; column < 1024; ++column) {
-                                        unsigned lane_offset =
-                                            (column & 1) | ((column >> 1 & 1) << 4) |
-                                            ((column >> 2 & 1) << 5) | ((column >> 3 & 1) << 1) |
-                                            ((column >> 4 & 1) << 2) | ((row & 1) << 6) |
-                                            ((row >> 1 & 1) << 7) | ((row >> 2 & 1) << 8) |
-                                            ((row >> 3 & 1) << 3) | ((row >> 4 & 1) << 9);
-                                        unsigned tile_index = (row >> 5) | ((column >> 5) << 5);
-                                        matrix[size_t(row) * 1024 + column] =
-                                            packed_bytes[(3 * tile_index + matrix_index) * 1024 +
-                                                         lane_offset];
-                                    }
-                                }
-                                store_tensor(std::string(1, "qkv"[matrix_index]),
-                                             std::move(matrix));
-                            }
-                            return;
-                        }
-
-                        if (part.encoding == PackedProjection) {
-                            // The small projection is a 16x32 FP16 matrix;
-                            // copy both bytes of each value after unswizzling.
-                            for (unsigned row = 0; row < 16; ++row) {
-                                for (unsigned column = 0; column < 32; ++column) {
-                                    unsigned packed_index = (column / 16) * 256 + 32 * (row % 8) +
-                                                            8 * ((column % 8) / 2) + 4 * (row / 8) +
-                                                            column % 2 + 2 * ((column % 16) / 8);
-                                    std::memcpy(decoded_bytes.data() + 2 * (row * 32 + column),
-                                                packed_bytes + 2 * packed_index, 2);
-                                }
-                            }
-                        }
-                        store_tensor(part.name, std::move(decoded_bytes));
-                    });
-                }
-                demand(tensors_.size() == 658, "Incomplete model tensor catalogue");
+                (this->*decode)(resource_bytes, resource_size);
                 return 0;
             });
     }
 
     const std::vector<uint8_t>& raw(int block, int layer, const std::string& field) const {
+        if (!decoded()) {
+            Model replacement(source_);
+            demand(replacement.resource_sha256() == resource_sha256_,
+                   "Model resource changed during session; create a new session");
+            tensors_ = std::move(replacement.tensors_);
+        }
         return tensors_
             .at("block" + std::to_string(block) + ".layer" + std::to_string(layer) + '.' + field)
             .data;
@@ -194,7 +131,7 @@ class Model {
     }
 
     float history_gain() const {
-        const auto values = half(70, 0, "blend_scale");
+        const auto values = half(int(definition().history_gain_block), 0, "blend_scale");
         demand(values.size() == 1, "Model blend_scale must contain one scalar");
         return values.front();
     }

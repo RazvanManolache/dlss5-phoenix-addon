@@ -175,7 +175,7 @@ inline bool capture_meta_parse(const std::string& text, CaptureMeta& metadata,
         read_unsigned("refinement_passes", success, unsigned_value);
         metadata.refinement_passes = unsigned(unsigned_value);
     }
-    if (metadata.refinement_passes < 1 || metadata.refinement_passes > 4)
+    if (metadata.refinement_passes < 1 || metadata.refinement_passes > 10)
         success = false;
     if (text.find("appearance_flags=") != std::string::npos) {
         read_unsigned("appearance_flags",success,unsigned_value);
@@ -538,6 +538,7 @@ cbuffer Params : register(b0) {
         float4((reset & 4) ? ReferenceDecode(input.rgb, neural.Load(int3(pixel.xy, 0)).rgb)
                            : linear_rgb / exposure_scale,
                input.a);
+    if (reset & 8) { result = float4(neural_rgb,input.a); exposure_scale = 1; }
     if (mode != 0) {
         // Sides flagged for NR resolve are drawn provisionally here (DLSS5 Phoenix
         // transfer over the network output) and overwritten by the resolve
@@ -921,6 +922,12 @@ class Runner {
     bool host_bridge_ = false;
     bool bridge_announced_ = false;
     float host_white_div_ = 5.0f;
+    Processing processing_;
+    std::unique_ptr<Pass> processing_encode_, processing_own_decode_, processing_native_decode_;
+    ComPtr<ID3D12Resource> processing_own_, processing_native_;
+    float processing_host_white_ = 100, processing_host_exposure_ = 1;
+    int processing_auto_encoding_ = 1;
+    Processing frame_processing() const { auto p=processing_; if(!p.encoding)p.encoding=processing_auto_encoding_;return p; }
     unsigned width_, height_;
     Resolution geometry_;
     std::unique_ptr<ResolutionBridge> resolution_bridge_;
@@ -1032,7 +1039,7 @@ class Runner {
            const Settings* execution_settings = nullptr,
            std::shared_ptr<phoenix_native::memory::Generation> accounting = {},
            bool allow_gpu_upload = true, unsigned output_width = 0, unsigned output_height = 0,
-           std::filesystem::path upscaler_directory = {})
+           std::filesystem::path upscaler_directory = {}, bool resize_motion = false)
         : allocation_lifetime_{accounting}, device_(device), queue_(queue),
           external_(std::move(executor)), meter_(device, meter_shader, accounting),
           normalize_(device, (std::string(bridge_common) + normalize_shader).c_str(), accounting),
@@ -1052,6 +1059,8 @@ class Runner {
         geometry_ = fit_resolution(output_width ? output_width : width_,
                                    output_height ? output_height : height_, width_, height_);
         if (execution_settings) {
+            processing_ = execution_settings->processing;
+            if(processing_.enabled) {geometry_.image_width=width_;geometry_.image_height=height_;geometry_.left=geometry_.top=0;}
             upscaler_method_ = execution_settings->upscaler;
             resolution_mode_ = execution_settings->resolution_mode;
             resolution_quality_ = execution_settings->resolution_quality;
@@ -1059,9 +1068,17 @@ class Runner {
             resolution_ratio_width_ = execution_settings->resolution_ratio_width;
             resolution_ratio_height_ = execution_settings->resolution_ratio_height;
         }
-        if (geometry_.scaled())
+        if (geometry_.scaled() || resize_motion)
             resolution_bridge_ =
-                std::make_unique<ResolutionBridge>(device, geometry_, format, accounting);
+                std::make_unique<ResolutionBridge>(device, geometry_, format, accounting, processing_, srgb);
+        check(!processing_.enabled || !upscaler_method_, "Explicit processing uses the selected spatial reconstruction filter; select Spatial upscaling");
+        if (processing_.enabled) {
+            processing_encode_ = std::make_unique<Pass>(device, processing_shader, accounting, 32);
+            processing_own_decode_ = std::make_unique<Pass>(*processing_encode_, accounting);
+            processing_native_decode_ = std::make_unique<Pass>(*processing_encode_, accounting);
+            processing_own_ = tracked_image(device, width_, height_, format, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            processing_native_ = tracked_image(device, width_, height_, format, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        }
         if (geometry_.scaled() && upscaler_method_)
             upscaler_ = std::make_unique<TemporalUpscaler>(
                 device, geometry_, upscaler_method_, accounting, std::move(upscaler_directory));
@@ -1077,7 +1094,7 @@ class Runner {
               "Direct output format lacks typed stores");
         input_ = tracked_image(device, width_, height_, format,
                                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, geometry_.scaled());
-        if (!bridge_only_ || geometry_.scaled())
+        if (!bridge_only_ || geometry_.scaled() || resize_motion)
             motion_ =
                 tracked_image(device, width_, height_, motion_format,
                               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, geometry_.scaled());
@@ -1126,7 +1143,7 @@ class Runner {
         phoenix_native::hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
         phoenix_native::memory::track(fence_.Get(), accounting,
                                       phoenix_native::memory::Kind::fence);
-        check(passes >= 1 && passes <= 4, "Direct refinement count outside 1..4");
+        check(passes >= 1 && passes <= 10, "Direct refinement count outside 1..10");
         passes_ = passes;
         block_repeats_ = repeats;
         leases_.reserve(16);
@@ -1156,19 +1173,19 @@ class Runner {
         }
         dispatch_ = std::make_unique<FrameDispatch>();
         validate_phoenix_depth_plan(plan);
-        check(passes >= 1 && passes <= 4, "Direct refinement count outside 1..4");
+        check(passes >= 1 && passes <= 10, "Direct refinement count outside 1..10");
         block_repeats_ = repeats;
         dispatch_->configure_repeats(device, plan, repeats);
         leases_.reserve(16);
         network_ = std::make_unique<phoenix_native::Network>(
             device, dispatch_->api(), plan, weights, kernels, network_input_.Get(), motion_.Get(),
-            accounting, allow_gpu_upload,nullptr,appearance_->mask_target());
+            accounting, allow_gpu_upload);
         // Each pass owns its previous-frame history and immutable descriptor
         // tables. The shared input snapshot is updated in queue order only.
         for (unsigned iteration_index = 1; iteration_index < passes; ++iteration_index)
             refinement_.push_back(std::make_unique<phoenix_native::Network>(
                 device, dispatch_->api(), plan, weights, kernels, network_input_.Get(),
-                motion_.Get(), accounting, allow_gpu_upload, network_.get(),appearance_->mask_target()));
+                motion_.Get(), accounting, allow_gpu_upload, network_.get()));
         if (accounting) {
             accounting->constructed = true;
             accounting->host_container_capacity_bytes = network_->host_container_capacity_bytes();
@@ -1193,7 +1210,7 @@ class Runner {
         return !guides_ || guides_->matches(depth);
     }
     bool architecture_matches(const Settings& settings) const {
-        if (bridge_only_ != (settings.mode == nvidia) || upscaler_method_ != settings.upscaler ||
+        if (processing_ != settings.processing || bridge_only_ != (settings.mode == nvidia) || upscaler_method_ != settings.upscaler ||
             resolution_mode_ != settings.resolution_mode ||
             resolution_quality_ != settings.resolution_quality ||
             resolution_aspect_ != settings.resolution_aspect ||
@@ -1222,8 +1239,8 @@ class Runner {
                  const D3D12_RESOURCE_DESC& motion_description) const {
         return queue == queue_.Get() && color.Width == geometry_.output_width &&
                color.Height == geometry_.output_height && color.Format == format_ &&
-               motion_description.Width == geometry_.output_width &&
-               motion_description.Height == geometry_.output_height &&
+               (resolution_bridge_ || (motion_description.Width == geometry_.output_width &&
+                motion_description.Height == geometry_.output_height)) &&
                motion_description.Format == motion_format_;
     }
     unsigned inference_width() const {
@@ -1240,7 +1257,9 @@ class Runner {
         if (resolution_bridge_ && (source->GetDesc().Width != destination->GetDesc().Width ||
                                    source->GetDesc().Height != destination->GetDesc().Height)) {
             resolution_bridge_->begin_frame(completed(), submitted_ + 1);
-            resolution_bridge_->reduce(cmd, source, state, destination, motion);
+            resolution_bridge_->reduce(cmd, source, state, destination, motion,
+                motion ? float(geometry_.image_width) / unsigned(source->GetDesc().Width) : 0,
+                motion ? float(geometry_.image_height) / source->GetDesc().Height : 0);
             return;
         }
         phoenix_native::transition(cmd, source, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -1304,7 +1323,7 @@ class Runner {
             if (reconstructed)
                 resolution_bridge_->present_full(cmd, reconstructed, game, state);
             else
-                resolution_bridge_->present(cmd, low, game, state);
+                resolution_bridge_->present(cmd, low, game, state, input_.Get());
             return;
         }
         phoenix_native::transition(cmd, game, state, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -1326,6 +1345,35 @@ class Runner {
             bridge_announced_ = false;
         }
         host_white_div_ = white_div;
+    }
+    void processing_frame(float host_white, float host_exposure, int auto_encoding = 1) {
+        processing_auto_encoding_=auto_encoding;
+        if(resolution_bridge_)resolution_bridge_->processing_context(host_white,auto_encoding);
+        processing_host_white_ = host_white;
+        processing_host_exposure_ = host_exposure;
+    }
+    void processing_encode(ID3D12GraphicsCommandList* cmd, ID3D12Resource* destination,
+                           unsigned slot) {
+        phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        processing_encode_->record(cmd, {input_.Get(), nullptr, nullptr}, destination,
+            processing_constants(frame_processing(), geometry_, 0, false, processing_host_white_,
+                                 processing_host_exposure_), false, slot);
+        phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    ID3D12Resource* processing_decode(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source,
+                                      bool native) {
+        auto* destination = native ? processing_native_.Get() : processing_own_.Get();
+        auto& pass = native ? processing_native_decode_ : processing_own_decode_;
+        phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        pass->record(cmd, {source, input_.Get(), nullptr}, destination,
+            processing_constants(frame_processing(), geometry_, 1, false, processing_host_white_,
+                                 processing_host_exposure_), false, unsigned(submitted_ % 32));
+        phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        return destination;
     }
     // Display-referred proxy encode (fixed-white Neutwo + sRGB) from the raw
     // engine color. Bracketed like the self-drive evaluate: the color returns
@@ -1367,8 +1415,15 @@ class Runner {
         phoenix_native::transition(cmd, proxy16_.Get(),
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        native_normalize_.record(cmd, {input_.Get(), exposure_texture, nullptr}, proxy16_.Get(),
-                                 native_constants, false, native_slot_);
+        if (processing_.enabled) {
+            phoenix_native::transition(cmd, proxy16_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            processing_encode(cmd, proxy16_.Get(), unsigned((submitted_ * 2 + 1) % 32));
+            phoenix_native::transition(cmd, proxy16_.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        } else
+            native_normalize_.record(cmd, {input_.Get(), exposure_texture, nullptr}, proxy16_.Get(),
+                                     native_constants, false, native_slot_);
         phoenix_native::transition(cmd, proxy16_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         ++native_prepared_;
@@ -1380,8 +1435,13 @@ class Runner {
         constants.resolve = sides ? (sides | 8u) : 0u;
         phoenix_native::transition(cmd, nvidia_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        auto* native_result = nvidia_output;
+        if (processing_.enabled) {
+            native_result = processing_decode(cmd, nvidia_output, true);
+            constants.reset = 8;
+        }
         (sides ? native_write_ : native_fullscreen_)
-            .record(cmd, {input_.Get(), nvidia_output, native_exposure_[native_slot_].Get()},
+            .record(cmd, {input_.Get(), native_result, native_exposure_[native_slot_].Get()},
                     output, constants, false, native_slot_);
         phoenix_native::transition(cmd, nvidia_output,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -1752,7 +1812,8 @@ class Runner {
                 FrameEvidence& evidence, Controls controls, const Settings& settings,
                 unsigned blocks, ID3D12Resource* depth = nullptr,
                 D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_COMMON,
-                const AppearanceTextures* developer=nullptr,uint32_t appearance_generation=0) {
+                const AppearanceTextures* developer=nullptr,uint32_t appearance_generation=0,
+                uint64_t budget_epoch=0) {
         check((ready() || (pending_ == cmd && !failed_ && !network_recorded_)) && cmd && color &&
                   motion && evidence.states_verified && evidence.restore_bindings,
               "Direct frame contract missing");
@@ -1900,8 +1961,15 @@ class Runner {
             phoenix_native::transition(cmd, normalized_.Get(),
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            normalize_.record(cmd, {input_.Get(), exposure_texture, nullptr}, normalized_.Get(),
-                              native_constants, false, slot);
+            if (processing_.enabled) {
+                phoenix_native::transition(cmd, normalized_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                processing_encode(cmd, normalized_.Get(), unsigned(submitted_ * 2 % 32));
+                phoenix_native::transition(cmd, normalized_.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                                           D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            } else
+                normalize_.record(cmd, {input_.Get(), exposure_texture, nullptr}, normalized_.Get(),
+                                  native_constants, false, slot);
             phoenix_native::transition(cmd, normalized_.Get(),
                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1910,6 +1978,11 @@ class Runner {
                        network_input_.Get());
             const unsigned appearance_slot=unsigned(submitted_%32);
             if(appearance) {
+                if (textures.mask && network_ && !network_->control_mask_handle) {
+                    auto* target = appearance_->mask_target();
+                    network_->bind_control_mask(target);
+                    for (auto& pass : refinement_) pass->bind_control_mask(target);
+                }
                 for(unsigned i=0;i<5;++i)if(resources[i])phoenix_native::transition(cmd,resources[i],evidence.optional_states.at(keys[i]),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 // Offloaded inference returns an ungraded, original-domain
                 // prediction; fresh display maps/UI are applied only here.
@@ -1934,6 +2007,7 @@ class Runner {
                 frame.controls = controls;
                 frame.settings = &settings;
                 frame.transformer_blocks = blocks;
+                frame.budget_epoch = budget_epoch;
                 frame.serial = submitted_ + 1;
                 frame.completed_serial = done;
                 frame.locked_input_token = locked_capture_token;
@@ -1962,6 +2036,10 @@ class Runner {
                 result=appearance_->present(cmd,result,display_textures,controls,appearance_slot);
                 appearance_->remember_mode(textures,appearance_generation);
                 for(unsigned i=0;i<5;++i)if(resources[i])phoenix_native::transition(cmd,resources[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,evidence.optional_states.at(keys[i]));
+            }
+            if (processing_.enabled) {
+                result = processing_decode(cmd, result, false);
+                constants.reset = 8;
             }
             if (initialized_)
                 phoenix_native::transition(cmd, output_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,

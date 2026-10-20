@@ -53,6 +53,9 @@ static bool g_phoenix_enabled = true;
 static uint64_t g_session_id = 0;
 static unsigned g_frame_iterations = 0; // Optional host override for OpenXR's fixed IPC count.
 static PhoenixFeederEvaluateProc g_feeder_evaluate = nullptr;
+static PhoenixFeederEvaluateLockedProc g_feeder_evaluate_locked = nullptr;
+static uint64_t g_capture_sequence = 0;
+static bool g_reference_cpu = false;
 static std::vector<ID3D12CommandQueue *> g_observed_queues;
 static std::vector<ID3D12GraphicsCommandList *> g_observed_lists;
 static void Log(const char *fmt, ...);
@@ -68,6 +71,10 @@ static bool ConfigurePhoenixHost()
         nlohmann::json config;
         input >> config;
         g_phoenix_enabled = ValidatePhoenixHostConfig(config, directory);
+        wchar_t selected_device[256]{};
+        GetPrivateProfileStringW(L"Phoenix", L"ExecutionDevice", L"native", selected_device, 256,
+                                 (directory / L"ReShade.ini").c_str());
+        g_reference_cpu = std::wcscmp(selected_device, L"cpu") == 0;
         g_frame_iterations = GetPrivateProfileIntW(L"DLSS5_HOST", L"FrameIterations", 0, (directory / L"ReShade.ini").c_str());
         (void)PhoenixHostIterations(1, g_frame_iterations);
         if (!std::filesystem::is_regular_file(directory / L"Phoenix.addon64"))
@@ -167,6 +174,7 @@ static ID3D12CommandQueue *NativeHostQueue(ID3D12CommandQueue *supplied)
 static bool ResolvePhoenixFeeder(HMODULE module)
 {
     g_feeder_evaluate = nullptr;
+    g_feeder_evaluate_locked = nullptr;
     auto version = module ? reinterpret_cast<PhoenixFeederVersionProc>(GetProcAddress(module, "CnrPHOENIXFeederVersion")) : nullptr;
     auto evaluate = module ? reinterpret_cast<PhoenixFeederEvaluateProc>(GetProcAddress(module, "CnrPHOENIXFeederEvaluate")) : nullptr;
     if (!version || !evaluate) return false;
@@ -176,6 +184,8 @@ static bool ResolvePhoenixFeeder(HMODULE module)
         return false;
     }
     g_feeder_evaluate = evaluate;
+    g_feeder_evaluate_locked = reinterpret_cast<PhoenixFeederEvaluateLockedProc>(
+        GetProcAddress(GetModuleHandleW(L"Phoenix.addon64"), "CnrPHOENIXFeederEvaluateLocked"));
     return true;
 }
 
@@ -340,10 +350,11 @@ static void AbortCommands()   // discard failed/deferred recordings without subm
         h.list->Close();
 }
 
-static HRESULT SafeEvaluatePhoenix(const PhoenixFeederFrameV1 *frame, PhoenixFeederResultV1 *result, DWORD *code)
+static HRESULT SafeEvaluatePhoenix(const PhoenixFeederFrameV1 *frame, PhoenixFeederResultV1 *result, DWORD *code, uint64_t capture_token = 0)
 {
     *code = 0;
-    __try { return g_feeder_evaluate(frame, result); }
+    __try { return g_feeder_evaluate_locked && capture_token ? g_feeder_evaluate_locked(frame, result, capture_token)
+                                          : g_feeder_evaluate(frame, result); }
     __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return E_UNEXPECTED; }
 }
 
@@ -679,6 +690,21 @@ static bool ReadPhoenixOutputSummary(nlohmann::json& summary)
             }
             return false;
         }
+        // Older published cores expose the compact panel snapshot but not the
+        // dedicated progress export. Avoid synchronous diagnostic report I/O
+        // for every retry/frame on those releases as well.
+        using PanelQuery = uint32_t (WINAPI *)(char*, uint32_t);
+        auto panel = module ? reinterpret_cast<PanelQuery>(GetProcAddress(module, "CnrPHOENIXFeederUiJson")) : nullptr;
+        if (panel) {
+            for (unsigned retry=0; retry<3; ++retry) {
+                const auto bytes=panel(nullptr,0); if (!bytes || bytes>1024u*1024u) return false;
+                std::string text(bytes,'\0'); const auto written=panel(text.data(),bytes);
+                if (!written) return false; if (written>bytes) continue;
+                summary=PhoenixCompactPanelProgress(nlohmann::json::parse(text.c_str()));
+                return true;
+            }
+            return false;
+        }
         auto report = module ? reinterpret_cast<Summary>(GetProcAddress(module, "CnrPHOENIXSummary")) : nullptr;
         wchar_t executable[32768]{};
         if (!report || !GetModuleFileNameW(nullptr, executable, 32768)) return false;
@@ -712,7 +738,12 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     nlohmann::json before, after;
     const bool summary_before_available = ReadPhoenixOutputSummary(before);
     std::string last_deferred_status;
-    const auto deadline = GetTickCount64() + 15000;
+    // Retries poll the same captured input. Repeating its history reset would
+    // invalidate the portable executor's pending readback on every retry.
+    bool reset_pending = reset || nr_changed;
+    const auto capture_token = ++g_capture_sequence;
+    const auto wait_ms = g_reference_cpu ? 55000u : 15000u;
+    const auto deadline = GetTickCount64() + wait_ms;
     do {
         // Reseed every retry from the untouched input, never from partial output.
         if (!CopyTextureCommon(color, output) || !BeginCommands()) return false;
@@ -722,7 +753,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         frame.output = output;
         frame.motion = mv;
         frame.depth = depth;
-        frame.reset = reset || nr_changed ? 1u : 0u;
+        frame.reset = reset_pending ? 1u : 0u;
         frame.stream_id = stream_id;
         frame.motion_scale_x = mvsx;
         frame.motion_scale_y = mvsy;
@@ -751,7 +782,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         // Use the ReShade wrapper so this epoch has an observed empty heap state.
         h.list->SetDescriptorHeaps(0, nullptr);
         DWORD ecode = 0;
-        const HRESULT hr = SafeEvaluatePhoenix(&frame, &result, &ecode);
+        const HRESULT hr = SafeEvaluatePhoenix(&frame, &result, &ecode, capture_token);
         if (ecode || !ValidFeederReply(hr, frame, result)) {
             AbortCommands();
             Log("[host] direct feeder failed: HRESULT=0x%08X exception=0x%08X", hr, ecode);
@@ -796,6 +827,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             HostTerminal("Direct feeder submission did not retire");
             return false;
         }
+        reset_pending = false; // A deferred/unsubmitted attempt does not consume it.
         LogFeederModules("evaluate");
         if (result.status == PhoenixFeederStatusV1::Bypass) {
             g_last_evaluate_bypass = true;
@@ -809,7 +841,8 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         if (PhoenixOutputAdvanced(before, after)) return true;
         PumpPresent(); Sleep(8);
     } while (GetTickCount64() < deadline);
-    Log("[host] Phoenix DLSS5 produced no proven processed output within 15 seconds");
+    Log("[host] Last processing progress: %s", after.dump().c_str());
+    Log("[host] Phoenix DLSS5 produced no proven processed output within %u ms", wait_ms);
     return false;
 }
 

@@ -103,6 +103,7 @@ struct PhoenixNativeSession {
     bool last_advanced=false,last_ui=false;
     unsigned last_style=0;float last_intensity=1;
     std::string packed_weights_sha256;
+    phoenix_model::WeightSource weight_source;
     std::unique_ptr<phoenix_addon::FrameDispatch> dispatch;
     std::unique_ptr<phoenix_native::Network> network;
     std::unique_ptr<spatial::ResolutionBridge> resize;
@@ -119,6 +120,13 @@ struct PhoenixNativeSession {
           neural_width(config.value("neural_width", width)),
           neural_height(config.value("neural_height", height)),
           spatial_only(config.value("spatial_only", false)) {
+        if (!spatial_only) {
+            weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
+            phoenix_model::require_implemented(weight_source.model());
+            phoenix_model::native_layout(weight_source.model().architecture);
+            if (weight_source.model().architecture == phoenix_model::models::small_fp8.architecture)
+                require(weight_source.external(), "Native RTX requires an external model source");
+        }
         require(width && height && neural_width && neural_height && output_width && output_height &&
                     width <= 16384 && height <= 16384 && output_width <= 16384 &&
                     output_height <= 16384 && neural_width <= 16384 && neural_height <= 16384,
@@ -183,9 +191,7 @@ struct PhoenixNativeSession {
             const auto folder =
                 std::filesystem::u8path(config.at("bundle_path").get<std::string>());
             require(folder.is_absolute(), "Native bundle path must be absolute");
-            phoenix_bundle::Bundle bundle(
-                folder, file_digest,
-                phoenix_model::WeightSource::config(config.at("weight_source")));
+            phoenix_bundle::Bundle bundle(folder, file_digest, weight_source);
             auto weights = bundle.load_weights();
             packed_weights_sha256=phoenix_model::weight_digest(weights.data(),weights.size());
             auto kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(bundle));
@@ -772,6 +778,9 @@ size_t phoenix_native_status(PhoenixNativeSession* session, char* destination, s
         session->check_thread();
         const auto text =
             Json{{"backend", session->spatial_only ? "spatial_d3d12" : "native_rtx"},
+                 {"model_id", session->spatial_only ? "none" : session->weight_source.model_id},
+                 {"model_architecture", session->spatial_only ? "none" : std::string(session->weight_source.model().architecture)},
+                 {"model_resource", session->spatial_only ? "none" : std::string(session->weight_source.model().resource)},
                  {"width", session->width},
                  {"height", session->height},
                  {"output_width", session->output_width},

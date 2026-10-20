@@ -84,17 +84,25 @@ class AppearanceStage {
         phoenix_native::memory::resource(device_.Get(),value.Get(),accounting_,phoenix_native::memory::Kind::bridge);
         return value;
     }
-    void ensure(DXGI_FORMAT motion_format) {
-        if(grade_)return;
-        grade_=std::make_unique<Pass>(device_.Get(),appearance_delta_shader,accounting_,32);
-        compose_=std::make_unique<Pass>(device_.Get(),appearance_compose_shader,accounting_,32);
-        color_warp_=std::make_unique<Pass>(device_.Get(),appearance_warp_shader,accounting_,32);
-        motion_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
-        mask_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
-        output_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
-        original_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);motion_=image(motion_format);
-        prior_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);delta_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);
-        output_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);unwarped_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);
+    void ensure_composition() {
+        if(!grade_) grade_=std::make_unique<Pass>(device_.Get(),appearance_delta_shader,accounting_,32);
+        if(!compose_) compose_=std::make_unique<Pass>(device_.Get(),appearance_compose_shader,accounting_,32);
+        if(!delta_) delta_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);
+        if(!output_) output_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);
+    }
+    void ensure_warp(DXGI_FORMAT motion_format, bool have_motion, bool have_mask) {
+        if (!color_warp_)
+            color_warp_=std::make_unique<Pass>(device_.Get(),appearance_warp_shader,accounting_,32);
+        if (!output_warp_)
+            output_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
+        if (!prior_) prior_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);
+        if (!unwarped_) unwarped_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);
+        if (have_motion && !motion_warp_) {
+            motion_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
+            motion_=image(motion_format);
+        }
+        if (have_mask && !mask_warp_)
+            mask_warp_=std::make_unique<Pass>(*color_warp_,accounting_);
     }
     static void copy(ID3D12GraphicsCommandList* cmd,ID3D12Resource* from,ID3D12Resource* to) {
         const auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -114,8 +122,11 @@ class AppearanceStage {
   public:
     AppearanceStage(ID3D12Device* device,unsigned width,unsigned height,
                     std::shared_ptr<phoenix_native::memory::Generation> accounting={})
-        :device_(device),accounting_(accounting),w_(width),h_(height) {mask_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);}
-    ID3D12Resource* mask_target() const {return mask_.Get();}
+        :device_(device),accounting_(accounting),w_(width),h_(height) {}
+    ID3D12Resource* mask_target() {
+        if (!mask_) mask_=image(DXGI_FORMAT_R32G32B32A32_FLOAT);
+        return mask_.Get();
+    }
     bool changed(const AppearanceTextures& textures,uint32_t generation=0) const {return had_mask_!=bool(textures.mask)||had_field_!=bool(textures.field)||generation_!=generation;}
     void absent() {had_mask_=had_field_=false;generation_=0;}
     void remember_mode(const AppearanceTextures& textures,uint32_t generation=0) {had_mask_=textures.mask;had_field_=textures.field;generation_=generation;}
@@ -124,14 +135,17 @@ class AppearanceStage {
     }
     void prepare(ID3D12GraphicsCommandList* cmd,ID3D12Resource* color,ID3D12Resource* motion,
                  const AppearanceTextures& textures,const Controls& controls,unsigned slot) {
-        ensure(motion?motion->GetDesc().Format:DXGI_FORMAT_R16G16_FLOAT);
+        if (!original_) original_=image(DXGI_FORMAT_R16G16B16A16_FLOAT);
         copy(cmd,color,original_.Get());
         if(textures.field) {
+            ensure_warp(motion?motion->GetDesc().Format:DXGI_FORMAT_R16G16_FLOAT,
+                        motion!=nullptr, textures.mask!=nullptr);
             warp(cmd,*color_warp_,original_.Get(),textures.field,nullptr,color,0,slot,controls);
             if(motion) {copy(cmd,motion,motion_.Get());warp(cmd,*motion_warp_,motion_.Get(),textures.field,
                 had_field_&&!controls.reset?prior_.Get():textures.field,motion,2,slot,controls);}
         }
         if(textures.mask) {
+            mask_target();
             if(textures.field)warp(cmd,*mask_warp_,textures.mask,textures.field,nullptr,mask_.Get(),0,slot,controls);
             else copy(cmd,textures.mask,mask_.Get());
         }
@@ -142,6 +156,7 @@ class AppearanceStage {
         if(textures.field) {warp(cmd,*output_warp_,neural,textures.field,nullptr,unwarped_.Get(),1,slot,controls);neural=unwarped_.Get();}
         const bool post=controls.intensity<1||textures.mask||textures.ui||textures.alpha||textures.backbuffer||(controls.style&&controls.tone>0);
         if(post) {
+            ensure_composition();
             Constants c{};c.width=w_;c.height=h_;c.reset=unsigned(controls.style);c.mode=textures.mask?1u:0u;
             std::memcpy(&c.source_a,&controls.tone,sizeof(float));c.divider=controls.intensity;
             phoenix_native::transition(cmd,delta_.Get(),read,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

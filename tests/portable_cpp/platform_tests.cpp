@@ -6,6 +6,7 @@
 #include "phoenix_reference.metal"
 #include <iostream>
 #include <vector>
+#include "fp8_reference.h"
 using namespace phoenix_cpp;
 int main() {
     try {
@@ -116,7 +117,15 @@ int main() {
                        "Metal publication adaptation");
             }
         }
-        std::cout << "Portable SHA/PE/Metal host arithmetic checks passed\n";
+        uint32_t fp8_random = 0x94f2e175u;
+        for (unsigned index = 0; index < 10'000; ++index) {
+            fp8_random = fp8_random * 1664525u + 1013904223u;
+            const float input = HostMath::value(fp8_random);
+            const phoenix_metal::Kernel<MetalMath> generated{};
+            demand(HostMath::bits(generated.quantize_e4m3(input)) == HostMath::bits(reference_fp8(input)),
+                   "Generated Metal FP8 differs from independent finite-grid oracle");
+        }
+        std::cout << "Portable SHA/PE/Metal host arithmetic checks passed; 10000 FP8 oracle cases\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

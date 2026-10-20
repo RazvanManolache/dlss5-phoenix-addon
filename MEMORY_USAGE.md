@@ -1,4 +1,36 @@
-# Memory ownership audit, 11 October 2026
+# Memory: measurements and ownership
+
+<!-- current-two-model-evidence -->
+## Current two-model measurements: 20 October 2026
+
+Fresh Windows x64, one-pass isolated probes from the unreleased checkout. The GPU, CPU and portable harnesses have different boundaries. Native RTX results below are process snapshots at 1080p, not game RAM requirements or model-only allocations.
+
+| Renderer / model | GPU local MiB | Private commit MiB | Resident RAM MiB | Peak resident RAM MiB |
+| --- | ---: | ---: | ---: | ---: |
+| Native RTX Phoenix DLSS5 / Original | 574.6 | 756.3 | 166.7 | 390.9 |
+| Native RTX Phoenix DLSS5 / Lightweight FP8 | 540.8 | 721.6 | 165.6 | 363.0 |
+| Native RTX NVIDIA DLSS5 / Original | 639.6 | 850.4 | 333.7 | 555.3 |
+| Native RTX NVIDIA DLSS5 / Lightweight FP8 | 574.9 | 783.1 | 301.1 | 459.2 |
+
+Private commit is not physical resident RAM. Working set may include read-only mapped model/DLL pages. GPU residency includes harness and driver caches, while the Phoenix owned-resource ledger covers only known network allocations. NVIDIA internal allocation sizes are unknown here. None of these metrics should be added together.
+
+The native offline probe retains a whole-file-vector digest preflight, unlike production mapped hashing. Its common validation allocation can dominate the process-lifetime peak. The peak column is therefore not a production addon startup requirement, and model setup/preflight is outside steady-state inference timing.
+
+The [full current memory analysis](docs/benchmarks/current/README.md#memory-scaling-and-host-ram) separates 1080p/4K/8K weights, workspace, history, process RAM, portable host-buffer capacities, initialization peaks and lazy appearance allocations. Smaller models do not reduce every frame-sized buffer; Phoenix DLSS5 is not universally lower-memory than NVIDIA DLSS5 across resolutions. Current source/binary identities and process ranges are in [the measurements](docs/benchmarks/current/measurements.json).
+
+The [DLL-versus-shared-export measurements](docs/benchmarks/current/README.md#dll-weights-versus-shared-model-exports) compare startup, steady calls, private commit and peak resident RAM with identical output. A different storage container does not imply a smaller neural graph. Peak-RAM differences remain subject to the native probe digest-buffer caveat above.
+
+The separate [register/spill study](docs/REGISTER_PRESSURE.md) measures per-thread GPU resources, not system RAM or whole-process VRAM. The [controlled review-fix study](docs/benchmarks/current/review-fixes.md) covers cached schedule changes and the remaining private-commit caveat; the broad refresh is not a new long-session leak test.
+<!-- /current-two-model-evidence -->
+
+The unreleased [19 October review fixes](docs/benchmarks/current/review-fixes.md)
+separate current improvements from the historical measurements below. Native addon
+sessions no longer retain a permanent packed CPU-weight copy. Portable schedules
+share uploaded weights, DLL hashes use read-only mappings, and unused appearance
+features allocate no textures. Fresh measurements include the remaining private
+commit caveat; these are not universal whole-game RAM or VRAM savings.
+
+## Historical ownership audit: 11 October 2026
 
 The native game adapter now shares one temporary workspace and one immutable model across its serial refinement passes. Each pass retains its own two history images, descriptors and sampling state. Both GPU-upload and conventional staged initialization use one model allocation; the staged route also shares one upload buffer and one submission fence.
 

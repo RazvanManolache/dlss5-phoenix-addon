@@ -16,6 +16,7 @@ struct ExecutorFrame {
     ID3D12Resource* guides = nullptr; // shader-read state, same extent as color
     bool device_depth = false;        // explicit normalized hardware depth [0,1], not linear
     unsigned transformer_blocks = 8;
+    uint64_t budget_epoch = 0;
     D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_COMMON;
     Controls controls;
     const Settings* settings = nullptr;

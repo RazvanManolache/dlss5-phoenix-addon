@@ -111,8 +111,6 @@ struct Module {
 };
 struct Payload final : phoenix_device::Payload {
     std::unordered_map<std::string, std::unique_ptr<Module>> modules;
-    std::unordered_map<uint64_t, std::string> native_names;
-    std::mutex names_mutex;
 };
 
 // Owns actual module/function handles, not the legacy process-lived Candidate
@@ -121,7 +119,6 @@ struct Payload final : phoenix_device::Payload {
 class Network {
     Api api_;
     std::vector<Binary> catalog_;
-    std::unordered_map<std::string, const Binary*> by_name_;
     phoenix_device::BorrowedBinding binding_;
     std::shared_ptr<Counters> counters_ = std::make_shared<Counters>();
 
@@ -129,8 +126,6 @@ class Network {
     using Lease = phoenix_device::BorrowedBinding::Lease;
     Network(Api api, std::vector<Spec> specs) : api_(api), catalog_(load_catalog(specs)) {
         api_.validate();
-        for (const auto& binary : catalog_)
-            by_name_.emplace(binary.spec.name, &binary);
     }
     Network(const Network&) = delete;
     Network& operator=(const Network&) = delete;
@@ -183,40 +178,6 @@ class Network {
     }
     bool observe(ID3D12Device* device, HRESULT result, uint64_t completed = 0) {
         return binding_.observe(device, result, completed);
-    }
-    bool register_native(const Lease& lease, const std::string& name, NVDX_ObjectHandle function) {
-        if (!allowed(lease) || !function || !by_name_.count(name))
-            return false;
-        auto& payload = *static_cast<Payload*>(lease->resources.get());
-        std::lock_guard<std::mutex> lock(payload.names_mutex);
-        payload.native_names[uint64_t(function)] = name;
-        return true;
-    }
-    void erase_native(const Lease& lease, NVDX_ObjectHandle function) {
-        if (!lease)
-            return;
-        auto& payload = *static_cast<Payload*>(lease->resources.get());
-        std::lock_guard<std::mutex> lock(payload.names_mutex);
-        payload.native_names.erase(uint64_t(function));
-    }
-    NVDX_ObjectHandle resolve(const Lease& lease,
-                              const NVAPI_CU_KERNEL_LAUNCH_PARAMS& launch) const {
-        if (!allowed(lease))
-            throw std::runtime_error("Lifecycle37 stale dispatch epoch");
-        auto& payload = *static_cast<Payload*>(lease->resources.get());
-        std::string name;
-        {
-            std::lock_guard<std::mutex> lock(payload.names_mutex);
-            auto lookup_iterator = payload.native_names.find(uint64_t(launch.hFunction));
-            if (lookup_iterator == payload.native_names.end())
-                throw std::runtime_error("Lifecycle37 unknown native function");
-            name = lookup_iterator->second;
-        }
-        const auto& spec = by_name_.at(name)->spec;
-        if (!launch.pParams || launch.paramSize != spec.bytes || launch.blockDim.x != spec.x ||
-            launch.blockDim.y != spec.y || launch.blockDim.z != spec.z || launch.dynSharedMemBytes)
-            throw std::runtime_error("Lifecycle37 launch contract mismatch");
-        return payload.modules.at(name)->function;
     }
 };
 }

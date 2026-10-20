@@ -69,6 +69,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--imgui-source', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--reuse-output', action='store_true', help='Recompile in an existing known CPU UI test folder, retaining its files')
     args = parser.parse_args()
     vendor = args.imgui_source.resolve()
     def normalized_header(path):
@@ -78,7 +79,11 @@ def main():
     output = args.output.resolve()
     if not output.is_relative_to(ROOT / 'build'):
         parser.error('Test output must be inside build')
-    output.mkdir(parents=True, exist_ok=False)
+    if args.reuse_output:
+        previous = json.loads((output / "report.json").read_text())
+        if previous.get("header_layout_verified") is not True or previous.get("gpu_executed") is not False:
+            parser.error("Reuse requires a known CPU UI test report")
+    output.mkdir(parents=True, exist_ok=args.reuse_output)
     gate_checks = check_build_gates()
     vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
     studio = subprocess.check_output([str(vswhere), '-latest', '-products', '*', '-requires',
@@ -86,7 +91,7 @@ def main():
     results = []
     for bits in (32, 64):
         case = output / str(bits)
-        case.mkdir()
+        case.mkdir(exist_ok=args.reuse_output)
         files = [ROOT / 'tests/native/shared_panel_tests.cpp'] + [vendor / (name + '.cpp') for name in
             ('imgui', 'imgui_draw', 'imgui_tables', 'imgui_widgets')]
         sources = ' '.join('"' + str(file) + '"' for file in files)

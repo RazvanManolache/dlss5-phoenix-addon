@@ -4,3 +4,10 @@ Source snapshot: DLSS5-Feeder-clean-20260901-v2, 2026-10-14.
 Phoenix adaptations: repository include paths, asynchronous game client,
 private helper packaging and lifecycle/transport validation.
 See LICENSE and import_manifest.json. No model or NVIDIA DLL is imported.
+
+Manifest schema phoenix-source-import/2 distinguishes declared import-input
+hashes (import_sha256) from maintained destination paths and current hashes
+(path, sha256, normalized_lf_sha256). The original snapshot identity and import
+hashes are retained declarations, not independently authenticated provenance.
+Run python tools/verify_source_provenance.py to check maintained inputs. After
+reviewing an intentional source change, --refresh updates only current hashes.

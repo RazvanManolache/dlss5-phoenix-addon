@@ -10,52 +10,8 @@
 #define DLSS5_ENABLE_ASYNC_COPIES 1
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/async_memory.cuh"
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y, uint32_t& word_z,
-                       uint32_t& word_w, const MemoryRange* memory_ranges, uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldca(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-load_four_words_global_cached(uint64_t address, uint32_t& word_x, uint32_t& word_y,
-                              uint32_t& word_z, uint32_t& word_w, const MemoryRange* memory_ranges,
-                              uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, false, memory_ranges, error_counts)) {
-        word_x = word_y = word_z = word_w = 0;
-        return;
-    }
-    const uint4* word_pointer = reinterpret_cast<const uint4*>(address);
-    uint4 result_word = __ldcg(word_pointer);
-    word_x = result_word.x;
-    word_y = result_word.y;
-    word_z = result_word.z;
-    word_w = result_word.w;
-}
-template <bool CheckBounds>
-__device__ __forceinline__ void
-store_four_words_streaming(uint64_t address, uint32_t word_x, uint32_t word_y, uint32_t word_z,
-                           uint32_t word_w, const MemoryRange* memory_ranges,
-                           uint32_t* error_counts) {
-    if (!check_vector_address<CheckBounds>(address, 16, true, memory_ranges, error_counts))
-        return;
-    uint4* word_pointer = reinterpret_cast<uint4*>(address);
-    __stcs(word_pointer, make_uint4(word_x, word_y, word_z, word_w));
-}
+#include "../../../common/cached_vector_access.cuh"
 
-__device__ __forceinline__ uint32_t broadcast_active_lane(uint32_t value) {
-    const unsigned mask = __activemask();
-    return __shfl_sync(mask, value, __ffs(mask) - 1);
-}
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
 enum ParameterWord : unsigned {
     parameter_input_low_0 = 0,
@@ -297,10 +253,10 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_projection_
         uint32_t(int64_t(int32_t(matrix_accumulator_3)) * (1ll << 0x1du) >> 32) + 0x1u;
 
     matrix_fragment_13 =
-        int32_t(matrix_accumulator_5) < 0 ? 0u - matrix_accumulator_5 : matrix_accumulator_5;
+        signed_word_magnitude(matrix_accumulator_5);
 
     matrix_accumulator_6 =
-        int32_t(matrix_accumulator_5) < 0 ? 0u - matrix_accumulator_5 : matrix_accumulator_5;
+        signed_word_magnitude(matrix_accumulator_5);
 
     index_word_0 = __float_as_uint(__int2float_ru(matrix_fragment_13));
 
@@ -310,7 +266,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_projection_
 
     matrix_accumulator_2 = index_word_0 + 0xffffffeu;
 
-    index_word_0 = int32_t(block_index_132) < 0 ? 0u - block_index_132 : block_index_132;
+    index_word_0 = signed_word_magnitude(block_index_132);
 
     matrix_accumulator_3 = __float2uint_rz(__uint_as_float(matrix_accumulator_2));
 

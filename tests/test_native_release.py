@@ -40,10 +40,17 @@ class PublicationScopeTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("test")
             with patch.object(audit, "ROOT", root):
-                published = {
+                enumerated = {
                     source_path.relative_to(root).as_posix() for source_path in audit.candidates()
                 }
-            self.assertEqual(published, {names[0], names[2]})
+            # Model payloads are not silently filtered from a tracked tree:
+            # the audit must see and reject them before Git archive can ship it.
+            self.assertEqual(enumerated, {names[0], names[2], names[6], names[7]})
+            for name in (names[6], names[7]):
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'model payload'):
+                    audit.validate_source_path(name)
+            for name in (names[0], names[2]):
+                audit.validate_source_path(name)
 
     def test_missing_common_header_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:

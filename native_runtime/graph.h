@@ -28,6 +28,21 @@ struct Tensor {
     }
 };
 
+// Immutable device weights outlive individual schedules, not their backend or model.
+struct WeightStore {
+    Backend& backend;
+    std::string resource_sha256;
+    std::vector<Allocation> allocations;
+    std::map<std::string, Tensor> tensors;
+    WeightStore(Backend& owner, const Model& model)
+        : backend(owner), resource_sha256(model.resource_sha256()) {}
+    ~WeightStore() {
+        try { backend.wait(); } catch (...) {}
+        for (auto allocation : allocations)
+            try { backend.release(allocation); } catch (...) {}
+    }
+};
+
 // Records the model as backend-independent operations, then assigns temporary
 // tensors to a shared scratch arena. GPU/CPU kernels execute these operations.
 class Graph {
@@ -35,7 +50,8 @@ class Graph {
     Model& model_;
     std::vector<Allocation> owned_allocations_;
     ScratchPlan scratch_;
-    std::map<std::string, Tensor> weight_cache_;
+    std::shared_ptr<WeightStore> weights_;
+    std::map<std::string, Tensor>& weight_cache_;
     unsigned current_block_ = 0, current_layer_ = 0;
     bool fused_attention_ = false;
     unsigned window_batch_limit_ = 128;
@@ -66,7 +82,7 @@ class Graph {
             allocation = scratch_.reserve(bytes);
         } else {
             allocation = backend_.allocate(bytes);
-            owned_allocations_.push_back(allocation);
+            weights_->allocations.push_back(allocation);
         }
         return {
             std::make_shared<Allocation>(allocation), 0, height, width, channels, element_bytes};
@@ -635,7 +651,13 @@ class Graph {
     Tensor split_window_block(Tensor source, int block, int shift_x, int shift_y,
                               Tensor* accumulator = nullptr) {
         current_layer_ = 0;
-        auto projections = model_.split(block);
+        std::array<std::vector<uint8_t>, 3> projections;
+        const auto prefix = std::to_string(block) + "split";
+        for (unsigned index = 0; index < 3; ++index)
+            if (!weight_cache_.contains(prefix + std::to_string(index))) {
+                projections = model_.split(block);
+                break;
+            }
         std::array<Tensor, 3> matrices;
         for (unsigned index = 0; index < 3; ++index)
             matrices[index] =
@@ -752,19 +774,23 @@ class Graph {
 
     Graph(Backend& backend, Model& model, bool fused_attention = false,
           unsigned window_batch_limit = 128, bool device_features = false,
-          bool fused_residual = false, bool device_noise_cache = false)
-        : backend_(backend), model_(model), fused_attention_(fused_attention),
+          bool fused_residual = false, bool device_noise_cache = false,
+          std::shared_ptr<WeightStore> weights = {})
+        : backend_(backend), model_(model),
+          weights_(weights ? std::move(weights) : std::make_shared<WeightStore>(backend, model)),
+          weight_cache_(weights_->tensors), fused_attention_(fused_attention),
           window_batch_limit_(window_batch_limit), device_features_(device_features),
           fused_residual_(fused_residual), device_noise_cache_(device_noise_cache && device_features) {
         demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
                "Window batch limit must be 16..8192");
+        demand(&weights_->backend == &backend && weights_->resource_sha256 == model.resource_sha256(),
+               "Weight store belongs to another backend or model");
     }
 
     ~Graph() {
         commands.clear();
         input = {};
         output = {};
-        weight_cache_.clear();
         try {
             backend_.wait();
         } catch (...) {
@@ -776,132 +802,31 @@ class Graph {
             }
     }
 
+  private:
+#include "models/original/graph.inc"
+#include "models/small_fp8/graph.inc"
+
+    using Builder = void (Graph::*)(unsigned, unsigned, const std::array<unsigned, 8>&);
+    static Builder builder_for(const phoenix_model::Definition& model) {
+        phoenix_model::require_implemented(model);
+        struct Entry { std::string_view architecture; Builder build; };
+        static constexpr std::array handlers{
+            Entry{phoenix_model::models::original.architecture, &Graph::build_original},
+            Entry{phoenix_model::models::small_fp8.architecture, &Graph::build_small_fp8}};
+        for (const auto& handler : handlers)
+            if (handler.architecture == model.architecture)
+                return handler.build;
+        throw std::runtime_error("No Phoenix DLSS5 graph builder for architecture: " + std::string(model.architecture));
+    }
+
+  public:
+    static void require_supported(const phoenix_model::Definition& model) {
+        (void)builder_for(model);
+    }
     void build(unsigned frame_width, unsigned frame_height,
                const std::array<unsigned, 8>& repeats) {
-        demand(commands.empty(), "Graph is immutable after recording");
-        width = frame_width;
-        height = frame_height;
-        auto input_owner = allocate_tensor(frame_height, frame_width, 16);
-        input = input_owner;
-        input.memory = std::make_shared<Allocation>(*input_owner.memory);
-        current_block_ = 0;
-
-        // Stem: lift the 16 input features to 32 channels, retain the first
-        // full-resolution skip, and start the spatial encoder.
-        auto features = input_owner;
-        Tensor accumulator;
-        auto stem = shifted_window_block(features, 0, 0, 0, true, &accumulator);
-        std::map<int, Tensor> skips;
-        skips[0] = stem;
-        features = pad_spatial(accumulator, align_extent(frame_height / 2, 4),
-                               align_extent(frame_width / 2, 4));
-        input_owner = {};
-        checkpoint("block0", features);
-        checkpoint("skip0", skips[0]);
-
-        const int shifts[4][2] = {{0, 0}, {-1, -1}, {-1, 0}, {0, -1}};
-        int block = 1;
-        // The last block at each encoder level also pools its accumulator.
-        for (auto level_blocks : {4, 4, 6, 8}) {
-            for (int index = 0; index < level_blocks; ++index, ++block) {
-                current_block_ = block;
-                features = shifted_window_block(features, block, shifts[index % 4][0],
-                                                shifts[index % 4][1], false,
-                                                index == level_blocks - 1 ? &accumulator : nullptr);
-                if (index == level_blocks - 1) {
-                    skips[block] = features;
-                    auto pooled = accumulator;
-                    features = matrix_multiply(pooled, model_weight(block, 0, "resample"),
-                                               features.channels * 2, 5, true);
-                    features = pad_spatial(features, align_extent(features.height, 4),
-                                           align_extent(features.width, 4));
-                }
-                checkpoint("block" + std::to_string(block), features);
-            }
-        }
-
-        for (block = 23; block <= 30; ++block) {
-            current_block_ = block;
-            features = split_window_block(features, block, shifts[(block - 23) % 4][0],
-                                          shifts[(block - 23) % 4][1], &accumulator);
-            checkpoint("block" + std::to_string(block), features);
-        }
-        skips[30] = features;
-        auto pooled = pad_spatial(average_pool(accumulator), align_extent(features.height / 2, 4),
-                                  align_extent(features.width / 2, 4));
-        current_block_ = 30;
-        current_layer_ = 4;
-        features = matrix_multiply(pooled, model_weight(30, 4, "weight"), 1024, 5, true);
-        checkpoint("pooled30", features);
-
-        // Eight global transformer blocks operate on the coarsest features.
-        for (block = 31; block <= 38; ++block) {
-            demand(repeats[block - 31] <= 8, "Transformer repeat count exceeds eight");
-            current_block_ = block;
-            for (unsigned repetition = 0; repetition < repeats[block - 31]; ++repetition)
-                features = transformer_block(features, block);
-            checkpoint("block" + std::to_string(block), features);
-        }
-
-        // Decoder: restore resolution and combine the matching encoder skips.
-        current_block_ = 39;
-        features = upsample(features, skips[30], 39, true);
-        checkpoint("block39", features);
-        for (block = 40; block <= 47; ++block) {
-            current_block_ = block;
-            features = split_window_block(features, block, shifts[(block - 40) % 4][0],
-                                          shifts[(block - 40) % 4][1]);
-            checkpoint("block" + std::to_string(block), features);
-        }
-        const int level_sizes[] = {8, 6, 4, 4}, skip_blocks[] = {22, 14, 8, 4};
-        block = 48;
-        for (int level = 0; level < 4; ++level) {
-            for (int index = 0; index < level_sizes[level]; ++index, ++block) {
-                current_block_ = block;
-                if (index == 0)
-                    features = upsample(features, skips[skip_blocks[level]], block, false);
-                int shift = (index + (level == 1 ? 2 : 0)) % 4;
-                features =
-                    shifted_window_block(features, block, shifts[shift][0], shifts[shift][1]);
-                checkpoint("block" + std::to_string(block), features);
-            }
-            skips.erase(skip_blocks[level]);
-        }
-
-        // Blend the final decoder features with the stem skip, then project
-        // the 32 feature channels to the four-channel output head.
-        current_block_ = 70;
-        current_layer_ = 0;
-        auto blend_gains = upload_weight(
-            "post_sincos",
-            [&] {
-                auto main_gain = model_.half(70, 0, "main_gain");
-                auto skip_gain = model_.half(70, 0, "skip_gain");
-                main_gain.insert(main_gain.end(), skip_gain.begin(), skip_gain.end());
-                return main_gain;
-            },
-            false);
-        features =
-            shifted_window_block(features, 70, -1, -1, true, nullptr, &skips[0], &blend_gains);
-        output = matrix_multiply(features,
-                                 upload_weight("output_head",
-                                               [&] {
-                                                   auto values = model_.half(70, 0, "out_project");
-                                                   values.resize(4 * 32);
-                                                   return values;
-                                               }),
-                                 4);
-        checkpoint("head", output);
-        if (device_features_) {
-            // These upload views live only before the first neural command and
-            // share its existing scratch arena rather than adding resident buffers.
-            frame_planes_[0] = allocate_tensor(height, width, 3, 4);
-            frame_planes_[1] = allocate_tensor(height, width, 3, 4);
-            frame_planes_[2] = allocate_tensor(height, width, 3, 2);
-            // Validity bytes followed by an aligned optional RGBA32F map.
-            frame_planes_[3] = allocate_tensor(height, width, 5, 4);
-        }
-        commit_scratch();
+        const auto build = builder_for(model_.definition());
+        (this->*build)(frame_width, frame_height, repeats);
     }
 
     void run_from_planes(const float* color, size_t color_count, const std::vector<float>& prior,
@@ -975,7 +900,7 @@ class Graph {
     }
 
     uint64_t memory_bytes() const {
-        uint64_t bytes = 0;
+        uint64_t bytes = weight_bytes();
         for (auto allocation : owned_allocations_)
             bytes += allocation.bytes;
         return bytes;

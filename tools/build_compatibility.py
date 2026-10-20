@@ -12,6 +12,7 @@ import re
 import struct
 import subprocess
 from embed_runtime import compress
+from verify_source_provenance import verify_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARIES = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib"
@@ -111,6 +112,10 @@ def main():
     parser.add_argument("--reshade64", type=Path, required=True)
     parser.add_argument("--ngx-sdk", type=Path, required=True)
     args = parser.parse_args()
+    try:
+        verify_manifest(ROOT)
+    except (ValueError, OSError, KeyError) as error:
+        parser.error(str(error))
     if not re.fullmatch(r"[A-Za-z0-9_]+", args.name):
         parser.error("Use a simple output name")
     core = args.core_build.resolve()

@@ -1,6 +1,6 @@
 """Audit the production source tree and optionally make a source-only ZIP."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import argparse
 import hashlib
 import json
@@ -19,8 +19,9 @@ IGNORED = {
     "dist",
     "artifacts",
     "validation",
-    "models",
     ".git",
+    ".vscode",
+    ".idea",
     "__pycache__",
     ".ruff_cache",
     ".pytest_cache",
@@ -53,6 +54,11 @@ FORBIDDEN = {
     ".log",
     ".dmp",
 }
+MODEL_SOURCE_ROOTS = (
+    ("native_runtime", "models"),
+    ("src", "native", "model", "models"),
+)
+MODEL_SOURCE_SUFFIXES = {".c", ".cpp", ".h", ".hpp", ".cuh", ".inc", ".md"}
 
 
 def candidates():
@@ -62,6 +68,7 @@ def candidates():
     for name in sorted(set(filter(None, names))):
         path = ROOT / name
         rel = path.relative_to(ROOT)
+        folded = tuple(part.casefold() for part in rel.parts)
         # Local runtime DLLs and source annotations never enter publication.
         if rel.parts[0] in {"runtime", "source_maps"}:
             continue
@@ -73,9 +80,9 @@ def candidates():
         if rel.parts[:3] == ("src", "native", "model") and path.name.startswith("kernel_tuning"):
             continue
         if (
-            rel.parts[0] in IGNORED
-            or any(part in {".git", "__pycache__"} for part in rel.parts)
-            or path.suffix == ".pyc"
+            folded[0] in IGNORED
+            or any(part in {".git", ".vscode", ".idea", "__pycache__"} for part in folded)
+            or path.suffix.lower() == ".pyc"
         ):
             continue
         for component in (path, *path.parents):
@@ -123,6 +130,14 @@ def validate_payload(name, path):
 
 def validate_public_content(name, raw):
     """Reject host-specific paths and credential formats without echoing matches."""
+    # Device IDs are machine identifiers too. Only explicit parser-test examples
+    # may use UUID-shaped strings; measurement exports use descriptive labels.
+    synthetic = {b'cuda:GPU-01234567-89ab-cdef-0123-456789abcdef',
+                 b'vulkan:0123456789abcdef0123456789abcdef',
+                 b'vulkan:0123456789abcdef0123456789abcdef0'}
+    for match in re.finditer(rb'(?:cuda:GPU-[0-9a-fA-F-]{36}|vulkan:[0-9a-fA-F]{32,33})', raw):
+        if match.group() not in synthetic:
+            raise ValueError('Private device identifier in publication file: ' + name)
     patterns = (
         rb"(?i)[a-z]:[/\\\\]Users[/\\\\](?!Public(?:[/\\\\]|$))[^/\\\\\s]+",
         rb"(?i)[ed]:[/\\\\](?:Games|Kit|AI)(?:[/\\\\]|$)",
@@ -132,6 +147,26 @@ def validate_public_content(name, raw):
     for pattern in patterns:
         if re.search(pattern, raw):
             raise ValueError("Private path or credential pattern in publication file: " + name)
+
+
+def validate_source_path(name):
+    """Distinguish architecture source from downloaded/extracted model data."""
+    path = PurePosixPath(name)
+    parts = path.parts
+    folded = tuple(part.casefold() for part in parts)
+    if (not parts or path.is_absolute() or ".." in parts or "\\" in name or ":" in name or
+            folded[0] == "runtime" or any(
+                part in {".git", ".vscode", ".idea", "captures", "traces", "backups", "archive"}
+                for part in folded)):
+        raise ValueError("Private or unsafe source-package path: " + name)
+    if "models" not in folded:
+        return
+    # These directories contain maintained C++ graphs/layout declarations, not
+    # model payloads. File-type and executable-magic checks still apply below.
+    model_source = folded.count("models") == 1 and path.suffix.lower() in MODEL_SOURCE_SUFFIXES and any(
+        folded[:len(root)] == root for root in MODEL_SOURCE_ROOTS)
+    if name.casefold() != "models/readme.md" and not model_source:
+        raise ValueError("Private model payload directory: " + name)
 
 
 def audit():
@@ -147,11 +182,7 @@ def audit():
         )
     manifest = {"schema": "phoenix-production-source-audit/1", "files": {}}
     for name, path in found.items():
-        if Path(name).parts[0] == "runtime" or any(
-            part in {"models", "captures", "traces", "backups", "archive"}
-            for part in Path(name).parts
-        ):
-            raise ValueError("Private payload directory: " + name)
+        validate_source_path(name)
         manifest["files"][name] = {"sha256": validate_payload(name, path)}
     return manifest, found
 

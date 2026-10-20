@@ -1228,7 +1228,7 @@
     {
       "id": "cuda",
       "processes": 3,
-      "device": "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
+      "device": "cuda:RTX5080_DEVICE_ID_REDACTED",
       "samples": 30,
       "exact_frames": 36,
       "core_ms": 56.31000000424683,
@@ -1254,7 +1254,7 @@
     {
       "id": "vulkan_nvidia",
       "processes": 3,
-      "device": "vulkan:1b962af4ae3f9cf1b93a70efe043a13d",
+      "device": "vulkan:RTX5080_DEVICE_ID_REDACTED",
       "samples": 30,
       "exact_frames": 36,
       "core_ms": 104.911136,
@@ -1328,7 +1328,7 @@
     {
       "id": "vulkan_amd",
       "processes": 2,
-      "device": "vulkan:00000000740000000000000000000000",
+      "device": "vulkan:AMD_DEVICE_ID_REDACTED",
       "samples": 4,
       "exact_frames": 6,
       "core_ms": 11999.67029,

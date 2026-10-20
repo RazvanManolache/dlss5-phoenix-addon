@@ -7,11 +7,15 @@
 #include <cmath>
 #include <algorithm>
 #include "embedded_runtime.h"
+#include "../model/resource_identity.h"
+#include "../model/dll_search.h"
 #include "../../../native_runtime/broker_client.h"
 
 namespace phoenix_model_tools {
 using Json = nlohmann::json;
-inline std::string selected_dll_digest(const std::filesystem::path& path) {
+inline std::string selected_dll_digest(const std::filesystem::path& path,
+                                        const phoenix_model::Definition& model = phoenix_model::models::original) {
+    phoenix_model::require_implemented(model);
     if (path.empty() || !path.is_absolute())
         throw std::runtime_error("Choose an absolute NVIDIA DLSS5 DLL path");
     // Poll only file metadata during drawing. Hash once per actual selection
@@ -21,43 +25,106 @@ inline std::string selected_dll_digest(const std::filesystem::path& path) {
         std::filesystem::file_time_type time;
         uintmax_t bytes = 0;
         std::string digest;
+        std::string model_id;
+        std::string error;
         std::mutex mutex;
     };
     static Cache cache;
     std::lock_guard lock(cache.mutex);
     const auto time = std::filesystem::last_write_time(path);
     const auto bytes = std::filesystem::file_size(path);
-    if (cache.path != path || cache.time != time || cache.bytes != bytes) {
-        cache.digest = phoenix_embedded::file_digest(path);
+    if (cache.path != path || cache.time != time || cache.bytes != bytes || cache.model_id != model.id) {
+        cache.digest.clear();
+        cache.error.clear();
+        try {
+            const auto digest = phoenix_embedded::file_digest(path);
+            if (!phoenix_model::known_model_container(digest))
+                throw std::runtime_error("Unknown NVIDIA DLSS5 DLL container; use a verified edition or a compatible disk-model folder");
+            phoenix_model::WeightSource source{path, digest};
+            source.model_id = std::string(model.id);
+            phoenix_model::with_dll_resource(source,
+                [](const std::filesystem::path& file) { return phoenix_embedded::file_digest(file); },
+                [&](const uint8_t* data, size_t count) {
+                    const auto identity = phoenix_model::resource_identity(data, count, model);
+                    phoenix_model::require_resource_identity(model, identity, model.resource, model.reference_resource_sha256);
+                    return 0;
+                });
+            cache.digest = digest;
+        } catch (const std::exception& error) {
+            // Remember rejection too: drawing must not rehash a bad DLL every frame.
+            cache.error = error.what();
+        }
+        cache.model_id = std::string(model.id);
         cache.path = path;
         cache.time = time;
         cache.bytes = bytes;
     }
-    const std::string reference =
-        "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e";
-    if (cache.digest != reference && !phoenix_model::equivalent_model_dll(cache.digest, reference))
-        throw std::runtime_error(
-            "Unsupported NVIDIA DLSS5 DLL edition; choose a supported DLL or compatible model folder");
+    if (!cache.error.empty())
+        throw std::runtime_error(cache.error);
     return cache.digest;
+}
+inline std::filesystem::path local_library_directory() {
+    wchar_t path[32768]{};
+    const auto length = GetModuleFileNameW(nullptr, path, 32768);
+    if (!length || length >= 32768)
+        throw std::runtime_error("Cannot identify the local NVIDIA DLSS5 library directory");
+    return std::filesystem::path(path).parent_path();
 }
 inline phoenix_model::WeightSource selection(const std::string& kind, const std::string& folder,
                                              const std::string& dll,
-                                             const phoenix_model::WeightSource& configured) {
-    if (kind == "configured")
-        return configured;
+                                             const phoenix_model::WeightSource& configured,
+                                             std::string_view model_id = {},
+                                             const std::string& search_folder = {}) {
+    const auto& model = phoenix_model::definition(model_id.empty() ? configured.model_id : model_id);
+    if (kind == "configured") {
+        auto selected = configured;
+        selected.model_id = std::string(model.id);
+        if (!search_folder.empty() && !selected.disk_model()) {
+            const auto resolved = phoenix_model::find_nvidia_dll(selected.dll, local_library_directory(),
+                                                                std::filesystem::u8path(search_folder));
+            if (resolved.empty())
+                throw std::runtime_error("NVIDIA DLSS5 DLL was not found locally or in the configured search folder");
+            selected.dll = resolved;
+            selected.dll_sha256 = selected_dll_digest(resolved, model);
+        }
+        return selected;
+    }
     if (kind == "model_folder")
-        return phoenix_model::WeightSource::config({{"kind", kind}, {"path", folder}});
-    if (kind == "nvidia_dll")
+        return phoenix_model::WeightSource::config({{"kind", kind}, {"path", folder}, {"model", model.id}});
+    if (kind == "nvidia_dll") {
+        auto path = std::filesystem::u8path(dll);
+        if (!search_folder.empty()) {
+            // An explicit empty file selection is not an automatic source.
+            if (path.empty()) throw std::runtime_error("Choose a NVIDIA DLSS5 DLL filename");
+            path = phoenix_model::find_nvidia_dll(path, local_library_directory(),
+                                                  std::filesystem::u8path(search_folder));
+            if (path.empty()) throw std::runtime_error("NVIDIA DLSS5 DLL was not found locally or in the configured search folder");
+        }
         return phoenix_model::WeightSource::config(
             {{"kind", kind},
-             {"path", dll},
-             {"sha256", selected_dll_digest(std::filesystem::u8path(dll))}});
+             {"path", phoenix_model::source_path_string(path)},
+             {"model", model.id},
+             {"sha256", selected_dll_digest(path, model)}});
+    }
     throw std::runtime_error("Unknown model selection");
+}
+template <class Settings>
+inline phoenix_model::WeightSource selection(const Settings& settings,
+                                             const phoenix_model::WeightSource& configured) {
+    return selection(settings.model_source, settings.model_folder, settings.model_dll,
+                     configured, settings.model_id, settings.nvidia_dll_folder);
 }
 struct Result {
     bool busy = false, passed = false, cancelled = false;
     std::string key, message, picked;
 };
+inline size_t selected_record_count(const phoenix_model::WeightSource& source) {
+    return phoenix_model::with_model_resource(source,
+        [](const std::filesystem::path& path) { return phoenix_embedded::file_digest(path); },
+        [&](const uint8_t* data, size_t bytes) {
+            return phoenix_model::resource_records(data, bytes, source.model()).size();
+        });
+}
 class Task {
     struct State {
         std::mutex mutex;
@@ -114,8 +181,9 @@ class Task {
         std::lock_guard lock(state->mutex);
         state->result.picked.clear();
     }
-    void browse(bool folder, HWND owner, const std::filesystem::path& initial) {
-        start(folder ? "folder" : "dll", [folder, owner, initial](Result& result) {
+    void browse(bool folder, HWND owner, const std::filesystem::path& initial,
+                const std::string& purpose = {}) {
+        start(purpose.empty() ? (folder ? "folder" : "dll") : purpose, [folder, owner, initial, purpose](Result& result) {
             const auto initialized =
                 CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
             if (FAILED(initialized))
@@ -139,7 +207,8 @@ class Task {
             dialog->GetOptions(&options);
             dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR |
                                (folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST));
-            dialog->SetTitle(folder ? L"Choose Phoenix DLSS5 model folder"
+            dialog->SetTitle(purpose == "dll_search_folder" ? L"Choose shared NVIDIA DLSS5 DLL folder"
+                                   : folder ? L"Choose Phoenix DLSS5 model folder"
                                     : L"Choose NVIDIA DLSS5 model DLL");
             if (!folder) {
                 COMDLG_FILTERSPEC filters[]{{L"NVIDIA DLSS5 DLL", L"*.dll"}};
@@ -183,15 +252,7 @@ class Task {
         start(key, [source, runtime, embedded_addon](Result& result) {
             if (!source.external())
                 throw std::runtime_error("Select a model folder or NVIDIA DLSS5 DLL first");
-            size_t records = 0;
-            phoenix_model::with_model_resource(
-                source, [](const std::filesystem::path& path) {
-                    return phoenix_embedded::file_digest(path);
-                }, [&](const uint8_t* data, size_t bytes) {
-                    phoenix_model::validate_model_layout(data, bytes);
-                    records = phoenix_model::resource_records(data, bytes).size();
-                    return 0;
-                });
+            const size_t records = selected_record_count(source);
             // A small real CPU inference checks decoding, loading, and finite
             // temporal output without competing with the game's GPU.
             auto runtime_root = runtime;

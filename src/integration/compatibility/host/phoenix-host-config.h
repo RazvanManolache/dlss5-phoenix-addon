@@ -39,6 +39,19 @@ inline bool ValidatePhoenixHostConfig(const nlohmann::json& config,
 
 // A recorded call is not completion. Require evidence for this evaluated output
 // after the host submission fence has retired, before returning it to a feeder.
+inline nlohmann::json PhoenixCompactPanelProgress(const nlohmann::json& panel) {
+    if (panel.at("schema") != "phoenix-panel/1") throw std::runtime_error("Unknown Phoenix panel schema");
+    const auto& own = panel.at("phoenix");
+    // submitted_frames becomes completion evidence only after the caller has
+    // retired the same helper queue's submission fence. Worker output still
+    // requires its separate delivered/presented counters below.
+    return {{"schema","production-game-phoenix/2"},{"input_provider","feeder_d3d12"},
+        {"terminal",!panel.value("error",std::string()).empty()},
+        {"completed_frames",own.at("submitted_frames")},
+        {"phoenix_routing",{{"frames",own.at("recorded_frames")},{"active_mode",panel.at("last_mode")}}},
+        {"direct_game",{{"enabled",true},{"status",own.at("status")}}},
+        {"worker_execution",panel.at("execution")}};
+}
 inline bool PhoenixOutputAdvanced(const nlohmann::json& before, const nlohmann::json& after) {
     try {
         if (after.at("schema") != "production-game-phoenix/2" || after.at("input_provider") != "feeder_d3d12" ||
@@ -50,11 +63,15 @@ inline bool PhoenixOutputAdvanced(const nlohmann::json& before, const nlohmann::
         if (route.at("active_mode") == 1)
             return status == "Native NR output (resolved) written back to the game DLSS output";
         if (route.at("active_mode") != 2 && route.at("active_mode") != 3) return false;
-        if (status != "Own network output written back to the game DLSS output") return false;
         const auto& worker = after.at("worker_execution");
         if (worker.at("kind") != "native")
-            return worker.value("presented", uint64_t(0)) > before.at("worker_execution").value("presented", uint64_t(0)) &&
+            // The queue fence has retired. This state records actual residual
+            // composition; older cores mislabeled its human-readable status.
+            return (worker.value("state", std::string()) == "composing_reprojected_result" ||
+                    worker.value("state", std::string()) == "presenting_reprojected_result") &&
+                worker.value("presented", uint64_t(0)) > before.at("worker_execution").value("presented", uint64_t(0)) &&
                 worker.value("delivered", uint64_t(0)) > 0 && worker.value("error", std::string()).empty();
+        if (status != "Own network output written back to the game DLSS output") return false;
         return after.at("completed_frames").get<uint64_t>() > before.at("completed_frames").get<uint64_t>();
     } catch (const std::exception&) { return false; }
 }

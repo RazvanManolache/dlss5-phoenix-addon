@@ -4,6 +4,7 @@
 #include <map>
 #include <tuple>
 #include "budget.h"
+#include "stage_queries.h"
 #include "timing_archive.h"
 
 namespace phoenix_addon::phoenix {
@@ -11,7 +12,11 @@ namespace phoenix_addon::phoenix {
 // Slots are reserved at recording, retained through submission, and read only
 // after this queue's fence completes. No CPU/GPU wait is introduced.
 class GpuTiming {
-    static constexpr unsigned slots = 32, stamps = 69;
+    static constexpr unsigned slots = 32;
+    // Fifteen stage boundaries per pass, plus route/own/native endpoints.
+    // Processing supports ten passes, including for the shorter FP8 graph.
+    using Queries = StageQueries<kGroupCount>;
+    static constexpr unsigned stamps = Queries::stamps;
     using Key = TimingArchive::Key;
     struct Range {
         int begin = -1, end = -1;
@@ -19,10 +24,11 @@ class GpuTiming {
     struct Slot {
         ID3D12GraphicsCommandList* list = nullptr;
         Key key{};
-        unsigned count = 0, groups = 0;
+        unsigned count = 0;
         Range own, native;
-        std::array<unsigned, kGroupCount * 4> group{};
+        Queries groups;
         uint64_t fence = 0, epoch = 0;
+        uint64_t budget_epoch = 0;
     };
     ComPtr<ID3D12CommandQueue> queue_;
     ComPtr<ID3D12Fence> fence_;
@@ -117,6 +123,8 @@ class GpuTiming {
             std::get<4>(pending_[current_].key) = settings_;
         if (budget_)
             budget_->reset_samples();
+        if (current_ < slots && budget_)
+            pending_[current_].budget_epoch = budget_->epoch();
     }
     bool begin(ID3D12GraphicsCommandList* list, unsigned mode, unsigned blocks, unsigned width,
                unsigned height) {
@@ -134,6 +142,7 @@ class GpuTiming {
         pending_frame.list = list;
         pending_frame.key = key;
         pending_frame.epoch = archive_->epoch();
+        pending_frame.budget_epoch = budget_ ? budget_->epoch() : 0;
         stamp();
         return true;
     }
@@ -158,10 +167,9 @@ class GpuTiming {
             return;
         auto& pending_frame = pending_[current_];
         check(pending_frame.list == list && pending_frame.own.begin >= 0 &&
-                  pending_frame.own.end < 0 && index == pending_frame.groups % kGroupCount &&
-                  pending_frame.groups < kGroupCount * 4,
+                  pending_frame.own.end < 0 && pending_frame.groups.accepts(index),
               "Phoenix DLSS5 GPU group timestamp order");
-        pending_frame.group[pending_frame.groups++] = stamp();
+        pending_frame.groups.append(index, stamp());
     }
     void end() {
         if (current_ == slots)
@@ -241,18 +249,19 @@ class GpuTiming {
                              m_native =
                                  interval_ms(pending_frame.native.begin, pending_frame.native.end);
                 if (std::get<0>(pending_frame.key) == 3) {
-                    if (budget_)
-                        budget_->sample(std::get<1>(pending_frame.key), m_own);
+                    if (budget_ && std::get<4>(pending_frame.key) == settings_)
+                        budget_->sample(std::get<1>(pending_frame.key), m_own,
+                                        pending_frame.budget_epoch);
                 }
                 int before = pending_frame.own.begin;
                 std::array<double, kGroupCount> group_ms{};
-                for (unsigned group_index = 0; group_index < pending_frame.groups; ++group_index) {
+                for (unsigned group_index = 0; group_index < pending_frame.groups.count; ++group_index) {
                     group_ms[group_index % kGroupCount] +=
-                        interval_ms(before, int(pending_frame.group[group_index]));
-                    before = int(pending_frame.group[group_index]);
+                        interval_ms(before, int(pending_frame.groups.indices[group_index]));
+                    before = int(pending_frame.groups.indices[group_index]);
                 }
                 archive_->sample(pending_frame.key, pending_frame.epoch, now_ms(), m_route, m_own,
-                                 m_native, pending_frame.groups / kGroupCount, group_ms);
+                                 m_native, pending_frame.groups.count / kGroupCount, group_ms);
             }
             pending_frame = {};
         }

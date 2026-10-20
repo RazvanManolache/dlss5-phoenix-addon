@@ -308,7 +308,7 @@ class Session {
           hdr_controls_override_(hdr_bridge && hdr_control_override) {
         check(device && queue && queue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT,
               "phoenix DIRECT queue required");
-        validate_phoenix_depth_plan(frame);
+        dispatch_.configure_plan(frame);
         check(device_forwards_to(owning_device(queue).Get(), device_.Get()),
               "phoenix queue device mismatch");
         color_ = phoenix_native::image(device, width_, height_, color_format,
@@ -325,8 +325,9 @@ class Session {
         appearance_=std::make_unique<phoenix::direct::AppearanceStage>(device,width_,height_,accounting);
         network_ = std::make_unique<phoenix_native::Network>(device, dispatch_.api(), frame,
                                                              weights, candidates, color_.Get(),
-                                                             motion_.Get(), accounting,true,nullptr,appearance_->mask_target());
-        check(network_->group_ends() == std::vector<unsigned>(kGroupEnds, kGroupEnds + kGroupCount),
+                                                             motion_.Get(), accounting);
+        const auto ends = phoenix_model::native_layout(frame.value("model_architecture", std::string("phoenix-network37/1"))).group_ends();
+        check(network_->group_ends() == std::vector<unsigned>(ends.begin(), ends.end()),
               "phoenix group schedule changed; review skip mask");
         leases_.reserve(32);
         if (hdr_bridge) {
@@ -653,6 +654,8 @@ class Session {
             last_game_reset_ = game_controls.reset != 0;
             auto resolved = resolve_controls(core_controls, width_, height_, motion != nullptr,
                                                    history_, last_sampling_);
+            if (textures.mask && !network_->control_mask_handle)
+                network_->bind_control_mask(appearance_->mask_target());
             resolved.control_mask_handle=textures.mask?network_->control_mask_handle:0;
             resolved.style=float(controls.style)/128.f;
             if(textures.field){resolved.motion_x=1.f/width_;resolved.motion_y=1.f/height_;}

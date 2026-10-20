@@ -16,6 +16,67 @@ __declspec(thread) volatile unsigned char tls_zero[16]{};
 __declspec(allocate(".tls$ZZZ")) unsigned char tls_end = 0;
 }
 static volatile uint32_t callback_count = 0;
+static void* callback_dispatch = nullptr;
+static void** callback_table = nullptr;
+alignas(16) static uint64_t gui_peb_before[0x7d8/8]{},gui_peb_shadow[0x7d8/8]{};
+static bool bridge_callbacks(void** slot,void* original,void* native_table=nullptr) {
+    if(!native_table)native_table=*slot;
+    if(!original||native_table==original)return true;
+    // Kernel GUI callbacks use buffer arguments. These tail thunks preserve
+    // every argument/register except volatile R11 and retain the original stack.
+    // Native threads have loader-managed native TLS; ordinary WOW64 game
+    // threads retain their original callback dispatcher. No system image is
+    // modified. The process-owned RX thunks remain valid until process exit.
+    constexpr unsigned entries=256,stride=48;
+    if(!callback_dispatch) {
+        callback_dispatch=VirtualAlloc(nullptr,entries*stride,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+        callback_table=static_cast<void**>(VirtualAlloc(nullptr,entries*sizeof(void*),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+        if(!callback_dispatch||!callback_table)return false;
+        auto* native=static_cast<void**>(native_table);
+        auto* wow=static_cast<void**>(original);
+        for(unsigned i=0;i<entries;++i) {
+            auto* code=static_cast<unsigned char*>(callback_dispatch)+i*stride;
+            // mov r11,gs:[58h]; test r11,r11; jz wow64; mov r11,target; jmp r11
+            const unsigned char head[]{0x65,0x4c,0x8b,0x1c,0x25,0x58,0,0,0,0x4d,0x85,0xdb,0x74,0x0d,0x49,0xbb};
+            for(unsigned j=0;j<sizeof(head);++j)code[j]=head[j];
+            const auto a=uint64_t(native[i]),b=uint64_t(wow[i]);
+            for(unsigned j=0;j<8;++j)code[16+j]=static_cast<unsigned char>(a>>(8*j));
+            code[24]=0x41;code[25]=0xff;code[26]=0xe3;
+            code[27]=0x49;code[28]=0xbb;
+            for(unsigned j=0;j<8;++j)code[29+j]=static_cast<unsigned char>(b>>(8*j));
+            code[37]=0x41;code[38]=0xff;code[39]=0xe3;
+            callback_table[i]=code;
+        }
+        DWORD old=0;
+        if(!VirtualProtect(callback_dispatch,entries*stride,PAGE_EXECUTE_READ,&old))return false;
+        FlushInstructionCache(GetCurrentProcess(),callback_dispatch,entries*stride);
+    }
+    _InterlockedExchangePointer(slot,callback_table);
+    return true;
+}
+static bool initialize_native_gui(PhoenixTlsTask& task,void** callbacks,void* game_callbacks) {
+    if(GetModuleHandleW(L"user32.dll"))return bridge_callbacks(callbacks,game_callbacks);
+    // USER32 sets its callback table during DllMain. A live x86 DXGI monitor
+    // callback can run before LoadLibrary returns, so restoring afterward is
+    // too late. Isolate that one initialization through a native thread-local
+    // PEB view. The loader/heap pointers stay shared; only scalar/pointer fields
+    // changed by initialization are merged back, excluding the callback table.
+    // The PEB size/offset are verified for the hash-bound ntdll profile. Keep
+    // this view process-owned in case a native dependency retains its address.
+    auto* original=reinterpret_cast<volatile uint64_t*>(__readgsqword(0x60));
+    for(unsigned i=0;i<sizeof(gui_peb_before)/8;++i)gui_peb_before[i]=gui_peb_shadow[i]=original[i];
+    __writegsqword(0x60,uint64_t(gui_peb_shadow));
+    const auto library=LoadLibraryExW(L"user32.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+    const auto error=library?0:GetLastError();
+    __writegsqword(0x60,uint64_t(original));
+    if(!library) {task.load_error=error;return false;}
+    for(unsigned i=0;i<sizeof(gui_peb_before)/8;++i) {
+        if(i==0x58/8||gui_peb_before[i]==gui_peb_shadow[i])continue;
+        _InterlockedCompareExchange64(reinterpret_cast<volatile long long*>(original+i),
+            static_cast<long long>(gui_peb_shadow[i]),static_cast<long long>(gui_peb_before[i]));
+    }
+    return bridge_callbacks(callbacks,game_callbacks,reinterpret_cast<void*>(gui_peb_shadow[0x58/8]));
+}
 static void NTAPI callback(void*, DWORD reason, void*) {
     if (reason == DLL_PROCESS_ATTACH || reason == DLL_THREAD_ATTACH) ++callback_count;
 }
@@ -100,12 +161,25 @@ extern "C" __declspec(dllexport) unsigned NTAPI PhoenixTlsRunTask64(void* contex
     // The game's application directory normally contains an x86 ReShade proxy.
     // Native worker imports must resolve against its own folder and System32,
     // not that x86 dxgi.dll/d3d12.dll or the game's current directory.
+    // Native USER32 initialization replaces the process callback table. Route
+    // callbacks by thread rather than entering an x86 WndProc in long mode or
+    // sending a native driver's worker through an uninitialized x86 context.
+    auto** callbacks=reinterpret_cast<void**>(__readgsqword(0x60)+0x58);
+    void* game_callbacks=*callbacks;
+    if(task->kind==4||task->kind==6) {
+        // Install mixed-bitness callbacks before DXGI/driver initializers can
+        // send messages to existing game windows during model-library loading.
+        if(!initialize_native_gui(*task,callbacks,game_callbacks))return 2;
+        game_callbacks=*callbacks;
+    }
     auto library = task->kind==4||task->kind==6 ?
         LoadLibraryExW(reinterpret_cast<const wchar_t*>(task->path),nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32) :
         LoadLibraryW(reinterpret_cast<const wchar_t*>(task->path));
+    const auto load_error=library?0:GetLastError();
+    if(!bridge_callbacks(callbacks,game_callbacks))return 2;
     task->loaded = library != nullptr;
-    if (!library) { task->load_error = GetLastError(); return 2; }
+    if (!library) { task->load_error = load_error; return 2; }
     if (task->kind == 1) {
         using Run = int(__cdecl*)(const wchar_t*, PhoenixWow64ProbeResult*);
         auto run = reinterpret_cast<Run>(GetProcAddress(library, "PhoenixWow64Probe64"));

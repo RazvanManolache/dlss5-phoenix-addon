@@ -1,10 +1,59 @@
 # Phoenix DLSS5
 
 My attempt at an open-source runner for NVIDIA DLSS5 neural rendering,
-packaged as a ReShade addon. **Native RTX is the main event:** near NVIDIA DLSS5's
-inference speed in the matched 1080p test, with useful controls and lower
-measured GPU residency. The alternate backends are our slightly obsessive
-portability side quest.
+packaged as a ReShade addon. **Native RTX is the main event:** fast neural
+rendering, useful controls, and the freedom to look under the hood.
+
+Tune the look, compare it with NVIDIA DLSS5, bring a compatible model, and see
+what actually changes. Better pixels shouldn't require blind trust. The
+alternate backends are our slightly obsessive portability side quest. Yes,
+we may have taken the side quest too far.
+
+**New in 0.9:**
+
+- **Two sizes of neural rendering:** Original and the faster
+  [Lightweight FP8](docs/SMALL_FP8.md) model from 310.9.16.
+- **Bring your weights, not another DLL copy:** load compatible model folders or
+  use the [shared native model library](docs/SHARED_MODELS.md), installed centrally
+  by DLSS Everything. New architectures still need a matching implementation.
+- **Less housekeeping:** cached schedule changes, lazy appearance buffers,
+  lower startup peaks and a safe Vulkan default.
+  [What changed and what we measured](docs/benchmarks/current/review-fixes.md).
+
+[Download addon 0.9](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.9) ·
+[Installation](docs/RELEASE_0.9.md) · [Controls](#a-quick-look) ·
+[Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
+
+<!-- current-two-model-benchmark -->
+## Native RTX: the main event
+
+**Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** Both Original and Lightweight have comparable isolated inference latency; this is not end-to-end game FPS or portable-backend performance.
+
+**Measured 20 October 2026:** pre-release development builds, RTX 5080, native x64, one pass. These benchmark identities are retained separately from the rebuilt 0.9 packages.
+
+![Original versus Lightweight within Phoenix DLSS5 and within NVIDIA DLSS5 at 1080p](docs/benchmarks/current/native-1080p.png)
+
+| Renderer / model at 1080p | GPU ms | Full call ms |
+| --- | ---: | ---: |
+| Native RTX Phoenix DLSS5 / Original | 3.874 | 4.323 |
+| Native RTX Phoenix DLSS5 / Lightweight FP8 | 2.282 | 2.576 |
+| Native RTX NVIDIA DLSS5 / Original | 3.825 | 4.478 |
+| Native RTX NVIDIA DLSS5 / Lightweight FP8 | 2.223 | 2.584 |
+
+**A lighter model, not a longer coffee break.** Lightweight uses **41.1% less GPU time** than Original within Phoenix DLSS5 at 1080p. It produces a different image: pick the look you prefer, not just the smallest number.
+
+**Same model, matching pixels.** Both Phoenix DLSS5 implementations match their corresponding NVIDIA DLSS5 preset byte for byte in the tested reset/history fixtures, from 320x180 through 8K. That checks implementation correctness, not which model makes a moving scene look better.
+
+**Memory gets a vote too.** At 1080p, Lightweight reduces measured process GPU-local residency by **5.9% within Phoenix DLSS5** and **10.1% within NVIDIA DLSS5**. These are process measurements, not model-only sizes; memory use changes with resolution. [RAM, VRAM and startup details](docs/benchmarks/current/README.md#memory-at-1080p).
+
+Small timing margins vary between tests. Some higher-resolution cases have larger differences, including Original at 4K. GPU time sits inside the full call; upload/readback is excluded. [Exact measurements, process ranges and methodology](docs/benchmarks/current/README.md#performance-conclusions).
+
+**More knobs, fewer mysteries.** Both models support tone/structure/skin tuning, compatible external weights, block controls, repeats, passes and adaptive budgets where the selected route supports them. [Controls and limits](docs/PORTABLE_MODEL_CONTROLS.md) · [Appearance controls](docs/NEURAL_CONTROLS.md).
+
+**The portability side quest is still alive.** CUDA, Vulkan, CPU, HIP, SYCL and Metal have their own support and validation limits. They are not a promise of native RTX speed on every GPU. [Backend matrix](docs/SUPPORT.md) · [Portable timings](docs/benchmarks/current/README.md#portable-host-plane-runtime).
+
+[Full two-model report](docs/benchmarks/current/README.md) · [Machine-readable results](docs/benchmarks/current/measurements.json) · [Released/current comparison](docs/benchmarks/current/release-ab.md)
+<!-- /current-two-model-benchmark -->
 
 ## Add-on 0.82: appearance controls and native correctness fixes
 
@@ -15,7 +64,11 @@ This update fixes the 1024x768 first-frame GPU hang and inconsistent 4K resets b
 [Feature guide](docs/NEURAL_CONTROLS.md) · [Release and installation](docs/RELEASE_0.82.md) · [Root cause](docs/NATIVE_CORRECTNESS_0.82.md) · [Validation](docs/VALIDATION_0.82.md)
 
 
-## Native RTX: the main event
+
+<details>
+<summary>Historical Original-only native study: 14 October 2026</summary>
+
+
 
 ![Native Phoenix DLSS5 and NVIDIA DLSS5 NR: matched inference latency and GPU-local residency on RTX 5080](docs/benchmarks/2026-10-13/native-rtx.png)
 
@@ -60,11 +113,11 @@ This resolution and memory study uses a different sampling protocol from the
 
 </details>
 
-[Latest regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
+[Historical regular performance and regression checks](docs/REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](docs/BRIDGE_FIXES_2026-10-14.md) ·
-[Download ReShade addon 0.82](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.82) ·
+[Download ReShade addon 0.81](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.81) ·
 [Download SDKs 0.8.1-beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.8.1-beta) ·
-[Benchmark methodology and current data](docs/benchmarks/2026-10-13/README.md) ·
+[Historical benchmark methodology and data](docs/benchmarks/2026-10-13/README.md) ·
 [Output comparisons](docs/benchmarks/2026-10-13/README.md#actual-output-images) ·
 [Resolution report (HTML)](docs/benchmarks/2026-10-13/resolutions.html)
 
@@ -84,6 +137,9 @@ per-eye render targets can differ from panel resolution. Separate eye histories
 are necessary even if execution is batched together.
 
 [Assumptions, calculations and stereo batching explained](docs/benchmarks/2026-10-13/VR_ESTIMATES.md)
+
+</details>
+
 
 </details>
 
@@ -155,10 +211,14 @@ helper, and optional experimental runtimes. Models and NVIDIA DLSS5 DLLs stay ex
   performance claims or new Android binaries in this add-on release.
 
 [0.81 release notes](docs/RELEASE_0.81.md) |
-[Current benchmark data and methodology](docs/benchmarks/0.81/README.md)
+[0.81 execution benchmark data and methodology](docs/benchmarks/0.81/README.md)
 
 <details>
 <summary>Detailed execution benchmarks: in-process versus helper</summary>
+
+**Historical 0.81 execution study, Original model only.** These transport results
+were not rerun in the current two-model analysis above; they are not Lightweight
+FP8 or current-checkout transport measurements.
 
 **RTX 5080, driver 616.64, 1920 x 1080, 1:1, full network, reset frames.**
 Each case used 5 seconds of warmup followed by 20 seconds of measurement.
@@ -213,7 +273,9 @@ host-buffer interfaces.
 - **Keep it practical:** CPU thread limits, presets and Save configuration at the top.
 
 Runner and upscaler availability depends on your hardware and installed runtimes.
-The current performance results and limitations are below.
+The fresh two-model results are at the top. The collapsed Original-only study
+above is retained as historical context; the [full current report](docs/benchmarks/current/README.md)
+has the detailed timings, memory measurements and limits.
 
 **Save without the scroll.** Configuration stays one button away.
 
@@ -223,8 +285,6 @@ The current performance results and limitations are below.
 available processing device.
 
 ![Model source, Browse and Validate model controls](docs/features/model-selection.png)
-
-![Processing device selector showing native RTX, CPU, CUDA, Vulkan, HIP and SYCL devices available on the test machine](docs/features/runner-selection.png)
 
 **Control the pixels.** Choose the processing resolution, upscaler and aspect.
 
@@ -281,7 +341,7 @@ rather let you look under the hood. Better pixels shouldn't require blind trust.
 
 The values above are from the screenshot session, not the controlled benchmark.
 
-- **Choose the runner:** native RTX, CUDA, Vulkan, HIP, CPU or SYCL, subject to
+- **Choose the runner:** native RTX, CUDA, Vulkan, HIP, CPU or SYCL in the Windows addon, with experimental Metal in the standalone Apple runtime, subject to
   the installed provider and device capabilities. Compiled runners need no
   Python or Torch at runtime. The native bundle currently targets **`sm_120`**;
   this is not a claim of support for every RTX generation.
@@ -295,6 +355,9 @@ The values above are from the screenshot session, not the controlled benchmark.
 - **Choose the model source:** browse to a supported NVIDIA DLSS5 DLL or compatible
   model folder, then validate loading and a small inference run. Models and the
   NVIDIA DLSS5 DLL are supplied separately.
+- **Share the large NVIDIA DLL:** set **NVIDIA DLL search folder** in the full addon
+  panel. Local files still take precedence; x86/x64 and helpers can use the shared
+  library without duplicating it. [Search order and configuration](docs/MULTI_MODEL.md#shared-nvidia-dll-location).
 - **Choose resolution and upscaling:** Normal or reduced-resolution neural
   rendering with processing quality and aspect controls. Upscaling choices are
   built-in spatial reconstruction, NVIDIA DLSS Super Resolution and Intel XeSS,
@@ -323,15 +386,15 @@ The values above are from the screenshot session, not the controlled benchmark.
 
 ## The portability lab
 
-CUDA, Vulkan, HIP, CPU and SYCL are **experimental alternate implementations**.
+CUDA, Vulkan, HIP, CPU, SYCL and Metal are **experimental alternate implementations**. Current two-model measurements and unavailable-device limits are listed above; the dated six-route study below is historical.
 They let us explore devices, validate operators and learn where execution costs
 come from. They are still much slower than native RTX; the CPU and integrated
 GPU paths are development/reference tools, not real-time gaming choices.
 
 <details>
-<summary>Current alternate-runner speed and memory charts</summary>
+<summary>Historical Original-only alternate-runner study: 14 October 2026</summary>
 
-![Experimental alternate runners: current 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
+![Historical Original-only alternate runners: 1080p model and full-call times, owned buffers and worker RAM on the specified hardware](docs/benchmarks/2026-10-13/portable-runners.png)
 
 - **RTX 5080:** CUDA **56.31 ms** model / **102.84 ms** full call;
   Vulkan **68.37 ms** / **117.67 ms**.
@@ -360,7 +423,7 @@ not game FPS; the new package has not had a new live-game test.
 The Vulkan-native kernel-launch prototype remains experimental and is not enabled
 in this release.
 
-[Latest optimization details and memory measurements](docs/PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md)
+[Historical optimization details and memory measurements](docs/PORTABLE_OPTIMIZATION_FOLLOWUP_2026-10-13.md)
 
 </details>
 
@@ -371,7 +434,7 @@ in this release.
 
 The full native adapter and inner-network probe have different ownership scopes.
 See [memory ownership details](MEMORY_USAGE.md) and the
-[current measurement definitions](docs/benchmarks/2026-10-13/README.md).
+[historical measurement definitions](docs/benchmarks/2026-10-13/README.md).
 
 </details>
 

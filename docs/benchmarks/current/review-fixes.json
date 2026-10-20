@@ -1,0 +1,667 @@
+{
+  "schema": "phoenix-review-fixes/1",
+  "date": "2026-10-19",
+  "baseline_commit": "bdc3fd8ed673fcfddcc9abbd66397e6be7541d4c",
+  "native": [
+    {
+      "engine": "nvidia",
+      "model": "original",
+      "extent": [
+        1920,
+        1080
+      ],
+      "gpu_ms_before": 3.783808,
+      "gpu_ms_after": 3.784576,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582193152,
+        "host_private_bytes": 889335808,
+        "host_working_set_bytes": 349958144,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 670711808,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 582381568,
+        "host_private_bytes": 892039168,
+        "host_working_set_bytes": 349962240,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "nvidia",
+      "model": "original",
+      "extent": [
+        3840,
+        2160
+      ],
+      "gpu_ms_before": 12.404128,
+      "gpu_ms_after": 12.385888,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 1372536832,
+        "device_nonlocal_bytes": 102322176,
+        "host_peak_working_set_bytes": 706662400,
+        "host_private_bytes": 1718136832,
+        "host_working_set_bytes": 474415104,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 1372536832,
+        "device_nonlocal_bytes": 102322176,
+        "host_peak_working_set_bytes": 706740224,
+        "host_private_bytes": 1717923840,
+        "host_working_set_bytes": 474005504,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "nvidia",
+      "model": "small-fp8",
+      "extent": [
+        1920,
+        1080
+      ],
+      "gpu_ms_before": 2.206976,
+      "gpu_ms_after": 2.204672,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 602816512,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 481697792,
+        "host_private_bytes": 821223424,
+        "host_working_set_bytes": 315494400,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 602816512,
+        "device_nonlocal_bytes": 52580352,
+        "host_peak_working_set_bytes": 481759232,
+        "host_private_bytes": 820764672,
+        "host_working_set_bytes": 315400192,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "nvidia",
+      "model": "small-fp8",
+      "extent": [
+        3840,
+        2160
+      ],
+      "gpu_ms_before": 7.18224,
+      "gpu_ms_after": 7.11424,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 1302806528,
+        "device_nonlocal_bytes": 102322176,
+        "host_peak_working_set_bytes": 605130752,
+        "host_private_bytes": 1645785088,
+        "host_working_set_bytes": 439848960,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 1302806528,
+        "device_nonlocal_bytes": 102322176,
+        "host_peak_working_set_bytes": 605351936,
+        "host_private_bytes": 1647386624,
+        "host_working_set_bytes": 438693888,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "phoenix",
+      "model": "original",
+      "extent": [
+        1920,
+        1080
+      ],
+      "gpu_ms_before": 3.851872,
+      "gpu_ms_after": 3.853472,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 410849280,
+        "host_private_bytes": 792117248,
+        "host_working_set_bytes": 175521792,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 602533888,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 410812416,
+        "host_private_bytes": 794750976,
+        "host_working_set_bytes": 174850048,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "phoenix",
+      "model": "original",
+      "extent": [
+        3840,
+        2160
+      ],
+      "gpu_ms_before": 13.178112,
+      "gpu_ms_after": 13.180672,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534556672,
+        "host_private_bytes": 1814929408,
+        "host_working_set_bytes": 298622976,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 1499328512,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 534568960,
+        "host_private_bytes": 1815461888,
+        "host_working_set_bytes": 298852352,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "phoenix",
+      "model": "small-fp8",
+      "extent": [
+        1920,
+        1080
+      ],
+      "gpu_ms_before": 2.286784,
+      "gpu_ms_after": 2.282048,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 567078912,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 381239296,
+        "host_private_bytes": 756940800,
+        "host_working_set_bytes": 173948928,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 567078912,
+        "device_nonlocal_bytes": 52056064,
+        "host_peak_working_set_bytes": 381198336,
+        "host_private_bytes": 758497280,
+        "host_working_set_bytes": 173625344,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    },
+    {
+      "engine": "phoenix",
+      "model": "small-fp8",
+      "extent": [
+        3840,
+        2160
+      ],
+      "gpu_ms_before": 7.484608,
+      "gpu_ms_after": 7.525536,
+      "output_exact": true,
+      "memory_before": {
+        "device_local_bytes": 1463414784,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 505597952,
+        "host_private_bytes": 1778319360,
+        "host_working_set_bytes": 297955328,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      },
+      "memory_after": {
+        "device_local_bytes": 1463414784,
+        "device_nonlocal_bytes": 101797888,
+        "host_peak_working_set_bytes": 505708544,
+        "host_private_bytes": 1780219904,
+        "host_working_set_bytes": 298168320,
+        "scope": "Current-process DXGI residency and process RAM; includes harness/driver caches, not vendor internal-buffer accounting"
+      }
+    }
+  ],
+  "portable": [
+    {
+      "backend": "cuda",
+      "model": "original",
+      "extent": [
+        320,
+        180
+      ],
+      "output_exact": true,
+      "create_ms_before": 1669.8999000072945,
+      "create_ms_after": 595.3978000034112,
+      "memory_before": {
+        "device_local_bytes": 442499072,
+        "device_nonlocal_bytes": 77594624,
+        "host_peak_working_set_bytes": 626708480,
+        "host_private_bytes": 1461321728,
+        "host_working_set_bytes": 222642176,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "memory_after": {
+        "device_local_bytes": 442499072,
+        "device_nonlocal_bytes": 77594624,
+        "host_peak_working_set_bytes": 492564480,
+        "host_private_bytes": 1577664512,
+        "host_working_set_bytes": 222769152,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "checks": {
+        "zero_mask_max_error": 0.0
+      },
+      "schedule_change_ms_before": 1945.226449999609,
+      "schedule_change_ms_after": 18.57689999451395,
+      "history_exact": true,
+      "schedule_stress": [
+        {
+          "schedule_changes": 0,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1578491904,
+            "host_working_set_bytes": 223600640,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        },
+        {
+          "schedule_changes": 10,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1658986496,
+            "host_working_set_bytes": 223686656,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        },
+        {
+          "schedule_changes": 20,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1658769408,
+            "host_working_set_bytes": 223731712,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        },
+        {
+          "schedule_changes": 30,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1658982400,
+            "host_working_set_bytes": 223727616,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        },
+        {
+          "schedule_changes": 40,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1658986496,
+            "host_working_set_bytes": 223801344,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        },
+        {
+          "schedule_changes": 50,
+          "memory": {
+            "device_local_bytes": 442499072,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 492564480,
+            "host_private_bytes": 1658990592,
+            "host_working_set_bytes": 223703040,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 189340328,
+          "resident_weight_bytes": 151526056
+        }
+      ]
+    },
+    {
+      "backend": "cuda",
+      "model": "small-fp8",
+      "extent": [
+        320,
+        180
+      ],
+      "output_exact": true,
+      "create_ms_before": 1538.667599990731,
+      "create_ms_after": 503.9148999785539,
+      "memory_before": {
+        "device_local_bytes": 400556032,
+        "device_nonlocal_bytes": 77594624,
+        "host_peak_working_set_bytes": 619626496,
+        "host_private_bytes": 1388257280,
+        "host_working_set_bytes": 213282816,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "memory_after": {
+        "device_local_bytes": 400556032,
+        "device_nonlocal_bytes": 77594624,
+        "host_peak_working_set_bytes": 463134720,
+        "host_private_bytes": 1530413056,
+        "host_working_set_bytes": 213622784,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "checks": {
+        "zero_mask_max_error": 0.0
+      },
+      "schedule_change_ms_before": 1762.310649995925,
+      "schedule_change_ms_after": 10.05924999481067,
+      "history_exact": true,
+      "schedule_stress": [
+        {
+          "schedule_changes": 0,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1531396096,
+            "host_working_set_bytes": 214458368,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        },
+        {
+          "schedule_changes": 10,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1611325440,
+            "host_working_set_bytes": 214544384,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        },
+        {
+          "schedule_changes": 20,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1611325440,
+            "host_working_set_bytes": 214564864,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        },
+        {
+          "schedule_changes": 30,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1612304384,
+            "host_working_set_bytes": 214536192,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        },
+        {
+          "schedule_changes": 40,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1611575296,
+            "host_working_set_bytes": 214528000,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        },
+        {
+          "schedule_changes": 50,
+          "memory": {
+            "device_local_bytes": 400556032,
+            "device_nonlocal_bytes": 77594624,
+            "host_peak_working_set_bytes": 463134720,
+            "host_private_bytes": 1611325440,
+            "host_working_set_bytes": 214544384,
+            "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+            "vendor_id": 4318
+          },
+          "backend_allocation_bytes": 152783224,
+          "resident_weight_bytes": 114968952
+        }
+      ]
+    },
+    {
+      "backend": "vulkan",
+      "model": "original",
+      "extent": [
+        3840,
+        2160
+      ],
+      "output_exact": true,
+      "create_ms_before": 1806.1535000160802,
+      "create_ms_after": 797.9254999954719,
+      "memory_before": {
+        "device_local_bytes": 2191241216,
+        "device_nonlocal_bytes": 162947072,
+        "host_peak_working_set_bytes": 1132191744,
+        "host_private_bytes": 3656011776,
+        "host_working_set_bytes": 683327488,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "memory_after": {
+        "device_local_bytes": 2191241216,
+        "device_nonlocal_bytes": 162947072,
+        "host_peak_working_set_bytes": 1132355584,
+        "host_private_bytes": 3657785344,
+        "host_working_set_bytes": 683491328,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "checks": {},
+      "safe_default_repeatable": true
+    },
+    {
+      "backend": "vulkan",
+      "model": "small-fp8",
+      "extent": [
+        3840,
+        2160
+      ],
+      "output_exact": true,
+      "create_ms_before": 1874.30980001227,
+      "create_ms_after": 713.7840999930631,
+      "memory_before": {
+        "device_local_bytes": 2138550272,
+        "device_nonlocal_bytes": 158752768,
+        "host_peak_working_set_bytes": 1123422208,
+        "host_private_bytes": 3593535488,
+        "host_working_set_bytes": 674557952,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "memory_after": {
+        "device_local_bytes": 2138550272,
+        "device_nonlocal_bytes": 158752768,
+        "host_peak_working_set_bytes": 1123721216,
+        "host_private_bytes": 3594309632,
+        "host_working_set_bytes": 674861056,
+        "scope": "Current-process DXGI residency and process RAM, sampled while resources are alive; includes harness/driver caches",
+        "vendor_id": 4318
+      },
+      "checks": {},
+      "safe_default_repeatable": true
+    }
+  ],
+  "appearance": [
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "unused_bytes_before": 35389440,
+      "style_bytes_before": 168099840,
+      "with_mask_bytes_before": 168099840,
+      "unused_bytes_after": 0,
+      "style_bytes_after": 70778880,
+      "with_mask_bytes_after": 106168320
+    },
+    {
+      "extent": [
+        3840,
+        2160
+      ],
+      "unused_bytes_before": 133693440,
+      "style_bytes_before": 635043840,
+      "with_mask_bytes_before": 635043840,
+      "unused_bytes_after": 0,
+      "style_bytes_after": 267386880,
+      "with_mask_bytes_after": 401080320
+    }
+  ],
+  "tests": [
+    {
+      "bits": 32,
+      "test": "resident_weight_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "network_schedule_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "model_backend_graph_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "small_model_refactor_probe",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "processing_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "granular_controls_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "generated_plan_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "direct_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "production_capture_tests",
+      "passed": true
+    },
+    {
+      "bits": 32,
+      "test": "frontend_link",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "resident_weight_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "network_schedule_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "model_backend_graph_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "small_model_refactor_probe",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "processing_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "granular_controls_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "generated_plan_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "direct_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "production_capture_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "native_small_model_tests",
+      "passed": true
+    },
+    {
+      "bits": 64,
+      "test": "frontend_link",
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "native_vendor_fixture_parity": true,
+  "games_launched": false,
+  "installed_files_modified": false,
+  "temporary_builds_removed": true
+}

@@ -3,7 +3,7 @@
 #include "../../src/integration/compatibility/host_client.h"
 #include <iostream>
 
-int wmain(int argc,wchar_t** argv) {
+int validate(int argc,wchar_t** argv) {
     using namespace phoenix_wow64;
     using Json=nlohmann::json;
     try {
@@ -46,6 +46,9 @@ int wmain(int argc,wchar_t** argv) {
                 auto nv=session.evaluate(pixels,settings,1);
                 phoenix_bundle::require(nv.size()==first.size(),"NVIDIA DLSS5 output extent mismatch");
                 auto nv_tuned=session.evaluate(pixels,tuning,1);
+                const auto nv_status=session.nvidia_status();
+                phoenix_bundle::require(nv_status.at("ready")&&nv_status.at("creates")==1&&nv_status.at("evaluates")==2,
+                    "Native NVIDIA DLSS5 status did not report real feature evaluations");
                 phoenix_bundle::require(changed(nv,nv_tuned)>1000,"NVIDIA DLSS5 controls did not change output");
                 auto switched=session.evaluate(pixels,settings,3);
                 phoenix_bundle::require(switched==first,"NVIDIA DLSS5/Phoenix DLSS5 switching did not restore output");
@@ -93,4 +96,13 @@ int wmain(int argc,wchar_t** argv) {
         }
         report["passed"]=true;std::cout<<report.dump()<<std::endl;return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<std::endl;return 2;}
+}
+
+int wmain(int argc,wchar_t** argv) {
+    // Real add-ons first load native images from a fresh x86 processing worker.
+    // Main-thread priming can hide missing per-thread native loader state.
+    int result=2;
+    std::thread worker([&]{result=validate(argc,argv);});
+    worker.join();
+    return result;
 }

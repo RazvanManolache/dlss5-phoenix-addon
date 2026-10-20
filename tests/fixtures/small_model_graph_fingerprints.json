@@ -1,0 +1,192 @@
+{
+  "gpu_used": false,
+  "inference_executed": false,
+  "native_graph_sha256": "3e3c923c17e6fa57400ec4e8ab100ce196e2e7fceb1fbc3536ad2ba86d303e29",
+  "original_native_graph_sha256": "13a053aff7aa90d8b05d0cb20a7b3b505c0edd7396fcd5cc08a7134ba55bbf6d",
+  "portable": [
+    {
+      "command_sha256": "ac584bd8a07bdca4823a9d13975b9a2103ff461ceda8949f194cbae82d1437f5",
+      "commands": 1569,
+      "configuration": 0,
+      "height": 12,
+      "input_address": 152600576,
+      "model": "original",
+      "output_address": 152604672,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 152162984,
+      "uploads_sha256": "50aa0e6fd3940427a26adaeedf2a9d710f709c4eb3352d10dce26c22ff817360",
+      "weight_bytes": 151526056,
+      "width": 16
+    },
+    {
+      "command_sha256": "953239ae5220ad2692d0203f163e91fc603cbbfb6054ca3d66a65270e6cbda1b",
+      "commands": 6336,
+      "configuration": 1,
+      "height": 603,
+      "input_address": 158321920,
+      "model": "original",
+      "output_address": 127409664,
+      "repeats": [
+        0,
+        2,
+        1,
+        0,
+        1,
+        1,
+        3,
+        1
+      ],
+      "resident_bytes": 201717672,
+      "uploads_sha256": "93fbfa28365eacf35891ce12b5b77c53107365b3a3802fc5677037a77fe722b3",
+      "weight_bytes": 126343592,
+      "width": 801
+    },
+    {
+      "command_sha256": "1651d466d2bdfe38fce2b0cc59c080196164a6bef4728694a5c402326ab69a88",
+      "commands": 1243,
+      "configuration": 2,
+      "height": 12,
+      "input_address": 152600576,
+      "model": "original",
+      "output_address": 152592384,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 152162984,
+      "uploads_sha256": "50aa0e6fd3940427a26adaeedf2a9d710f709c4eb3352d10dce26c22ff817360",
+      "weight_bytes": 151526056,
+      "width": 16
+    },
+    {
+      "command_sha256": "ac584bd8a07bdca4823a9d13975b9a2103ff461ceda8949f194cbae82d1437f5",
+      "commands": 1569,
+      "configuration": 3,
+      "height": 12,
+      "input_address": 152600576,
+      "model": "original",
+      "output_address": 152604672,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 152164264,
+      "uploads_sha256": "50aa0e6fd3940427a26adaeedf2a9d710f709c4eb3352d10dce26c22ff817360",
+      "weight_bytes": 151526056,
+      "width": 16
+    },
+    {
+      "command_sha256": "460c8d9da46a493a62e7b74dfb21aadbc0e73677fcccf1689f897e86b71a0d03",
+      "commands": 601,
+      "configuration": 0,
+      "height": 12,
+      "input_address": 116033536,
+      "model": "small-fp8",
+      "output_address": 116037632,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 115605880,
+      "uploads_sha256": "77e1f038fb9418851619ef12491810bc9ed243265ecf87804dd65cee9b64985c",
+      "weight_bytes": 114968952,
+      "width": 16
+    },
+    {
+      "command_sha256": "0f07953fc6dd92c2cda9324d960cc0163905e85f79c995cdd0babe48a62d25b8",
+      "commands": 3987,
+      "configuration": 1,
+      "height": 603,
+      "input_address": 121754880,
+      "model": "small-fp8",
+      "output_address": 90842624,
+      "repeats": [
+        0,
+        2,
+        1,
+        0,
+        1,
+        1,
+        3,
+        1
+      ],
+      "resident_bytes": 165160568,
+      "uploads_sha256": "c6ee7388c2d9065ed127594fb20e6b993c56f761a0b926a90ec5bf12ccc931a2",
+      "weight_bytes": 89786488,
+      "width": 801
+    },
+    {
+      "command_sha256": "fc50b823376469ffdb124e31c74b6e443e11a35cfff0b5c141c3a607c1b618e1",
+      "commands": 475,
+      "configuration": 2,
+      "height": 12,
+      "input_address": 116033536,
+      "model": "small-fp8",
+      "output_address": 116025344,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 115605880,
+      "uploads_sha256": "77e1f038fb9418851619ef12491810bc9ed243265ecf87804dd65cee9b64985c",
+      "weight_bytes": 114968952,
+      "width": 16
+    },
+    {
+      "command_sha256": "460c8d9da46a493a62e7b74dfb21aadbc0e73677fcccf1689f897e86b71a0d03",
+      "commands": 601,
+      "configuration": 3,
+      "height": 12,
+      "input_address": 116033536,
+      "model": "small-fp8",
+      "output_address": 116037632,
+      "repeats": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "resident_bytes": 115607160,
+      "uploads_sha256": "77e1f038fb9418851619ef12491810bc9ed243265ecf87804dd65cee9b64985c",
+      "weight_bytes": 114968952,
+      "width": 16
+    }
+  ]
+}

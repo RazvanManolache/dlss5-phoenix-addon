@@ -435,7 +435,7 @@ def main():
     sdk = args.ngx_sdk or Path("UNCONFIGURED_NGX")
     minhook = ROOT / "third_party/minhook"
     addon = common + [
-        "/std:c++17",
+        "/std:c++20",
         "/DImTextureID=ImU64",
         "/DPHOENIX_BUILD_TAG=" + args.name,
         "/I" + str(sdk),

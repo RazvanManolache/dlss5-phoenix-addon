@@ -16,6 +16,18 @@ template<class F> static void rejects(F operation, const char* message) {
 }
 int main() {
     try {
+        const int padded_coordinates[] = {0, 1, 2, 1, 0, 0, 0, 0, 0};
+        for (int coordinate = 0; coordinate < 9; ++coordinate)
+            check(FrameState::mirror(coordinate, 3) == padded_coordinates[coordinate],
+                  "padding must reflect once then clamp");
+        check(FrameState::mirror(12, 1) == 0 && FrameState::mirror(-1, 3) == 0,
+              "padding degenerate extent and negative edge");
+        phx::Kernel<HostMath> precision;
+        const float halfway = .500244140625f;
+        check(centered_half_feature(precision, halfway) == 0,
+              "intermediate half rounding changed");
+        check(precision.half((halfway - .5f) * .125f) != 0,
+              "fixture must distinguish single final rounding");
         const float gain = checked_model_history_gain(.73974609375f);
         check(resolve_gate(0, true, gain) == .369873046875f, "model-derived gate");
         check(resolve_gate(0, true, 1) == .5f, "explicit legacy unit gain");

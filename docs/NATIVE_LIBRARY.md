@@ -1,9 +1,22 @@
 # Native RTX and spatial library — Windows x64
 
+<!-- current-two-model-evidence -->
+For fresh Original and Lightweight GPU timings, memory and corresponding NVIDIA-preset parity, see [the current benchmark](benchmarks/current/README.md). The [support matrix](SUPPORT.md) distinguishes the standalone single-pass native C API from addon/portable multi-pass scheduling and the Original-only x86 driver-host experiment.
+<!-- /current-two-model-evidence -->
+
 `phoenix_native.dll` exposes the addon's optimized D3D12/NVAPI network executor
 without ReShade. It also exposes the existing spatial resolution bridge, either
 after inference or alone. This is a separate Windows extension; the portable
 `phoenix.h` ABI and its backends remain compatible.
+
+The current source supports both `original` and `small-fp8`. Select the smaller
+model with `"model":"small-fp8"` inside `weight_source`, using the 310.9.16 DLL and
+a source-built kernel bundle. Its model-specific schedule has 78 neural launches;
+the original has 154. Bundle files and kernel binaries are shared and remain
+authenticated. Legacy captured-plan bundles support only the original model.
+The smaller native path has build/CPU checks and a subsequent matched GPU comparison
+at 720p, 1080p and 4K, with byte-identical NVIDIA reset/history captures on those
+fixtures. General parity remains unverified. See [Lightweight FP8](SMALL_FP8.md).
 
 ## Build
 

@@ -53,8 +53,7 @@ struct FrameState {
         : width(frame_width), height(frame_height), padded_width(working_width),
           padded_height(working_height), rows(threads) {}
     static int mirror(int coordinate, int extent) {
-        return std::clamp(coordinate < extent ? coordinate : 2 * extent - coordinate - 2, 0,
-                          extent - 1);
+        return reflect_once_then_clamp(coordinate, extent);
     }
     static uint32_t pcg(uint32_t state) {
         return ((state >> ((state >> 28) + 4)) ^ state) * 0x108ef2d9u;
@@ -113,8 +112,6 @@ struct FrameState {
         }
         return rgb;
     }
-    // Approximate bicubic history filtering with five bilinear taps. The middle
-    // two cubic weights collapse into a single offset sample on each axis.
     // Approximate bicubic history sampling with five bilinear RGB taps. Combine
     // the middle cubic weights into one filtered tap and keep the four axial taps;
     // the multiplication/addition order below is retained for temporal parity.
@@ -189,10 +186,13 @@ struct FrameState {
                            sample_y <= float(height) - .5f;
                 };
                 bool valid = !validity || validity[pixel_index] > .9999f;
+                // A missing optional mask means all pixels are eligible; it does
+                // not make out-of-frame motion valid history. Reject those samples
+                // consistently with an explicitly supplied all-one mask.
                 conditioning_valid[pixel_index] =
                     valid && (!validity || validity[closest_pixel] > .9999f) &&
-                    (!validity || inside(conditioning_x, conditioning_y));
-                resolve_valid[pixel_index] = valid && (!validity || inside(resolve_x, resolve_y));
+                    inside(conditioning_x, conditioning_y);
+                resolve_valid[pixel_index] = valid && inside(resolve_x, resolve_y);
                 std::array<float, 3> conditioning_rgb{}, resolve_rgb{};
                 if (conditioning_valid[pixel_index])
                     conditioning_rgb = five_rgb(conditioning_x, conditioning_y);
@@ -232,7 +232,7 @@ struct FrameState {
                 pixel_features[3] = uint16_t(math.half_bits(1));
                 for (unsigned feature_index = 0; feature_index < 3; ++feature_index) {
                     auto centre = [&](float value) {
-                        return math.half(math.half(math.half(value) - .5f) * .125f);
+                        return centered_half_feature(math, value);
                     };
                     pixel_features[4 + feature_index] = uint16_t(
                         math.half_bits(centre(color[source_pixel_index * 3 + feature_index])));

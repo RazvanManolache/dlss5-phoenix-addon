@@ -9,6 +9,7 @@
 #include "backend_options.h"
 #include "frame_planes.h"
 #include "advanced_frame.h"
+#include "network_schedule.h"
 #include <chrono>
 #include <mutex>
 using namespace phoenix_cpp;
@@ -21,6 +22,10 @@ Json portable_capabilities() {
     return {
         {"schema", "phoenix-portable-capabilities/1"},
         {"host_frame_api_versions", {1, 2, 3}},
+        {"models", phoenix_model::model_catalogue()},
+        {"granular_controls", {{"transformer_blocks", 8}, {"repetitions", {0, 4}},
+                               {"network_passes", {1, 10}}, {"adaptive_gpu_time", "GPU backend events"},
+                               {"adaptive_fps", "caller application presentation timestamps"}}},
         {"legacy_api_control_mask", false},
         {"control_mask", {{"profile", "phoenix-experimental-rgb/1"},
                           {"state", "experimental"}, {"input_api", 2},
@@ -37,8 +42,10 @@ struct Runtime {
     DestroyBackend destroy = nullptr;
     std::unique_ptr<Model> model;
     std::unique_ptr<Graph> graph;
+    std::shared_ptr<WeightStore> resident_weights;
     std::unique_ptr<FrameState> frame;
     std::array<unsigned, 8> repeats{};
+    NetworkSchedule schedule;
     bool fused_attention = false;
     bool device_features = false;
     bool device_noise_cache = false;
@@ -57,6 +64,10 @@ struct Runtime {
     bool legacy_output = false;
     std::vector<float> previous_distortion;
     Runtime(const Json& config, unsigned width, unsigned height) {
+        // Reject unavailable models before loading a backend or allocating device memory.
+        weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
+        Model::require_supported(weight_source.model());
+        Graph::require_supported(weight_source.model());
         validation_stage_hashes = config.value("validation_stage_hashes", false);
         const auto gain_mode = config.value("history_gain_mode", std::string("model"));
         demand(gain_mode == "model" || gain_mode == "legacy_unit", "Unknown history gain mode");
@@ -150,7 +161,9 @@ struct Runtime {
                 options |= VulkanWorkgroupFp8;
             if (kind == "vulkan" && config.value("vulkan_workgroup_shape_tiles", true))
                 options |= VulkanWorkgroupShapeTiles;
-            if (kind == "vulkan" && config.value("vulkan_fused_feed_forward", true))
+            // The fused shader has a reproduced 4K reset-repeatability failure.
+            // Keep it explicit opt-in until its synchronization is validated.
+            if (kind == "vulkan" && config.value("vulkan_fused_feed_forward", false))
                 options |= VulkanFusedFeedForward;
             if (kind == "vulkan" && config.value("vulkan_projected_qkv", true))
                 options |= VulkanProjectedQkv;
@@ -227,7 +240,6 @@ struct Runtime {
         window_batch_limit = config.value("window_batch_limit", 512u);
         demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
                "Window batch limit must be 16..8192");
-        weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
         model = std::make_unique<Model>(weight_source);
         model_history_gain = checked_model_history_gain(model->history_gain());
         // Six spatial reductions. Preserve the portable plan's minimum/padding policy.
@@ -261,14 +273,16 @@ struct Runtime {
                   {"height", height},
                   {"working_width", working_width},
                   {"working_height", working_height},
-                  {"inference_validated", tested},
+                  {"inference_validated", tested && model->definition().id == phoenix_model::models::original.id},
                   {"python_required", false}};
         status["frame_boundary_contract"] = frame_boundary_contract;
         status["legacy_frame_boundary_emulation"]=legacy_history_gain&&legacy_output;
         status["history_gain_mode"] = legacy_history_gain ? "legacy_unit" : "model";
         status["model_history_gain"] = model_history_gain;
         status["model_resource_sha256"] = model->resource_sha256();
-        status["model_architecture"] = "phoenix-network37/1";
+        status["model_id"] = std::string(model->definition().id);
+        status["model_architecture"] = std::string(model->definition().architecture);
+        status["model_resource"] = std::string(model->definition().resource);
         status["effective_history_gain"] = legacy_history_gain ? 1.f : model_history_gain;
         status["vendor_frame_boundary_validated"] = false;
         status["capabilities"] = portable_capabilities();
@@ -308,6 +322,7 @@ struct Runtime {
     }
     ~Runtime() {
         graph.reset();
+        resident_weights.reset();
         model.reset();
         if (backend && destroy)
             destroy(backend);
@@ -316,15 +331,20 @@ struct Runtime {
     }
     void replace_model(const Json& source_json) {
         const auto source=phoenix_model::WeightSource::config(source_json);
+        Model::require_supported(source.model());
+        Graph::require_supported(source.model());
         auto replacement=std::make_unique<Model>(source);
         const float gain=checked_model_history_gain(replacement->history_gain());
         std::lock_guard guard(lock);
         backend->wait();
-        graph.reset();model=std::move(replacement);weight_source=source;
+        graph.reset();resident_weights.reset();model=std::move(replacement);weight_source=source;
         model_history_gain=gain;repeats.fill(UINT32_MAX);histories.clear();
         previous_distortion.clear();signature=Json();sampling_index=0;
         status["state"]="model_replaced";status["inference_validated"]=false;
         status["model_resource_sha256"]=model->resource_sha256();
+        status["model_id"]=std::string(model->definition().id);
+        status["model_architecture"]=std::string(model->definition().architecture);
+        status["model_resource"]=std::string(model->definition().resource);
         status["model_history_gain"]=gain;status["effective_history_gain"]=legacy_history_gain?1.f:gain;
         for(const auto* key:{"validation_stages","optional_input_hashes","presented_output_sha256","layers",
             "command_count","resident_bytes","resident_weight_bytes","resident_scratch_bytes",
@@ -380,7 +400,7 @@ struct Runtime {
         controls.legacy_output = legacy_output;
         demand(!advanced || !legacy_output, "Advanced planes require recovered_3108 output profile");
         if (!legacy_output && controls.style)
-            demand(status.at("model_resource_sha256") == "836f445d06ecd2e59bb9f17b84b91c143396fd76ccda1c9dc7fe81d5edd548f4",
+            demand(has_recovered_style_table(status.at("model_resource_sha256").get<std::string>()),
                    "Selected model has no verified style preset table");
         if (advanced) {
             validate_unit_plane(advanced->ui, pixel_count * 4, "Invalid UI proxy values");
@@ -408,11 +428,16 @@ struct Runtime {
                 pin("backbuffer",advanced->backbuffer,3);pin("distortion",advanced->distortion,4);
             }
         }
-        auto requested = metadata.value("repeats", std::array<unsigned, 8>{1, 1, 1, 1, 1, 1, 1, 1});
-        unsigned passes = metadata.value("passes", 1u);
-        demand(passes >= 1 && passes <= 4, "Network passes outside 1..4");
-        for (auto count : requested)
-            demand(count <= 4, "Block repetition outside 0..4");
+        // Prepare on a copy: failed preflight/execution never advances the
+        // controller, just as it never publishes new temporal history.
+        auto next_schedule = schedule;
+        const auto selected_device = status.at("device").get<std::string>();
+        const auto schedule_context = status.at("model_resource_sha256").get<std::string>() + ":" +
+                                      std::to_string(frame->width) + "x" + std::to_string(frame->height);
+        next_schedule.prepare(metadata, schedule_context,
+                              selected_device != "cpu" && selected_device != "sycl:cpu");
+        const auto requested = next_schedule.repeats;
+        const unsigned passes = next_schedule.passes;
         bool has_motion = metadata.value("has_motion", false),
              has_depth = metadata.value("has_depth", false),
              has_history_validity = metadata.value("has_history_validity", false),
@@ -482,12 +507,13 @@ struct Runtime {
         if (requested != repeats) {
             graph.reset();
             repeats.fill(UINT32_MAX);
-            if (!model->decoded())
-                model = std::make_unique<Model>(weight_source);
             demand(model->resource_sha256() == status.at("model_resource_sha256").get<std::string>(),
                    "Model resource changed during session; create a new session");
+            if (!resident_weights)
+                resident_weights = std::make_shared<WeightStore>(*backend, *model);
             graph = std::make_unique<Graph>(*backend, *model, fused_attention, window_batch_limit,
-                                            device_features, fused_residual, device_noise_cache);
+                                            device_features, fused_residual, device_noise_cache,
+                                            resident_weights);
             graph->build(frame->padded_width, frame->padded_height, requested);
             model->discard_decoded();
             repeats = requested;
@@ -660,6 +686,7 @@ struct Runtime {
             }
             presentation_ms=elapsed(presentation_started);
         }
+        next_schedule.complete(events);
         histories = std::move(next_histories);
         previous_distortion = std::move(next_distortion);
         std::copy(current.begin(), current.end(), output);
@@ -694,6 +721,8 @@ struct Runtime {
                                          {"subkind", code % 32}, {"calls", timing.second},
                                          {"gpu_ms", timing.first}});
         }
+        schedule = std::move(next_schedule);
+        status["network_schedule"] = schedule.status();
         status.update(
             {{"state", "completed"},
              {"fused_attention", fused_attention},

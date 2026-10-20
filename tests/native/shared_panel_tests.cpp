@@ -39,7 +39,7 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Backend", "Backend##phoenix_compact", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style"})
+    for (const char *combo : {"Backend", "Backend##phoenix_compact", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
@@ -66,6 +66,27 @@ void ImGuiTestEngineHook_ItemInfo(ImGuiContext *context, ImGuiID id, const char 
 void ImGuiTestEngineHook_Log(ImGuiContext *, const char *, ...) {}
 const char *ImGuiTestEngine_FindItemDebugLabel(ImGuiContext *, ImGuiID) { return ""; }
 int run_tests() {
+    struct LibraryFixture {
+        std::filesystem::path root = std::filesystem::absolute(std::filesystem::temp_directory_path() /
+            ("phoenix-shared-widget-models-" + std::to_string(GetCurrentProcessId())));
+        LibraryFixture() {
+            nlohmann::json entries = nlohmann::json::array();
+            for (const auto* id : {"original", "small-fp8"}) {
+                const auto folder = root / id;
+                std::filesystem::create_directories(folder);
+                std::ofstream(folder / "weights.bin", std::ios::binary) << "1234";
+                const auto manifest = folder / "model.json";
+                std::ofstream(manifest) << nlohmann::json({{"schema", "dlss5-phoenix-model/1"},
+                    {"model", id}, {"architecture", phoenix_model::definition(id).architecture},
+                    {"resource", {{"path", "weights.bin"}, {"bytes", 4}, {"sha256", std::string(64, 'a')}}}}).dump();
+                entries.push_back({{"id", id}, {"label", std::string(id) == "original" ? "Original native export" : "Lightweight native export"},
+                    {"model", id}, {"manifest", std::string(id) + "/model.json"},
+                    {"manifest_sha256", phoenix_model::mapped_file_digest(manifest)}});
+            }
+            std::ofstream(root / "model-library.json") << nlohmann::json({{"schema", "phoenix-model-library/1"}, {"models", entries}}).dump();
+        }
+        ~LibraryFixture() { std::error_code error; std::filesystem::remove_all(root, error); }
+    } model_library;
     if (!IMGUI_CHECKVERSION())
         throw std::runtime_error("ImGui implementation/header structure layouts do not match");
     ImGui::CreateContext();
@@ -341,6 +362,68 @@ int run_tests() {
                                std::string("Obsolete master control remains: ") + obsolete);
             require_widget(widget_rect("Enable neural rendering").Min.y < widget_rect(backend).Min.y,
                            "Enable checkbox must precede Backend");
+            if (!compact) {
+                require_widget(count_widget("NVIDIA DLL search folder") == 1,
+                               "Phoenix DLSS5 hides the shared DLL folder setting");
+                widget_rect("Browse...##nvidia_library");
+                const auto saved_settings = settings;
+                click("Phoenix DLSS5 experiments");
+                for (const char* model : {"original", "small-fp8"}) {
+                    settings.model_id = model;
+                    settings.execution_device = "native";
+                    settings.experimental = settings.automatic_budget = true;
+                    frame();
+                    require_widget(!widget_disabled("Transformer blocks") &&
+                                       !widget_disabled("Adaptive blocks") &&
+                                       !widget_disabled("Minimum blocks"),
+                                   std::string(model) + " depth/budget controls unavailable");
+                    if (!count_widget("Block 1 repetitions"))
+                        click("Transformer block repetitions");
+                    for (unsigned block = 0; block < 8; ++block) {
+                        const auto label = "Block " + std::to_string(block + 1) + " repetitions";
+                        require_widget(!widget_disabled(label.c_str()),
+                                       std::string(model) + " per-block control disabled");
+                        settings.block_repeats[block] = 4;
+                        frame();
+                        const auto rect = widget_rect(label.c_str());
+                        require_widget(click_at({rect.Min.x + 5, rect.GetCenter().y}).changed &&
+                                           settings.block_repeats[block] == 0,
+                                       std::string(model) + " block skip did not update settings");
+                    }
+                    select("Target", "Desired game FPS"); frame();
+                    require_widget(settings.budget_mode == 1 && !widget_disabled("Desired FPS"),
+                                   std::string(model) + " FPS target unavailable");
+                    select("Target", "Phoenix DLSS5 GPU time"); frame();
+                    require_widget(settings.budget_mode == 0 &&
+                                       !widget_disabled("Phoenix DLSS5 GPU budget (ms)"),
+                                   std::string(model) + " GPU-time budget unavailable");
+                    require_widget(settings.valid(), "Granular model controls corrupted settings");
+                }
+                click("Phoenix DLSS5 experiments");
+                settings = saved_settings;
+                frame();
+                click("Processing pipeline"); frame();
+                require_widget(widget_disabled("Resolution scale"), "Legacy bridge must disable explicit scale");
+                const auto enabled_pipeline=click("Explicit scaling and color controls");frame();
+                require_widget(enabled_pipeline.changed && settings.processing.enabled,
+                               "Processing checkbox must update the shared runtime setting");
+                require_widget(!widget_disabled("Resolution scale"),"Explicit scaling must become editable");
+                select("Hook method","Present");
+                require_widget(settings.processing.hook==3,"Present hook selection");
+                select("Present DLSS guide reuse","Required");
+                require_widget(settings.processing.reuse_guides==2,"Required guide policy selection");
+                select("Input encoding","HDR10");
+                require_widget(settings.processing.encoding==3,"Explicit HDR10 input selection");
+                select("NR signal encoding","Linear SDR");
+                require_widget(settings.processing.signal==2,"Explicit linear NR signal selection");
+                for(const char* label:{"Scaling domain","Downsample filter","Upsample filter",
+                    "Scale reconstruction","Override diffuse white","Exposure multiplier",
+                    "Use exposure value","Block Hudless","UI correction policy","Processing passes"})
+                    require_widget(count_widget(label)==1,std::string("Missing processing widget: ")+label);
+                // Restore this scenario so existing presentation/tuning checks
+                // continue to exercise their original, independent defaults.
+                settings.processing={};click("Processing pipeline");frame();
+            }
             const auto pending = settings;
             const auto pending_unchanged = [&] {
                 require_widget(settings.controls.tone == pending.controls.tone &&
@@ -423,6 +506,9 @@ int run_tests() {
             expect_selection(select(backend, "NVIDIA DLSS5 DLL"), "NVIDIA DLSS5 Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::nvidia,
                            "Comparison -> NVIDIA DLSS5 selection failed");
+            if (!compact)
+                require_widget(count_widget("NVIDIA DLL search folder") == 1,
+                               "NVIDIA DLSS5 hides the shared DLL folder setting");
             ++backend_selections;
             pending_unchanged();
             expect_selection(select(backend, "Input"), "Input Backend must report live selection");
@@ -439,12 +525,38 @@ int run_tests() {
             ++backend_selections;
             pending_unchanged();
             if (!compact) {
+                settings.model_library_directory = phoenix_model::source_path_string(model_library.root / "missing");
+                frame(); frame();
+                require_widget(count_widget("Shared native models") == 0, "Unavailable optional models must not be listed");
+                settings.model_library_directory = phoenix_model::source_path_string(model_library.root);
+                frame(); frame();
+                require_widget(count_widget("Shared native models") == 1, "Installed shared models picker is missing");
+                const auto shared_light = select("Shared native models", "Lightweight native export");
+                require_widget(shared_light.changed && settings.model_id == "small-fp8" &&
+                    settings.model_source == "model_folder" &&
+                    std::filesystem::u8path(settings.model_folder) == model_library.root / "small-fp8",
+                    "Shared selection must set the matching model and central path together");
+                const auto shared_original = select("Shared native models", "Original native export");
+                require_widget(shared_original.changed && settings.model_id == "original", "Shared Original model selection failed");
+                settings.model_source = "configured"; settings.model_folder.clear(); settings.model_library_directory.clear();
+                frame(); frame();
+                const auto selected = select("Neural model", "Lightweight FP8");
+                require_widget(selected.changed && !selected.processing && !selected.tuning &&
+                                   settings.model_id == "small-fp8",
+                               "Neural model dropdown did not select Lightweight FP8");
+                const auto restored = select("Neural model", "Original");
+                require_widget(restored.changed && settings.model_id == "original",
+                               "Neural model dropdown did not restore Original");
+                frame();
+                frame(); // Retire the model popup before testing an unrelated tuning slider.
                 const float tone_before = settings.controls.tone;
                 const auto tone = widget_rect("Local tone");
                 const auto result = click_at(ImVec2(tone.Min.x + 30, tone.GetCenter().y));
                 require_widget(result.changed && !result.selection && !result.processing &&
                                    result.tuning && settings.controls.tone != tone_before,
-                               "Tuning slider must report an immediate live change");
+                               "Tuning slider must report an immediate live change: changed=" + std::to_string(result.changed) +
+                               " selection=" + std::to_string(result.selection) + " tuning=" + std::to_string(result.tuning) +
+                               " before=" + std::to_string(tone_before) + " after=" + std::to_string(settings.controls.tone));
             }
             const auto idle = frame();
             require_widget(!idle.changed && !idle.processing && !idle.selection && !idle.tuning,
@@ -609,6 +721,18 @@ int run_tests() {
                     frame();
                 }
                 require_widget(widget_disabled("Adaptive blocks"), "Portable mode exposed unsupported adaptive blocks");
+                interaction.portable_gpu_budget = true;
+                interaction.fps_budget = false;
+                settings.automatic_budget = true;
+                for (const char* model : {"original", "small-fp8"}) {
+                    settings.model_id = model;
+                    frame();
+                    require_widget(!widget_disabled("Adaptive blocks") &&
+                                       !widget_disabled("Phoenix DLSS5 GPU budget (ms)") &&
+                                       !widget_disabled("Minimum blocks"),
+                                   std::string(model) + " measured portable budget controls unavailable");
+                }
+                interaction.portable_gpu_budget = false;
                 require_widget(count_widget("NVIDIA DLSS5-only overrides") == 0,
                                "Portable Phoenix DLSS5 showed NVIDIA DLSS5-only controls");
                 require_widget(count_widget("Phoenix DLSS5 processing device") == 0,
@@ -617,6 +741,7 @@ int run_tests() {
                                    count_widget("Phoenix intensity") == 0 && count_widget("Phoenix style") == 0,
                                "Portable final-color route exposed unsupported appearance controls");
                 interaction.portable_backbuffer = false;
+                interaction.fps_budget = true;
                 interaction.input_capture = true;
             }
         }

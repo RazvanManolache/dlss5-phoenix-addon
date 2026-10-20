@@ -4,23 +4,45 @@
   "files": [
     {
       "source": "source\\host\\dlss5-feed-host64.cpp",
-      "sha256": "5a51e7271c1c4199f11696c5d76311a6587052a96572a8cdec74949ce7acd060"
+      "sha256": "41d18fd35bb4c79704ef4992892dfd736fb09cac75f5566b5239fc1d9e04281d",
+      "import_sha256": "5a51e7271c1c4199f11696c5d76311a6587052a96572a8cdec74949ce7acd060",
+      "path": "src/integration/compatibility/host/dlss5-feed-host64.cpp",
+      "normalized_lf_sha256": "4cc89f0b2e71599544db000f8152a27aed7edf5eb3452725abbf91b5fee711d5"
     },
     {
       "source": "source\\host\\phoenix-host-config.h",
-      "sha256": "6f4b55a293b4e262d640ccb9e4309e2272437df34f1360b753f728e30269b31c"
+      "sha256": "47b6986cc521f8eb6d9c218433325bd311724fa59fbe9a5e4647217db7ed578a",
+      "import_sha256": "6f4b55a293b4e262d640ccb9e4309e2272437df34f1360b753f728e30269b31c",
+      "path": "src/integration/compatibility/host/phoenix-host-config.h",
+      "normalized_lf_sha256": "77924ddf87a1ec1d5c480b22fe5ed213eb851e072a02eb2dd8455ebcc8f7aa4e"
     },
     {
       "source": "source\\host\\phoenix-host-pixels.h",
-      "sha256": "3c78d47a69d03f852a7830d1596c82e1426dd7b9b5f8d950ca1277418ef0a501"
+      "sha256": "7d87654d69163d8536f4504e65b4fa817fa091c2610bcf5d202ef9091e813477",
+      "import_sha256": "3c78d47a69d03f852a7830d1596c82e1426dd7b9b5f8d950ca1277418ef0a501",
+      "path": "src/integration/compatibility/host/phoenix-host-pixels.h",
+      "normalized_lf_sha256": "3c78d47a69d03f852a7830d1596c82e1426dd7b9b5f8d950ca1277418ef0a501"
     },
     {
       "source": "source\\host\\phoenix-format-adapter.h",
-      "sha256": "df17ec4271da5e6f4ce62c1c8472b7c1a9ca20762877fff1e729780239e05e6a"
+      "sha256": "f908760dbb8db9af8d332a2d45539a7e9c98a844fac01b3581e0f2d773288ee4",
+      "import_sha256": "df17ec4271da5e6f4ce62c1c8472b7c1a9ca20762877fff1e729780239e05e6a",
+      "path": "src/integration/compatibility/host/phoenix-format-adapter.h",
+      "normalized_lf_sha256": "d66a34bc78fc21ed34d7d423a83fc311122a9b4091959fdf074442a74378b17e"
     },
     {
       "source": "source\\host\\phoenix-host-safety.h",
-      "sha256": "5028774ff6530f8c56d1e8d931261ba4249c4123521f34c69cf9aea8ecc73d55"
+      "sha256": "e00574bbe6fd2d79d420c88bbc19d43d57a519f63fe05b8eead6f7546917b7d8",
+      "import_sha256": "5028774ff6530f8c56d1e8d931261ba4249c4123521f34c69cf9aea8ecc73d55",
+      "path": "src/integration/compatibility/host/phoenix-host-safety.h",
+      "normalized_lf_sha256": "5028774ff6530f8c56d1e8d931261ba4249c4123521f34c69cf9aea8ecc73d55"
     }
-  ]
+  ],
+  "schema": "phoenix-source-import/2",
+  "hash_semantics": {
+    "import_sha256": "Preserved declared import-input digest; original input identity not independently authenticated.",
+    "path": "Maintained repository-relative destination.",
+    "sha256": "Current maintained destination bytes.",
+    "normalized_lf_sha256": "Same maintained bytes with CRLF normalized to LF for checkout portability."
+  }
 }

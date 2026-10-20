@@ -2,27 +2,7 @@
 // Bounds checks are compiled out for production launches; word offsets remain byte offsets until indexing.
 
 #include "window_math.cuh"
-__device__ __forceinline__ uint64_t combine_words(uint32_t low_word, uint32_t high_word) {
-    return uint64_t(low_word) | (uint64_t(high_word) << 32);
-}
-__device__ __forceinline__ void split_address_words(uint32_t& low_word, uint32_t& high_word,
-                                                    uint64_t address_value) {
-    low_word = uint32_t(address_value);
-    high_word = uint32_t(address_value >> 32);
-}
-
-// Convert a packed word offset to a byte address. Normal tensor offsets use
-// ordinary 64-bit addition. Existing kernels also increment the high word
-// when scaling an oversized low offset overflows, even if adding the
-// wrapped low part to the base does not. Preserve that edge behavior explicitly;
-// silently replacing it with pointer addition would change offsets >= 2^30 words.
-__device__ __forceinline__ uint64_t scaled_word_address(uint64_t base_address,
-                                                        uint64_t word_offset) {
-    const uint64_t byte_address = base_address + (word_offset << 2);
-    const bool scaled_low_overflow = uint32_t(word_offset) >= (uint32_t(1) << 30);
-    const bool wrapped_low_addition = uint32_t(byte_address) < uint32_t(base_address);
-    return byte_address + (uint64_t(scaled_low_overflow && !wrapped_low_addition) << 32);
-}
+#include "word_arithmetic.h"
 
 __device__ __forceinline__ uint32_t permute_signed(uint32_t operand_a, uint32_t operand_b,
                                                    uint32_t selector) {

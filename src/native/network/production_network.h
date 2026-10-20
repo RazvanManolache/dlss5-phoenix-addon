@@ -331,6 +331,19 @@ class Network {
     // earlier submissions before changing this descriptor.
     void bind_control_mask(ID3D12Resource* control_mask) {
         require(control_mask&&!pending_,"Control map binding during a pending recording");
+        // First-use descriptor publication must not race earlier submissions.
+        // This happens once when a mask is enabled, never on ordinary frames.
+        if (queue_ && frames_) {
+            ComPtr<ID3D12Fence> retired;
+            hr(device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&retired)));
+            struct EventOwner { HANDLE value = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                ~EventOwner() { if (value) CloseHandle(value); } } event;
+            require(event.value != nullptr, "Control map retirement event");
+            hr(queue_->Signal(retired.Get(), 1));
+            hr(retired->SetEventOnCompletion(1, event.value));
+            require(WaitForSingleObject(event.value, 10000) == WAIT_OBJECT_0 &&
+                    retired->GetCompletedValue() == 1, "Control map descriptor retirement failed");
+        }
         const auto d=control_mask->GetDesc();
         ComPtr<ID3D12Device> owner;hr(control_mask->GetDevice(IID_PPV_ARGS(&owner)));
         // ReShade may expose a device wrapper while its textures report the
@@ -358,7 +371,7 @@ class Network {
                 accounting->modules = counters;
         }
         const auto contract = preflight(frame, candidates);
-        require(frame.at("launches").size() == 156 && phoenix_bundle::has_barrier_policy(frame),
+        require(frame.at("launches").size() == contract.neural_launches + 2 && phoenix_bundle::has_barrier_policy(frame),
                 "incomplete plan");
         require(candidates.size() == 41, "candidate catalog incomplete");
         validate_input(device, color, width, height, false);
@@ -504,8 +517,8 @@ class Network {
         for (unsigned target = 0; target < 2; ++target)
             for (unsigned recurrent = 0; recurrent < 2; ++recurrent) {
                 auto& steps = programs_[target * 2 + recurrent];
-                steps.reserve(154);
-                for (unsigned iteration_index = 1; iteration_index < 155; ++iteration_index) {
+                steps.reserve(contract.neural_launches);
+                for (unsigned iteration_index = 1; iteration_index <= contract.neural_launches; ++iteration_index) {
                     const auto& source = frame.at("launches")[iteration_index];
                     auto plan =
                         phoenix_bundle::launch(source, [&](const Json& binding) -> uint64_t {

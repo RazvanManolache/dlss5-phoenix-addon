@@ -116,6 +116,18 @@ int main() {
             .write(reinterpret_cast<const char*>(resource.data()), resource.size());
         save(manifest);
         check(folder_manifest(folder) == manifest);
+        auto selected_manifest = manifest;
+        selected_manifest["model"] = "original";
+        save(selected_manifest);
+        check(folder_manifest(folder) == selected_manifest);
+        selected_manifest["model"] = "small-fp8";
+        save(selected_manifest);
+        rejects([&] { folder_manifest(folder); });
+        selected_manifest["architecture"] = "phoenix-cc-small-fp8/1";
+        save(selected_manifest);
+        rejects([&] { folder_manifest(folder); });
+        check(folder_manifest(folder, models::small_fp8) == selected_manifest);
+        save(manifest);
         // Valid checksum but incompatible synthetic names must never reach a decoder.
         rejects([&] { with_model_resource(source, no_dll, read); });
         auto bad_manifest = manifest;

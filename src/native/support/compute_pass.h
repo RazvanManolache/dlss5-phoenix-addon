@@ -127,6 +127,8 @@ class Pass {
             for (auto* input : inputs) {
                 D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
                 srv.Format = input ? input->GetDesc().Format : DXGI_FORMAT_R32_FLOAT;
+                if (srv.Format == DXGI_FORMAT_R32_TYPELESS || srv.Format == DXGI_FORMAT_D32_FLOAT)
+                    srv.Format = DXGI_FORMAT_R32_FLOAT;
                 if (srv.Format == DXGI_FORMAT_R32G8X24_TYPELESS)
                     srv.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
                 srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;

@@ -1,6 +1,7 @@
 #pragma once
 #include "compute_pass.h"
 #include "resolution.h"
+#include "processing_shader.h"
 
 namespace phoenix_addon::phoenix::direct {
 // Independently authored spatial resampling. This wraps NR inference; it is
@@ -98,18 +99,25 @@ class ResolutionBridge {
     // One shader pipeline serves every frame. Descriptor tables remain immutable
     // until the queue fence confirms that all commands using them have finished.
     Pass pipeline_;
+    std::unique_ptr<Pass> processing_pipeline_;
+    Processing processing_;
+    bool srgb_ = false;
+    float host_white_ = 100;
+    int auto_encoding_ = 1;
+    Processing frame_processing() const {auto p=processing_;if(!p.encoding)p.encoding=auto_encoding_;return p;}
     struct Binding {
         std::array<ComPtr<ID3D12Resource>, 4> resources;
         std::unique_ptr<Pass> pass;
         uint64_t submission = 0;
+        bool processing = false;
     };
     std::vector<Binding> bindings_;
     ComPtr<ID3D12Resource> output_;
     uint64_t completed_ = 0, recording_ = 1;
 
-    Pass& pass(std::array<ID3D12Resource*, 4> resources) {
+    Pass& pass(std::array<ID3D12Resource*, 4> resources, bool processing = false) {
         for (auto& binding : bindings_) {
-            bool matches = true;
+            bool matches = binding.processing == processing;
             for (size_t index = 0; index < resources.size(); ++index)
                 matches &= binding.resources[index].Get() == resources[index];
             if (matches) {
@@ -118,10 +126,10 @@ class ResolutionBridge {
             }
         }
         auto reusable = std::find_if(bindings_.begin(), bindings_.end(), [&](const auto& binding) {
-            return binding.submission <= completed_;
+            return binding.submission <= completed_ && binding.processing == processing;
         });
         if (reusable == bindings_.end()) {
-            bindings_.push_back({{}, std::make_unique<Pass>(pipeline_, accounting_), 0});
+            bindings_.push_back({{}, std::make_unique<Pass>(processing ? *processing_pipeline_ : pipeline_, accounting_), 0, processing});
             reusable = std::prev(bindings_.end());
         }
         for (size_t index = 0; index < resources.size(); ++index)
@@ -132,14 +140,17 @@ class ResolutionBridge {
 
   public:
     ResolutionBridge(ID3D12Device* device, Resolution geometry, DXGI_FORMAT format,
-                     const std::shared_ptr<phoenix_native::memory::Generation>& accounting)
+                     const std::shared_ptr<phoenix_native::memory::Generation>& accounting,
+                     Processing processing = {}, bool srgb = false)
         : geometry_(geometry), accounting_(accounting),
-          pipeline_(device, resolution_shader, accounting) {
+          pipeline_(device, resolution_shader, accounting), processing_(processing), srgb_(srgb) {
+        if (processing.enabled) processing_pipeline_ = std::make_unique<Pass>(device, processing_shader, accounting);
         output_ = phoenix_native::image(device, geometry.output_width, geometry.output_height,
                                         format, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         phoenix_native::memory::resource(device, output_.Get(), accounting,
                                          phoenix_native::memory::Kind::bridge);
     }
+    void processing_context(float white, int encoding) {host_white_=white;auto_encoding_=encoding;}
     void begin_frame(uint64_t completed, uint64_t submission) {
         check(completed >= completed_ && submission >= recording_ && submission > completed,
               "Resolution descriptor fence order");
@@ -150,7 +161,7 @@ class ResolutionBridge {
         return bindings_.size();
     }
     Json status() const {
-        return {{"compiled_pipelines", 1},
+        return {{"compiled_pipelines", processing_pipeline_ ? 2 : 1},
                 {"descriptor_tables", bindings_.size()},
                 {"completed_submission", completed_},
                 {"recording_submission", recording_}};
@@ -169,7 +180,8 @@ class ResolutionBridge {
     void reduce(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source, D3D12_RESOURCE_STATES state,
                 ID3D12Resource* destination, bool motion, float motion_scale_x = 0,
                 float motion_scale_y = 0) {
-        auto& dispatch = pass({source, nullptr, nullptr, destination});
+        const bool process = processing_.enabled && !motion;
+        auto& dispatch = pass({source, nullptr, nullptr, destination}, process);
         phoenix_native::transition(cmd, source, state,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -179,22 +191,27 @@ class ResolutionBridge {
             geometry.divider = motion_scale_x;
             geometry.gain = motion_scale_y;
         }
-        dispatch.record(cmd, {source, nullptr, nullptr}, destination, geometry);
+        if (process)
+            dispatch.record(cmd, {source, nullptr, nullptr}, destination,
+                processing_constants(frame_processing(), geometry_, 2, srgb_, host_white_));
+        else
+            dispatch.record(cmd, {source, nullptr, nullptr}, destination, geometry);
         phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    state);
     }
     void present(ID3D12GraphicsCommandList* cmd, ID3D12Resource* low, ID3D12Resource* game,
-                 D3D12_RESOURCE_STATES state) {
-        present_source(cmd, low, game, state, game, state);
+                 D3D12_RESOURCE_STATES state, ID3D12Resource* baseline = nullptr) {
+        present_source(cmd, low, game, state, game, state, baseline);
     }
     // The addon resolves over its original game image; library clients can
     // provide a distinct source image for alpha and a differently sized target.
     void present_source(ID3D12GraphicsCommandList* cmd, ID3D12Resource* low,
                         ID3D12Resource* original, D3D12_RESOURCE_STATES original_state,
-                        ID3D12Resource* game, D3D12_RESOURCE_STATES state) {
-        auto& dispatch = pass({low, original, nullptr, output_.Get()});
+                        ID3D12Resource* game, D3D12_RESOURCE_STATES state, ID3D12Resource* baseline = nullptr) {
+        check(!processing_.enabled || baseline, "Residual reconstruction requires the working input snapshot");
+        auto& dispatch = pass({low, original, baseline, output_.Get()}, processing_.enabled);
         phoenix_native::transition(cmd, low, D3D12_RESOURCE_STATE_COPY_SOURCE,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, game, state,
@@ -203,7 +220,11 @@ class ResolutionBridge {
             phoenix_native::transition(cmd, original, original_state,
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         // The low-resolution surface is stable. The engine output rotates.
-        dispatch.record(cmd, {low, original, nullptr}, output_.Get(), constants(2));
+        if (processing_.enabled)
+            dispatch.record(cmd, {low, original, baseline}, output_.Get(),
+                processing_constants(frame_processing(), geometry_, 3, srgb_, host_white_));
+        else
+            dispatch.record(cmd, {low, original, nullptr}, output_.Get(), constants(2));
         if (original != game)
             phoenix_native::transition(cmd, original, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                        original_state);

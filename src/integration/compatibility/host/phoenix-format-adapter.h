@@ -134,7 +134,7 @@ public:
                    bool allow_rgb10 = false) {
         if (!width || !height || width > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
             height > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
-            (!PhoenixByteFormat(format) && !(allow_rgb10 && format == DXGI_FORMAT_R10G10B10A2_UNORM))) return E_INVALIDARG;
+            (!PhoenixByteFormat(format) && format != DXGI_FORMAT_R16G16B16A16_FLOAT && !(allow_rgb10 && format == DXGI_FORMAT_R10G10B10A2_UNORM))) return E_INVALIDARG;
         HRESULT hr = Initialize(device);
         if (FAILED(hr)) return hr;
         if (color_ && output_ && bytes_ && width_ == width && height_ == height && format_ == format) return S_OK;
@@ -172,6 +172,14 @@ public:
     void RecordOutput(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* destination,
                       ID3D12Resource* converted_input = nullptr) {
         auto* source = converted_input ? converted_input : output_.Get();
+        if (format_ == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+            D3D12_RESOURCE_BARRIER copy[]{
+                Barrier(source,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE),
+                Barrier(destination,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST)};
+            list->ResourceBarrier(2,copy);list->CopyResource(destination,source);
+            for(auto& barrier:copy)std::swap(barrier.Transition.StateBefore,barrier.Transition.StateAfter);
+            list->ResourceBarrier(2,copy);return;
+        }
         D3D12_RESOURCE_BARRIER barriers[]{
             Barrier(source, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
             Barrier(bytes_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};

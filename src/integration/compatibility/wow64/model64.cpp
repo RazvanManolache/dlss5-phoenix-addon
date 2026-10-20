@@ -89,7 +89,7 @@ class Models {
         const auto text=config_.dump(); phoenix_=create(text.c_str(),gpu_.device.Get(),gpu_.queue.Get());
         require(phoenix_!=nullptr,symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error")());
     }
-    void initialize_nvidia(const wchar_t* cuda_path) {
+    void initialize_nvidia(const wchar_t* cuda_path,phoenix_wow64::ModelChannel& packet) {
         if(nvidia_) return;
         const auto source=phoenix_model::WeightSource::config(config_.at("weight_source"));
         require(!source.dll.empty(),"NVIDIA DLSS5 mode requires a selected NVIDIA DLSS5 model DLL, not a disk model");
@@ -101,6 +101,13 @@ class Models {
         require(NVSDK_NGX_SUCCEED(allocate(&params_))&&params_,"NVIDIA DLSS5 parameter allocation failed");
         require(PhoenixNrLoad(source.dll.c_str())!=0,"NVIDIA DLSS5 model load failed");
         loaded_nvidia_sha_=source.dll_sha256;
+        if(config_.value("nvidia_preset",1u)==2) {
+            const auto mapping=LoadLibraryExW(source.dll.c_str(),nullptr,LOAD_LIBRARY_AS_DATAFILE|LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+            require(mapping!=nullptr,"Cannot inspect selected NVIDIA model resources");
+            const bool available=FindResourceW(mapping,L"WEIGHTS_CC_SMALL_FP8",MAKEINTRESOURCEW(10))!=nullptr;
+            FreeLibrary(mapping);
+            require(available,"Selected NVIDIA DLL has no Lightweight FP8 model; choose 310.9.16");
+        }
         // No game SR hook, no upscaling at 1:1; this is direct NR evaluation.
         const auto cache=fs::temp_directory_path()/"PhoenixAddon"/"ngx";
         fs::create_directories(cache);
@@ -110,9 +117,12 @@ class Models {
         for(auto key:{"DLSSNR.Width","DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.Output.Width","Width"}) params_->Set(key,width_);
         for(auto key:{"DLSSNR.Height","DLSSNR.InputHeight","DLSSNR.OutputHeight","DLSSNR.Output.Height","Height"}) params_->Set(key,height_);
         for(auto key:{"CreationNodeMask","VisibilityNodeMask","DLSSNR.SDR","DLSSNR.AutoExposure"}) params_->Set(key,1u);
-        for(auto key:{"DLSSNR.Upscaling","PerfQualityValue","DLSSNR.Hdr","DLSS.Feature.Create.Flags","DLSSNR.Hint.Render.Preset"}) params_->Set(key,0u);
+        for(auto key:{"DLSSNR.Upscaling","PerfQualityValue","DLSSNR.Hdr","DLSS.Feature.Create.Flags"}) params_->Set(key,0u);
+        params_->Set("DLSSNR.Hint.Render.Preset",config_.value("nvidia_preset",1u));
         for(auto key:{"DLSSNR.Scale","DLSSNR.ScalingRatio","MV.Scale.X","MV.Scale.Y","InPreExposure","InExposureScale"}) params_->Set(key,1.f);
-        require(NVSDK_NGX_SUCCEED(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_))&&nvidia_,"NVIDIA DLSS5 feature creation failed"); gpu_.submit();
+        packet.nvidia_create_result=uint32_t(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_));
+        require(NVSDK_NGX_SUCCEED(static_cast<NVSDK_NGX_Result>(packet.nvidia_create_result))&&nvidia_,"NVIDIA DLSS5 feature creation failed");
+        gpu_.submit();++packet.nvidia_creates;
         color_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT); motion_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16_FLOAT);
         output_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
         auto desc=color_->GetDesc(); gpu_.device->GetCopyableFootprints(&desc,0,1,0,&footprint_,nullptr,nullptr,&bytes_);
@@ -152,7 +162,7 @@ class Models {
             std::vector<char> text(status(phoenix_,nullptr,0)); status(phoenix_,text.data(),text.size());
             c.gpu_ms=Json::parse(text.data()).at("gpu_processing_ms");
         } else {
-            require(packet.backend==1,"Unknown native model backend"); initialize_nvidia(reinterpret_cast<const wchar_t*>(c.cuda_library));
+            require(packet.backend==1,"Unknown native model backend"); initialize_nvidia(reinterpret_cast<const wchar_t*>(c.cuda_library),packet);
             void* data=nullptr; D3D12_RANGE empty{}; hr(upload_->Map(0,&empty,&data));
             for(unsigned y=0;y<height_;++y) memcpy(static_cast<char*>(data)+footprint_.Offset+y*footprint_.Footprint.RowPitch,
                 reinterpret_cast<const char*>(c.color)+size_t(y)*width_*8,width_*8);
@@ -161,15 +171,20 @@ class Models {
             D3D12_TEXTURE_COPY_LOCATION a{},b{}; a.pResource=color_.Get(); a.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
             b.pResource=upload_.Get(); b.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; b.PlacedFootprint=footprint_;
             gpu_.list->CopyTextureRegion(&a,0,0,0,&b,nullptr); gpu_.barrier(color_.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); gpu_.submit();color_uploaded_=true;
-            params_->Reset(); params_->Set("DLSSNR.Color",color_.Get()); params_->Set("Color",color_.Get()); params_->Set("DLSSNR.Output",output_.Get()); params_->Set("Output",output_.Get());
+            params_->Reset();
+            params_->Set("DLSSNR.Intensity",controls.value("intensity",1.f));
+            params_->Set("DLSSNR.Style",unsigned(controls.value("style",0)));
+            params_->Set("DLSSNR.UICorrection",controls.value("ui_correction",0)); params_->Set("DLSSNR.Color",color_.Get()); params_->Set("Color",color_.Get()); params_->Set("DLSSNR.Output",output_.Get()); params_->Set("Output",output_.Get());
             for(auto key:{"DLSSNR.MVec","MVec","MotionVectors"}) params_->Set(key,motion_.Get());
             for(auto key:{"DLSSNR.ColorSubrectWidth","DLSSNR.MVecSubrectWidth","DLSSNR.OutputSubrectWidth","DLSSNR.OutputWidth","DLSSNR.Output.Width","Width"}) params_->Set(key,width_);
             for(auto key:{"DLSSNR.ColorSubrectHeight","DLSSNR.MVecSubrectHeight","DLSSNR.OutputSubrectHeight","DLSSNR.OutputHeight","DLSSNR.Output.Height","Height"}) params_->Set(key,height_);
-            for(auto key:{"DLSSNR.MVecScaleX","DLSSNR.MVecScaleY","DLSSNR.ScalingRatio","DLSSNR.Scale","DLSSNR.Intensity","DLSSNR.GlobalToneStrength","DLSS.Pre.Exposure","DLSS.Exposure.Scale"}) params_->Set(key,1.f);
+            for(auto key:{"DLSSNR.MVecScaleX","DLSSNR.MVecScaleY","DLSSNR.ScalingRatio","DLSSNR.Scale","DLSSNR.GlobalToneStrength","DLSS.Pre.Exposure","DLSS.Exposure.Scale"}) params_->Set(key,1.f);
             params_->Set("DLSSNR.LocalToneStrength",controls.at("tone").get<float>()); params_->Set("DLSSNR.LocalStructureStrength",controls.at("structure").get<float>());
             params_->Set("DLSSNR.SkinStructureStrength",controls.at("skin").get<float>()); params_->Set("DLSSNR.UseAutoMask",unsigned(controls.at("auto_mask").get<bool>()));
             params_->Set("DLSSNR.SDR",1u); params_->Set("DLSSNR.Enabled",1u); params_->Set("DLSSNR.Reset",1u);
-            require(NVSDK_NGX_SUCCEED(PhoenixNrEvaluate(gpu_.list.Get(),nvidia_,params_,nullptr)),"NVIDIA DLSS5 evaluation failed"); gpu_.submit();
+            packet.nvidia_evaluate_result=uint32_t(PhoenixNrEvaluate(gpu_.list.Get(),nvidia_,params_,nullptr));
+            require(NVSDK_NGX_SUCCEED(static_cast<NVSDK_NGX_Result>(packet.nvidia_evaluate_result)),"NVIDIA DLSS5 evaluation failed");
+            gpu_.submit();++packet.nvidia_evaluates;
             gpu_.barrier(output_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
             a={};b={};a.pResource=readback_.Get();a.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;a.PlacedFootprint=footprint_;
             b.pResource=output_.Get();b.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;gpu_.list->CopyTextureRegion(&a,0,0,0,&b,nullptr);
@@ -185,6 +200,7 @@ class Models {
 extern "C" __declspec(dllexport) int PhoenixModelServe64(phoenix_wow64::ModelChannel* packet) {
     if(!packet) return 2; auto& c=packet->base; bool passed=false;
     try {
+        require(packet->bytes==sizeof(*packet),"Native model packet size mismatch; update the matching addon and runtime together");
         require(c.abi==phoenix_driver_probe::version&&c.struct_bytes==sizeof(c)&&c.caller_bits==32&&c.width&&c.height&&c.width<=8192&&c.height<=8192,"Invalid native model packet");
         require(packet->config_json&&c.color&&c.output&&c.plane_bytes==uint64_t(c.width)*c.height*8,"Invalid native model buffers");
         c.driver_pid=GetCurrentProcessId(); c.driver_bits=64;

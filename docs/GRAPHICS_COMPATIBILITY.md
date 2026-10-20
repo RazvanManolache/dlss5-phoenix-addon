@@ -1,5 +1,9 @@
 # Graphics API and 32-bit game compatibility
 
+<!-- current-two-model-evidence -->
+The [current support matrix](SUPPORT.md) separates graphics capture APIs from neural execution backends. Fresh [two-model offline benchmarks](benchmarks/current/README.md) cover native RTX, CUDA, NVIDIA/AMD Vulkan and CPU; they do not constitute a new live-game or graphics-API integration matrix.
+<!-- /current-two-model-evidence -->
+
 The full D3D12 addon can process either engine DLSS input or standalone final-color
 input inside the game. Standalone processing chooses a same-device GPU route
 when its runtime capabilities permit it, rather than equating missing game DLSS

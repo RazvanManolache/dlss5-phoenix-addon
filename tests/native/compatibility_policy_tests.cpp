@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "../../src/integration/compatibility/session_policy.h"
+#include "../../src/integration/compatibility/portable_policy.h"
 #include "../../src/native/support/control_mailbox.h"
 #include <iostream>
 
@@ -17,6 +18,11 @@ int main() {
         changed.model_dll = "C:/another/model.dll";
         verify(phoenix_compat::helper_settings_changed(settings, changed));
         changed = settings;
+        changed.nvidia_dll_folder = "C:/shared-library";
+        verify(phoenix_compat::helper_settings_changed(settings, changed));
+        verify(phoenix_compat::settings_json(changed).at("NvidiaDllFolder") == "C:/shared-library");
+        verify(!phoenix_compat::live_tuning_json(changed).contains("NvidiaDllFolder"));
+        changed = settings;
         changed.offload_age_frames += 1;
         verify(phoenix_compat::helper_settings_changed(settings, changed));
         verify(!phoenix_compat::helper_settings_changed(settings, settings));
@@ -26,11 +32,13 @@ int main() {
         tuned.native_options = true; tuned.intensity = .6f;
         tuned.style = 2; tuned.host_exposure = 1.3f;
         tuned.model_dll = "pending-model.dll"; tuned.resolution_mode = 1;
+        tuned.nvidia_dll_folder = "C:/pending-library";
         auto hot = settings;
         verify(phoenix_addon::phoenix::copy_live_tuning(hot, tuned));
         verify(hot.controls.skin == .3f && hot.controls.auto_mask && hot.controls.tone == .4f);
         verify(hot.intensity == .6f && hot.style == 2 && hot.host_exposure == 1.3f);
         verify(hot.model_dll == settings.model_dll && hot.resolution_mode == settings.resolution_mode);
+        verify(hot.nvidia_dll_folder == settings.nvidia_dll_folder);
         verify(!phoenix_compat::helper_settings_changed(settings, hot));
         verify(phoenix_compat::helper_settings_changed(hot, tuned));
         verify(!phoenix_addon::phoenix::copy_live_tuning(hot, tuned));
@@ -42,6 +50,7 @@ int main() {
         for (auto invalid : {nlohmann::json{{"Tone", 3}}, nlohmann::json{{"Tone", "1"}},
                              nlohmann::json{{"AutoMask", 1}}, nlohmann::json{{"Depth", 4294967296ull}},
                              nlohmann::json{{"ModelDll", "other.dll"}},
+                             nlohmann::json{{"NvidiaDllFolder", "other-folder"}},
                              nlohmann::json{{"Tone", .8}, {"Skin", 100}}}) {
             const auto before = phoenix_compat::settings_json(decoded);
             bool refused = false;
@@ -162,6 +171,24 @@ int main() {
         request["session"] = "old";
         verify(run(request, 3200).at("ok") == false);
         verify(commands == 2);
+        for(const char* model : {"original", "small-fp8"}) {
+            phoenix_compat::Settings portable;
+            portable.model_id = model;
+            portable.mode = phoenix_addon::phoenix::ours;
+            portable.experimental = portable.automatic_budget = true;
+            portable.transformer_blocks = 5;
+            portable.minimum_blocks = 2;
+            portable.budget_ms = 3.5f;
+            portable.block_repeats = {0,2,1,0,4,1,2,1};
+            const auto metadata = phoenix_compat::portable_metadata(portable,true);
+            verify(metadata.at("adaptive_budget").at("target_ms") == 3.5);
+            verify(metadata.at("adaptive_budget").at("minimum_blocks") == 2);
+            verify(metadata.at("transformer_blocks") == 5 && metadata.at("repeats").at(6) == 2);
+            portable.budget_mode = 1;
+            bool rejected = false;
+            try {phoenix_compat::portable_metadata(portable,true);} catch(const std::exception&) {rejected=true;}
+            verify(rejected);
+        }
         std::cout << nlohmann::json{{"passed", true}, {"cpu_only", true}, {"checks", checks}}.dump() << '\n';
         return 0;
     } catch (const std::exception& error) {

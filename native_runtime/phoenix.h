@@ -24,6 +24,10 @@ PHOENIX_C_API void phoenix_runtime_destroy(void *session);
 // validity=R. Optional planes may be NULL; metadata must declare their presence.
 // Output has width*height*3 floats. This ABI does not infer buffer capacities.
 // Returns 0 on success, -1 on failure. No pointers are retained after return.
+// Metadata also accepts transformer_blocks (1..8), repeats (eight 0..4 counts),
+// passes (1..10), and adaptive_budget. GPU-time budgets consume backend GPU
+// events; FPS budgets require caller application presentation timestamps.
+// These controls share one scheduler across all portable backends/models.
 PHOENIX_C_API int phoenix_runtime_frame(void *session, const float *color, const float *motion,
                           const float *depth, const float *validity, const char *metadata_json,
                           float *output);

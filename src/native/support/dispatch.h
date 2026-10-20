@@ -7,8 +7,9 @@ namespace phoenix_addon {
 // Tail truncation is an approximate architecture, not stale-workspace ablation.
 // Require the captured eight-block chain and the repack ABI before enabling it.
 inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
+    const auto layout = phoenix_model::native_layout(frame.value("model_architecture", std::string("phoenix-network37/1")));
     const auto& launches = frame.at("launches");
-    check(launches.size() == 156, "Phoenix DLSS5 depth plan extent");
+    check(launches.size() == layout.launches() + 2, "Phoenix DLSS5 depth plan extent");
     auto pointer = [](const auto& launch, unsigned offset, const char* role) {
         for (const auto& relocation : launch.at("relocations"))
             if (relocation.at("argument_offset") == offset) {
@@ -21,15 +22,15 @@ inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
         check(false, "Phoenix DLSS5 depth missing pointer");
         return uint64_t(0);
     };
-    uint64_t previous = pointer(launches.at(57), 8, "output");
-    const auto dimensions = launches.at(57).at("scalar_u32_le");
-    check(launches.at(57).at("name") == "cc_vit_1d_repack_2d_to_1d_fp8" &&
-              launches.at(98).at("name") == "cc_vit_1d_repack_1d_to_2d_fp8" &&
-              launches.at(98).at("argument_bytes") == 24 &&
-              launches.at(98).at("scalar_u32_le") == dimensions,
+    uint64_t previous = pointer(launches.at(layout.repack_in() + 1), 8, "output");
+    const auto dimensions = launches.at(layout.repack_in() + 1).at("scalar_u32_le");
+    check(launches.at(layout.repack_in() + 1).at("name") == "cc_vit_1d_repack_2d_to_1d_fp8" &&
+              launches.at(layout.repack_out() + 1).at("name") == "cc_vit_1d_repack_1d_to_2d_fp8" &&
+              launches.at(layout.repack_out() + 1).at("argument_bytes") == 24 &&
+              launches.at(layout.repack_out() + 1).at("scalar_u32_le") == dimensions,
           "Phoenix DLSS5 depth repack contract");
     for (unsigned block_index = 0; block_index < 8; ++block_index) {
-        const unsigned first = 58 + block_index * 5;
+        const unsigned first = layout.transformer_begin() + 1 + block_index * 5;
         const char* names[]{block_index ? "cc_vit_1d_ffn_expand_chained_fp8"
                                         : "cc_vit_1d_ffn_expand_publish_fp8",
                             "cc_vit_1d_ffn_contract_chained_fp8", "cc_vit_1d_qkv_chained_fp8",
@@ -45,8 +46,42 @@ inline void validate_phoenix_depth_plan(const phoenix_bundle::Json& frame) {
         check(projection.at("argument_bytes") == 72, "Phoenix DLSS5 depth projection ABI");
         previous = pointer(projection, 16, "output");
     }
-    check(pointer(launches.at(98), 0, "input") == previous,
+    check(pointer(launches.at(layout.repack_out() + 1), 0, "input") == previous,
           "Phoenix DLSS5 depth final output contract");
+}
+// Derive repeat synchronization on the CPU before allocating any device memory.
+struct NativeRepeatPlan {
+    uint64_t stride = 0;
+    std::array<std::array<std::vector<std::pair<unsigned, uint64_t>>, 5>, 8> fields;
+};
+inline NativeRepeatPlan native_repeat_plan(const phoenix_bundle::Json& frame) {
+    validate_phoenix_depth_plan(frame);
+    const auto layout = phoenix_model::native_layout(frame.value("model_architecture", std::string("phoenix-network37/1")));
+    NativeRepeatPlan result;
+    result.stride = uint64_t(phoenix_native::policy_detail::word(
+                         phoenix_bundle::hex(
+                             frame.at("launches").at(0).at("template_hex").get<std::string>()),
+                         8)) *
+                     4;
+    check(result.stride && result.stride < 16 * 1024 * 1024,
+          "Phoenix DLSS5 repeat counter extent");
+    for (unsigned block_index = 0; block_index < 8; ++block_index)
+        for (unsigned stage_index = 0; stage_index < 5; ++stage_index)
+            for (const auto& relocation : frame.at("launches")
+                                              .at(layout.transformer_begin() + 1 + block_index * 5 + stage_index)
+                                              .at("relocations")) {
+                const auto role = relocation.at("role").get<std::string>();
+                if (relocation.at("relative_offset").is_null() ||
+                    !phoenix_native::policy_detail::synchronization(role) ||
+                    (stage_index == 0 && role == "wait_optional"))
+                    continue;
+                const auto offset = relocation.at("relative_offset").get<uint64_t>();
+                check(relocation.at("arena") == "workspace" && offset < result.stride,
+                      "Phoenix DLSS5 repeat counter outside prefix");
+                result.fields[block_index][stage_index].push_back(
+                    {relocation.at("argument_offset").get<unsigned>(), offset});
+            }
+    return result;
 }
 // Dedicated API table: never changes the parent's/shared Api or launches any
 // native kernel. Only verified dynamic fields in own stem/head arguments vary.
@@ -59,6 +94,7 @@ class FrameDispatch {
     unsigned position_ = 0;
     uint64_t launches_ = 0;
     uint32_t skip_mask_ = 0;
+    phoenix_model::NativeLayout layout_;
     unsigned expected_launches_ = kLaunchCount;
     uint64_t frame_launches_ = 0;
     unsigned transformer_blocks_ = 8;
@@ -74,9 +110,9 @@ class FrameDispatch {
     std::array<std::array<uint8_t, 80>, 5> repeat_arguments_{};
 
     void remember_repeat(unsigned position, const NVAPI_CU_KERNEL_LAUNCH_PARAMS& launch) {
-        if (!repeating_ || position < 57 || position >= 97)
+        if (!repeating_ || position < layout_.transformer_begin() || position >= layout_.repack_out())
             return;
-        const unsigned block_index = (position - 57) / 5, stage_index = (position - 57) % 5;
+        const unsigned block_index = (position - layout_.transformer_begin()) / 5, stage_index = (position - layout_.transformer_begin()) % 5;
         if (repeats_[block_index] <= 1 || block_index >= transformer_blocks_)
             return;
         check(launch.pParams && launch.paramSize <= 80, "Phoenix DLSS5 repeat argument extent");
@@ -84,9 +120,9 @@ class FrameDispatch {
         memcpy(repeat_arguments_[stage_index].data(), launch.pParams, launch.paramSize);
     }
     NvAPI_Status repeat_block(unsigned position) {
-        if (!repeating_ || position < 61 || position >= 97 || (position - 61) % 5)
+        if (!repeating_ || position < layout_.transformer_begin() + 4 || position >= layout_.repack_out() || (position - layout_.transformer_begin() - 4) % 5)
             return NVAPI_OK;
-        const unsigned block_index = (position - 61) / 5;
+        const unsigned block_index = (position - layout_.transformer_begin() - 4) / 5;
         if (repeats_[block_index] <= 1 || block_index >= transformer_blocks_)
             return NVAPI_OK;
         uint64_t feedback = 0;
@@ -126,22 +162,22 @@ class FrameDispatch {
     }
 
     bool omitted(unsigned position) const noexcept {
-        return position >= 57 && position < 97 &&
-               ((position - 57) / 5 >= transformer_blocks_ || repeats_[(position - 57) / 5] == 0);
+        return position >= layout_.transformer_begin() && position < layout_.repack_out() &&
+               ((position - layout_.transformer_begin()) / 5 >= transformer_blocks_ || repeats_[(position - layout_.transformer_begin()) / 5] == 0);
     }
     void retain(unsigned position, const NVAPI_CU_KERNEL_LAUNCH_PARAMS& launch) {
         if (bypassing_) {
-            if (position == 56) {
+            if (position == layout_.repack_in()) {
                 check(launch.pParams && launch.paramSize == 24,
                       "Phoenix DLSS5 bypass input repack ABI");
                 memcpy(&retained_output_, static_cast<const uint8_t*>(launch.pParams) + 8, 8);
                 return;
             }
-            if (position < 61 || position >= 97 || (position - 61) % 5)
+            if (position < layout_.transformer_begin() + 4 || position >= layout_.repack_out() || (position - layout_.transformer_begin() - 4) % 5)
                 return;
             check(launch.pParams && launch.paramSize == 72, "Phoenix DLSS5 bypass projection ABI");
             memcpy(&upstream_publication_, static_cast<const uint8_t*>(launch.pParams) + 56, 8);
-        } else if (transformer_blocks_ == 8 || position != 56 + 5 * transformer_blocks_)
+        } else if (transformer_blocks_ == 8 || position != layout_.repack_in() + 5 * transformer_blocks_)
             return;
         check(launch.pParams && launch.paramSize == 72, "Phoenix DLSS5 depth projection ABI");
         std::memcpy(&retained_output_, static_cast<const uint8_t*>(launch.pParams) + 16, 8);
@@ -149,7 +185,7 @@ class FrameDispatch {
     }
     void repack(unsigned position, NVAPI_CU_KERNEL_LAUNCH_PARAMS& launch,
                 std::array<uint8_t, 24>& bytes) {
-        if ((!bypassing_ && transformer_blocks_ == 8) || position != 97)
+        if ((!bypassing_ && transformer_blocks_ == 8) || position != layout_.repack_out())
             return;
         check(retained_output_ && launch.pParams && launch.paramSize == bytes.size(),
               "Phoenix DLSS5 depth repack ABI");
@@ -162,7 +198,7 @@ class FrameDispatch {
                                          const NVAPI_CU_KERNEL_LAUNCH_PARAMS* source, NvU32 count) {
         auto* self = active_;
         check(self && cmd == self->command_ && source && count &&
-                  count <= kLaunchCount - self->position_,
+                  count <= self->layout_.launches() - self->position_,
               "phoenix dispatch outside verified frame scope");
         if (self->repeating_ && count > 1) {
             for (NvU32 iteration_index = 0; iteration_index < count; ++iteration_index) {
@@ -173,16 +209,16 @@ class FrameDispatch {
             }
             return NVAPI_OK;
         }
-        // The captured plan issues one launch per call, 154 calls per frame.
-        // Only positions 0 and 153 have their arguments patched, so the 152
-        // interior launches are forwarded exactly as the Network recorded
+        // The plan normally issues one launch per call. Only the model
+        // schedule's first and last arguments are patched; interior launches
+        // are forwarded exactly as the Network recorded
         // them: no descriptor copy and no allocation. Handles, grids, blocks,
         // shared memory, argument bytes, order, count and the audit are
         // unchanged. The multi-launch body below still handles chaining.
         if (count == 1) {
             const unsigned position = self->position_;
             if (self->omitted(position) ||
-                (self->skip_mask_ & (1u << group_of_position(position)))) {
+                (self->skip_mask_ & (1u << self->layout_.group(position)))) {
                 self->position_ += 1;
                 return NVAPI_OK;
             }
@@ -192,11 +228,11 @@ class FrameDispatch {
             // prefix, which therefore uses a dedicated zero-filled ready bank.
             NVAPI_CU_KERNEL_LAUNCH_PARAMS bypass_launch = source[0];
             std::array<uint8_t, 80> bypass_bytes{};
-            if (self->bypassing_ && position >= 57 && position < 97 && (position - 57) % 5 < 2) {
+            if (self->bypassing_ && position >= self->layout_.transformer_begin() && position < self->layout_.repack_out() && (position - self->layout_.transformer_begin()) % 5 < 2) {
                 check(source[0].pParams && source[0].paramSize == 72 && self->retained_output_,
                       "Phoenix DLSS5 bypass block ABI");
                 memcpy(bypass_bytes.data(), source[0].pParams, source[0].paramSize);
-                const unsigned stage_index = (position - 57) % 5;
+                const unsigned stage_index = (position - self->layout_.transformer_begin()) % 5;
                 memcpy(bypass_bytes.data() + (stage_index ? 8 : 0), &self->retained_output_, 8);
                 if (!stage_index) {
                     const uint64_t ready = self->upstream_publication_
@@ -210,8 +246,8 @@ class FrameDispatch {
                 source = &bypass_launch;
             }
             self->remember_repeat(position, source[0]);
-            if (position != 0 && position != 153 &&
-                !((self->bypassing_ || self->transformer_blocks_ < 8) && position == 97)) {
+            if (position != 0 && position + 1 != self->layout_.launches() &&
+                !((self->bypassing_ || self->transformer_blocks_ < 8) && position == self->layout_.repack_out())) {
                 dispatch_audit::OwnCall own_dispatch;
                 const auto result = self->real_(cmd, source, 1);
                 self->position_ += 1;
@@ -229,7 +265,7 @@ class FrameDispatch {
                 std::memcpy(stem.data(), launch.pParams, stem.size());
                 patch_stem(stem.data(), stem.size(), self->controls_);
                 launch.pParams = stem.data();
-            } else if (position == 153) {
+            } else if (position + 1 == self->layout_.launches()) {
                 check(launch.pParams && launch.paramSize == head.size(),
                       "phoenix missing head ABI");
                 std::memcpy(head.data(), launch.pParams, head.size());
@@ -259,7 +295,7 @@ class FrameDispatch {
                 std::memcpy(stem.data(), launch.pParams, stem.size());
                 patch_stem(stem.data(), stem.size(), self->controls_);
                 launch.pParams = stem.data();
-            } else if (position == 153) {
+            } else if (position + 1 == self->layout_.launches()) {
                 check(launch.pParams && launch.paramSize == head.size(),
                       "phoenix missing head ABI");
                 std::memcpy(head.data(), launch.pParams, head.size());
@@ -270,7 +306,7 @@ class FrameDispatch {
         NvU32 forwarded = 0;
         for (NvU32 iteration_index = 0; iteration_index < count; ++iteration_index)
             if (!self->omitted(self->position_ + iteration_index) &&
-                !(self->skip_mask_ & (1u << group_of_position(self->position_ + iteration_index))))
+                !(self->skip_mask_ & (1u << self->layout_.group(self->position_ + iteration_index))))
                 launches[forwarded++] = launches[iteration_index];
         self->position_ += count;
         if (!forwarded)
@@ -283,9 +319,14 @@ class FrameDispatch {
     }
 
   public:
+    void configure_plan(const phoenix_bundle::Json& frame) {
+        validate_phoenix_depth_plan(frame);
+        layout_ = phoenix_model::native_layout(frame.value("model_architecture", std::string("phoenix-network37/1")));
+    }
     void configure_repeats(ID3D12Device* device, const phoenix_bundle::Json& frame,
                            const std::array<int, 8>& counts) {
         check(!repeat_counters_, "Phoenix DLSS5 repeat configuration is immutable per generation");
+        configure_plan(frame);
         repeats_ = counts;
         for (int repeat_count : counts) {
             check(repeat_count >= 0 && repeat_count <= 4,
@@ -295,30 +336,9 @@ class FrameDispatch {
         }
         if (!repeating_)
             return;
-        validate_phoenix_depth_plan(frame);
-        repeat_stride_ = uint64_t(phoenix_native::policy_detail::word(
-                             phoenix_bundle::hex(
-                                 frame.at("launches").at(0).at("template_hex").get<std::string>()),
-                             8)) *
-                         4;
-        check(repeat_stride_ && repeat_stride_ < 16 * 1024 * 1024,
-              "Phoenix DLSS5 repeat counter extent");
-        for (unsigned block_index = 0; block_index < 8; ++block_index)
-            for (unsigned stage_index = 0; stage_index < 5; ++stage_index)
-                for (const auto& relocation : frame.at("launches")
-                                                  .at(58 + block_index * 5 + stage_index)
-                                                  .at("relocations")) {
-                    const auto role = relocation.at("role").get<std::string>();
-                    if (relocation.at("relative_offset").is_null() ||
-                        !phoenix_native::policy_detail::synchronization(role) ||
-                        (stage_index == 0 && role == "wait_optional"))
-                        continue;
-                    const auto offset = relocation.at("relative_offset").get<uint64_t>();
-                    check(relocation.at("arena") == "workspace" && offset < repeat_stride_,
-                          "Phoenix DLSS5 repeat counter outside prefix");
-                    repeat_sync_[block_index][stage_index].push_back(
-                        {relocation.at("argument_offset").get<unsigned>(), offset});
-                }
+        auto repeat_plan = native_repeat_plan(frame);
+        repeat_stride_ = repeat_plan.stride;
+        repeat_sync_ = std::move(repeat_plan.fields);
         const uint64_t size = repeat_stride_ * 25;
         repeat_counters_ = phoenix_native::buffer(device, size, D3D12_HEAP_TYPE_DEFAULT,
                                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -390,14 +410,12 @@ class FrameDispatch {
             owner.upstream_publication_ = 0;
             owner.skip_mask_ = skip_groups_mask.load(std::memory_order_relaxed);
             owner.expected_launches_ =
-                kLaunchCount - skipped_launches(owner.skip_mask_) - 5 * (8 - transformer_blocks);
+                owner.layout_.launches() - owner.layout_.skipped(owner.skip_mask_) - 5 * (8 - transformer_blocks);
             if (owner.repeating_) {
                 check(!owner.skip_mask_,
                       "Phoenix DLSS5 repeats cannot combine with stale-tensor ablation");
-                owner.expected_launches_ = 114;
-                for (unsigned iteration_index = 0; iteration_index < transformer_blocks;
-                     ++iteration_index)
-                    owner.expected_launches_ += 5 * unsigned(owner.repeats_[iteration_index]);
+                owner.expected_launches_ =
+                    owner.layout_.scheduled_launches(transformer_blocks, owner.repeats_);
             }
             owner.frame_launches_ = 0;
         }
@@ -407,7 +425,7 @@ class FrameDispatch {
             owner_.command_ = nullptr;
         }
         void finish() const {
-            check(owner_.position_ == kLaunchCount, "phoenix incomplete candidate frame");
+            check(owner_.position_ == owner_.layout_.launches(), "phoenix incomplete candidate frame");
             check(owner_.frame_launches_ == owner_.expected_launches_,
                   "phoenix skip mask/launch count mismatch");
         }

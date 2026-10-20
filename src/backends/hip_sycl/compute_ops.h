@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include "operand_address.h"
+#include "fp8_grid.h"
 namespace phx {
 using u32 = uint32_t;
 using u64 = uint64_t;
@@ -182,12 +183,22 @@ template <class Math> struct Kernel {
     PHX_DEVICE float quantize_e4m3(float value) const {
         if constexpr (requires { Math::round_e4m3(value); })
             return Math::round_e4m3(value);
-        float magnitude = Math::min(Math::abs(value), 448.f);
-        u32 exponent = (Math::bits(magnitude) >> 23) & 255u;
-        exponent = (exponent > 121u ? exponent : 121u) - 3u;
-        float step = Math::value(exponent << 23), reciprocal = Math::value((254u - exponent) << 23);
-        float rounded = Math::even(magnitude * reciprocal) * step;
-        return value < 0 ? -rounded : rounded;
+        return round_e4m3_grid<Math>(value);
+    }
+    // Preserve the graph's two distinct intermediate publication schedules.
+    // This boundary precedes optional E4M3 output; final FP8 equality alone
+    // cannot validate it. See docs/SOURCE_MAINTENANCE.md and numeric contracts.
+    enum class ResidualRounding { HalfProductThenAdd, FusedMultiplyAdd };
+    PHX_DEVICE static constexpr ResidualRounding residual_rounding(u32 channels) {
+        return channels == 512u ? ResidualRounding::HalfProductThenAdd
+                                : ResidualRounding::FusedMultiplyAdd;
+    }
+    PHX_DEVICE float upsample_residual(float projected, float skip, float gain,
+                                       ResidualRounding rounding) const {
+        projected = half(projected);
+        return rounding == ResidualRounding::HalfProductThenAdd
+                   ? half(projected + half(skip * gain))
+                   : half(Math::fma(skip, gain, projected));
     }
     // Evaluate the cubic gate with half rounding after each polynomial stage.
     // The clamped value controls the gate; the original value supplies its amplitude.
@@ -447,16 +458,10 @@ template <class Math> struct Kernel {
                     uint16_t(half_bits(quantize_e4m3(value)));
                 return;
             }
-            // The 512-channel stage rounds the scaled skip before addition;
-            // other stages fuse the multiply-add. Preserve this model-specific boundary.
-            if (kind == UpsampleResidual) {
-                float projected = half(value);
-                value = operation.column_count == 512u
-                            ? half(projected + half(load_right(index) *
-                                                    load_float(operation.auxiliary, channel)))
-                            : half(Math::fma(load_right(index),
-                                             load_float(operation.auxiliary, channel), projected));
-            }
+            if (kind == UpsampleResidual)
+                value = upsample_residual(value, load_right(index),
+                                          load_float(operation.auxiliary, channel),
+                                          residual_rounding(operation.column_count));
             store(index, value);
             if (kind == UpsampleResidual && operation.secondary_output)
                 static_cast<uint16_t*>(operation.secondary_output)[index] =

@@ -23,11 +23,11 @@
   "saved_regression_frames": 42,
   "validated_routes": [
     "cpu",
-    "cuda:GPU-1b962af4-ae3f-9cf1-b93a-70efe043a13d",
+    "cuda:RTX5080_DEVICE_ID_REDACTED",
     "hip:30303030303131363030303030303030",
     "sycl:cpu",
-    "vulkan:00000000740000000000000000000000",
-    "vulkan:1b962af4ae3f9cf1b93a70efe043a13d"
+    "vulkan:AMD_DEVICE_ID_REDACTED",
+    "vulkan:RTX5080_DEVICE_ID_REDACTED"
   ],
   "measurements": [
     {

@@ -1,0 +1,92 @@
+[
+  {
+    "backend": "vulkan_nvidia",
+    "model": "original",
+    "extent": [
+      3840,
+      2160
+    ],
+    "configuration": "automatic fused feed-forward enabled",
+    "measured_date": "2026-10-19",
+    "state": "Historical experimental opt-in failure; current default uses ordered FFN",
+    "reset_difference": {
+      "changed_elements": 15310497,
+      "changed_pixels": 5858732,
+      "max_abs": 1.0,
+      "mean_abs": 0.09398343414068222,
+      "half_changed_elements": 15310497,
+      "pixel_bbox_yx": [
+        [
+          0,
+          0
+        ],
+        [
+          2159,
+          3839
+        ]
+      ],
+      "worst_yxc": [
+        8,
+        2073,
+        0
+      ],
+      "worst_reset": 1.0,
+      "worst_reset_again": 0.0
+    },
+    "output_hashes": {
+      "reset": "6469d43923ef450304ad8e12c81bce650082b85d2eff6da0e35414eed8a9b809",
+      "history": "e75d12cae5b83776060c370ba468c541f00916749ccfb0153afdd41ec461469b",
+      "reset_again": "e1a84df89f19577acb3746b73f802d2ace7c6f9c8a300cbb76ebba788af41fef"
+    },
+    "workaround": {
+      "vulkan_fused_feed_forward": false
+    },
+    "evidence": "artifacts/current/readme-benchmarks/reset-diagnostic.json",
+    "current_default_affected": false
+  },
+  {
+    "backend": "vulkan_nvidia",
+    "model": "small-fp8",
+    "extent": [
+      3840,
+      2160
+    ],
+    "configuration": "automatic fused feed-forward enabled",
+    "measured_date": "2026-10-19",
+    "state": "Historical experimental opt-in failure; current default uses ordered FFN",
+    "reset_difference": {
+      "changed_elements": 16685527,
+      "changed_pixels": 5942794,
+      "max_abs": 1.0,
+      "mean_abs": 0.09473469108343124,
+      "half_changed_elements": 16685527,
+      "pixel_bbox_yx": [
+        [
+          0,
+          0
+        ],
+        [
+          2159,
+          3839
+        ]
+      ],
+      "worst_yxc": [
+        4,
+        2732,
+        0
+      ],
+      "worst_reset": 1.0,
+      "worst_reset_again": 0.0
+    },
+    "output_hashes": {
+      "reset": "bf5dad57f546db580a95c80c901d97149a1ef81a966b93c167e8f8ab46850b1b",
+      "history": "571d471454421fb9858a0254159da266501e77c329cc36b25c1a797bd0559535",
+      "reset_again": "78d6bc6f3d375e17dc8d149af4dbd24840d4c6adb9f3b6c2282794bb09eb93a6"
+    },
+    "workaround": {
+      "vulkan_fused_feed_forward": false
+    },
+    "evidence": "artifacts/current/readme-benchmarks/default-lightweight-4k-diagnostic.json",
+    "current_default_affected": false
+  }
+]
