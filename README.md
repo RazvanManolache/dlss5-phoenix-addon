@@ -9,7 +9,11 @@ what actually changes. Better pixels shouldn't require blind trust. The
 alternate backends are our slightly obsessive portability side quest. Yes,
 we may have taken the side quest too far.
 
-**New in 0.9:**
+**New in 0.10:**
+
+- Software-rendered games route to the hardware helper; matching x86/x64 bridge fixes.
+
+Retained from 0.9:
 
 - **Two sizes of neural rendering:** Original and the faster
   [Lightweight FP8](docs/SMALL_FP8.md) model from 310.9.16.
@@ -20,8 +24,8 @@ we may have taken the side quest too far.
   lower startup peaks and a safe Vulkan default.
   [What changed and what we measured](docs/benchmarks/current/review-fixes.md).
 
-[Download addon 0.9](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.9) ·
-[Installation](docs/RELEASE_0.9.md) · [Controls](#a-quick-look) ·
+[Download addon 0.10](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/0.10) ·
+[Installation](docs/RELEASE_0.10.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 <!-- current-two-model-benchmark -->

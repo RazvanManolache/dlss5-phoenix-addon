@@ -20,6 +20,7 @@ struct BackbufferCapabilities {
     bool local_api = false, native_executor = true, nvidia_required = false;
     bool x86_native_validated = false;
     bool sdr = true, queue_matches = true, protected_resource = false;
+    bool software_device = false;
     reshade::api::format format = reshade::api::format::unknown;
 };
 struct BackbufferDecision {
@@ -85,6 +86,7 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         reason = "The x86 native driver execution path is not runtime-validated; using the safe graphics helper.";
     else if (caps.api != reshade::api::device_api::d3d12)
         reason = "This graphics API currently needs the D3D12 compatibility bridge.";
+    else if (caps.software_device) reason = "Software render device requires staging to a hardware inference helper.";
     else if (!caps.local_api) reason = "This add-on does not expose the in-process backbuffer API.";
     else if (!caps.native_executor) reason = "The selected executor currently uses the isolated helper.";
     if (preference == ExecutionPreference::Helper) reason = "External helper explicitly selected.";

@@ -36,6 +36,7 @@ struct Session {
     bool native_fallback=true,native_failed=false;
     bool portable_allow_unvalidated = false, portable_fallback = true, portable_failed = false;
     bool local_failed = false;
+    std::optional<bool> software_device;
     reshade::api::color_space color_space = reshade::api::color_space::srgb_nonlinear;
     phoenix_model_tools::Task picker, validator;
     fs::path output_directory;
@@ -791,6 +792,31 @@ inline void destroy_graphics_device(reshade::api::device *device) {
     std::lock_guard lock(sessions_mutex);
     sharing_devices.erase(device);
 }
+inline bool is_software_render_device(reshade::api::device* device) {
+    // The render adapter and inference adapter need not be the same for CPU
+    // transport. WARP cannot execute the native CUDA/NVAPI network or share its
+    // textures with a hardware helper; detect it before attempting either route.
+    const auto api = device->get_api();
+    if (api != reshade::api::device_api::d3d10 && api != reshade::api::device_api::d3d11 &&
+        api != reshade::api::device_api::d3d12) return false;
+    auto* native = reinterpret_cast<IUnknown*>(uintptr_t(device->get_native()));
+    if (!native) return false;
+    Ptr<IDXGIAdapter> adapter;
+    Ptr<IDXGIDevice> dxgi;
+    if (SUCCEEDED(native->QueryInterface(IID_PPV_ARGS(&dxgi)))) dxgi->GetAdapter(&adapter);
+    else if (api == reshade::api::device_api::d3d12) {
+        Ptr<ID3D12Device> d3d12;
+        Ptr<IDXGIFactory4> factory;
+        if (SUCCEEDED(native->QueryInterface(IID_PPV_ARGS(&d3d12))) &&
+            SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+            factory->EnumAdapterByLuid(d3d12->GetAdapterLuid(), IID_PPV_ARGS(&adapter));
+    }
+    Ptr<IDXGIAdapter1> adapter1;
+    DXGI_ADAPTER_DESC1 description{};
+    return adapter && SUCCEEDED(adapter.As(&adapter1)) &&
+        SUCCEEDED(adapter1->GetDesc1(&description)) &&
+        (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+}
 inline void process(reshade::api::effect_runtime *runtime, reshade::api::command_list *command,
                     reshade::api::resource back_resource) {
     if (!applies(runtime))
@@ -903,6 +929,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
     const auto description = device->get_resource_desc(back_resource);
     BackbufferCapabilities capabilities;
     capabilities.api = device->get_api(); capabilities.width = description.texture.width;
+    if (!value.software_device) value.software_device = is_software_render_device(device);
+    capabilities.software_device = *value.software_device;
     capabilities.height = description.texture.height; capabilities.format = description.texture.format;
     capabilities.samples = description.texture.samples; capabilities.layers = description.texture.depth_or_layers;
     capabilities.levels = description.texture.levels;
@@ -997,13 +1025,13 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.logged_outputs = 0;
     }
     if (decision.route == BackbufferRoute::Helper && value.helper_transport == "shared" &&
-        (device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable)) {
+        (device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable || capabilities.software_device)) {
         value.message = "Shared helper transfer requires working D3D11 shared textures and fences. Select staging or automatic.";
         value.processing_error = value.message;
         return;
     }
     if (portable_attempt || native_attempt || value.helper_transport == "readback" ||
-        device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable) {
+        device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable || capabilities.software_device) {
         try {
             const auto back = back_resource;
             const auto description = device->get_resource_desc(back);

@@ -30,6 +30,13 @@ int main() {
     }
     verify(execution_preference("auto") == automatic);
     verify(execution_preference("bogus") == ExecutionPreference::Invalid);
+    for (auto api : {A::d3d10, A::d3d11, A::d3d12}) {
+        auto software = base;
+        software.api = api;
+        software.software_device = true;
+        verify(choose_backbuffer_route(software, automatic).route == BackbufferRoute::Helper);
+        verify(choose_backbuffer_route(software, ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
+    }
     for (auto format : {F::r8g8b8a8_unorm, F::r8g8b8a8_unorm_srgb, F::r8g8b8a8_typeless,
                        F::b8g8r8a8_unorm, F::b8g8r8a8_unorm_srgb, F::b8g8r8a8_typeless,
                        F::r10g10b10a2_unorm, F::r10g10b10a2_typeless}) {

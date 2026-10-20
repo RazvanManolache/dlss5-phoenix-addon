@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.9'
+VERSION = '0.10'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -112,15 +112,15 @@ def common_files():
     for path in (ROOT/'third_party').rglob('*'):
         if path.is_file() and (path.name.upper().startswith(('LICENSE', 'NOTICE', 'COPYING', 'MIT_LICENSE')) or path.name == 'ReShade-LICENSE.txt'):
             files['licenses/'+path.relative_to(ROOT/'third_party').as_posix()] = path.read_bytes()
-    for name in ('RELEASE_0.9.md', 'VALIDATION_0.9.md', 'NEURAL_CONTROLS.md', 'NATIVE_CORRECTNESS_0.82.md',
+    for name in ('RELEASE_0.10.md', 'VALIDATION_0.10.md', 'RELEASE_0.9.md', 'VALIDATION_0.9.md', 'NEURAL_CONTROLS.md', 'NATIVE_CORRECTNESS_0.82.md',
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md',
                  'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
-    files['README.txt'] = ('Phoenix DLSS5 add-on 0.9\n'
+    files['README.txt'] = ('Phoenix DLSS5 add-on 0.10\n'
         'Use a current ReShade build with full add-on support. Copy only the matching add-on and graphics helper.\n'
         'Select your separately obtained compatible model in the Phoenix panel. New artistic inputs are experimental.\n'
-        'See docs/RELEASE_0.9.md for installation and validation boundaries.\n'
+        'See docs/RELEASE_0.10.md for installation and validation boundaries.\n'
         'No model weights, NVIDIA model DLLs or private configurations are included.\n').encode()
     return files
 
@@ -193,7 +193,7 @@ def main():
             vendor_parity=False,release_validation=tests,
             embedded_resources={bits:row['resources'] for bits,row in embedded.items()},assets=assets)
         (staging/'VALIDATION.json').write_text(json.dumps(validation,indent=2)+'\n')
-        (staging/'RELEASE_NOTES.md').write_text((ROOT/'docs/RELEASE_0.9.md').read_text(),encoding='utf-8')
+        (staging/'RELEASE_NOTES.md').write_text((ROOT/f'docs/RELEASE_{VERSION}.md').read_text(),encoding='utf-8')
         names=[*assets,'VALIDATION.json']
         (staging/'SHA256SUMS.txt').write_text(''.join(sha((staging/n).read_bytes())+'  '+n+'\n' for n in names),encoding='ascii')
         output.mkdir(parents=True)
