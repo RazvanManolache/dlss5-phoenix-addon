@@ -155,8 +155,8 @@ struct Frame {
             return signal(v, p, false);
         });
     }
-    std::vector<float> finish(std::vector<float> result) const {
-        if (result.size() != baseline.size())
+    std::vector<float> finish(std::vector<float> result,bool reconstructed=false) const {
+        if (result.size() != (reconstructed?size_t(width)*height*3:baseline.size()))
             throw std::runtime_error("Processing output extent mismatch");
         const auto& p = options;
         map(result, [&](RGB v) {
@@ -167,12 +167,14 @@ struct Frame {
         });
         if (p.effective_exposure() == 0)
             return original;
+        const auto expanded_baseline=reconstructed&&p.reconstruction==0?
+            resample(baseline,working_width,working_height,width,height,p.upsample,false):std::vector<float>{};
         if (p.reconstruction == 0)
             for (size_t i = 0; i < result.size(); ++i)
-                result[i] -= baseline[i];
+                result[i] -= reconstructed?expanded_baseline[i]:baseline[i];
         else
             map(result, [&](RGB v) { return domain(v, p, false); });
-        result = resample(result, working_width, working_height, width, height, p.upsample, false);
+        if(!reconstructed)result = resample(result, working_width, working_height, width, height, p.upsample, false);
         if (p.reconstruction == 0) {
             auto decoded = original;
             map(decoded, [&](RGB v) {

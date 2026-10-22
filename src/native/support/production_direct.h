@@ -8,6 +8,9 @@
 #include "guides.h"
 #include "resolution_bridge.h"
 #include "temporal_upscaler.h"
+#include "../../pipeline/recorded_chain.h"
+#include "../../pipeline/comparison_view.h"
+#include "../../pipeline/color_bridge.h"
 #include <cstdint>
 #include <cstring>
 #include <d3dcompiler.h>
@@ -499,7 +502,7 @@ cbuffer Params : register(b0) {
                  step(.0031308, encoded_color));
     normalized[pixel.xy] = float4(encoded_color, 1);
 })";
-inline constexpr char output_shader[] = R"(
+inline constexpr char output_shader[] = PHOENIX_COMPARISON_VIEW_HLSL R"(
 
 Texture2D<float4> scene : register(t0);
 Texture2D<float4> neural : register(t1);
@@ -521,9 +524,10 @@ cbuffer Params : register(b0) {
         if ((left && (resolve & 1) == 0) || (!left && (resolve & 2) == 0))
             return;
     }
-    float4 input = scene.Load(int3(pixel.xy, 0));
+    uint2 view_pixel=(mode||(resolve&8))?ComparisonPoint(pixel.xy,width,height,reset):pixel.xy;
+    float4 input = scene.Load(int3(view_pixel, 0));
     float exposure_scale = max(exposure.Load(int3(0, 0, 0)), 1e-6);
-    float3 neural_rgb = neural.Load(int3(pixel.xy, 0)).rgb;
+    float3 neural_rgb = neural.Load(int3(view_pixel, 0)).rgb;
     if (reset & 2)
         neural_rgb = lerp(neural_rgb / 12.92, pow(max((neural_rgb + .055) / 1.055, 0), 2.4),
                           step(.04045, neural_rgb));
@@ -535,7 +539,7 @@ cbuffer Params : register(b0) {
                             ? neural_rgb * sqrt(maximum_channel * maximum_channel + 1.0)
                             : neural_rgb;
     float4 result =
-        float4((reset & 4) ? ReferenceDecode(input.rgb, neural.Load(int3(pixel.xy, 0)).rgb)
+        float4((reset & 4) ? ReferenceDecode(input.rgb, neural.Load(int3(view_pixel, 0)).rgb)
                            : linear_rgb / exposure_scale,
                input.a);
     if (reset & 8) { result = float4(neural_rgb,input.a); exposure_scale = 1; }
@@ -594,116 +598,8 @@ cbuffer Params : register(b0) {
                     step(0.0031308, encoded_rgb));
     destination[pixel.xy] = float4(s, 1.0);
 })";
-inline constexpr const char* bridge_common = R"(
-// Reversible BT.709 gamut and magnitude compression. Recompute the
-// inverse scale from the same original pixel to preserve scene exposure.
+inline constexpr const char* bridge_common = phoenix_pipeline::hdr_bridge_shader;
 
-float SanitizeFinite(float value, float fallback) {
-    return ((asuint(value) & 0x7F800000u) == 0x7F800000u) ? fallback : value;
-}
-float3 SanitizeFinite3(float3 value, float3 fallback) {
-    return float3(SanitizeFinite(value.x, fallback.x), SanitizeFinite(value.y, fallback.y),
-                  SanitizeFinite(value.z, fallback.z));
-}
-float SafeDivide(float numerator, float denominator, float fallback) {
-    return abs(denominator) > 1e-8 ? numerator / denominator : fallback;
-}
-float3 BT709ToLMS(float3 color) {
-    const float3x3 transform_matrix = {0.30569589, 0.62271286, 0.04528636, 0.15776262, 0.76968599,
-                                       0.08807030, 0.01933082, 0.11919478, 0.95053215};
-    return mul(transform_matrix, color);
-}
-float3 LMSToBT709(float3 color) {
-    const float3x3 transform_matrix = {5.62059812,  -4.57145756, 0.15577924,
-                                       -1.15555585, 2.25800438,  -0.15415806,
-                                       0.03059913,  -0.19018011, 1.06820532};
-    return mul(transform_matrix, color);
-}
-float LuminanceBT709(float3 color) {
-    return dot(color, float3(.21263901, .71516868, .07219232));
-}
-float3 D65NeutralBT709(float3 lms, float luminance) {
-    float3 d65 = LMSToBT709(max(lms, 1e-8));
-    return d65 * (luminance / max(LuminanceBT709(d65), 1e-8));
-}
-float GamutScaleBT709(float3 source_rgb, float3 lms) {
-    float3 color = SanitizeFinite3(source_rgb, 0.0);
-    float luminance = LuminanceBT709(color);
-    float gamut_scale = 1.0;
-    if (luminance > 1e-8) {
-        float3 neutral_rgb = D65NeutralBT709(lms, luminance);
-        if (color.r < 0.0 && neutral_rgb.r > color.r)
-            gamut_scale = min(gamut_scale, SafeDivide(neutral_rgb.r, neutral_rgb.r - color.r, 1.0));
-        if (color.g < 0.0 && neutral_rgb.g > color.g)
-            gamut_scale = min(gamut_scale, SafeDivide(neutral_rgb.g, neutral_rgb.g - color.g, 1.0));
-        if (color.b < 0.0 && neutral_rgb.b > color.b)
-            gamut_scale = min(gamut_scale, SafeDivide(neutral_rgb.b, neutral_rgb.b - color.b, 1.0));
-        gamut_scale = saturate(SanitizeFinite(gamut_scale, 1.0));
-    }
-    return gamut_scale;
-}
-float3 GamutCompressBT709(float3 source_rgb, float3 lms, float gamut_scale) {
-    float3 color = SanitizeFinite3(source_rgb, 0.0);
-    float luminance = LuminanceBT709(color);
-    float3 outc = color;
-    if (luminance > 1e-8) {
-        float3 neutral_rgb = D65NeutralBT709(lms, luminance);
-        outc = SanitizeFinite3(neutral_rgb + (color - neutral_rgb) * saturate(gamut_scale),
-                               max(neutral_rgb, 0.0));
-    }
-    return outc;
-}
-float3 GamutDecompressBT709(float3 source_rgb, float3 lms, float gamut_scale) {
-    float3 color = SanitizeFinite3(source_rgb, 0.0);
-    float luminance = LuminanceBT709(color);
-    float3 outc = color;
-    if (luminance > 1e-8) {
-        float3 neutral_rgb = D65NeutralBT709(lms, luminance);
-        float safe_scale = max(gamut_scale, 1e-6);
-        outc = SanitizeFinite3(neutral_rgb + (color - neutral_rgb) / safe_scale, color);
-    }
-    return outc;
-}
-float Neutwo(float magnitude) {
-    return magnitude * rsqrt(magnitude * magnitude + 1.0);
-}
-float NeutwoScale(float3 color) {
-    float maximum_channel = max(max(abs(color.r), abs(color.g)), abs(color.b));
-    float outv = 1.0;
-    if (maximum_channel > 1e-8)
-        outv = SanitizeFinite(Neutwo(maximum_channel) / maximum_channel, 1.0);
-    return outv;
-}
-float SrgbEncodeSafe(float value) {
-    value = saturate(SanitizeFinite(value, 0.0));
-    return value <= 0.0031308 ? value * 12.92 : 1.055 * pow(value, 1.0 / 2.4) - 0.055;
-}
-float3 SrgbEncodeSafe3(float3 color) {
-    return float3(SrgbEncodeSafe(color.r), SrgbEncodeSafe(color.g), SrgbEncodeSafe(color.b));
-}
-float SrgbDecodeSafe(float value) {
-    value = saturate(SanitizeFinite(value, 0.0));
-    return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4);
-}
-float3 SrgbDecodeSafe3(float3 color) {
-    return float3(SrgbDecodeSafe(color.r), SrgbDecodeSafe(color.g), SrgbDecodeSafe(color.b));
-}
-float3 ReferenceEncode(float3 original) {
-    float3 src = SanitizeFinite3(original, 0.0);
-    float3 lms = BT709ToLMS(float3(.18, .18, .18));
-    float gamut_scale = GamutScaleBT709(src, lms);
-    float3 comp = GamutCompressBT709(src, lms, gamut_scale);
-    return SrgbEncodeSafe3(max(comp * NeutwoScale(comp), 0.0));
-}
-float3 ReferenceDecode(float3 original, float3 neural) {
-    float3 lms = BT709ToLMS(float3(.18, .18, .18));
-    float gamut_scale = GamutScaleBT709(original, lms);
-    float magnitude_scale = NeutwoScale(GamutCompressBT709(original, lms, gamut_scale));
-    float3 graded = SrgbDecodeSafe3(neural);
-    return GamutDecompressBT709((abs(magnitude_scale) > 1e-8) ? graded / magnitude_scale : graded,
-                                lms, gamut_scale);
-}
-)";
 inline constexpr const char* encode_linear_shader = R"(
 Texture2D<float4> scene : register(t0);
 RWTexture2D<float4> destination : register(u0);
@@ -729,7 +625,7 @@ cbuffer Params : register(b0) {
     float3 neural_input_linear = max(compressed_rgb * magnitude_scale, 0.0);
     destination[pixel.xy] = float4(SrgbEncodeSafe3(neural_input_linear), 1.0);
 })";
-inline constexpr const char* resolve_shader = R"(
+inline constexpr const char* resolve_shader = PHOENIX_COMPARISON_VIEW_HLSL R"(
 Texture2D<float4> original : register(t0);
 Texture2D<float4> proxy : register(t1);
 Texture2D<float4> model : register(t2);
@@ -757,8 +653,9 @@ float3 SrgbToLinear(float3 encoded_rgb) {
                     : (mode == 2 && (((resolve & 1) && leftSide) || ((resolve & 2) && !leftSide)));
     if (!selected_nvidia)
         return;
-    float4 original_pixel = original.Load(int3(pixel.xy, 0));
-    float4 proxy_pixel = proxy.Load(int3(pixel.xy, 0));
+    uint2 view_pixel=mode==2?ComparisonPoint(pixel.xy,width,height,reset):pixel.xy;
+    float4 original_pixel = original.Load(int3(view_pixel, 0));
+    float4 proxy_pixel = proxy.Load(int3(view_pixel, 0));
     // Resolve flag 0x4 selects the reversible gamut/Neutwo bridge. Both
     // proxy paths carry sRGB, with opaque alpha. The inverse recomputes its
     // scale from the original; no metadata travels through model alpha.
@@ -773,7 +670,7 @@ float3 SrgbToLinear(float3 encoded_rgb) {
         float gamut_scale = GamutScaleBT709(original_pixel.rgb, lms);
         float magnitude_scale =
             NeutwoScale(GamutCompressBT709(original_pixel.rgb, lms, gamut_scale));
-        float3 graded = SrgbDecodeSafe3(model.Load(int3(pixel.xy, 0)).rgb);
+        float3 graded = SrgbDecodeSafe3(model.Load(int3(view_pixel, 0)).rgb);
         float3 unscaled = (abs(magnitude_scale) > 1e-8) ? graded / magnitude_scale : graded;
         float3 recon = GamutDecompressBT709(unscaled, lms, gamut_scale);
         destination[pixel.xy] = float4(recon, original_pixel.a);
@@ -782,7 +679,7 @@ float3 SrgbToLinear(float3 encoded_rgb) {
     float3 proxy_linear = SrgbToLinear(proxy_pixel.rgb);
     // The DLL always runs its SDR pipeline (Hdr=0, like the reference
     // host's untouched defaults), so its output is sRGB-encoded: decode it.
-    float3 neural_linear = SrgbToLinear(model.Load(int3(pixel.xy, 0)).rgb);
+    float3 neural_linear = SrgbToLinear(model.Load(int3(view_pixel, 0)).rgb);
     float edit_strength = 1.0;
     // Classic transfer at fixed paper white 1.0: the normalized edit lands on
     // the linear original, held near the model's verdict by a two-sided
@@ -907,6 +804,9 @@ class Runner {
     unsigned passes_ = 1;
     std::unique_ptr<phoenix_native::Network> network_;
     std::vector<std::unique_ptr<phoenix_native::Network>> refinement_;
+    std::unique_ptr<phoenix_pipeline::RecordedChain> chain_;
+    ComPtr<ID3D12Resource> chain_output_,chain_decoded_;
+    std::unique_ptr<Pass> chain_write_,chain_decode_;
     std::array<int, 8> block_repeats_{{1, 1, 1, 1, 1, 1, 1, 1}};
     Pass meter_, normalize_, write_, encode_, resolve_, encode_lin_;
     // Independent immutable descriptor pairs for native pre/post processing.
@@ -932,6 +832,8 @@ class Runner {
     Resolution geometry_;
     std::unique_ptr<ResolutionBridge> resolution_bridge_;
     std::unique_ptr<TemporalUpscaler> upscaler_;
+    phoenix_pipeline::Options additional_pipeline_;
+    std::string additional_library_path_;
     ComPtr<ID3D12Resource> upscale_depth_;
     Controls upscale_controls_;
     int upscaler_method_ = 0;
@@ -946,6 +848,7 @@ class Runner {
     ID3D12GraphicsCommandList* claimed_ = nullptr;
     bool failed_ = false, initialized_ = false, srgb_ = false;
     bool network_recorded_ = false;
+    unsigned comparison_view_=0;
 
     ComPtr<ID3D12Resource> tracked_image(ID3D12Device* device, unsigned width, unsigned height,
                                          DXGI_FORMAT format, D3D12_RESOURCE_STATES state,
@@ -1032,14 +935,15 @@ class Runner {
 
   public:
     Runner(ID3D12Device* device, ID3D12CommandQueue* queue, const Json& plan,
-           const std::vector<uint8_t>& weights, const std::vector<phoenix_kernel::Binary>& kernels,
+           const phoenix_model::WeightView& weights, const std::vector<phoenix_kernel::Binary>& kernels,
            DXGI_FORMAT format, DXGI_FORMAT motion_format, bool srgb = false, unsigned passes = 1,
            std::array<int, 8> repeats = {{1, 1, 1, 1, 1, 1, 1, 1}},
            std::unique_ptr<NeuralExecutor> executor = {},
            const Settings* execution_settings = nullptr,
            std::shared_ptr<phoenix_native::memory::Generation> accounting = {},
            bool allow_gpu_upload = true, unsigned output_width = 0, unsigned output_height = 0,
-           std::filesystem::path upscaler_directory = {}, bool resize_motion = false)
+           std::filesystem::path upscaler_directory = {}, bool resize_motion = false,
+           phoenix_pipeline::RecordedChain::Plan chain_plan = {})
         : allocation_lifetime_{accounting}, device_(device), queue_(queue),
           external_(std::move(executor)), meter_(device, meter_shader, accounting),
           normalize_(device, (std::string(bridge_common) + normalize_shader).c_str(), accounting),
@@ -1059,6 +963,8 @@ class Runner {
         geometry_ = fit_resolution(output_width ? output_width : width_,
                                    output_height ? output_height : height_, width_, height_);
         if (execution_settings) {
+            additional_pipeline_=execution_settings->pipeline;
+            additional_library_path_=execution_settings->model_library_directory;
             processing_ = execution_settings->processing;
             if(processing_.enabled) {geometry_.image_width=width_;geometry_.image_height=height_;geometry_.left=geometry_.top=0;}
             upscaler_method_ = execution_settings->upscaler;
@@ -1068,9 +974,20 @@ class Runner {
             resolution_ratio_width_ = execution_settings->resolution_ratio_width;
             resolution_ratio_height_ = execution_settings->resolution_ratio_height;
         }
-        if (geometry_.scaled() || resize_motion)
+        const bool default_chain=phoenix_pipeline::default_chain(additional_pipeline_,width_,height_,geometry_.output_width,geometry_.output_height);
+        const bool recorded_chain=additional_pipeline_.chain_enabled&&!default_chain&&!external_&&!bridge_only_;
+        if(!default_chain&&external_){
+            check(width_==geometry_.output_width&&height_==geometry_.output_height,
+                "Portable custom chains currently require equal processing and output extents");
+            check(additional_pipeline_.scaler==0&&additional_pipeline_.priority==0,
+                "Portable custom chains currently require the existing scaler and fixed pipeline quality");
+        }
+        const bool additional=additional_pipeline_.chain_enabled&&additional_pipeline_.enabled[unsigned(phoenix_pipeline::Stage::Scale)]&&additional_pipeline_.scaler!=0;
+        check(!additional||!upscaler_method_,"Select one reconstruction provider; disable DLSS SR/XeSS before selecting NIS/tiny");
+        if (geometry_.scaled() || resize_motion || additional)
             resolution_bridge_ =
                 std::make_unique<ResolutionBridge>(device, geometry_, format, accounting, processing_, srgb);
+        if(additional&&!recorded_chain)resolution_bridge_->additional_scaler(additional_pipeline_,std::filesystem::u8path(additional_library_path_));
         check(!processing_.enabled || !upscaler_method_, "Explicit processing uses the selected spatial reconstruction filter; select Spatial upscaling");
         if (processing_.enabled) {
             processing_encode_ = std::make_unique<Pass>(device, processing_shader, accounting, 32);
@@ -1155,7 +1072,7 @@ class Runner {
                 accounting->constructed = true;
             return;
         }
-        appearance_=std::make_unique<AppearanceStage>(device,width_,height_,accounting);
+        appearance_=std::make_unique<AppearanceStage>(device,recorded_chain?geometry_.output_width:width_,recorded_chain?geometry_.output_height:height_,accounting);
         if (external_) {
             external_->account(accounting);
             check(execution_settings && execution_settings->execution_device != "native",
@@ -1169,6 +1086,26 @@ class Runner {
                 std::make_unique<GuideAdapter>(device, width_, height_, accounting, geometry_);
             if (accounting)
                 accounting->constructed = true;
+            return;
+        }
+        if(recorded_chain){
+            check(bool(chain_plan),"Processing chain needs a geometry-aware native bundle");
+            check(!upscaler_method_,"Select the chain scaling provider before enabling the chain");
+            check(!geometry_.scaled()||execution_settings->mode==ours,"Full-size chain comparisons require the Phoenix route");
+            auto tiny=phoenix_pipeline::find_tiny_model(std::filesystem::u8path(additional_library_path_));
+            chain_=std::make_unique<phoenix_pipeline::RecordedChain>(device,width_,height_,geometry_.output_width,geometry_.output_height,
+                additional_pipeline_,passes,[&](unsigned w,unsigned h){
+                    return std::make_unique<phoenix_pipeline::RecordedNativeStage>(device,w,h,chain_plan(w,h),weights,kernels,repeats,accounting);
+                },tiny?*tiny:std::filesystem::path{},accounting);
+            if(geometry_.scaled()){
+                chain_output_=tracked_image(device,geometry_.output_width,geometry_.output_height,format,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                chain_write_=std::make_unique<Pass>(device,(std::string(bridge_common)+output_shader).c_str(),accounting,8);
+                if(processing_.enabled){
+                    chain_decoded_=tracked_image(device,geometry_.output_width,geometry_.output_height,format,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    chain_decode_=std::make_unique<Pass>(device,processing_shader,accounting,8);
+                }
+            }
+            if(accounting)accounting->constructed=true;
             return;
         }
         dispatch_ = std::make_unique<FrameDispatch>();
@@ -1202,6 +1139,7 @@ class Runner {
     Json execution_status() const {
         auto result = external_ ? external_->status() : Json{{"kind", "native"}};
         result["metered_exposure_scale"] = exposure_stability_.last;
+        if(chain_)result["processing_chain"]=chain_->status();
         if (resolution_bridge_)
             result["resolution_bridge"] = resolution_bridge_->status();
         return result;
@@ -1210,6 +1148,15 @@ class Runner {
         return !guides_ || guides_->matches(depth);
     }
     bool architecture_matches(const Settings& settings) const {
+        if(additional_pipeline_.order!=settings.pipeline.order||additional_pipeline_.enabled!=settings.pipeline.enabled||
+           additional_pipeline_.fusion!=settings.pipeline.fusion||additional_pipeline_.fusion_layers!=settings.pipeline.fusion_layers||
+           additional_pipeline_.fusion_second_scale!=settings.pipeline.fusion_second_scale||additional_pipeline_.fusion_third_scale!=settings.pipeline.fusion_third_scale||
+           additional_pipeline_.color_brightness!=settings.pipeline.color_brightness||additional_pipeline_.color_contrast!=settings.pipeline.color_contrast||
+           additional_pipeline_.color_saturation!=settings.pipeline.color_saturation||additional_pipeline_.color_gamma!=settings.pipeline.color_gamma)return false;
+        if(additional_pipeline_.chain_enabled!=settings.pipeline.chain_enabled ||
+            additional_pipeline_.enabled[unsigned(phoenix_pipeline::Stage::Scale)]!=settings.pipeline.enabled[unsigned(phoenix_pipeline::Stage::Scale)] ||
+            additional_pipeline_.scaler!=settings.pipeline.scaler || additional_pipeline_.sharpness!=settings.pipeline.sharpness ||
+            additional_library_path_!=settings.model_library_directory)return false;
         if (processing_ != settings.processing || bridge_only_ != (settings.mode == nvidia) || upscaler_method_ != settings.upscaler ||
             resolution_mode_ != settings.resolution_mode ||
             resolution_quality_ != settings.resolution_quality ||
@@ -1302,6 +1249,8 @@ class Runner {
     void present(ID3D12GraphicsCommandList* cmd, ID3D12Resource* low, ID3D12Resource* game,
                  D3D12_RESOURCE_STATES state) {
         if (resolution_bridge_) {
+            resolution_bridge_->begin_frame(completed(),submitted_+1);
+            if(resolution_bridge_->present_additional(cmd,low,game,state))return;
             ID3D12Resource* reconstructed = nullptr;
             if (upscaler_) {
                 phoenix_native::transition(cmd, low, D3D12_RESOURCE_STATE_COPY_SOURCE,
@@ -1440,6 +1389,7 @@ class Runner {
             native_result = processing_decode(cmd, nvidia_output, true);
             constants.reset = 8;
         }
+        if(sides)constants.reset|=comparison_view_;
         (sides ? native_write_ : native_fullscreen_)
             .record(cmd, {input_.Get(), native_result, native_exposure_[native_slot_].Get()},
                     output, constants, false, native_slot_);
@@ -1723,7 +1673,7 @@ class Runner {
         return true;
     }
     uint64_t launches() const {
-        return dispatch_ ? dispatch_->launches() : 0;
+        return chain_?chain_->launches():(dispatch_ ? dispatch_->launches() : 0);
     }
     bool pending(ID3D12GraphicsCommandList* cmd) const {
         return pending_ == cmd;
@@ -1752,10 +1702,11 @@ class Runner {
         host_jy_ = jitter_y * geometry_.motion_y();
     }
     unsigned group_count() const {
-        return network_ ? unsigned(network_->group_ends().size()) : 0;
+        return chain_?8:(network_ ? unsigned(network_->group_ends().size()) : 0);
     }
     void invalidate() {
         failed_ = true;
+        if(chain_)chain_->invalidate();
         if (external_)
             external_->invalidate();
         if (network_)
@@ -1794,7 +1745,8 @@ class Runner {
                 leases_.push_back({submitted_ + 1, std::move(engine_output_),
                                    std::move(engine_motion_), std::move(engine_depth_),std::move(engine_optional_)});
                 if (network_recorded_) {
-                    network_->commit_any_thread(pending_);
+                    if(chain_)chain_->commit(pending_);
+                    if(network_)network_->commit_any_thread(pending_);
                     for (auto& refinement_runner : refinement_)
                         refinement_runner->commit_any_thread(pending_);
                 }
@@ -1832,14 +1784,18 @@ class Runner {
         }
         check(color != motion, "Direct aliased inputs");
         controls.reset = controls.reset || !submitted_;
+        comparison_view_=phoenix_pipeline::comparison_view_bits(settings.pipeline);
         const AppearanceTextures textures=developer?*developer:AppearanceTextures{};
+        check(!chain_||(!textures.mask&&!textures.ui&&!textures.alpha&&!textures.backbuffer&&!textures.field),
+            "Optional developer planes need a dedicated chain stage; disable the processing chain for these planes");
+        check(!chain_output_||!cap_left_,"Full-size processing-chain captures use the screenshot receipt path");
         const bool appearance=AppearanceStage::requested(controls,textures);
         const char* keys[]={"DLSSNR.ControlMask","DLSSNR.UI","DLSSNR.UIAlpha","DLSSNR.Backbuffer","DLSSNR.BidirectionalDistortionField"};
         ID3D12Resource* resources[]={textures.mask,textures.ui,textures.alpha,textures.backbuffer,textures.field};
         const DXGI_FORMAT formats[]={DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32_FLOAT,DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT};
         if(appearance) {
             check(appearance_&&evidence.experimental_appearance_contract,"Developer appearance contract not enabled for this route");
-            check(!geometry_.scaled(),"Developer planes currently require equal render/network/output extents");
+            check(!geometry_.scaled()||(chain_&&!textures.mask&&!textures.ui&&!textures.alpha&&!textures.backbuffer&&!textures.field),"Developer planes currently require equal render/network/output extents");
             check(!(textures.ui&&textures.alpha),"Supply UI or UIAlpha");
             check(std::isfinite(controls.intensity)&&controls.intensity>=0&&controls.intensity<=2&&controls.style>=0&&controls.style<=2,"Invalid developer appearance controls");
             for(unsigned i=0;i<5;++i)if(resources[i]) {
@@ -1900,6 +1856,7 @@ class Runner {
                                 settings.divider,
                                 settings.difference_gain,
                                 wipe.resolve};
+            constants.reset|=phoenix_pipeline::comparison_view_bits(settings.pipeline);
             auto* exposure_texture = exposure_[submitted_ % 2].Get();
             auto* previous = exposure_[(submitted_ + 1) % 2].Get();
             phoenix_native::transition(cmd, exposure_texture,
@@ -1987,7 +1944,8 @@ class Runner {
                 // Offloaded inference returns an ungraded, original-domain
                 // prediction; fresh display maps/UI are applied only here.
                 auto display_textures=textures;if(external_)display_textures.field=nullptr;
-                appearance_->prepare(cmd,network_input_.Get(),external_?nullptr:motion_.Get(),display_textures,controls,appearance_slot);
+                auto* appearance_input=chain_?chain_->resample(cmd,"appearance/input",network_input_.Get(),geometry_.output_width,geometry_.output_height):network_input_.Get();
+                appearance_->prepare(cmd,appearance_input,external_||chain_?nullptr:motion_.Get(),display_textures,controls,appearance_slot);
             } else if(appearance_)appearance_->absent();
             capture_lineage(cmd, 3, network_input_.Get(),
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -2013,6 +1971,8 @@ class Runner {
                 frame.locked_input_token = locked_capture_token;
                 frame.appearance=textures;frame.appearance_generation=appearance_generation;
                 result = external_->record(frame);
+            } else if(chain_){
+                result=chain_->record(cmd,network_input_.Get(),motion_.Get(),controls,blocks,queue_.Get(),submitted_);
             } else
                 for (unsigned pass = 0; pass < passes(); ++pass) {
                     if (pass)
@@ -2029,7 +1989,7 @@ class Runner {
                 network_recorded_ = true;
             if (!external_ && network_timing_end)
                 network_timing_end();
-            if (!external_)
+            if (!external_&&!chain_output_)
                 capture_lineage(cmd, 2, result, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             if(appearance) {
                 auto display_textures=textures;if(external_)display_textures.field=nullptr;
@@ -2037,9 +1997,29 @@ class Runner {
                 appearance_->remember_mode(textures,appearance_generation);
                 for(unsigned i=0;i<5;++i)if(resources[i])phoenix_native::transition(cmd,resources[i],D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,evidence.optional_states.at(keys[i]));
             }
+            if(chain_output_){
+                const auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                phoenix_native::transition(cmd,color,evidence.color_state,read);
+                if(processing_.enabled){
+                    auto full=geometry_;full.width=full.image_width=full.output_width;full.height=full.image_height=full.output_height;full.left=full.top=0;
+                    phoenix_native::transition(cmd,chain_decoded_.Get(),read,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    chain_decode_->record(cmd,{result,color,nullptr},chain_decoded_.Get(),processing_constants(frame_processing(),full,1,false,processing_host_white_,processing_host_exposure_),false,unsigned(submitted_%8));
+                    phoenix_native::transition(cmd,chain_decoded_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,read);
+                    result=chain_decoded_.Get();constants.reset=8|phoenix_pipeline::comparison_view_bits(settings.pipeline);
+                }
+                constants.width=geometry_.output_width;constants.height=geometry_.output_height;
+                phoenix_native::transition(cmd,chain_output_.Get(),read,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                chain_write_->record(cmd,{color,result,exposure_texture},chain_output_.Get(),constants,false,unsigned(submitted_%8));
+                phoenix_native::transition(cmd,chain_output_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
+                phoenix_native::transition(cmd,color,read,D3D12_RESOURCE_STATE_COPY_DEST);
+                cmd->CopyResource(color,chain_output_.Get());
+                phoenix_native::transition(cmd,color,D3D12_RESOURCE_STATE_COPY_DEST,evidence.color_state);
+                phoenix_native::transition(cmd,chain_output_.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,read);
+                evidence.restore_bindings(evidence.restore_context,cmd);initialized_=true;return;
+            }
             if (processing_.enabled) {
                 result = processing_decode(cmd, result, false);
-                constants.reset = 8;
+                constants.reset = 8|phoenix_pipeline::comparison_view_bits(settings.pipeline);
             }
             if (initialized_)
                 phoenix_native::transition(cmd, output_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,

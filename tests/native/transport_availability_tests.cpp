@@ -36,7 +36,7 @@ int main() {
     rejected([&] { transport_runtime_path(addon, "C:relative", "unused"); });
     write(system / "ntdll.dll", "Synthetic Windows profile");
     write(system / "DriverStore/FileRepository/synthetic-driver/nvcuda64.dll", "Synthetic driver profile");
-    nlohmann::json profile{{"schema", "phoenix-wow64-bootstrap/2"}, {"files", nlohmann::json::object()},
+    nlohmann::json profile{{"schema", "phoenix-wow64-bootstrap/3"}, {"files", nlohmann::json::object()},
         {"driver_directory", "synthetic-driver"}, {"ntdll_sha256", phoenix_embedded::file_digest(system / "ntdll.dll")},
         {"cuda_sha256", phoenix_embedded::file_digest(system / "DriverStore/FileRepository/synthetic-driver/nvcuda64.dll")}};
     for (const char* name : {"wow64ext.dll", "phoenix_bootstrap64.dll", "phoenix_driver64.dll", "phoenix-nvngx.dll", "phoenix_native.dll"}) {
@@ -46,6 +46,9 @@ int main() {
     write(native / "native/native_manifest.json", "{}");
     auto save = [&] { write(native / "bootstrap.json", profile.dump()); };
     save(); inspect_native_transport(native, system); verify(true);
+    profile["schema"]="phoenix-wow64-bootstrap/2";save();
+    rejected([&] { inspect_native_transport(native, system); });
+    profile["schema"]="phoenix-wow64-bootstrap/3";save();
     write(native / "phoenix_native.dll", "Tampered member");
     rejected([&] { inspect_native_transport(native, system); });
     dll(native / "phoenix_native.dll", 64);

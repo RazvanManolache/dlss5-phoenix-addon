@@ -4,6 +4,7 @@
 #include "device_selection.h"
 #include "resolution.h"
 #include "processing.h"
+#include "../../pipeline/options.h"
 #include "../model/registry.h"
 #include <variant>
 #include <array>
@@ -53,6 +54,7 @@ struct Settings {
     std::string model_library_directory; // Explicit shared native-model index root.
     PhoenixLiveControls controls;
     Processing processing;
+    phoenix_pipeline::Options pipeline;
     int nvidia_model = -1; // Match Phoenix, DLL default, Original, Lightweight FP8.
     bool native_options = false;
     float intensity = 1, divider = 2.f / 3.f;
@@ -119,7 +121,7 @@ struct Settings {
         for (int repeat_count : block_repeats)
             if (repeat_count < 0 || repeat_count > 4)
                 return false;
-        return processing.valid() && nvidia_model >= -1 && nvidia_model <= 2 && upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
+        return pipeline.valid() && processing.valid() && nvidia_model >= -1 && nvidia_model <= 2 && upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
                controls.valid() && resolution_mode >= 0 && resolution_mode <= 1 &&
                resolution_quality >= 0 && resolution_quality <= 2 && resolution_aspect >= 0 &&
                resolution_aspect <= 5 && resolution_ratio_width >= 1 &&
@@ -172,7 +174,8 @@ inline bool copy_live_selection(Settings& target, const Settings& source) {
                         value.divider, value.difference_gain,
                         value.comparison_labels, value.comparison_lines);
     };
-    const bool changed = fields(target) != fields(source);
+    const bool view_changed=phoenix_pipeline::copy_comparison(target.pipeline,source.pipeline);
+    const bool changed = view_changed||fields(target) != fields(source);
     fields(target) = fields(source);
     return changed;
 }
@@ -216,6 +219,7 @@ inline bool copy_live_tuning(Settings& target, const Settings& source) {
     return changed;
 }
 template <class Visitor> void visit_settings(Settings& settings, Visitor visit) {
+    phoenix_pipeline::visit_options(settings.pipeline, visit);
     visit_processing(settings.processing, visit);
     visit("NvidiaModel", settings.nvidia_model);
     visit("ModelSource", settings.model_source);

@@ -8,6 +8,10 @@ inline const char* native_settings_unavailable_reason(const Settings& settings, 
         return "Native x86 mechanisms require the Native RTX executor; use portable or helper processing for another executor.";
     if (settings.resolution_mode != 0 || settings.host_unjitter || settings.automatic_budget)
         return "Experimental in-process x86 requires normal resolution, no unjitter and fixed budget; use the helper for these options.";
+    if(settings.pipeline.chain_enabled)
+        return "The experimental x86 native bridges do not execute custom processing chains; use the x64 addon, portable or helper route.";
+    if(settings.pipeline.motion_enabled||settings.pipeline.scene_detection||settings.pipeline.monitoring)
+        return "Motion estimation, scene detection and pipeline monitoring require the local final-frame D3D12 bridge.";
     if(driver_host) {
         if (settings.model_id == "small-fp8")
             return "The experimental x86 driver host uses the Original launch ABI; select the x64-library or helper route for Lightweight FP8.";

@@ -16,9 +16,15 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-gpu',action='store_true',required=True)
     parser.add_argument('--x86-proxy',type=Path,help='Optional existing x86 ReShade DXGI proxy for the DLL-search regression')
+    parser.add_argument('--runtime',type=Path,help='Locally built runtime matching the current build receipt')
+    parser.add_argument('--weight-source',type=Path,help='External model-source configuration (no model is copied)')
+    parser.add_argument('--opengl',action='store_true',help='Keep an NVIDIA x86 OpenGL context rendering through native worker retirement')
     args=parser.parse_args()
     current=ROOT/'artifacts/current'
-    runtime=current/'addon-portable-candidate/PhoenixRuntime/wow64'
+    runtime=(args.runtime or current/'addon-portable-candidate/PhoenixRuntime/wow64').resolve()
+    # The client runs from disposable staging, so caller-relative inputs must be
+    # resolved before changing its working directory.
+    weight_source=(args.weight_source or current/'weight-source.json').resolve()
     vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
     studio=subprocess.check_output([str(vswhere),'-latest','-products','*','-requires',
         'Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip()
@@ -38,7 +44,7 @@ def main():
             recipe.write_text('\n'.join(['@echo off',f'call "{studio}/VC/Auxiliary/Build/vcvars32.bat" >nul 2>&1',
                 'if errorlevel 1 exit /b %errorlevel%',
                 f'cl /nologo /std:c++20 /O2 /EHsc /MT /bigobj /DNOMINMAX "{ROOT}/tests/native/wow64_addon_runtime_probe.cpp" /Fe:client.exe /link '
-                'kernel32.lib user32.lib gdi32.lib bcrypt.lib d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib '
+                'kernel32.lib user32.lib gdi32.lib opengl32.lib bcrypt.lib d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib '
                 '/LARGEADDRESSAWARE /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup',
                 'exit /b %errorlevel%']))
             built=subprocess.run(['cmd','/d','/c',str(recipe)],cwd=build,capture_output=True,text=True,timeout=180)
@@ -49,8 +55,8 @@ def main():
                 if struct.unpack_from('<H',data,offset+4)[0]!=0x14c: raise ValueError('Expected an x86 proxy')
                 report['x86_dxgi_proxy_sha256']=hashlib.sha256(data).hexdigest()
                 shutil.copy2(args.x86_proxy,build/'dxgi.dll')
-            run=subprocess.run([str(build/'client.exe'),str(runtime),str(current/'weight-source.json')],
-                cwd=build,capture_output=True,text=True,timeout=120)
+            run=subprocess.run([str(build/'client.exe'),str(runtime),str(weight_source),
+                *(['--opengl'] if args.opengl else [])],cwd=build,capture_output=True,text=True,timeout=240)
             report['returncode']=run.returncode
             report['output']=(run.stdout+run.stderr)[-12000:]
             if run.returncode: raise RuntimeError(report['output'] or f'Client exited {run.returncode}')

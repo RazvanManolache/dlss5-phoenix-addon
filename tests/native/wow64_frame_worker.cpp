@@ -155,7 +155,7 @@ extern "C" __declspec(dllexport) int PhoenixPortableFrameProbe64(const wchar_t* 
             SetEnvironmentVariableW(L"VK_DRIVER_FILES", icd.c_str());
             SetEnvironmentVariableW(L"VK_ICD_FILENAMES", icd.c_str());
             SetEnvironmentVariableW(L"VK_LOADER_LAYERS_DISABLE", L"~implicit~");
-            if (wow64_umd_probe::gdi && !wow64_umd_probe::gdi_export && !wow64_umd_probe::install_gdi_export())
+            if (wow64_umd_probe::gdi && !wow64_umd_probe::gdi_export_patch.slot && !wow64_umd_probe::install_gdi_export())
                 throw std::runtime_error("Native GDI export bridge unavailable");
         }
         phoenix_cpp::RuntimeApi runtime;

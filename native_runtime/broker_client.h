@@ -31,8 +31,13 @@ class BrokerClient {
     ~BrokerClient() {
         if (stop.value)
             SetEvent(stop);
-        if (job.value)
-            TerminateJobObject(job, 0);
+        // Idle workers can release backend contexts normally. Terminating a job
+        // is asynchronous: wait for process exit before its owner unloads DLLs
+        // or removes an extracted package containing those mapped libraries.
+        if (process.value && WaitForSingleObject(process, 5000) == WAIT_TIMEOUT) {
+            if (job.value) TerminateJobObject(job, 0);
+            WaitForSingleObject(process, 5000);
+        }
         if (header)
             UnmapViewOfFile(header);
     }
@@ -154,6 +159,12 @@ class NativeSession {
     std::string error_text;
     HANDLE cancellation = nullptr;
     unsigned width_ = 0, height_ = 0;
+    unsigned pipeline_contract_=0;
+    bool accepts_pipeline(const std::string& metadata){
+        if(pipeline_contract_>=1)return true;
+        if(!nlohmann::json::parse(metadata).contains("pipeline"))return true;
+        error_text="Update the portable runtime before using custom processing chains";return false;
+    }
 
   public:
     void set_cancellation(HANDLE handle) {
@@ -173,9 +184,11 @@ class NativeSession {
             local.open(root, config.dump(), width, height);
         else
             throw std::runtime_error("Unknown native execution mode");
+        pipeline_contract_=nlohmann::json::parse(status_json()).value("portable_pipeline_contract",0u);
     }
     int frame(const float* color, const float* motion, const float* depth, const float* validity,
               const std::string& metadata, float* output) {
+        if(!accepts_pipeline(metadata))return -1;
         int result = broker ? broker->frame(color, motion, depth, validity, metadata, output)
                             : local.frame(local.instance, color, motion, depth, validity,
                                           metadata.c_str(), output);
@@ -189,6 +202,7 @@ class NativeSession {
               const float* backbuffer = nullptr, const float* distortion = nullptr) {
         if (!mask && !ui && !alpha && !backbuffer && !distortion)
             return frame(color, motion, depth, validity, metadata, output);
+        if(!accepts_pipeline(metadata))return -1;
         int result = -1;
         if (broker) result = broker->frame(color, motion, depth, validity, metadata, output,
             mask, ui, alpha, backbuffer, distortion);

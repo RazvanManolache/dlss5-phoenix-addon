@@ -4,6 +4,7 @@
 #include "async_shader.h"
 #include "worker_client.h"
 #include "../../diagnostics/composition_probe.h"
+#include "../../pipeline/recipe.h"
 
 namespace phoenix_addon::phoenix::portable {
 // Bounded GPU -> worker -> GPU execution. The caller must submit command lists
@@ -186,6 +187,8 @@ cbuffer Params:register(b0){uint width,height,reset,mode;uint a,b;float divider,
                 repeats[iteration_index] = 0;
             request_body["repeats"] = repeats;
             request_body["passes"] = frame.settings->refinement_passes;
+            if(!phoenix_pipeline::default_chain(frame.settings->pipeline,width_,height_,width_,height_))
+                request_body["pipeline"]=phoenix_pipeline::options_json(phoenix_pipeline::without_comparison(frame.settings->pipeline));
         }
         return request_body;
     }

@@ -37,15 +37,15 @@ inline std::string selected_dll_digest(const std::filesystem::path& path,
         cache.digest.clear();
         cache.error.clear();
         try {
-            const auto digest = phoenix_embedded::file_digest(path);
+            const auto digest = phoenix_model::mapped_file_digest(path);
             if (!phoenix_model::known_model_container(digest))
                 throw std::runtime_error("Unknown NVIDIA DLSS5 DLL container; use a verified edition or a compatible disk-model folder");
             phoenix_model::WeightSource source{path, digest};
             source.model_id = std::string(model.id);
-            phoenix_model::with_dll_resource(source,
-                [](const std::filesystem::path& file) { return phoenix_embedded::file_digest(file); },
-                [&](const uint8_t* data, size_t count) {
-                    const auto identity = phoenix_model::resource_identity(data, count, model);
+            phoenix_model::with_streamed_model_resource(source,
+                [](const std::filesystem::path& file) { return phoenix_model::mapped_file_digest(file); },
+                [&](phoenix_model::ReadOnlyModelFile&, const auto&,
+                    const phoenix_model::ResourceIdentity& identity) {
                     phoenix_model::require_resource_identity(model, identity, model.resource, model.reference_resource_sha256);
                     return 0;
                 });
@@ -119,10 +119,11 @@ struct Result {
     std::string key, message, picked;
 };
 inline size_t selected_record_count(const phoenix_model::WeightSource& source) {
-    return phoenix_model::with_model_resource(source,
-        [](const std::filesystem::path& path) { return phoenix_embedded::file_digest(path); },
-        [&](const uint8_t* data, size_t bytes) {
-            return phoenix_model::resource_records(data, bytes, source.model()).size();
+    return phoenix_model::with_streamed_model_resource(source,
+        [](const std::filesystem::path& path) { return phoenix_model::mapped_file_digest(path); },
+        [&](phoenix_model::ReadOnlyModelFile&, const auto& records,
+            const phoenix_model::ResourceIdentity&) {
+            return records.size();
         });
 }
 class Task {

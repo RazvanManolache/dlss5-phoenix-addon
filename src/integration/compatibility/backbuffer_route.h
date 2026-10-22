@@ -20,6 +20,7 @@ struct BackbufferCapabilities {
     unsigned bits = sizeof(void*) * 8, width = 0, height = 0, samples = 1, layers = 1, levels = 1;
     bool local_api = false, native_executor = true, nvidia_required = false;
     bool native_library_available = false, native_driver_available = false, portable_available = false;
+    bool native_tls_coordinated = false;
     bool discovery_pending = false;
     bool sdr = true, queue_matches = true, protected_resource = false;
     bool software_device = false;
@@ -83,11 +84,8 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
     }
     if(preference==ExecutionPreference::NativeLibrary||preference==ExecutionPreference::NativeDriver) {
         if(caps.bits!=32) return {BackbufferRoute::Unsupported,"WOW64 execution is only available in the x86 addon."};
-        // Both mixed-bitness native routes can crash the 32-bit NVIDIA OpenGL
-        // driver when the renderer is disabled. Keep this unqualified pairing
-        // out of automatic selection and explicit requests.
-        if(caps.api==reshade::api::device_api::opengl)
-            return {BackbufferRoute::Unsupported,"Cross-bitness native execution is unavailable with x86 OpenGL; use a matching portable runtime or the external helper."};
+        if(caps.api==reshade::api::device_api::opengl&&!caps.native_tls_coordinated)
+            return {BackbufferRoute::Unsupported,"Native x86 OpenGL requires the matching TLS-coordinated v3 addon/runtime; use portable execution or the helper with older builds."};
         if (!caps.native_executor)
             return {BackbufferRoute::Unsupported, "Native cross-bitness routes require the Native RTX executor."};
         if (!(preference == ExecutionPreference::NativeLibrary ? caps.native_library_available : caps.native_driver_available))

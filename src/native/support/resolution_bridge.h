@@ -2,6 +2,9 @@
 #include "compute_pass.h"
 #include "resolution.h"
 #include "processing_shader.h"
+#include "../../pipeline/nis.h"
+#include "../../pipeline/options.h"
+#include "../../pipeline/tiny.h"
 
 namespace phoenix_addon::phoenix::direct {
 // Independently authored spatial resampling. This wraps NR inference; it is
@@ -56,6 +59,9 @@ void main(uint3 thread : SV_DispatchThreadID) {
         return;
     }
     if (Operation == 2) {
+        if(Left==0&&Top==0&&ImageWidth==Width&&ImageHeight==Height&&source_width==Width&&source_height==Height){
+            float4 exact=Source.Load(int3(pixel,0));exact.a=original_alpha(pixel);Destination[pixel]=exact;return;
+        }
         // Sample only the active image; padding never bleeds into the output.
         float2 position = float2(Left,Top) + (float2(pixel)+0.5) *
                           float2(ImageWidth,ImageHeight) / float2(Width,Height) - 0.5;
@@ -64,6 +70,9 @@ void main(uint3 thread : SV_DispatchThreadID) {
         result.a = original_alpha(pixel);
         Destination[pixel] = result;
         return;
+    }
+    if(Operation==0&&Left==0&&Top==0&&ImageWidth==Width&&ImageHeight==Height&&source_width==Width&&source_height==Height){
+        Destination[pixel]=Source.Load(int3(pixel,0));return;
     }
     if (pixel.x < Left || pixel.y < Top ||
         pixel.x >= Left+ImageWidth || pixel.y >= Top+ImageHeight) {
@@ -114,6 +123,16 @@ class ResolutionBridge {
     std::vector<Binding> bindings_;
     ComPtr<ID3D12Resource> output_;
     uint64_t completed_ = 0, recording_ = 1;
+    phoenix_pipeline::Options additional_options_;
+    std::filesystem::path additional_library_;
+    std::string additional_status_;
+    ComPtr<ID3D12Resource> additional_image_,tiny_input_;
+    struct ScalerSlot {
+        uint64_t submission=0;
+        std::unique_ptr<phoenix_pipeline::NisScaler> nis;
+        std::unique_ptr<phoenix_pipeline::TinyUpscaler> tiny;
+    };
+    std::vector<ScalerSlot> scaler_slots_;
 
     Pass& pass(std::array<ID3D12Resource*, 4> resources, bool processing = false) {
         for (auto& binding : bindings_) {
@@ -144,6 +163,7 @@ class ResolutionBridge {
                      Processing processing = {}, bool srgb = false)
         : geometry_(geometry), accounting_(accounting),
           pipeline_(device, resolution_shader, accounting), processing_(processing), srgb_(srgb) {
+        additional_device_=device;
         if (processing.enabled) processing_pipeline_ = std::make_unique<Pass>(device, processing_shader, accounting);
         output_ = phoenix_native::image(device, geometry.output_width, geometry.output_height,
                                         format, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -151,6 +171,12 @@ class ResolutionBridge {
                                          phoenix_native::memory::Kind::bridge);
     }
     void processing_context(float white, int encoding) {host_white_=white;auto_encoding_=encoding;}
+    void additional_scaler(phoenix_pipeline::Options options,std::filesystem::path library) {
+        additional_options_=options;additional_library_=std::move(library);
+    }
+    bool additional_enabled() const {
+        return additional_options_.chain_enabled&&additional_options_.enabled[unsigned(phoenix_pipeline::Stage::Scale)]&&additional_options_.scaler!=0;
+    }
     void begin_frame(uint64_t completed, uint64_t submission) {
         check(completed >= completed_ && submission >= recording_ && submission > completed,
               "Resolution descriptor fence order");
@@ -160,11 +186,11 @@ class ResolutionBridge {
     size_t binding_count() const {
         return bindings_.size();
     }
-    Json status() const {
+    phoenix_bundle::Json status() const {
         return {{"compiled_pipelines", processing_pipeline_ ? 2 : 1},
                 {"descriptor_tables", bindings_.size()},
                 {"completed_submission", completed_},
-                {"recording_submission", recording_}};
+                {"recording_submission", recording_}, {"additional_scaler",additional_status_}};
     }
     Constants constants(unsigned operation) const {
         return {operation >= 2 ? geometry_.output_width : geometry_.width,
@@ -259,5 +285,78 @@ class ResolutionBridge {
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
+    bool present_additional(ID3D12GraphicsCommandList* cmd,ID3D12Resource* low,
+        ID3D12Resource* game,D3D12_RESOURCE_STATES state) {
+        if(!additional_enabled())return false;
+        const auto& p=additional_options_;
+        check(p.scaler!=2,"RTX VSR is deferred");
+        // This first native adapter follows the SDK's SDR gamma placement.
+        // HDR/linear inputs keep the existing explicitly configured scaler.
+        const int encoding=processing_.enabled?frame_processing().input_encoding(srgb_):(srgb_?2:1);
+        check(encoding==2,"Additional NIS/tiny reconstruction currently requires explicit sRGB input encoding");
+        auto reusable=std::find_if(scaler_slots_.begin(),scaler_slots_.end(),[&](const auto& slot){return slot.submission<=completed_;});
+        if(reusable==scaler_slots_.end()) {
+            check(scaler_slots_.size()<32,"Additional scaler descriptor retirement limit");
+            ScalerSlot slot;
+            if(p.scaler==1) {
+                if(scaler_slots_.empty())slot.nis=std::make_unique<phoenix_pipeline::NisScaler>(device());
+                else slot.nis=std::make_unique<phoenix_pipeline::NisScaler>(*scaler_slots_.front().nis);
+            } else {
+                if(scaler_slots_.empty()) {
+                    const auto model=phoenix_pipeline::find_tiny_model(additional_library_);
+                    check(bool(model),"Download the tiny 2x model in DLSS Everything and configure the shared model library");
+                    slot.tiny=std::make_unique<phoenix_pipeline::TinyUpscaler>(device(),geometry_.width,geometry_.height,*model);
+                } else slot.tiny=std::make_unique<phoenix_pipeline::TinyUpscaler>(*scaler_slots_.front().tiny);
+            }
+            scaler_slots_.push_back(std::move(slot));reusable=std::prev(scaler_slots_.end());
+        }
+        reusable->submission=recording_;
+        if(!additional_image_) {
+            additional_image_=phoenix_native::image(device(),p.scaler==3?geometry_.width*2:geometry_.output_width,
+                p.scaler==3?geometry_.height*2:geometry_.output_height,DXGI_FORMAT_R16G16B16A16_FLOAT,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+        if(p.scaler==1) {
+            check(reusable->nis->record(cmd,low,D3D12_RESOURCE_STATE_COPY_SOURCE,additional_image_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                p.sharpness,geometry_.left,geometry_.top,geometry_.image_width,geometry_.image_height),"NIS reconstruction supports 1x through 2x scaling per axis");
+            present_full(cmd,additional_image_.Get(),game,state);additional_status_="NVIDIA Image Scaling reconstruction";
+        } else {
+            auto* input=low;
+            if(low->GetDesc().Format!=DXGI_FORMAT_R16G16B16A16_FLOAT) {
+                if(!tiny_input_)tiny_input_=phoenix_native::image(device(),geometry_.width,geometry_.height,DXGI_FORMAT_R16G16B16A16_FLOAT,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                auto& convert=pass({low,low,nullptr,tiny_input_.Get()});
+                Constants c{};c.width=geometry_.width;c.height=geometry_.height;c.resolve=3;
+                phoenix_native::transition(cmd,low,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                convert.record(cmd,{low,low,nullptr},tiny_input_.Get(),c);
+                phoenix_native::transition(cmd,low,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
+                input=tiny_input_.Get();
+            }
+            reusable->tiny->record(cmd,input,input==low?D3D12_RESOURCE_STATE_COPY_SOURCE:D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                additional_image_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            // Pixel shuffle is exactly 2x at any admitted input dimensions.
+            // Fit/crop that image to the presentation extent with the existing
+            // alpha-preserving resampler, including padded/odd geometry.
+            auto& compose=pass({additional_image_.Get(),game,nullptr,output_.Get()});
+            auto c=constants(2);c.reset*=2;c.mode*=2;c.source_a*=2;c.source_b*=2;
+            phoenix_native::transition(cmd,additional_image_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            phoenix_native::transition(cmd,game,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            compose.record(cmd,{additional_image_.Get(),game,nullptr},output_.Get(),c);
+            phoenix_native::transition(cmd,game,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+            phoenix_native::transition(cmd,output_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            cmd->CopyResource(game,output_.Get());
+            phoenix_native::transition(cmd,game,D3D12_RESOURCE_STATE_COPY_DEST,state);
+            phoenix_native::transition(cmd,output_.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            phoenix_native::transition(cmd,additional_image_.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            additional_status_="Tiny native 2x reconstruction (experimental)";
+        }
+        return true;
+    }
+  private:
+    ID3D12Device* device() const {
+        // The resolution output owns its device for the bridge's entire lifetime.
+        // Pass construction stores the same device; this borrowed interface is
+        // backed by the resource and the caller's runner ownership.
+        return additional_device_.Get();
+    }
+    ComPtr<ID3D12Device> additional_device_;
 };
 } // namespace phoenix_addon::phoenix::direct

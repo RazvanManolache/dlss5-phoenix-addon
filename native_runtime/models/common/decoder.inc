@@ -1,13 +1,13 @@
 // Shared packed-family tensor decoding; each architecture supplies its own layout visitor.
-    template <class VisitLayout>
-    void decode_layout(const uint8_t* resource_bytes, size_t resource_size, VisitLayout visit_layout) {
-        auto records = phoenix_model::resource_records(resource_bytes, resource_size, definition());
-
+    template <class Records, class ReadRecord, class VisitLayout>
+    void decode_record_layout(const Records& records, ReadRecord read_record, VisitLayout visit_layout) {
         for (auto& [record_name, record] : records) {
             auto separator = record_name.rfind('.');
             demand(separator != std::string::npos, "Malformed tensor name");
             auto layer_prefix = record_name.substr(0, separator);
-            auto record_bytes = resource_bytes + record.byte_offset;
+            const auto storage = read_record(record);
+            demand(storage.size() == record.bytes, "Incomplete model record read");
+            const auto* record_bytes = storage.data();
 
             auto store_tensor = [&](std::string field, std::vector<uint8_t> bytes) {
                 demand(
@@ -93,4 +93,12 @@
             });
         }
         demand(tensors_.size() == definition().decoded_tensor_count, "Incomplete model tensor catalogue");
+    }
+
+    template <class VisitLayout>
+    void decode_layout(const uint8_t* resource_bytes, size_t resource_size, VisitLayout visit_layout) {
+        const auto records = phoenix_model::resource_records(resource_bytes, resource_size, definition());
+        decode_record_layout(records, [&](const phoenix_model::WeightRecord& record) {
+            return std::span<const uint8_t>(resource_bytes + record.byte_offset, record.bytes);
+        }, visit_layout);
     }

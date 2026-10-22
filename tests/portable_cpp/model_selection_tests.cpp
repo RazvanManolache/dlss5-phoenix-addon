@@ -94,6 +94,17 @@ static void resource_selection() {
     dword(base + 0xd0, 0x1310); dword(base + 0xd4, 4);
     pe[base + 0x300] = 17; pe[base + 0x310] = 29;
     check(pe_weight_resource(pe).front() == 17, "Legacy PE selector changed");
+    size_t inspected=0;
+    const auto located=pe_weight_resource_range(pe.size(),[&](size_t offset,void* data,size_t count){
+        check(offset<=pe.size() && count<=pe.size()-offset,"PE reader exceeded file bounds");
+        check(offset<base+0x300,"Locating a resource must not read its payload");
+        inspected+=count; std::memcpy(data,pe.data()+offset,count);
+    });
+    check(located==std::pair<size_t,size_t>{base+0x300,4} && inspected<pe.size(),
+          "Bounded PE resource location differs from the span parser");
+    auto truncated=pe; truncated.resize(70);
+    rejects([&]{pe_weight_resource(truncated);},"Truncated PE model file");
+
     check(pe_weight_resource(pe, models::small_fp8.resource).front() == 29,
           "PE selector returned the wrong model");
     rejects([&] { pe_weight_resource(pe, "missing"); }, "selected model resource");

@@ -10,6 +10,7 @@
 #include "frame_planes.h"
 #include "advanced_frame.h"
 #include "network_schedule.h"
+#include "../src/pipeline/host_chain.h"
 #include <chrono>
 #include <mutex>
 using namespace phoenix_cpp;
@@ -22,6 +23,11 @@ Json portable_capabilities() {
     return {
         {"schema", "phoenix-portable-capabilities/1"},
         {"host_frame_api_versions", {1, 2, 3}},
+        {"host_processing_chain",{{"metadata_field","pipeline"},{"contract",1},
+            {"stages",{"neural","color","multiscale_fusion","spatial"}},
+            {"output_geometry","same as input for frame ABI 1/2/3"},
+            {"execution","native C++ host stages with selected compiled inference backend"},
+            {"pipeline_priority","fixed"},{"optional_ui_distortion","compose outside chain"}}},
         {"models", phoenix_model::model_catalogue()},
         {"granular_controls", {{"transformer_blocks", 8}, {"repetitions", {0, 4}},
                                {"network_passes", {1, 10}}, {"adaptive_gpu_time", "GPU backend events"},
@@ -37,6 +43,12 @@ Json portable_capabilities() {
                                         {"curated_abc_validated", false}}}};
 }
 struct Runtime {
+    Json configuration;
+    std::mutex pipeline_lock;
+    std::map<std::string,std::unique_ptr<Runtime>> pipeline_networks;
+    Json pipeline_signature;
+    Json pipeline_base_status;
+    bool pipeline_active=false,pipeline_failed=false;
     LibraryHandle module = nullptr;
     Backend* backend = nullptr;
     DestroyBackend destroy = nullptr;
@@ -63,7 +75,8 @@ struct Runtime {
     uint32_t sampling_index = 0;
     bool legacy_output = false;
     std::vector<float> previous_distortion;
-    Runtime(const Json& config, unsigned width, unsigned height) {
+    Runtime(const Json& config, unsigned width, unsigned height,Runtime* shared_backend=nullptr) {
+        configuration=config;
         // Reject unavailable models before loading a backend or allocating device memory.
         weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
         Model::require_supported(weight_source.model());
@@ -120,7 +133,14 @@ struct Runtime {
 #else
         const wchar_t* shader_folder_argument = nullptr;
 #endif
-        if (kind == "cpu") {
+        if(shared_backend){
+            // Vulkan's provider owns one device context. Pipeline children
+            // serialize on their parent and retain separate graphs/histories.
+            // Parent destruction clears children before releasing this backend.
+            demand(kind=="vulkan"&&shared_backend->configuration.at("device")==device,
+                "Only matching Vulkan pipeline children may borrow a backend");
+            backend=shared_backend->backend;destroy=nullptr;
+        }else if (kind == "cpu") {
             using CreateThreads = Backend* (*)(const char*, unsigned, char*, size_t);
             auto create_threads = reinterpret_cast<CreateThreads>(
                 library_symbol(module, "phoenix_backend_create_threads"));
@@ -318,9 +338,11 @@ struct Runtime {
                            {"cpu_threads_requested", requested_threads},
                            {"cpu_threads_available", phoenix_threads::available()}});
         repeats.fill(UINT32_MAX);
+        status["portable_pipeline_contract"]=1;
         rollback.done = true;
     }
     ~Runtime() {
+        pipeline_networks.clear();
         graph.reset();
         resident_weights.reset();
         model.reset();
@@ -330,6 +352,7 @@ struct Runtime {
             close_library(module);
     }
     void replace_model(const Json& source_json) {
+        std::lock_guard pipeline_guard(pipeline_lock);
         const auto source=phoenix_model::WeightSource::config(source_json);
         Model::require_supported(source.model());
         Graph::require_supported(source.model());
@@ -337,6 +360,8 @@ struct Runtime {
         const float gain=checked_model_history_gain(replacement->history_gain());
         std::lock_guard guard(lock);
         backend->wait();
+        pipeline_networks.clear();pipeline_signature=Json();pipeline_active=false;pipeline_failed=false;
+        configuration["weight_source"]=source_json;
         graph.reset();resident_weights.reset();model=std::move(replacement);weight_source=source;
         model_history_gain=gain;repeats.fill(UINT32_MAX);histories.clear();
         previous_distortion.clear();signature=Json();sampling_index=0;
@@ -351,9 +376,24 @@ struct Runtime {
             "backend_allocation_bytes","host_frame_buffers"})status.erase(key);
         status["history_used"]=false;status["sampling_next_index"]=0;
     }
+    void run_pipeline(const float*,const float*,const float*,const float*,const Json&,float*,const float*,uint64_t,const AdvancedFrame*);
+    void run(const float* color,const float* motion,const float* depth,const float* validity,
+             const Json& metadata,float* output,const float* control_mask=nullptr,
+             uint64_t bounded_adapter_bytes=0,const AdvancedFrame* advanced=nullptr){
+        std::lock_guard pipeline_guard(pipeline_lock);
+        if(metadata.contains("pipeline")){
+            const auto options=phoenix_pipeline::options_from_json(metadata.at("pipeline"));
+            if(!phoenix_pipeline::default_chain(options,frame->width,frame->height,frame->width,frame->height)){
+                run_pipeline(color,motion,depth,validity,metadata,output,control_mask,bounded_adapter_bytes,advanced);return;
+            }
+        }
+        auto request=metadata;
+        if(pipeline_active){request["reset"]=true;pipeline_networks.clear();pipeline_active=false;pipeline_signature=Json();}
+        run_original(color,motion,depth,validity,request,output,control_mask,bounded_adapter_bytes,advanced);
+    }
     // Execute sampling passes against separate histories. Stage timings include host
     // preparation and transfers; operator events alone do not describe game frame time.
-    void run(const float* color, const float* motion, const float* depth, const float* validity,
+    void run_original(const float* color, const float* motion, const float* depth, const float* validity,
              const Json& metadata, float* output, const float* control_mask = nullptr,
              uint64_t bounded_adapter_bytes = 0, const AdvancedFrame* advanced = nullptr) {
         std::lock_guard guard(lock);
@@ -790,6 +830,7 @@ struct Runtime {
         }
     }
 };
+#include "portable_pipeline.inc"
 thread_local std::string last_error;
 }
 extern "C" PHOENIX_EXPORT void* phoenix_runtime_create(const char* json, unsigned width,

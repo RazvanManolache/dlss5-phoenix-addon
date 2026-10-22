@@ -1,6 +1,7 @@
 #pragma once
 #include "../../native/support/model_tools.h"
 #include "../../native/model/bundle_loader.h"
+#include "process_address_space.h"
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -24,6 +25,7 @@ struct TransportRuntimes {
     bool driver_graph = false;
     std::string driver_reason;
     std::vector<std::string> native_models{"original"};
+    ProcessAddressSpace address_space;
 };
 
 inline bool transport_dll_matches(const std::filesystem::path& path, unsigned bits) {
@@ -52,7 +54,7 @@ inline void inspect_native_transport(const std::filesystem::path& root,
                                      const std::filesystem::path& native_system) {
     using phoenix_bundle::require;
     const auto profile = phoenix_bundle::json_file(root / "bootstrap.json");
-    require(profile.at("schema") == "phoenix-wow64-bootstrap/2", "Native bootstrap package needs an update.");
+    require(profile.at("schema") == "phoenix-wow64-bootstrap/3", "Native bootstrap package needs a matching TLS-coordinated addon/runtime update.");
     const auto& files = profile.at("files");
     for (const char* name : {"wow64ext.dll", "phoenix_bootstrap64.dll", "phoenix_driver64.dll",
                             "phoenix-nvngx.dll", "phoenix_native.dll"})
@@ -92,6 +94,15 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
         bool allow_unvalidated = false) {
     TransportRuntimes result; result.pending = false;
     if (bits == 32) {
+        const auto space = process_address_space();
+        result.address_space = space;
+        if (!in_process_address_space_safe(bits, space)) {
+            result.native_reason = result.driver_reason = result.portable_reason =
+                in_process_address_space_reason(space);
+            return result;
+        }
+    }
+    if (bits == 32) {
         try {
             wchar_t windows[MAX_PATH]{};
             phoenix_bundle::require(GetWindowsDirectoryW(windows, MAX_PATH) != 0, "Windows path unavailable.");
@@ -101,7 +112,9 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
                 .value("supported_models", std::vector<std::string>{"original"});
             try {
                 inspect_driver_transport_graph(native_root);
-                result.driver_graph = true;
+                result.driver_graph = in_process_address_space_safe(bits, result.address_space, 160ull * 1024 * 1024);
+                if (!result.driver_graph)
+                    result.driver_reason = in_process_address_space_reason(result.address_space);
             } catch (const std::exception& error) { result.driver_reason = error.what(); }
         } catch (const std::exception& error) { result.native_reason = error.what(); }
     } else result.native_reason = "Native cross-bitness routes require an x86 game.";

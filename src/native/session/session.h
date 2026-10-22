@@ -297,7 +297,7 @@ class Session {
     // Session owns its API table through retirement. No NGX host, native modules,
     // native weights allocation, native history or original Evaluate is used.
     Session(ID3D12Device* device, ID3D12CommandQueue* queue, const Json& frame,
-            const std::vector<uint8_t>& weights,
+            const phoenix_model::WeightView& weights,
             const std::vector<phoenix_kernel::Binary>& candidates, DXGI_FORMAT color_format,
             DXGI_FORMAT motion_format, bool native_fresh = false,
             std::shared_ptr<phoenix_native::memory::Generation> accounting = {},

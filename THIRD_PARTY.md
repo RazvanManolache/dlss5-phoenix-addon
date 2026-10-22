@@ -22,10 +22,17 @@ links, are listed in [EXTERNAL_DEPENDENCIES.md](third_party/EXTERNAL_DEPENDENCIE
 | DLSSNR-AMD shader interfaces | AMD cooperative-matrix and coherent-activation GLSL interfaces | MIT; mochizuki0323 attribution in [LICENSE](third_party/amd_nr/LICENSE), [NOTICE](third_party/amd_nr/NOTICE) and [provenance](third_party/amd_nr/PROVENANCE.md) |
 | DLSS-NR on Intel Xe2 source subset | Intel GPU shaders and runtime/reference adapters | Apache-2.0; uzbekunknown and contributor attribution in [LICENSE](third_party/intel_nr/LICENSE), upstream [NOTICE](third_party/intel_nr/NOTICE) and [provenance](third_party/intel_nr/PROVENANCE.md) |
 | dlssnr-pytorch-derived layout declarations | Attribution for declarations adapted into `native_runtime/weight_layouts.h`; the former Python runtime modules are excluded | MIT; Mauri de Souza Meneguzzo attribution in [LICENSE](third_party/portable_nr/LICENSE), [NOTICE](third_party/portable_nr/NOTICE) and [provenance](third_party/portable_nr/PROVENANCE.md) |
+| DLSS5-Reshade-AIO optical-flow provider | Native motion estimation adapted into `src/pipeline/nvof/`; Phoenix queue, reset and configuration integration | Apache-2.0; [license](third_party/aio-motion/LICENSE) and [adaptation notice](third_party/aio-motion/NOTICE); NVIDIA interface headers retain their MIT notices |
+| NVIDIA Image Scaling SDK | SDK scaling/sharpening shaders and configuration code in `third_party/nis/`, with a Phoenix D3D12 adapter | MIT; [license](third_party/nis/LICENSE) and [notice](third_party/nis/NOTICE) |
+| dlss5-distill tiny 2x design and optional checkpoint | Native C++/HLSL port of the published architecture; externally installed coefficients are authenticated and converted separately | Apache-2.0; Benjamin Wegener attribution, [license](third_party/tiny-distill/LICENSE) and [notice with pinned revision](third_party/tiny-distill/NOTICE) |
 
 Keep the applicable license text, copyright notices and disclaimers when
 redistributing these sources. Consult each component's terms for binary
 distribution requirements; this summary does not replace those terms.
+
+The [upstream credit ledger](docs/UPSTREAM_CREDITS.md) also records research-only
+references and companion-project adaptations. Studying a repository does not
+mean its source or binaries are included in this dependency inventory.
 
 ## Optional WOW64 Runtime
 

@@ -8,6 +8,7 @@
 #include "../../native/model/model_library.h"
 #include "../../native/support/panel_visibility.h"
 #include "panel_contract.h"
+#include "pipeline_panel.h"
 #include <cfloat>
 #include <functional>
 #include <optional>
@@ -54,12 +55,16 @@ struct Context {
     bool real_guides = true, temporal_history = true, comparison_views = true, input_capture = true;
     bool fps_budget = true;
     bool portable_backbuffer = false;
+    bool portable_chain_available = false;
+    bool portable_backend_selected = false;
+    bool native_chain_available = true, frame_services_available = false;
     bool portable_gpu_budget = false;
     bool fixed_native_blocks = false;
     bool* processing_enabled = nullptr;
     bool processing_changed = false, live_selection_changed = false, live_tuning_changed = false;
     std::string nvidia_status;
     Json appearance = Json::object();
+    Json pipeline_status = Json::object();
     // GPU timings belong to the queue that measured them, which may be the
     // hidden companion rather than the game's rendering queue.
     std::string timing_provenance = "Game rendering GPU";
@@ -113,6 +118,21 @@ inline void clear_binding(Context &context, unsigned slot) {
 inline bool draw_controls(Context &addon_state) {
     bool changed = false;
     auto before = addon_state.panel;
+    changed |= draw_pipeline_options(addon_state.panel.pipeline,addon_state.panel.model_library_directory,
+        addon_state.native_chain_available&&!addon_state.portable_backend_selected&&addon_state.panel.execution_device=="native"&&addon_state.panel.mode!=phoenix_addon::phoenix::nvidia,
+        addon_state.portable_chain_available,
+        addon_state.frame_services_available&&addon_state.final_frame_source&&addon_state.panel.mode!=phoenix_addon::phoenix::nvidia);
+    if (addon_state.panel.pipeline.monitoring && addon_state.pipeline_status.contains("capture_to_output_ms")) {
+        ImGui::Text("Capture-to-output: %.2f ms", addon_state.pipeline_status.value("capture_to_output_ms", 0.));
+        if (addon_state.pipeline_status.value("sampled_gpu_stages", false)) {
+            const auto stages = addon_state.pipeline_status.value("stage_ms", std::vector<double>{});
+            if (stages.size() == 5)
+                ImGui::Text("Capture %.2f | Motion %.2f | Neural %.2f | Scale %.2f | Output %.2f ms",
+                    stages[0], stages[1], stages[2], stages[3], stages[4]);
+        }
+        const auto provider = addon_state.pipeline_status.value("motion_provider", std::string());
+        if (!provider.empty()) ImGui::TextWrapped("Motion: %s", provider.c_str());
+    }
     auto& enabled = addon_state.processing_enabled ? *addon_state.processing_enabled : addon_state.panel.uplift;
     addon_state.processing_changed = ImGui::Checkbox("Enable neural rendering", &enabled);
     changed |= addon_state.processing_changed;
@@ -689,7 +709,7 @@ inline bool draw_controls(Context &addon_state) {
         ImGui::EndDisabled();
         if (!addon_state.real_guides)
             ImGui::TextDisabled("Engine motion and depth are unavailable for final-color capture.");
-        if(phoenix::uses_ours(addon_state.panel.mode)&&!addon_state.portable_backbuffer) {
+        if(phoenix::uses_ours(addon_state.panel.mode)&&(!addon_state.portable_backbuffer||addon_state.frame_services_available)) {
             changed|=ImGui::Checkbox("Phoenix appearance (experimental)",&addon_state.live.appearance);
             ImGui::BeginDisabled(!addon_state.live.appearance);
             changed|=ImGui::SliderFloat("Phoenix intensity",&addon_state.live.intensity,0.f,2.f,"%.2f",ImGuiSliderFlags_AlwaysClamp);

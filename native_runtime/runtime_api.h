@@ -29,11 +29,14 @@ struct RuntimeApi {
     RuntimeApi() = default;
     RuntimeApi(const RuntimeApi&) = delete;
     RuntimeApi& operator=(const RuntimeApi&) = delete;
-    ~RuntimeApi() {
+    ~RuntimeApi() { close(); }
+    void close() {
         if (instance && destroy)
             destroy(instance);
+        instance=nullptr;
         if (module)
             FreeLibrary(module);
+        module=nullptr;
     }
     void open(const std::filesystem::path& root, const std::string& config, unsigned width,
               unsigned height) {

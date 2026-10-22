@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3dkmthk.h>
 #include <vector>
+#include <stdexcept>
 #pragma comment(lib,"gdi32.lib")
 #ifndef _WIN64
 namespace phoenix_wow64 {
@@ -42,8 +43,54 @@ inline void service_gdi(PhoenixGdiRpc& rpc,HMODULE extension) {
                 if(request.bytes&&!write(GetCurrentProcess(),request.data,payload.data(),request.bytes,nullptr)) rpc.result=0xc0000005u;
             }
         }
+    } else if(operation==8) {
+        rpc.result=TlsAlloc();
+        SetLastError(rpc.result==TLS_OUT_OF_INDEXES?ERROR_NOT_ENOUGH_MEMORY:ERROR_SUCCESS);
+    } else if(operation==9) {
+        rpc.result=TlsFree(DWORD(rpc.handle));
+        if(rpc.result)SetLastError(ERROR_SUCCESS);
     }
     rpc.error=GetLastError(); ++rpc.requests; SetEvent(reinterpret_cast<HANDLE>(uintptr_t(rpc.response_event)));
+}
+
+inline PhoenixGdiRpc& process_native_service(HMODULE extension) {
+    // Native driver imports can retain callbacks after an inference worker is
+    // retired. One pinned, process-owned x86 service keeps those targets valid,
+    // and coordinates TLS indices with the game for every native worker.
+    struct Service { PhoenixGdiRpc rpc{}; HMODULE extension=nullptr; };
+    static Service* service=[&] {
+        HMODULE pinned=nullptr;
+        if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+                reinterpret_cast<LPCWSTR>(&service_gdi),&pinned))
+            throw std::runtime_error("Cannot retain native callback service module");
+        auto* value=new Service;
+        value->extension=extension;
+        value->rpc.request_event=uintptr_t(CreateEventW(nullptr,FALSE,FALSE,nullptr));
+        value->rpc.response_event=uintptr_t(CreateEventW(nullptr,FALSE,FALSE,nullptr));
+        auto close=[&] {
+            for(auto handle:{value->rpc.request_event,value->rpc.response_event})
+                if(handle)CloseHandle(reinterpret_cast<HANDLE>(uintptr_t(handle)));
+            delete value;
+        };
+        if(!value->rpc.request_event||!value->rpc.response_event) {
+            close();throw std::runtime_error("Cannot create native callback service events");
+        }
+        auto thread=CreateThread(nullptr,256*1024,[](void* parameter)->DWORD {
+            auto& value=*static_cast<Service*>(parameter);
+            while(WaitForSingleObject(reinterpret_cast<HANDLE>(uintptr_t(value.rpc.request_event)),INFINITE)==WAIT_OBJECT_0) {
+                try {service_gdi(value.rpc,value.extension);}
+                catch(...) {
+                    value.rpc.result=0;value.rpc.error=ERROR_NOT_ENOUGH_MEMORY;
+                    SetEvent(reinterpret_cast<HANDLE>(uintptr_t(value.rpc.response_event)));
+                }
+            }
+            return 0;
+        },value,0,nullptr);
+        if(!thread){close();throw std::runtime_error("Cannot start native callback service");}
+        CloseHandle(thread);
+        return value;
+    }();
+    return service->rpc;
 }
 }
 #endif

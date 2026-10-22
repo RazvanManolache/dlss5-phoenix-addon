@@ -4,6 +4,7 @@
 #pragma once
 #include "launch_plan.h"
 #include "weight_source.h"
+#include "native_weight_reader.h"
 #include "resource_identity.h"
 #include "generated_plan.h"
 #include "models/small_fp8/native_graph.h"
@@ -85,6 +86,7 @@ struct Bundle {
     bool generated = false;
     phoenix_model::WeightSource weight_source;
     std::vector<uint8_t> embedded_weights;
+    phoenix_model::WeightView streamed_weights;
     phoenix_model::ResourceIdentity model_resource;
     // Production bundles generate geometry on demand. Legacy validation
     // bundles retain their captured frames, including recurrence preflight.
@@ -122,8 +124,25 @@ struct Bundle {
         require(bool(input), "Missing complete file weights");
         return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     }
+    phoenix_model::WeightView load_weight_view() {
+        if (!streamed_weights.empty()) {
+            auto result = std::move(streamed_weights);
+            streamed_weights = {};
+            return result;
+        }
+#ifdef _WIN32
+        if (weight_source.external()) {
+            auto model = phoenix_model::streamed_packed_model(weight_source, phoenix_model::mapped_file_digest, &weights);
+            // Consume any legacy eager storage after the reader is validated.
+            // The caller releases the file once it has filled GPU upload memory.
+            std::vector<uint8_t>{}.swap(embedded_weights);
+            return std::move(model.bytes);
+        }
+#endif
+        return phoenix_model::WeightView::owned(load_weights());
+    }
     Bundle(fs::path path, const std::function<std::string(const fs::path&)>& digest,
-           phoenix_model::WeightSource source = {})
+           phoenix_model::WeightSource source = {}, bool stream_weights = false)
         : folder(std::move(path)), weight_source(std::move(source)) {
         weight_source.validate();
         phoenix_model::require_implemented(weight_source.model());
@@ -158,11 +177,22 @@ struct Bundle {
             phoenix_model::require_graph_model(
                 weight_source.model(),
                 graph.value("model_architecture", std::string(phoenix_model::models::original.architecture)));
-            auto model = phoenix_model::packed_model(weight_source, digest);
-            phoenix_model::require_native_resource(graph, weight_source, model.resource);
-            model_resource = std::move(model.resource);
-            weights = std::move(model.catalogue);
-            embedded_weights = std::move(model.bytes);
+#ifdef _WIN32
+            if (stream_weights) {
+                auto model = phoenix_model::streamed_packed_model(weight_source, digest);
+                phoenix_model::require_native_resource(graph, weight_source, model.resource);
+                model_resource = std::move(model.resource);
+                weights = std::move(model.catalogue);
+                streamed_weights = std::move(model.bytes);
+            } else
+#endif
+            {
+                auto model = phoenix_model::packed_model(weight_source, digest);
+                phoenix_model::require_native_resource(graph, weight_source, model.resource);
+                model_resource = std::move(model.resource);
+                weights = std::move(model.catalogue);
+                embedded_weights = std::move(model.bytes);
+            }
             kernels = Json::object();
             for (auto kernel_record : manifest.at("kernels")) {
                 const auto name = kernel_record.at("name").get<std::string>();
@@ -239,7 +269,8 @@ struct Bundle {
                         weights.at("sha256") ==
                             manifest.at("artifacts").at("weights.bin").at("sha256"),
                     "Weight catalogue/manifest mismatch");
-            embedded_weights = phoenix_model::model_weights(weight_source, weights, digest);
+            if (!stream_weights)
+                embedded_weights = phoenix_model::model_weights(weight_source, weights, digest);
         }
         std::vector<const Json*> captures{&small_plan, &full_plan, &resize_plan};
         if (has_hd)

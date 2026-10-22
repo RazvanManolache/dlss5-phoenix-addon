@@ -72,6 +72,15 @@ def main():
                 result = json.loads(run([executable, *arguments], cwd=work, env=env))
                 results.append({"bits": bits, "test": name, "result": result})
                 print(json.dumps(results[-1]), flush=True)
+            if bits == 64:
+                executable = work / "wow64_export_patch.exe"
+                run(common + [ROOT / "tests/native/wow64_export_patch_tests.cpp",
+                    "/I" + str(ROOT / "src/integration/compatibility/wow64"),
+                    f"/Fe:{executable}", f"/Fo:{work / 'wow64_export_patch.obj'}",
+                    "user32.lib", "gdi32.lib"], cwd=work, env=env)
+                result = json.loads(run([executable], cwd=work, env=env))
+                results.append({"bits": bits, "test": "wow64_export_patch", "result": result})
+                print(json.dumps(results[-1]), flush=True)
             dll = work / "phoenix_runtime_cpp.dll"
             if args.small_model:
                 executable = work / "small_model.exe"

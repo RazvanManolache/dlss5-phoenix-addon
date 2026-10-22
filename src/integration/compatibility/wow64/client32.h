@@ -107,7 +107,7 @@ class NativeThread {
     void start(const std::filesystem::path& root,phoenix_driver_probe::Channel& channel,unsigned kind,void* packet) {
         using phoenix_bundle::require;
         const auto profile=phoenix_bundle::json_file(root/"bootstrap.json");
-        require(profile.at("schema")=="phoenix-wow64-bootstrap/2","Update the matching addon and native runtime together; this bootstrap requires GUI callback support");
+        require(profile.at("schema")=="phoenix-wow64-bootstrap/3","Update the matching addon and native runtime together; native TLS coordination requires bootstrap v3");
         wchar_t windows[MAX_PATH]{}; require(GetWindowsDirectoryW(windows,MAX_PATH)!=0,"Windows path unavailable");
         const auto system=std::filesystem::path(windows);
         require(file_digest(system/"Sysnative/ntdll.dll")==profile.at("ntdll_sha256").get<std::string>(),
@@ -129,6 +129,7 @@ class NativeThread {
         auto module=reinterpret_cast<Module>(GetProcAddress(extension_,"GetModuleHandle64"));
         auto proc=reinterpret_cast<Proc>(GetProcAddress(extension_,"GetProcAddress64"));
         require(call&&module&&proc,"Invalid WOW64 bridge exports");
+        task_.shared_rpc=pointer(&process_native_service(extension_));
         const auto ntdll=module(L"ntdll.dll"); require(ntdll!=0,"Native loader unavailable");
         using Read=BOOL(__cdecl*)(HANDLE,uint64_t,void*,SIZE_T,SIZE_T*);
         const auto read=reinterpret_cast<Read>(GetProcAddress(extension_,"ReadProcessMemory64"));

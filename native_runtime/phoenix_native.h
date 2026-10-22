@@ -14,6 +14,15 @@
 extern "C" {
 #endif
 typedef struct PhoenixNativeSession PhoenixNativeSession;
+// 1: portable neural workers in the shared D3D12 pipeline, including host input.
+PHOENIX_NATIVE_API unsigned phoenix_native_portable_contract(void);
+// Optional caller measurements in milliseconds, on the next source frame.
+// source_age covers eligible-source readiness through SDK submission. Callers
+// exclude intentional media pacing/pauses from this budget sample;
+// presentation_tail is the preceding frame's SDK completion -> Present return.
+// Monitoring off ignores these. This does not measure display scanout latency.
+PHOENIX_NATIVE_API int phoenix_native_set_latency(PhoenixNativeSession* session,
+    double source_age_ms, double presentation_tail_ms);
 // Structures are versioned by byte size. Initialize with the defaults function.
 typedef struct PhoenixNativeControls {
     uint32_t struct_bytes;
@@ -76,6 +85,23 @@ PHOENIX_NATIVE_API int phoenix_native_destroy(PhoenixNativeSession* session);
 // Creates the replacement before retiring the old session. Reuses its device
 // and queue, resets temporal state, and leaves *session unchanged on failure.
 PHOENIX_NATIVE_API int phoenix_native_reconfigure(PhoenixNativeSession** session, const char* config_json);
+// Additive shared pipeline controls. Calls are serialized on the session thread;
+// reconfiguration waits for owned work before replacing provider resources.
+PHOENIX_NATIVE_API int phoenix_native_set_pipeline(PhoenixNativeSession*, const char* options_json);
+// Additive native tuning: intensity/style/conditioning, independent whole-network
+// passes, central-block repetition counts, processing scale and temporal reuse.
+// Invalid settings leave the active tuning unchanged. Display-only changes do
+// not rebuild network histories; structural changes reset the affected stages.
+PHOENIX_NATIVE_API int phoenix_native_set_tuning(PhoenixNativeSession*,const char* tuning_json);
+typedef struct PhoenixNativeFrameInfo {
+    uint32_t struct_bytes, version;
+    uint64_t stream, sequence;
+    int64_t timestamp_ns;
+    uint32_t engine_motion_valid, reserved;
+} PhoenixNativeFrameInfo;
+// Describes the next frame only. Timestamp zero is valid; signed nanoseconds
+// and explicit stream/sequence changes propagate to shared history reset logic.
+PHOENIX_NATIVE_API int phoenix_native_set_frame_info(PhoenixNativeSession*, const PhoenixNativeFrameInfo*);
 // JSON reports actual native/spatial path, GPU processing (excludes transfers),
 // complete call time and owned allocation ledger. Size includes terminating NUL.
 PHOENIX_NATIVE_API size_t phoenix_native_status(PhoenixNativeSession* session, char* destination,

@@ -6,6 +6,13 @@
 #include "../src/native/support/appearance_gpu.h"
 #include "frame.h"
 #include "advanced_frame.h"
+#include "broker_client.h"
+#include "../src/pipeline/d3d12_motion.h"
+#include "../src/pipeline/json.h"
+#include "../src/pipeline/nis.h"
+#include "../src/pipeline/tiny.h"
+#include "../src/pipeline/recipe.h"
+#include "../src/pipeline/image_ops.h"
 #include <chrono>
 #include <thread>
 #include <d3d12sdklayers.h>
@@ -31,31 +38,9 @@ template <class Function> int protect(Function function) noexcept {
     }
 }
 std::string file_digest(const std::filesystem::path& path) {
-    struct Mapping {
-        HANDLE file = INVALID_HANDLE_VALUE, mapping = nullptr;
-        const uint8_t* data = nullptr;
-        ~Mapping() {
-            if (data)
-                UnmapViewOfFile(data);
-            if (mapping)
-                CloseHandle(mapping);
-            if (file != INVALID_HANDLE_VALUE)
-                CloseHandle(file);
-        }
-    } view;
-    view.file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
-    require(view.file != INVALID_HANDLE_VALUE, "Cannot open native bundle/model file");
-    LARGE_INTEGER size{};
-    require(GetFileSizeEx(view.file, &size) && size.QuadPart > 0 &&
-                uint64_t(size.QuadPart) <= SIZE_MAX,
-            "Invalid native bundle/model file size");
-    view.mapping = CreateFileMappingW(view.file, nullptr, PAGE_READONLY, 0, 0, nullptr);
-    require(view.mapping != nullptr, "Cannot map native bundle/model file");
-    view.data = static_cast<const uint8_t*>(MapViewOfFile(view.mapping, FILE_MAP_READ, 0, 0, 0));
-    require(view.data != nullptr, "Cannot read native bundle/model file");
-    return phoenix_model::weight_digest(view.data, size_t(size.QuadPart));
+    return phoenix_model::mapped_file_digest(path);
 }
+
 bool same_device(ID3D12Device* device, ID3D12DeviceChild* child) {
     ComPtr<ID3D12Device> owner;
     return child && SUCCEEDED(child->GetDevice(IID_PPV_ARGS(&owner))) &&
@@ -76,13 +61,39 @@ void buffer_extent(const void* pointer, size_t capacity, size_t stride, unsigned
 }
 
 struct PhoenixNativeSession {
+    struct Graph;
+    std::shared_ptr<Graph> graph;
+    Json configuration;
+    phoenix_pipeline::Tuning tuning;
+    phoenix_pipeline::Tuning requested_tuning;
+    phoenix_pipeline::Options requested_pipeline;
+    phoenix_pipeline::LatencyPolicy latency_policy;
+    bool rebuild_graph=false;
+    unsigned transformer_blocks=8;
+    uint64_t graph_evaluations=0;
+    Json pipeline_telemetry=Json::object();
+    Json completed_tuning=nullptr,completed_pipeline=nullptr;
+    bool graph_owner=false;
+    Json portable_stage_reports()const;
+    bool neural_budget_enabled()const{return !spatial_only&&!portable_leaf&&!configuration.value("offline",false)&&(tuning.target_fps>0||tuning.max_time_ms>0);}
+    void update_neural_budget();
+    void initialize_graph();
+    void frame_graph(ID3D12Resource*,D3D12_RESOURCE_STATES,ID3D12Resource*,D3D12_RESOURCE_STATES,
+        ID3D12Resource*,D3D12_RESOURCE_STATES,const PhoenixNativeControls*,const PhoenixNativeFrameV2*);
     // Member order makes the networks/descriptors retire before their API/device.
     const std::thread::id thread = std::this_thread::get_id();
     unsigned width, height, output_width, output_height, neural_width, neural_height;
     phoenix_addon::phoenix::Resolution geometry;
-    bool spatial_only, poisoned = false, history = false, in_flight = false;
+    bool spatial_only, portable=false, portable_leaf=false, poisoned = false, history = false, in_flight = false;
+    std::unique_ptr<phoenix_cpp::NativeSession> portable_session;
+    Json portable_status=Json::object();
+    Plane portable_color_readback,portable_motion_readback,portable_output_upload;
+    void frame_portable(ID3D12Resource*,D3D12_RESOURCE_STATES,ID3D12Resource*,D3D12_RESOURCE_STATES,
+        ID3D12Resource*,D3D12_RESOURCE_STATES,const PhoenixNativeControls*,const PhoenixNativeFrameV2*);
     uint64_t submitted = 0, frequency = 0, completed_frames = 0;
     double gpu_ms = 0, call_ms = 0;
+    double pending_source_age_ms=0,previous_presentation_tail_ms=0,completion_age_ms=0;
+    bool caller_latency_pending=false,completed_caller_latency=false;
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12CommandAllocator> allocator;
@@ -107,6 +118,21 @@ struct PhoenixNativeSession {
     std::unique_ptr<phoenix_addon::FrameDispatch> dispatch;
     std::unique_ptr<phoenix_native::Network> network;
     std::unique_ptr<spatial::ResolutionBridge> resize;
+    phoenix_pipeline::Options pipeline;
+    std::unique_ptr<phoenix_pipeline::D3D12Motion> motion_provider;
+    bool engine_motion_valid = true, measure_gpu = true;
+    unsigned gpu_sample_interval = 1;
+    bool gpu_sampled_last_frame = false;
+    std::string motion_status = "Engine motion or zero fallback";
+    PhoenixNativeFrameInfo next_frame_info{};
+    bool frame_info_pending = false;
+    phoenix_pipeline::Discontinuity source_discontinuity;
+    std::unique_ptr<phoenix_pipeline::NisScaler> nis;
+    std::unique_ptr<spatial::Pass> scale_alpha;
+    ComPtr<ID3D12Resource> scaled_image, scaled_display, motion_debug;
+    std::string scaler_status = "Existing spatial scaler";
+    std::unique_ptr<phoenix_pipeline::TinyUpscaler> tiny;
+    std::filesystem::path tiny_model_path;
 
     void check_thread() const {
         require(thread == std::this_thread::get_id(),
@@ -120,6 +146,27 @@ struct PhoenixNativeSession {
           neural_width(config.value("neural_width", width)),
           neural_height(config.value("neural_height", height)),
           spatial_only(config.value("spatial_only", false)) {
+        configuration=config;
+        tuning=phoenix_pipeline::Tuning::read(config.value("tuning",Json::object()));
+        requested_tuning=tuning;
+        transformer_blocks=config.contains("tuning")?tuning.blocks:config.value("transformer_blocks",8u);
+        require(transformer_blocks>=1&&transformer_blocks<=8,"Invalid central block count");
+        if (config.contains("pipeline")) {
+            pipeline = phoenix_pipeline::options_from_json(config.at("pipeline"));
+            measure_gpu = pipeline.monitoring == int(phoenix_pipeline::Monitoring::Detailed);
+            gpu_sample_interval = unsigned(pipeline.sample_interval);
+        }
+        engine_motion_valid = config.value("engine_motion_valid", true);
+        requested_pipeline=pipeline;
+        require(!pipeline.chain_enabled || pipeline.scaler != 2 ||
+            !pipeline.enabled[unsigned(phoenix_pipeline::Stage::Scale)], "RTX VSR is deferred; choose an available scaling provider");
+        tiny_model_path = std::filesystem::u8path(config.value("tiny_model_path", std::string()));
+        portable=!spatial_only&&config.contains("portable_runtime");
+        portable_leaf=portable&&config.value("_portable_leaf",false);
+        graph_owner=!portable_leaf&&(portable||pipeline.priority!=0||!phoenix_pipeline::direct_tuning(tuning)||
+            !phoenix_pipeline::default_chain(pipeline,width,height,output_width,output_height));
+        require(!portable_leaf||(width==output_width&&height==output_height&&width==neural_width&&height==neural_height&&
+            !pipeline.chain_enabled&&!pipeline.motion_enabled&&!pipeline.scene_detection),"Invalid portable neural stage contract");
         if (!spatial_only) {
             weight_source = phoenix_model::WeightSource::config(config.at("weight_source"));
             phoenix_model::require_implemented(weight_source.model());
@@ -148,7 +195,7 @@ struct PhoenixNativeSession {
             hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
             ComPtr<IDXGIAdapter1> adapter;
             if (config.value("warp", false)) {
-                require(spatial_only, "WARP cannot execute native RTX kernels");
+                require(spatial_only||portable, "WARP cannot execute native RTX kernels");
                 hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
             } else if (config.contains("adapter_index")) {
                 hr(factory->EnumAdapters1(config.at("adapter_index").get<unsigned>(), &adapter));
@@ -161,7 +208,7 @@ struct PhoenixNativeSession {
                         break;
                     DXGI_ADAPTER_DESC1 description{};
                     hr(candidate->GetDesc1(&description));
-                    if (spatial_only || description.VendorId == 0x10de) {
+                    if (spatial_only || portable || description.VendorId == 0x10de) {
                         adapter = candidate;
                         break;
                     }
@@ -178,29 +225,62 @@ struct PhoenixNativeSession {
                                      IID_PPV_ARGS(&command)));
         hr(command->Close());
         hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-        hr(queue->GetTimestampFrequency(&frequency));
-        require(frequency != 0, "GPU timestamp frequency unavailable");
+        if (measure_gpu) hr(queue->GetTimestampFrequency(&frequency));
+        require(!measure_gpu || frequency != 0, "GPU timestamp frequency unavailable");
         D3D12_QUERY_HEAP_DESC query_description{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 2, 0};
-        hr(device->CreateQueryHeap(&query_description, IID_PPV_ARGS(&queries)));
-        timestamps = phoenix_native::buffer(device.Get(), 16, D3D12_HEAP_TYPE_READBACK,
-                                            D3D12_RESOURCE_STATE_COPY_DEST);
+        if (measure_gpu) {
+            hr(device->CreateQueryHeap(&query_description, IID_PPV_ARGS(&queries)));
+            timestamps = phoenix_native::buffer(device.Get(), 16, D3D12_HEAP_TYPE_READBACK,
+                                                D3D12_RESOURCE_STATE_COPY_DEST);
+        }
         accounting = ledger.begin(neural_width, neural_height);
-        input_color = image(neural_width, neural_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-        input_motion = image(neural_width, neural_height, DXGI_FORMAT_R16G16_FLOAT);
-        if (!spatial_only) {
+        if(!graph_owner){
+            input_color = image(neural_width, neural_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+            input_motion = image(neural_width, neural_height, DXGI_FORMAT_R16G16_FLOAT);
+        }
+        if(portable_leaf){
+            auto runner=config.at("portable_runtime");
+            const auto root=std::filesystem::u8path(runner.at("runtime_root").get<std::string>());
+            require(root.is_absolute(),"Portable runtime root must be absolute");
+            const auto dll=root/"phoenix_runtime_cpp.dll";
+            require(runner.contains("runtime_sha256")&&file_digest(dll)==runner.at("runtime_sha256").get<std::string>(),
+                "Portable runtime checksum differs");
+            if(runner.contains("files")){
+                const auto& files=runner.at("files");require(files.is_object()&&files.size()<=512,"Invalid portable package manifest");
+                for(const auto& [name,digest]:files.items()){
+                    require(!name.empty()&&name.find(':')==std::string::npos&&name.find('\\')==std::string::npos,
+                        "Invalid portable dependency path");
+                    const auto relative=std::filesystem::u8path(name);require(!relative.is_absolute(),"Absolute portable dependency path");
+                    for(const auto& part:relative)require(part!=".."&&part!=".","Portable dependency traversal rejected");
+                    auto path=root/relative;
+                    for(auto current=path;!current.empty();){const auto attributes=GetFileAttributesW(current.c_str());
+                        require(attributes==INVALID_FILE_ATTRIBUTES||!(attributes&FILE_ATTRIBUTE_REPARSE_POINT),"Portable dependencies cannot traverse links");
+                        const auto parent=current.parent_path();if(parent==current)break;current=parent;}
+                    require(file_digest(path)==digest.get<std::string>(),"Portable dependency checksum differs");
+                }
+            }
+            runner["weight_source"]=config.at("weight_source");
+            // Separate native workers let two replacement renderers and Vulkan
+            // branches coexist without violating the runner's public-session lock.
+            runner["execution"]="broker";
+            portable_session=std::make_unique<phoenix_cpp::NativeSession>();
+            portable_session->open(root,runner,width,height);
+            portable_status=Json::parse(portable_session->status_json());
+        }
+        if (!spatial_only&&!graph_owner&&!portable_leaf) {
             const auto folder =
                 std::filesystem::u8path(config.at("bundle_path").get<std::string>());
             require(folder.is_absolute(), "Native bundle path must be absolute");
-            phoenix_bundle::Bundle bundle(folder, file_digest, weight_source);
-            auto weights = bundle.load_weights();
-            packed_weights_sha256=phoenix_model::weight_digest(weights.data(),weights.size());
+            phoenix_bundle::Bundle bundle(folder, file_digest, weight_source, true);
+            auto weights = bundle.load_weight_view();
+            packed_weights_sha256=bundle.weights.at("sha256").get<std::string>();
             auto kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(bundle));
             const auto& plan =
                 bundle.select_frame(neural_width, neural_height, [&](const Json& frame) {
                     phoenix_native::preflight(frame, kernels);
                 });
             dispatch = std::make_unique<phoenix_addon::FrameDispatch>();
-            const auto counts = config.value("repeats", std::array<int, 8>{1, 1, 1, 1, 1, 1, 1, 1});
+            const auto counts = config.contains("tuning")?tuning.repeats:config.value("repeats", std::array<int, 8>{1, 1, 1, 1, 1, 1, 1, 1});
             dispatch->configure_repeats(device.Get(), plan, counts);
             network = std::make_unique<phoenix_native::Network>(device.Get(), dispatch->api(), plan,
                                                                 weights, kernels, input_color.Get(),
@@ -210,10 +290,11 @@ struct PhoenixNativeSession {
             phoenix_addon::phoenix::fit_resolution(width, height, neural_width, neural_height);
         geometry.output_width = output_width;
         geometry.output_height = output_height;
-        if (spatial_only || neural_width != width || neural_height != height ||
-            output_width != width || output_height != height)
+        if (!graph_owner&&(spatial_only || neural_width != width || neural_height != height ||
+            output_width != width || output_height != height))
             resize = std::make_unique<spatial::ResolutionBridge>(
                 device.Get(), geometry, DXGI_FORMAT_R16G16B16A16_FLOAT, accounting);
+        if(graph_owner)initialize_graph();
     }
     ComPtr<ID3D12Resource> image(unsigned w, unsigned h, DXGI_FORMAT format) {
         auto resource = phoenix_native::image(device.Get(), w, h, format,
@@ -312,6 +393,10 @@ struct PhoenixNativeSession {
                const PhoenixNativeFrameV2* extended=nullptr) {
         check_thread();
         require(!poisoned, "Native session failed; destroy and recreate it");
+        if(portable_leaf){frame_portable(color,color_state,motion,motion_state,output,output_state,options,extended);return;}
+        if(graph_owner){
+            frame_graph(color,color_state,motion,motion_state,output,output_state,options,extended);return;
+        }
         validate(color, DXGI_FORMAT_R16G16B16A16_FLOAT);
         validate(output, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
         if (motion)
@@ -323,6 +408,12 @@ struct PhoenixNativeSession {
             options = &defaults;
         require(options->struct_bytes == sizeof(*options),
                 "Native control structure version mismatch");
+        if(configuration.contains("tuning")){
+            defaults=*options;
+            defaults.local_tone=tuning.tone;defaults.local_structure=tuning.structure;
+            defaults.skin_structure=tuning.skin;defaults.auto_mask=tuning.auto_mask;
+            options=&defaults;
+        }
         const bool mapped=extended && extended->control_mask.resource,
                    distorted=extended && extended->distortion.resource;
         if (extended) {
@@ -369,6 +460,34 @@ struct PhoenixNativeSession {
         controls.skin = options->skin_structure;
         controls.auto_mask = options->auto_mask != 0;
         controls.inverted = options->inverted_depth != 0;
+        if (frame_info_pending) {
+            const auto reason = source_discontinuity.observe({next_frame_info.stream, next_frame_info.sequence,
+                next_frame_info.timestamp_ns, width, height}, controls.reset, false);
+            controls.reset = controls.reset || reason != phoenix_pipeline::ResetReason::None;
+        }
+        if (pipeline.motion_enabled || pipeline.scene_detection) {
+            require(!extended || !extended->distortion.resource,
+                    "Estimated motion and bidirectional distortion require separate stages");
+            if (!motion_provider)
+                motion_provider = std::make_unique<phoenix_pipeline::D3D12Motion>(device.Get(), queue.Get(), fence.Get());
+            retained_color = color;
+            try {
+                const auto estimated = motion_provider->prepare(color, color_state,
+                    (frame_info_pending ? next_frame_info.engine_motion_valid != 0 : engine_motion_valid) ? motion : nullptr,
+                    pipeline, controls.reset,
+                    frame_info_pending ? next_frame_info.timestamp_ns : int64_t(completed_frames) * 16666667,
+                    frame_info_pending ? next_frame_info.stream : 0,
+                    frame_info_pending ? std::optional<uint64_t>(next_frame_info.sequence) : std::nullopt);
+                motion_status = motion_provider->status();
+                motion = estimated.motion;
+                motion_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                controls.reset = controls.reset || estimated.reset;
+            } catch (...) {
+                // A failed wait may leave provider work referencing the source.
+                // Retain the session until its queue has actually retired.
+                poisoned = true; in_flight = true; throw;
+            }
+        }
         // Reject bad controls before opening a command list or touching history.
         auto resolved = phoenix_addon::resolve_controls(
             controls, neural_width, neural_height, motion != nullptr, history,
@@ -377,7 +496,9 @@ struct PhoenixNativeSession {
             resolved.control_mask_handle=mapped?network->control_mask_handle:0;
             resolved.style=float(extended->style)/128.f;
         }
-        const auto started = std::chrono::steady_clock::now();
+        const bool measure_call = measure_gpu || pipeline.monitoring != 0 || neural_budget_enabled();
+        const bool sample_gpu = measure_gpu && completed_frames % gpu_sample_interval == 0;
+        const auto started = measure_call ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         retained_color = color;
         retained_motion = motion;
         retained_output = output;
@@ -418,11 +539,11 @@ struct PhoenixNativeSession {
                 if(distorted) record_warp(*warp_mask,extended->control_mask.resource,extended->distortion.resource,nullptr,input_mask.Get(),0);
                 else copy_input(extended->control_mask.resource,shader_state,input_mask.Get(),false);
             }
-            command->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+            if (sample_gpu) command->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
             ID3D12Resource* result = input_color.Get();
             if (network) {
                 dispatch->prepare_repeats(command.Get());
-                phoenix_addon::FrameDispatch::Scope scope(*dispatch, command.Get(), resolved);
+                phoenix_addon::FrameDispatch::Scope scope(*dispatch, command.Get(), resolved,transformer_blocks);
                 result = network->record(command.Get(), !resolved.recurrent, 0, queue.Get());
                 scope.finish();
             }
@@ -454,10 +575,48 @@ struct PhoenixNativeSession {
                 const PhoenixNativeTextureV2* optional[]={&extended->control_mask,&extended->ui,&extended->ui_alpha,&extended->backbuffer,&extended->distortion};
                 for(auto* plane:optional)if(plane->resource)phoenix_native::transition(command.Get(),plane->resource,shader_state,plane->state);
             }
+            if (pipeline.motion_view && motion_provider) {
+                if (!motion_debug) motion_debug = image(neural_width, neural_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+                phoenix_native::transition(command.Get(), motion_debug.Get(), shader_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                if (motion_provider->visualize(command.Get(), motion_debug.Get(), unsigned(pipeline.motion_view))) result = motion_debug.Get();
+                phoenix_native::transition(command.Get(), motion_debug.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, shader_state);
+            }
+            bool additional_scaling = false;
+            if (pipeline.chain_enabled && pipeline.enabled[unsigned(phoenix_pipeline::Stage::Scale)] && pipeline.scaler == 3) {
+                require(geometry.left == 0 && geometry.top == 0 && output_width == neural_width * 2 &&
+                    output_height == neural_height * 2, "Tiny native upscaler requires a full-image 2x output");
+                if (!tiny) tiny = std::make_unique<phoenix_pipeline::TinyUpscaler>(device.Get(),neural_width,neural_height,tiny_model_path);
+                tiny->record(command.Get(),result,shader_state,output,output_state);
+                scaler_status="Tiny native 2x (experimental)"; additional_scaling=true;
+            }
+            if (pipeline.chain_enabled && pipeline.enabled[unsigned(phoenix_pipeline::Stage::Scale)] && pipeline.scaler == 1) {
+                if (!nis) {
+                    nis = std::make_unique<phoenix_pipeline::NisScaler>(device.Get());
+                    scaled_image = image(output_width, output_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+                    scaled_display = image(output_width, output_height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+                    scale_alpha = std::make_unique<spatial::Pass>(device.Get(), spatial::resolution_shader, accounting);
+                }
+                additional_scaling = nis->record(command.Get(), result, shader_state, scaled_image.Get(), shader_state,
+                    pipeline.sharpness, geometry.left, geometry.top, geometry.image_width, geometry.image_height);
+                scaler_status = additional_scaling ? "NVIDIA Image Scaling" : "NIS requires 1x to 2x scaling per axis; existing scaler used";
+                if (additional_scaling) {
+                    spatial::Constants c{}; c.width = output_width; c.height = output_height; c.resolve = 3;
+                    phoenix_native::transition(command.Get(), color, color_state, shader_state);
+                    phoenix_native::transition(command.Get(), scaled_display.Get(), shader_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    scale_alpha->record(command.Get(), {scaled_image.Get(), color, nullptr}, scaled_display.Get(), c);
+                    phoenix_native::transition(command.Get(), color, shader_state, color_state);
+                    phoenix_native::transition(command.Get(), scaled_display.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    phoenix_native::transition(command.Get(), output, output_state, D3D12_RESOURCE_STATE_COPY_DEST);
+                    command->CopyResource(output, scaled_display.Get());
+                    phoenix_native::transition(command.Get(), output, D3D12_RESOURCE_STATE_COPY_DEST, output_state);
+                    phoenix_native::transition(command.Get(), scaled_display.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, shader_state);
+                }
+            }
             phoenix_native::transition(command.Get(), result,
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                        D3D12_RESOURCE_STATE_COPY_SOURCE);
-            if (resize)
+            if (additional_scaling) { /* Output and alpha were composed above. */ }
+            else if (resize)
                 resize->present_source(command.Get(), result, color, color_state, output,
                                        output_state);
             else {
@@ -469,10 +628,13 @@ struct PhoenixNativeSession {
             }
             phoenix_native::transition(command.Get(), result, D3D12_RESOURCE_STATE_COPY_SOURCE,
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            command->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
-            command->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
-                                      timestamps.Get(), 0);
+            if (sample_gpu) {
+                command->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+                command->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
+                                          timestamps.Get(), 0);
+            }
             submit();
+            if (motion_provider) motion_provider->consumed(submitted);
             if (network)
                 network->commit(command.Get());
             wait(submitted);
@@ -480,15 +642,27 @@ struct PhoenixNativeSession {
             had_mask=mapped;had_distortion=distorted;retained_optional.clear();
             last_advanced=extended;last_ui=extended&&(extended->ui.resource||extended->ui_alpha.resource||extended->backbuffer.resource);
             last_style=extended?extended->style:0;last_intensity=extended?extended->intensity:1.f;
+            auto applied=tuning;applied.blocks=transformer_blocks;applied.intensity=last_intensity;applied.style=last_style;
+            applied.tone=options->local_tone;applied.structure=options->local_structure;applied.skin=options->skin_structure;applied.auto_mask=options->auto_mask!=0;
+            if(!configuration.contains("tuning"))applied.repeats=configuration.value("repeats",applied.repeats);
+            completed_tuning=applied.json();completed_pipeline=phoenix_pipeline::options_json(pipeline);
             ++completed_frames;
+            frame_info_pending = false;
+            gpu_sampled_last_frame = sample_gpu;
+            if (sample_gpu) {
             uint64_t* values = nullptr;
             D3D12_RANGE range{0, 16}, empty{};
             hr(timestamps->Map(0, &range, reinterpret_cast<void**>(&values)));
             gpu_ms = double(values[1] - values[0]) * 1000.0 / frequency;
             timestamps->Unmap(0, &empty);
-            call_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+            }
+            call_ms = measure_call ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
                                                                 started)
-                          .count();
+                          .count() : 0;
+            completion_age_ms=measure_call?pending_source_age_ms+call_ms:0;
+            completed_caller_latency=measure_call&&caller_latency_pending;
+            pending_source_age_ms=0;caller_latency_pending=false;
+            update_neural_budget();
         } catch (...) {
             poisoned = true;
             if (network)
@@ -535,7 +709,11 @@ struct PhoenixNativeSession {
     }
 };
 
+#include "native_pipeline.inc"
+#include "native_portable.inc"
+
 extern "C" {
+unsigned phoenix_native_portable_contract(){return 1;}
 void phoenix_native_default_controls(PhoenixNativeControls* controls) {
     if (controls)
         *controls = {sizeof(*controls), 0, 1, 1, 1, 1, -1, 0, 1};
@@ -618,7 +796,8 @@ int phoenix_native_frame_host_v2(PhoenixNativeSession* session, const phoenix_fr
         if(!alpha.empty())session->prepare_plane(session->host_alpha,DXGI_FORMAT_R32_FLOAT,false);
         if(!bb.empty())session->prepare_plane(session->host_backbuffer,DXGI_FORMAT_R16G16B16A16_FLOAT,false);
         if(!field.empty())session->prepare_plane(session->host_distortion,DXGI_FORMAT_R32G32B32A32_FLOAT,false);
-        const auto started=std::chrono::steady_clock::now();
+        const bool measure_call=session->measure_gpu||session->pipeline.monitoring!=0||session->neural_budget_enabled();
+        const auto started=measure_call?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         try {
             session->begin();
             session->upload(session->host_color,packed_color.data(),w*8,w*8);
@@ -661,7 +840,7 @@ int phoenix_native_frame_host_v2(PhoenixNativeSession* session, const phoenix_fr
                 }
             }
             plane.transfer->Unmap(0,&empty);
-            session->call_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+            session->call_ms=measure_call?std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count():0;
         } catch(...) {session->poisoned=true;throw;}
     });
 }
@@ -692,7 +871,8 @@ int phoenix_native_frame_host(PhoenixNativeSession* session, const void* color, 
         session->prepare_plane(session->host_output, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
         if (motion)
             session->prepare_plane(session->host_motion, DXGI_FORMAT_R16G16_FLOAT, false);
-        const auto started = std::chrono::steady_clock::now();
+        const bool measure_call=session->measure_gpu||session->pipeline.monitoring!=0||session->neural_budget_enabled();
+        const auto started = measure_call?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         try {
             session->begin();
             session->upload(session->host_color, color, color_stride, session->width * 8);
@@ -726,9 +906,9 @@ int phoenix_native_frame_host(PhoenixNativeSession* session, const void* color, 
                                 size_t(row) * plane.footprint.Footprint.RowPitch,
                             size_t(session->output_width) * 8);
             plane.transfer->Unmap(0, &empty);
-            session->call_ms = std::chrono::duration<double, std::milli>(
+            session->call_ms = measure_call?std::chrono::duration<double, std::milli>(
                                    std::chrono::steady_clock::now() - started)
-                                   .count();
+                                   .count():0;
         } catch (...) {
             session->poisoned = true;
             throw;
@@ -771,13 +951,107 @@ int phoenix_native_reconfigure(PhoenixNativeSession** session,const char* config
         previous->drain();delete previous;*session=replacement.release();
     });
 }
+int phoenix_native_set_pipeline(PhoenixNativeSession* session, const char* options) {
+    return protect([&] {
+        require(session && options, "Missing session/pipeline settings");
+        session->check_thread(); require(!session->poisoned, "Native session failed");
+        auto candidate = phoenix_pipeline::options_from_json(Json::parse(options), session->pipeline);
+        require(!candidate.chain_enabled || candidate.scaler != 2 ||
+            !candidate.enabled[unsigned(phoenix_pipeline::Stage::Scale)], "RTX VSR is deferred; choose an available scaling provider");
+        unsigned planned_w=session->width,planned_h=session->height;
+        for(const auto& step:phoenix_pipeline::plan(candidate,session->width,session->height,session->output_width,session->output_height)){
+            if(step.stage!=phoenix_pipeline::Stage::Scale)continue;
+            if(candidate.scaler==3)require(step.width==planned_w*2&&step.height==planned_h*2,"Tiny reconstruction requires 2x output geometry");
+            if(candidate.scaler==1)require(step.width>=planned_w&&step.height>=planned_h&&step.width<=planned_w*2&&step.height<=planned_h*2,"NIS supports 1x to 2x per axis");
+            planned_w=step.width;planned_h=step.height;
+        }
+        session->drain();
+        const bool measure = candidate.monitoring == int(phoenix_pipeline::Monitoring::Detailed);
+        if (measure && !session->queries) {
+            hr(session->queue->GetTimestampFrequency(&session->frequency));
+            require(session->frequency != 0, "GPU timestamp frequency unavailable");
+            D3D12_QUERY_HEAP_DESC description{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 2, 0};
+            hr(session->device->CreateQueryHeap(&description, IID_PPV_ARGS(&session->queries)));
+            session->timestamps = phoenix_native::buffer(session->device.Get(), 16,
+                D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+        }
+        if (!measure) { session->queries.Reset(); session->timestamps.Reset(); session->gpu_ms = 0; }
+        if (session->pipeline.motion_source != candidate.motion_source ||
+            session->pipeline.flow_height != candidate.flow_height ||
+            session->pipeline.motion_enabled != candidate.motion_enabled) {
+            session->motion_provider.reset(); session->history = false;
+        }
+        const auto& prior=session->pipeline;
+        const bool graph_changed=prior.chain_enabled!=candidate.chain_enabled||prior.order!=candidate.order||prior.enabled!=candidate.enabled||
+            prior.scaler!=candidate.scaler||prior.fusion!=candidate.fusion||prior.fusion_layers!=candidate.fusion_layers||
+            prior.fusion_second_scale!=candidate.fusion_second_scale||prior.fusion_third_scale!=candidate.fusion_third_scale;
+        const bool color_changed=prior.color_brightness!=candidate.color_brightness||prior.color_contrast!=candidate.color_contrast||
+            prior.color_saturation!=candidate.color_saturation||prior.color_gamma!=candidate.color_gamma;
+        if(graph_changed||color_changed||prior.priority!=candidate.priority){session->graph.reset();session->source_discontinuity.clear();session->graph_owner=true;}
+        session->configuration["pipeline"]=phoenix_pipeline::options_json(candidate);
+        session->pipeline = candidate; session->measure_gpu = measure;
+        session->requested_pipeline=candidate;session->latency_policy.reset();
+        session->gpu_sample_interval = unsigned(candidate.sample_interval);
+        session->gpu_sampled_last_frame = false;
+    });
+}
+int phoenix_native_set_latency(PhoenixNativeSession* session,double source_age_ms,double presentation_tail_ms){
+    return protect([&]{
+        require(session&&std::isfinite(source_age_ms)&&source_age_ms>=0&&source_age_ms<=60000&&
+            std::isfinite(presentation_tail_ms)&&presentation_tail_ms>=0&&presentation_tail_ms<=60000,"Invalid caller latency sample");
+        session->check_thread();require(!session->poisoned,"Native session failed");
+        const bool enabled=session->pipeline.monitoring!=0;
+        session->pending_source_age_ms=enabled?source_age_ms:0;
+        session->previous_presentation_tail_ms=enabled?presentation_tail_ms:0;
+        session->caller_latency_pending=enabled;
+    });
+}
+int phoenix_native_set_frame_info(PhoenixNativeSession* session, const PhoenixNativeFrameInfo* info) {
+    return protect([&] {
+        require(session && info && info->struct_bytes == sizeof(*info) && info->version == 1 &&
+            info->engine_motion_valid <= 1 && !info->reserved, "Invalid native frame identity");
+        session->check_thread(); require(!session->poisoned, "Native session failed");
+        session->next_frame_info = *info; session->frame_info_pending = true;
+    });
+}
+int phoenix_native_set_tuning(PhoenixNativeSession* session,const char* text){
+    return protect([&]{
+        require(session&&text,"Missing native neural tuning");session->check_thread();
+        require(!session->poisoned,"Native session failed");
+        const auto candidate=phoenix_pipeline::Tuning::read(Json::parse(text));
+        // Frontends submit their current recipe after initialization too. An
+        // identical request must preserve the executor and temporal histories.
+        if(session->configuration.contains("tuning")&&candidate==session->tuning&&candidate==session->requested_tuning)return;
+        session->drain();
+        const bool structural=!session->graph_owner||candidate.passes!=session->tuning.passes||candidate.repeats!=session->tuning.repeats||
+            candidate.neural_scale!=session->tuning.neural_scale||candidate.blocks!=session->tuning.blocks;
+        const auto previous_tuning=session->tuning;const auto previous_configuration=session->configuration;
+        const auto previous_graph=session->graph;const bool previous_owner=session->graph_owner;
+        session->tuning=candidate;session->configuration["tuning"]=candidate.json();session->graph_owner=true;
+        try{if(structural)session->initialize_graph();}
+        catch(...){session->tuning=previous_tuning;session->configuration=previous_configuration;session->graph=previous_graph;session->graph_owner=previous_owner;throw;}
+        if(structural){session->source_discontinuity.clear();session->network.reset();session->dispatch.reset();session->input_color.Reset();session->input_motion.Reset();session->resize.reset();}
+        session->requested_tuning=candidate;session->latency_policy.reset();session->rebuild_graph=false;
+    });
+}
 size_t phoenix_native_status(PhoenixNativeSession* session, char* destination, size_t capacity) {
     size_t result = 0;
     protect([&] {
         require(session != nullptr, "Null native session");
         session->check_thread();
+        const auto portable_stages=session->portable_stage_reports();
+        auto inference_pids=Json::array();
+        for(const auto& stage:portable_stages){
+            const auto pid=stage.value("inference_pid",0u);
+            if(pid&&std::find(inference_pids.begin(),inference_pids.end(),Json(pid))==inference_pids.end())inference_pids.push_back(pid);
+        }
+        if(!session->portable&&!session->spatial_only)inference_pids.push_back(GetCurrentProcessId());
         const auto text =
-            Json{{"backend", session->spatial_only ? "spatial_d3d12" : "native_rtx"},
+            Json{{"backend", session->spatial_only ? "spatial_d3d12" : session->portable?"portable_pipeline_d3d12":"native_rtx"},
+                 {"processing_host_pid",GetCurrentProcessId()},
+                 {"inference_pid",inference_pids.empty()?Json(0):inference_pids.front()},
+                 {"inference_pids",inference_pids},
+                 {"portable_neural_stages",portable_stages},
                  {"model_id", session->spatial_only ? "none" : session->weight_source.model_id},
                  {"model_architecture", session->spatial_only ? "none" : std::string(session->weight_source.model().architecture)},
                  {"model_resource", session->spatial_only ? "none" : std::string(session->weight_source.model().resource)},
@@ -789,9 +1063,25 @@ size_t phoenix_native_status(PhoenixNativeSession* session, char* destination, s
                  {"neural_height", session->neural_height},
                  {"gpu_processing_ms", session->gpu_ms},
                  {"complete_call_ms", session->call_ms},
+                 {"source_to_sdk_completion_ms",session->completion_age_ms},{"caller_latency_available",session->completed_caller_latency},
                  {"gpu_timing_scope",
+                  session->portable?"portable backend network samples; complete_call_ms includes host transfers and D3D12 pipeline stages":
                   "model plus presentation/unwarp/resize/copy; excludes input canonicalization/preparation and host transfers"},
                  {"frames", session->completed_frames},
+                 {"pipeline", phoenix_pipeline::options_json(session->pipeline)},
+                 {"tuning",session->tuning.json()},
+                 {"executed_chain",session->graph?session->graph->executed:Json::array()},
+                 {"graph_neural_evaluations",session->graph_evaluations},
+                 {"requested_tuning",session->requested_tuning.json()},
+                 {"completed_tuning",session->completed_tuning},{"completed_pipeline",session->completed_pipeline},
+                 {"pipeline_telemetry",session->pipeline_telemetry},
+                 {"independent_temporal_stages",session->graph?session->graph->networks.size():unsigned(bool(session->network))},
+                 {"chain_execution",session->graph_owner?"recorded stages":"original executor (equivalent stages folded)"},
+                 {"motion_provider", session->motion_status},
+                 {"gpu_monitoring_enabled", session->measure_gpu},
+                 {"gpu_sampled_last_frame", session->gpu_sampled_last_frame},
+                 {"additional_scaler", session->scaler_status},
+                 {"tiny_workspace_bytes", session->tiny ? session->tiny->workspace_bytes() : 0},
                  {"native_frame_api_versions",{1,2}},
                  {"advanced_extent_contract","equal source/network/output"},
                  {"appearance_profile","recovered_3108"},

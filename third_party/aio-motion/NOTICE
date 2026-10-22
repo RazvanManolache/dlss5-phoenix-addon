@@ -1,0 +1,4 @@
+NVIDIA Optical Flow provider adapted from kibblerz/DLSS5-Reshade-AIO.
+https://github.com/kibblerz/DLSS5-Reshade-AIO
+Original code: Apache License 2.0; NVIDIA interface headers retain their MIT notices.
+Adaptations: inline shared implementation, system driver loading.

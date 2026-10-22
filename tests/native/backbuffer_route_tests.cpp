@@ -171,6 +171,10 @@ int main() try {
     ordered.portable_available = false;
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Helper);
     auto opengl = base; opengl.bits = 32; opengl.api = A::opengl;
+    auto coordinated_gl=opengl;coordinated_gl.native_tls_coordinated=true;
+    verify(choose_backbuffer_route(coordinated_gl,automatic).route==BackbufferRoute::NativeLibrary);
+    verify(choose_backbuffer_route(coordinated_gl,ExecutionPreference::NativeLibrary).route==BackbufferRoute::NativeLibrary);
+    verify(choose_backbuffer_route(coordinated_gl,ExecutionPreference::NativeDriver).route==BackbufferRoute::NativeDriver);
     verify(choose_backbuffer_route(opengl, automatic).route == BackbufferRoute::Helper);
     opengl.portable_available = true;
     verify(choose_backbuffer_route(opengl, automatic).route == BackbufferRoute::Portable);
@@ -205,6 +209,14 @@ int main() try {
     verify(*native_settings_unavailable_reason(native, false));
     native.execution_device = "native"; native.automatic_budget = true;
     verify(*native_settings_unavailable_reason(native, false));
+    native.automatic_budget=false;
+    for(bool driver:{false,true}){
+        native.pipeline.chain_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
+        native.pipeline.motion_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
+        native.pipeline.scene_detection=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
+        native.pipeline.monitoring=1;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
+        verify(!*native_settings_unavailable_reason(native,driver));
+    }
     std::cout << "{\"passed\":true,\"cpu_only\":true,\"checks\":" << checks << "}\n";
 } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

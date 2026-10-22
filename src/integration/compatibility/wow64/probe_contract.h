@@ -15,6 +15,7 @@ struct PhoenixGdiRpc {
     uint64_t request_event, response_event, handle, result;
     volatile int32_t pending;
     uint32_t requests, error;
+    volatile int32_t busy;
 };
 static_assert(sizeof(PhoenixGdiRpc) == 48);
 struct PhoenixGdiCreateDC {

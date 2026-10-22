@@ -10,6 +10,8 @@
 #include <reshade.hpp>
 #include <atomic>
 #include "comparison_hud.h"
+#include "../../pipeline/recovery.h"
+#include "../../pipeline/screenshot_receipt.h"
 #include "../compatibility/controller.h"
 #define PRODUCTION_GAME_PHOENIX_EXPORTS
 #include "../../native/session/session.h"
@@ -343,6 +345,9 @@ struct State {
     unsigned observe_output_state = 0, observe_output_discarded_state = 0;
     uint64_t completed_retired = 0;
     std::string error;
+    std::unique_ptr<phoenix_pipeline::RecoveryJournal> runtime_recovery;
+    std::string recovery_notice;
+    uint64_t recovery_completed = 0;
     Json frames = Json::array();
 #if CNR_PHOENIX_DIAGNOSTIC
     std::vector<std::shared_ptr<diagnostic::Pair>> pairs;
@@ -358,7 +363,10 @@ State& state() {
     static auto* result = new State;
     return *result;
 }
+void record_recovery_failure(const char* text) noexcept;
+bool recover_initialization_failure(const char* text) noexcept;
 void error(const char* text) {
+    record_recovery_failure(text);
     // First error wins in the summary: every later error is collateral fired
     // by abandon paths after the cause (invalidate, then the submit block
     // reporting the invalidation it just saw). Every error still reaches
@@ -1164,7 +1172,7 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                         {after.color_state, after.output_state, D3D12_RESOURCE_STATE_COPY_DEST},
                         output, after.output_state, unsigned(addon_state.panel.comparison),
                         unsigned(addon_state.panel.source_a), unsigned(addon_state.panel.source_b),
-                        addon_state.panel.divider, addon_state.panel.difference_gain);
+                        addon_state.panel.divider, addon_state.panel.difference_gain,addon_state.panel.pipeline);
                 }
             }
         } else if (mode == phoenix::input) {
@@ -3325,7 +3333,7 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     if (!addon_state.bundle) {
         addon_state.bundle = std::make_unique<phoenix_bundle::Bundle>(
             addon_state.bundle_path, [](const auto& file) { return sha_file(file.c_str()); },
-            addon_state.weight_source);
+            addon_state.weight_source, true);
         check(addon_state.bundle->weights.at("unknown_gap_bytes") == 0,
               "phoenix owned game requires proven complete weights");
         addon_state.candidates =
@@ -3397,7 +3405,7 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     // is empty on a rebuilt session; the engine side is untouched (its reset
     // still comes only from its own parameters). Both Session record gates
     // admit the first frame on this basis, exactly as at feature birth.
-    const auto packed_weights = addon_state.bundle->load_weights();
+    const auto packed_weights = addon_state.bundle->load_weight_view();
     auto session = std::make_shared<Session>(
         device.Get(), queue, *selected, packed_weights, addon_state.candidates, desc.Format,
         motion ? motion->GetDesc().Format : DXGI_FORMAT_R32G32_FLOAT,
@@ -3546,6 +3554,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         return;
     ++addon_state.direct_calls;
     bool recording = false;
+    bool initializing = false;
     try {
         check((!GetModuleHandleW(L"renodx-dlss5.addon64") && !GetModuleHandleW(L"renodx-dlss.addon64")),
               "Another neural-rendering addon is loaded; disable it to prevent double processing");
@@ -3699,6 +3708,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.depth_budget.reset_samples();
         }
         if (own_route && !addon_state.bundle && !addon_state.direct_runner) {
+            initializing = true;
             addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
             addon_state.active_model_source = addon_state.panel.model_source;
             addon_state.active_model_folder = addon_state.panel.model_folder;
@@ -3710,13 +3720,14 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.bundle = std::make_unique<phoenix_bundle::Bundle>(
                 addon_state.bundle_path,
                 [](const auto& file_path) { return sha_file(file_path.c_str()); },
-                addon_state.weight_source);
+                addon_state.weight_source, true);
             check(addon_state.bundle->weights.at("unknown_gap_bytes") == 0,
                   "Direct weights incomplete");
             addon_state.candidates =
                 phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
         }
         if (!addon_state.direct_runner) {
+            initializing = true;
             Json portable_plan = {{"width", resolution.width}, {"height", resolution.height}};
             const Json* selected = &portable_plan;
             if (native_network) {
@@ -3747,8 +3758,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     addon_state.worker_hip_build, addon_state.worker_sycl_build,
                     addon_state.weight_source, unsigned(addon_state.panel.cpu_threads));
             }
-            const auto packed_weights = native_network ? addon_state.bundle->load_weights()
-                                                      : std::vector<uint8_t>{};
+            const auto packed_weights = native_network ? addon_state.bundle->load_weight_view()
+                                                      : phoenix_model::WeightView{};
             addon_state.direct_runner = std::make_unique<phoenix::direct::Runner>(
                 choice.device.Get(), queue, *selected, packed_weights, addon_state.candidates,
                 color_description.Format, motion_description.Format, addon_state.direct_srgb,
@@ -3757,8 +3768,13 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 addon_state.owned_allocations.begin(unsigned(color_description.Width),
                                                     color_description.Height),
                 true, unsigned(color_description.Width), color_description.Height, std::filesystem::path{},
-                motion_description.Width != color_description.Width || motion_description.Height != color_description.Height);
+                motion_description.Width != color_description.Width || motion_description.Height != color_description.Height,
+                [&](unsigned w,unsigned h){
+                    check(addon_state.bundle!=nullptr,"Native chain model bundle unavailable");
+                    return Json(addon_state.bundle->select_frame(w,h,[&](const Json& frame){phoenix_native::preflight(frame,addon_state.candidates);}));
+                });
             addon_state.timing_settings_dirty = true;
+            initializing = false;
             if (addon_state.live_timing) {
                 addon_state.live_timing->budget(nullptr);
                 addon_state.retired_timing.push_back(std::move(addon_state.live_timing));
@@ -4292,6 +4308,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         addon_state.direct_status = feature_entry.what();
         addon_state.live.reset_requested = true;
         if (!recording) {
+            if(initializing)recover_initialization_failure(feature_entry.what());
             // Deferred frames leave the engine output untouched, so the
             // screen shows the game input: label it truthfully and keep the
             // heartbeat fresh instead of letting a stale wipe label linger.
@@ -4607,6 +4624,21 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     try {
+        if (addon_state.runtime_recovery && addon_state.runtime_recovery->pending()) {
+            // Bypass is a valid stable configuration. It cannot accumulate neural
+            // completions, so prove its harmless presentation path separately.
+            const bool bypass = addon_state.panel.mode == phoenix::input || !addon_state.panel.uplift;
+            if (bypass && !addon_state.terminal && addon_state.live_loaded)
+                addon_state.runtime_recovery->completed_frame();
+            uint64_t completed = addon_state.completed_retired;
+            if (addon_state.direct_runner) completed += addon_state.direct_runner->completed();
+            if (addon_state.endpoint.session) completed += addon_state.endpoint.session->completed();
+            if (completed > addon_state.recovery_completed) {
+                const auto count = std::min<uint64_t>(30, completed - addon_state.recovery_completed);
+                for (uint64_t i = 0; i < count; ++i) addon_state.runtime_recovery->completed_frame();
+            }
+            addon_state.recovery_completed = completed;
+        }
         configure();
         if (!addon_state.automatic)
             return;
@@ -4745,10 +4777,76 @@ Json panel_json(phoenix::Settings settings) {
     phoenix::visit_settings(settings, [&](const char* key, auto& value) { result[key] = value; });
     return result;
 }
+bool restore_panel_json(const Json& stored, phoenix::Settings& settings) {
+    auto candidate = settings;
+    try {
+        phoenix::visit_settings(candidate, [&](const char* key, auto& value) {
+            if (stored.contains(key)) value = stored.at(key).template get<std::remove_reference_t<decltype(value)>>();
+        });
+    } catch (const Json::exception&) { return false; }
+    if (!candidate.valid()) return false;
+    settings = std::move(candidate); return true;
+}
+bool recover_initialization_failure(const char* text) noexcept {
+    auto& value=state();
+    if(!value.runtime_recovery||!value.panel.pipeline.recovery||!value.runtime_recovery->pending())return false;
+    // Initialization has not recorded a borrowed game list. A previously
+    // submitted executor may only be destroyed after its own fence retires.
+    if(value.direct_runner&&!value.direct_runner->idle())return false;
+    try{
+        const auto fallback=value.runtime_recovery->failure(text);if(!fallback)return false;
+        auto restored=value.panel;
+        if(!restore_panel_json(*fallback,restored))return false;
+        value.direct_runner.reset();value.bundle.reset();value.candidates.clear();
+        value.panel=std::move(restored);value.live.reset_requested=true;value.timing_settings_dirty=true;
+        value.recovery_notice="Provider initialization failed; restored last working settings before retrying.";
+        if(value.present_runtime)phoenix::visit_settings(value.panel,[&](const char* key,auto& setting){save_phoenix_value(value.present_runtime,"Phoenix",key,setting);});
+        reshade::log::message(reshade::log::level::warning,value.recovery_notice.c_str());return true;
+    }catch(const std::exception& failure){reshade::log::message(reshade::log::level::warning,failure.what());return false;}
+}
+Json risky_panel_signature(const Json& settings) {
+    Json result = Json::object();
+    for (const auto& item : settings.items()) {
+        const std::string key = item.key();
+        if (key.starts_with("Model") || key.starts_with("Resolution") || key.starts_with("Block") ||
+            key.starts_with("Chain") || key.starts_with("Fusion") || key.starts_with("Motion") ||
+            key == "NvidiaDllFolder" || key == "ExecutionDevice" || key == "WorkerEngine" ||
+            key == "Upscaler" || key == "AdditionalScaler" || key == "RefinementPasses" ||
+            key == "ProcessingScale" || key == "ProcessingEnabled" || key == "HookStage")
+            result[key] = item.value();
+    }
+    return result;
+}
+void record_recovery_failure(const char* text) noexcept {
+    auto& value = state();
+    if (!value.runtime_recovery || !value.runtime_recovery->pending()) return;
+    try {
+        if (value.runtime_recovery->failure(text))
+            value.recovery_notice = "Initialization failed. Last working settings will be restored at startup.";
+    } catch (const std::exception& failure) {
+        reshade::log::message(reshade::log::level::warning, failure.what());
+    }
+}
 void save_live_controls(reshade::api::effect_runtime* runtime) {
     if (!runtime)
         return;
     auto& addon_state = state();
+    if (addon_state.runtime_recovery && addon_state.panel.pipeline.recovery) {
+        try {
+            const auto candidate = panel_json(addon_state.panel);
+            const auto& report = addon_state.runtime_recovery->report();
+            const auto& prior = addon_state.runtime_recovery->pending() ? report.at("pending") : report.at("working");
+            if (risky_panel_signature(candidate) != risky_panel_signature(prior)) {
+                addon_state.runtime_recovery->begin(candidate);
+                addon_state.recovery_completed = addon_state.completed_retired;
+                if (addon_state.direct_runner) addon_state.recovery_completed += addon_state.direct_runner->completed();
+                if (addon_state.endpoint.session) addon_state.recovery_completed += addon_state.endpoint.session->completed();
+            }
+        } catch (const std::exception& recovery_error) {
+            addon_state.recovery_notice = recovery_error.what();
+            reshade::log::message(reshade::log::level::warning, recovery_error.what());
+        }
+    }
     phoenix::visit_settings(addon_state.panel, [&](const char* key, auto& value) {
         save_phoenix_value(runtime, "Phoenix", key, value);
     });
@@ -4781,6 +4879,31 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
         load_phoenix_value(runtime, "Phoenix", key, value);
     });
     if (saved.valid()) {
+        const bool recovery_file=[]()noexcept{try{std::error_code error;return std::filesystem::is_regular_file(phoenix_pipeline::application_recovery_path(),error);}catch(...){return false;}}();
+        if (saved.pipeline.recovery || recovery_file) {
+            try {
+                auto safe = addon_state.panel; safe.mode = phoenix::input; safe.uplift = false;
+                addon_state.runtime_recovery = std::make_unique<phoenix_pipeline::RecoveryJournal>(
+                    phoenix_pipeline::application_recovery_path(), panel_json(safe));
+                if (const auto previous = saved.pipeline.recovery?addon_state.runtime_recovery->recover_interrupted():std::optional<Json>{}) {
+                    if (!restore_panel_json(*previous, saved)) saved = safe;
+                    addon_state.recovery_notice = "Restored last working settings after an interrupted initialization.";
+                    phoenix::visit_settings(saved, [&](const char* key, auto& value) {
+                        save_phoenix_value(runtime, "Phoenix", key, value);
+                    });
+                }
+                if(const auto requested=addon_state.runtime_recovery->take_requested()){
+                    if(!restore_panel_json(*requested,saved))saved=safe;
+                    addon_state.recovery_notice="Applied recovery settings requested through DLSS Everything.";
+                    phoenix::visit_settings(saved,[&](const char* key,auto& value){save_phoenix_value(runtime,"Phoenix",key,value);});
+                }
+                if(saved.pipeline.recovery)addon_state.runtime_recovery->begin(panel_json(saved));
+                else addon_state.runtime_recovery.reset();
+            } catch (const std::exception& recovery_error) {
+                addon_state.recovery_notice = recovery_error.what();
+                reshade::log::message(reshade::log::level::warning, recovery_error.what());
+            }
+        }
         addon_state.panel = saved;
         addon_state.timing_settings_dirty = true;
         addon_state.screenshot_request_seen = addon_state.panel.screenshot_request;
@@ -4795,8 +4918,25 @@ void load_live_controls(reshade::api::effect_runtime* runtime) {
         try {
             addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
         } catch (const std::exception& feature_entry) {
-            addon_state.terminal = true;
-            error(feature_entry.what());
+            const auto fallback = addon_state.runtime_recovery
+                ? addon_state.runtime_recovery->failure(feature_entry.what()) : std::optional<Json>{};
+            if (fallback && restore_panel_json(*fallback, addon_state.panel)) {
+                // Model selection failed before GPU initialization. Restore now,
+                // rather than repeatedly trying the same invalid source.
+                if (phoenix::uses_ours(addon_state.panel.mode)) {
+                    try {
+                        addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
+                    } catch (...) { addon_state.panel.mode = phoenix::input; addon_state.panel.uplift = false; }
+                }
+                addon_state.recovery_notice = "Model initialization failed; restored last working settings.";
+                phoenix::visit_settings(addon_state.panel, [&](const char* key, auto& value) {
+                    save_phoenix_value(runtime, "Phoenix", key, value);
+                });
+                reshade::log::message(reshade::log::level::warning, addon_state.recovery_notice.c_str());
+            } else {
+                addon_state.terminal = true;
+                error(feature_entry.what());
+            }
         }
         addon_state.active_model_source = addon_state.panel.model_source;
         addon_state.active_model_folder = addon_state.panel.model_folder;
@@ -5090,6 +5230,26 @@ Json bridge_snapshot() {
         {"scope",
          "Recorded frames and command acknowledgement do not prove completed rendering or visual correctness"}};
 }
+void screenshot_saved(reshade::api::effect_runtime*, const char* path) {
+    if(!path||!*path)return;
+    try {
+        auto& addon_state=state();
+        std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+        if(!addon_state.panel.pipeline.screenshot_receipt)return;
+        const auto image=std::filesystem::u8path(path);
+        auto facts=bridge_snapshot();
+        facts["application"]="Phoenix addon";
+        facts["model_identity"]=addon_state.weight_source.configuration();
+        facts["frame_identity_scope"]="State observed when ReShade reports the saved image; exact source-frame association is unavailable";
+        const auto receipt=phoenix_pipeline::save_screenshot_receipt(image,
+            phoenix_model::mapped_file_digest(image),std::move(facts));
+        reshade::log::message(reshade::log::level::info,
+            ("[Phoenix DLSS5] screenshot receipt: "+phoenix_model::source_path_string(receipt)).c_str());
+    }catch(const std::exception& error){
+        reshade::log::message(reshade::log::level::warning,
+            (std::string("[Phoenix DLSS5] screenshot saved, receipt failed: ")+error.what()).c_str());
+    }
+}
 void poll_control_bridge(reshade::api::effect_runtime* runtime) {
     auto& addon_state = state();
     const auto now = GetTickCount64();
@@ -5333,6 +5493,13 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
     ui.appearance=value.bridge_inputs.value("appearance",Json::object());
+    ui.portable_backend_selected=value.panel.execution_device!="native";
+    if(value.direct_runner&&value.direct_runner->external()){
+        const auto execution=value.direct_runner->execution_status();
+        const auto geometry=value.direct_runner->resolution();
+        ui.portable_chain_available=execution.value("last_result",Json::object()).value("portable_pipeline_contract",0)>=1&&
+            geometry.width==geometry.output_width&&geometry.height==geometry.output_height;
+    }
     ui.model_path = model_path;
     ui.disk_model = disk_model;
     ui.runtime_root = phoenix::portable::native_runtime_root();
@@ -5400,6 +5567,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
     ImGui::TextUnformatted("Phoenix DLSS5 Neural Rendering");
+    if (!addon_state.recovery_notice.empty()) ImGui::TextWrapped("%s", addon_state.recovery_notice.c_str());
 #if defined(PHOENIX_EXPERIMENTAL_NATIVE)
     ImGui::TextUnformatted("Experimental RTX compatibility build");
     ImGui::TextWrapped("RTX 20/30/40 execution needs testing on those cards. RTX 5080 checks are listed in the package notes.");
@@ -5986,6 +6154,9 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederLiveSettings(const 
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXInProcessBackbufferVersion() {
     return CNR_PHOENIX_DIAGNOSTIC ? 0u : 1u;
+}
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXNativeTlsV3() {
+    return CNR_PHOENIX_DIAGNOSTIC ? 0u : 3u;
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederUiJson(char* destination,
                                                                     uint32_t capacity) {
@@ -6610,6 +6781,7 @@ bool addon_attach(HMODULE module) {
     reshade::register_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
     reshade::register_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);
     reshade::register_event<reshade::addon_event::reshade_present>(live_runtime_tick);
+    reshade::register_event<reshade::addon_event::reshade_screenshot>(screenshot_saved);
     reshade::register_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);
     reshade::register_overlay("Phoenix DLSS5", draw_phoenix_overlay);
     reshade::register_overlay(nullptr, draw_phoenix_compact);
@@ -6627,6 +6799,7 @@ void addon_detach(HMODULE module) {
     reshade::unregister_overlay("Phoenix DLSS5", draw_phoenix_overlay);
     reshade::unregister_overlay(nullptr, draw_phoenix_compact);
     reshade::unregister_event<reshade::addon_event::reshade_present>(live_runtime_tick);
+    reshade::unregister_event<reshade::addon_event::reshade_screenshot>(screenshot_saved);
     reshade::unregister_event<reshade::addon_event::reshade_overlay>(draw_comparison_hud);
     reshade::unregister_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
     reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);

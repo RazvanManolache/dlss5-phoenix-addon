@@ -257,7 +257,9 @@ extern "C" __declspec(dllexport) int PhoenixDriverServe64(bridge::Channel* packe
             require(wow64_umd_probe::install_native_compat_view(c.ntdll_timestamp,offsets),"Native compatibility view unavailable");
             wow64_runtime_diagnostics::retry_native_reservation=true;
             wow64_umd_probe::bridge_dc_creation=true; wow64_umd_probe::bridge_display_gdi=true; wow64_umd_probe::bridge_kmt_escape=true;
-            require(wow64_umd_probe::install()!=0&&wow64_umd_probe::install_gdi_export()&&wow64_umd_probe::install_display_exports(),"Native driver bootstrap unavailable");
+            require(wow64_umd_probe::install()!=0,"Native driver import adaptation unavailable");
+            require(wow64_umd_probe::install_gdi_export(),"Native driver DeleteDC adaptation unavailable");
+            require(wow64_umd_probe::install_display_exports(),"Native driver display adaptation unavailable");
         }
         auto cuda=LoadLibraryW(reinterpret_cast<const wchar_t*>(c.cuda_library)); require(cuda!=nullptr,"Native CUDA load");
         if(wow64_umd_probe::gdi) { wow64_umd_probe::owner=GetCurrentThreadId(); wow64_umd_probe::patch(cuda); }

@@ -23,5 +23,6 @@ struct PhoenixTlsTask {
     uint32_t umd_redirects;
     PhoenixGdiRpc gdi;
     uint64_t thread_allocator;
+    uint64_t shared_rpc;
 };
-static_assert(sizeof(PhoenixTlsTask) == 544);
+static_assert(sizeof(PhoenixTlsTask) == 552);

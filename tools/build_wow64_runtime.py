@@ -18,10 +18,24 @@ def digest(path):
     with path.open('rb') as stream: return hashlib.file_digest(stream,'sha256').hexdigest()
 
 
+def validate_native_bundle(bundle):
+    manifest=json.loads((bundle/'native_manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('model_weights_included') is not False or manifest.get('captured_plans_included') is not False:
+        raise ValueError('A model-free source-built native bundle is required')
+    for path in bundle.rglob('*'):
+        if path.is_symlink() or path.is_junction():raise ValueError('Linked native bundle entry')
+        if path.is_file() and (path.name.lower().startswith('nvngx') or path.name.lower() in ('weights.bin','model.bin')):
+            raise ValueError('Model files do not belong in the native runtime package')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wow64ext',type=Path,required=True)
     parser.add_argument('--ngx-sdk',type=Path,required=True)
+    parser.add_argument('--native-library',type=Path,help='Freshly built native API instead of the retained SDK')
+    parser.add_argument('--native-bundle',type=Path,help='Matching model-free native bundle')
+    parser.add_argument('--output',type=Path,help='Owned runtime directory below artifacts/current')
+    parser.add_argument('--supported-models',nargs='+',choices=('original','small-fp8'),default=['original'])
     args=parser.parse_args()
     from probe_wow64_native import WOW64EXT_COMMIT
     extension=args.wow64ext.resolve()
@@ -44,15 +58,23 @@ def main():
     symbols=baseline['symbols']
     if not symbols.get('initializer_rva') or not symbols.get('allocator_rva') or len(symbols.get('appcompat_offsets',[]))!=4: raise ValueError('Missing verified native bootstrap symbols')
     sdk=CURRENT/'sdk/windows-x64'
-    native=sdk/'bin/phoenix_native.dll'
-    sdk_hashes=json.loads((sdk/'FILES_SHA256.json').read_text())
-    if digest(native)!=sdk_hashes['bin/phoenix_native.dll']: raise ValueError('Native SDK binary changed')
+    native=(args.native_library or sdk/'bin/phoenix_native.dll').resolve()
+    bundle=(args.native_bundle or CURRENT/'native-kernels').resolve()
+    validate_native_bundle(bundle)
+    if args.native_library is None:
+        sdk_hashes=json.loads((sdk/'FILES_SHA256.json').read_text())
+        if digest(native)!=sdk_hashes['bin/phoenix_native.dll']: raise ValueError('Native SDK binary changed')
     vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
     studio=subprocess.check_output([str(vswhere),'-latest','-products','*','-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip()
-    destination=CURRENT/'addon-portable-candidate/PhoenixRuntime/wow64'
+    destination=(args.output or CURRENT/'addon-portable-candidate/PhoenixRuntime/wow64').resolve()
+    if not destination.is_relative_to(CURRENT.resolve()) or destination.name!='wow64':
+        raise ValueError('Runtime output must be a wow64 directory below artifacts/current')
+    if destination.exists() and not (destination/'bootstrap.json').is_file():
+        raise ValueError('Existing output is not a native runtime package')
     source=ROOT/'src/integration/compatibility/wow64'
     report=dict(schema='phoenix-wow64-runtime-build/1',passed=False,gpu_used=False,games_launched=False,
         game_presentation_validated=False,files={},sources={p.relative_to(ROOT).as_posix():digest(p) for p in source.iterdir() if p.is_file()})
+    report['sources']['src/integration/reshade/nr_forwarder.cpp']=digest(ROOT/'src/integration/reshade/nr_forwarder.cpp')
     receipt=CURRENT/'wow64-runtime-build.json'
     try:
         with tempfile.TemporaryDirectory(prefix='wow64-runtime-',dir=ROOT/'artifacts') as temporary:
@@ -72,14 +94,14 @@ def main():
             payload=build/'package';payload.mkdir()
             for name in ('phoenix_bootstrap64.dll','phoenix_driver64.dll','phoenix-nvngx.dll','wow64ext.dll'): shutil.copy2(build/name,payload/name)
             shutil.copy2(native,payload/'phoenix_native.dll')
-            shutil.copytree(CURRENT/'native-kernels',payload/'native')
+            shutil.copytree(bundle,payload/'native')
             licenses=payload/'licenses';licenses.mkdir()
             for path in extension.iterdir():
                 if path.is_file() and path.name.lower().startswith(('license','copying','lgpl')): shutil.copy2(path,licenses/path.name)
             (licenses/'WOW64Ext.txt').write_text('WOW64Ext by rewolf, LGPL-3.0. Dynamic unmodified dependency.\nSource: https://github.com/rwfpl/rewolf-wow64ext\nRevision: '+WOW64EXT_COMMIT+'\n',encoding='utf-8')
-            profile=dict(schema='phoenix-wow64-bootstrap/2',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
+            profile=dict(schema='phoenix-wow64-bootstrap/3',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
                 initializer_rva=symbols['initializer_rva'],allocator_rva=symbols['allocator_rva'],appcompat_offsets=symbols['appcompat_offsets'],
-                driver_directory=driver.name,cuda_sha256=digest(driver/'nvcuda64.dll'),
+                driver_directory=driver.name,cuda_sha256=digest(driver/'nvcuda64.dll'),supported_models=args.supported_models,
                 files={p.name:digest(p) for p in payload.glob('*.dll')})
             (payload/'bootstrap.json').write_text(json.dumps(profile,indent=2)+'\n',encoding='utf-8')
             (payload/'README.txt').write_text('Experimental native x86 addon transports, opt-in only.\n'
@@ -90,7 +112,7 @@ def main():
             for path in payload.rglob('*'):
                 if path.is_file() and (path.name.lower().startswith('nvngx') or path.suffix.lower() in ('.log','.bmp','.png')):
                     raise ValueError('Excluded model/log/capture payload')
-            if destination.is_symlink() or destination.is_junction() or destination.resolve().parent!=(CURRENT/'addon-portable-candidate/PhoenixRuntime').resolve():
+            if destination.is_symlink() or destination.is_junction():
                 raise ValueError('Unsafe runtime destination')
             if destination.exists(): shutil.rmtree(destination)
             destination.parent.mkdir(parents=True,exist_ok=True);shutil.move(str(payload),str(destination))

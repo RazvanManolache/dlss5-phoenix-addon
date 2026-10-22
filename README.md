@@ -33,10 +33,35 @@ we may have taken the side quest too far.
   API- and architecture-specific limits documented below.
 - **Less housekeeping:** cached schedules, lazy appearance buffers, lower startup
   peaks and conservative defaults for alternate backends.
+- **Build your processing chain:** reorder neural rendering, scaling, color
+  treatment and optional two/three-scale fusion. Disabled stages bypass without
+  extra neural work; each active neural stage owns its own temporal history.
+- **Motion when the game has none:** optional NVIDIA Optical Flow, engine-vector
+  priority, confidence rejection and scene-cut history resets on eligible routes.
+  Estimated motion is not engine-provided motion or invented depth.
+- **Scale deliberately:** NVIDIA Image Scaling and an optional experimental tiny
+  2x network, with separate processing/output sizes on the shared D3D12 pipeline.
+  The tiny scaler is not the Lightweight DLSS5 model and needs external weights.
+- **Watch the whole pipeline:** optional monitoring, coordinated latency budgets,
+  last-working-settings recovery, comparison zoom/loupe and screenshot receipts.
+  Unsupported route controls explain their limits instead of silently doing nothing.
+- **Give crowded x86 games some breathing room:** streamed model authentication,
+  selected-resource reads, bounded weight staging and address-space checks before
+  in-process startup. Automatic portable selection prefers a validated GPU.
+- **Use it outside a game:** native SDK and `phoenix-process` file/framed-stream
+  interfaces, with fixed offline quality and protection against overwriting results.
+
+These pipeline additions are route-dependent, not promises for every capture
+hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
+where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.12.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.13.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
+
+The latest package checks are CPU/software-rendering-only. The performance
+studies below retain their original dates and build identities; they are not
+fresh GPU measurements of the download.
 
 <details>
 <summary>RTX generations, compatibility DLLs and validation limits</summary>
@@ -79,7 +104,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.12.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.13.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -122,7 +147,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.12.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.13.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 
@@ -503,6 +528,35 @@ See [memory ownership details](MEMORY_USAGE.md) and the
 32 threads; 96 GiB RAM; AMD Radeon gfx1036 integrated graphics. Discrete AMD
 and Intel GPUs remain untested. Contributions and hardware results are welcome.
 
+## Credits and upstream work
+
+Phoenix builds on other people's work. The following distinguishes adapted
+source, ports of published designs, and references we studied:
+
+| Upstream | What Phoenix uses or learned |
+| --- | --- |
+| [mauri870/dlssnr-pytorch](https://github.com/mauri870/dlssnr-pytorch) | Adapted tensor-layout declarations retained after the native C++ migration; MIT attribution remains. |
+| [Uzbekunknown/dlss-nr-on-intel](https://github.com/Uzbekunknown/dlss-nr-on-intel) | Imported shader/runtime source subset, with recorded modifications; Apache-2.0. |
+| [mochizuki0323/DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD) | Imported cooperative-matrix and activation shader interfaces; MIT. |
+| [kibblerz/DLSS5-Reshade-AIO](https://github.com/kibblerz/DLSS5-Reshade-AIO) | Directly adapted native NVIDIA Optical Flow provider, integrated into Phoenix's queue/history handling; Apache-2.0, with NVIDIA MIT interface headers. |
+| [NVIDIA Image Scaling](https://github.com/NVIDIAGameWorks/NVIDIAImageScaling) | Retained SDK scaling/sharpening shaders and configuration code; MIT. The D3D12 adapter is Phoenix code. |
+| [Benjamin-Wegener/dlss5-distill](https://github.com/Benjamin-Wegener/dlss5-distill) | Published tiny 2x architecture and optional trained checkpoint, ported to native D3D12; Apache-2.0. The C++/HLSL implementation is new. |
+| [clshortfuse/openNR](https://github.com/clshortfuse/openNR) | Older-RTX compatibility approach, including FP8-to-paired-FP16 decomposition and architecture lowering; retained MIT attribution. |
+| [Yukikaze1945/Lunarc-DLSS5](https://github.com/Yukikaze1945/Lunarc-DLSS5), [Yukikaze20170315/dlss5-vulkan-fg-relay](https://github.com/Yukikaze20170315/dlss5-vulkan-fg-relay) | Studied native media/scaling, multiscale processing, pipeline ordering and recovery designs. These are references, not imported implementations. Phoenix's independently implemented native chain/fusion has small-fixture checks; VSR remains deferred. |
+
+The companion video player adapts the native player/media/cache/comparison
+foundation from [2600th/dlss5-video-player](https://github.com/2600th/dlss5-video-player)
+(MIT). Everything's driver-profile adapter is adapted from
+[ApolloF/DLSS5-Updater](https://github.com/ApolloF/DLSS5-Updater) (MIT).
+Those adaptations live in the companion projects, not in Phoenix's addon source.
+
+See the [upstream credit ledger](docs/UPSTREAM_CREDITS.md) for source locations,
+recorded revisions, additional research references and external model sources.
+[THIRD_PARTY.md](THIRD_PARTY.md) links retained licenses and notices, including
+ReShade, ImGui, MinHook, JSON and vendor interface dependencies. Credits identify
+contributions; they do not imply upstream endorsement or completed integration.
+NVIDIA created DLSS and the supplied NVIDIA models, which retain their own terms.
+
 ## Help wanted
 
 - Sorry, discrete Radeon and Intel GPU owners: I don't have those cards to test.
@@ -714,6 +768,46 @@ the matching-bitness portable runtime into the existing fenced pixel transport.
 It keeps native D3D12, the x64 helper, shared textures and staging routes
 configurable. Automatic routing is unchanged; the alternate local x86 Vulkan
 path remains experimental pending game-presentation validation.
+
+### Shared processing pipeline
+
+The addon, Phoenix Video Player and DLSS Everything share ordered
+processing recipes, motion estimation, scene resets, monitoring/recovery and
+optional native NIS, tiny 2x scaling and multiscale fusion. Models remain external.
+The shared x64 portable frame worker also exposes intensity/style controls.
+Both models have a real capture-worker neural/appearance pixel oracle against
+the public runtime; zero intensity restores the source. Diagnostics distinguish
+the capture host from the native neural workers and verify worker retirement.
+The player package includes its native SDK, kernels and pinned media helpers;
+Everything supplies the centrally installed model path.
+
+[1080p pipeline costs, memory and native-pixel face comparisons](docs/benchmarks/current/pipeline/README.md)
+measure both Phoenix models and the optional stages. These synchronous host-API
+measurements include transfers and are separate from the existing GPU-resident
+Phoenix/NVIDIA benchmarks above. Fusion can soften detail, and the current tiny
+scaler has visible artifacts and a high cost; both remain experimental.
+
+Native chain, fusion, cache/live segment and source-to-Present API checks pass
+on the RTX 5080. Portable color/fusion stages also have checks on CPU, CUDA and
+Vulkan on NVIDIA/AMD, with independent histories and unchanged ordinary output.
+The x64 final-frame portable worker and player can also use the shared D3D12
+stage graph: independent processing/output extents, NIS/tiny scaling, motion,
+scene resets and coordinated latency control, with native portable neural
+workers per pass/branch. Everything and the player offer installed processing
+devices. These adapters retain host transfers and are separate from the
+equal-extent C API contract. VSR and OptiScaler are deferred. The
+[implementation ledger](docs/PIPELINE_IMPLEMENTATION.md) records exact evidence
+and remaining work; this checkpoint does not establish every new stage on every
+existing backend.
+
+[The pipeline guide](docs/PROCESSING_CHAIN.md) separates the add-on features
+from the companion applications and the retained development measurements.
+The release embeds updated portable runtime and native SDK companions, with
+fresh CPU/software checks and no new GPU qualification. Flow/scene/pipeline-age controls require the
+local final-frame D3D12 bridge or the x64 shared portable frame worker; other insertion routes retain their supplied
+guides/reset flags and neural-budget controls. Experimental x86 native bridges
+reject custom chains and frame services they cannot execute. The existing portable `phoenix_frame` CLI also accepts
+the [color/fusion metadata contract](docs/LIBRARY.md#portable-color-and-fusion-stages).
 
 ### Tests and source checks
 

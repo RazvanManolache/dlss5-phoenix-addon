@@ -88,6 +88,17 @@ inline std::vector<phoenix_kernel::Spec> catalog(const phoenix_bundle::Bundle& b
     }
     return specs;
 }
+struct BufferAllocationError : std::runtime_error {
+    HRESULT code;
+    static std::string describe(HRESULT result, uint64_t bytes, D3D12_HEAP_TYPE heap) {
+        std::ostringstream message;
+        message << "Native D3D12 buffer allocation failed: bytes=" << bytes
+                << ", heap=" << unsigned(heap) << ", HRESULT=0x" << std::hex << uint32_t(result);
+        return message.str();
+    }
+    BufferAllocationError(HRESULT result, uint64_t bytes, D3D12_HEAP_TYPE heap)
+        : std::runtime_error(describe(result, bytes, heap)), code(result) {}
+};
 inline ComPtr<ID3D12Resource> buffer(ID3D12Device* device, uint64_t bytes,
                                      D3D12_HEAP_TYPE heap_type, D3D12_RESOURCE_STATES state) {
     D3D12_HEAP_PROPERTIES heap{};
@@ -103,8 +114,10 @@ inline ComPtr<ID3D12Resource> buffer(ID3D12Device* device, uint64_t bytes,
     if (heap_type == D3D12_HEAP_TYPE_DEFAULT)
         desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     ComPtr<ID3D12Resource> result;
-    hr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr,
-                                       IID_PPV_ARGS(&result)));
+    const HRESULT created = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                             state, nullptr, IID_PPV_ARGS(&result));
+    if (FAILED(created))
+        throw BufferAllocationError(created, bytes, heap_type);
     return result;
 }
 inline ComPtr<ID3D12Resource> image(ID3D12Device* device, unsigned width, unsigned height,
@@ -243,7 +256,8 @@ class Network {
         ComPtr<ID3D12CommandQueue> queue;
     };
     struct ImmutableModel {
-        ComPtr<ID3D12Resource> weights, upload;
+        ComPtr<ID3D12Resource> weights;
+        std::vector<ComPtr<ID3D12Resource>> uploads;
         ComPtr<ID3D12Fence> upload_complete;
         ID3D12GraphicsCommandList* initialization_command = nullptr;
         bool initialized = false, upload_submitted = false;
@@ -251,7 +265,7 @@ class Network {
     std::shared_ptr<ImmutableModel> model_storage_;
     std::shared_ptr<SerialWorkspace> serial_workspace_;
     std::shared_ptr<memory::Generation> accounting_;
-    const uint8_t* weight_identity_ = nullptr;
+    const void* weight_identity_ = nullptr;
     Api& api_;
     ComPtr<ID3D12Device> device_;
     ComPtr<ID3D12Resource> input_, motion_, weights_, workspace_, output_[2];
@@ -267,7 +281,7 @@ class Network {
     ComPtr<ID3D12CommandQueue> queue_;
     void track_initial_upload() noexcept {
         auto& model = *model_storage_;
-        if (model.upload && !model.upload_submitted) {
+        if (!model.uploads.empty() && !model.upload_submitted) {
             // One fence covers the submitted list containing the initial copy
             // and every serial refinement pass. A failed signal retains staging.
             model.upload_submitted = SUCCEEDED(queue_->Signal(model.upload_complete.Get(), 1));
@@ -278,7 +292,7 @@ class Network {
         // UINT64_MAX means device removal, not successful completion.
         if (model.upload_submitted && model.upload_complete &&
             model.upload_complete->GetCompletedValue() == 1) {
-            model.upload.Reset();
+            model.uploads.clear();
             model.upload_complete.Reset();
             model.initialization_command = nullptr;
         }
@@ -357,12 +371,12 @@ class Network {
     const unsigned width, height;
     std::shared_ptr<phoenix_kernel::Counters> counters =
         std::make_shared<phoenix_kernel::Counters>();
-    Network(ID3D12Device* device, Api& api, const Json& frame, const std::vector<uint8_t>& packed,
+    Network(ID3D12Device* device, Api& api, const Json& frame, const phoenix_model::WeightView& packed,
             const std::vector<phoenix_kernel::Binary>& candidates, ID3D12Resource* color,
             ID3D12Resource* motion = nullptr, std::shared_ptr<memory::Generation> accounting = {},
             bool allow_gpu_upload = true, const Network* sequential_source = nullptr,
             ID3D12Resource* control_mask = nullptr)
-        : accounting_(accounting), weight_identity_(packed.data()), api_(api), device_(device),
+        : accounting_(accounting), weight_identity_(packed.identity()), api_(api), device_(device),
           input_(color), motion_(motion), width(frame.at("width")), height(frame.at("height")) {
         if (accounting) {
             if (accounting->modules)
@@ -384,7 +398,7 @@ class Network {
             require(device_identity(device, sequential_source->device_.Get()) &&
                         &api == &sequential_source->api_ && width == sequential_source->width &&
                         height == sequential_source->height &&
-                        packed.data() == sequential_source->weight_identity_ &&
+                        packed.identity() == sequential_source->weight_identity_ &&
                         accounting == sequential_source->accounting_,
                     "shared refinement resources require the same device, model and owner");
         std::unordered_map<std::string, NVDX_ObjectHandle> functions;
@@ -431,33 +445,68 @@ class Network {
             model_storage_ = std::make_shared<ImmutableModel>();
             auto& model = *model_storage_;
             D3D12_FEATURE_DATA_D3D12_OPTIONS16 options{};
-            const bool mapped_gpu_weights =
+            bool mapped_gpu_weights =
                 allow_gpu_upload &&
                 SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16, &options,
                                                       sizeof(options))) &&
                 options.GPUUploadHeapSupported;
+            phoenix_model::WeightTransfer transfer(packed);
+            auto fill_upload = [&](ID3D12Resource* target, size_t offset, size_t count,
+                                   D3D12_HEAP_TYPE heap) {
+                void* data = nullptr;
+                D3D12_RANGE empty{};
+                const HRESULT mapped = target->Map(0, &empty, &data);
+                if (FAILED(mapped))
+                    throw BufferAllocationError(mapped, count, heap);
+                try {
+                    transfer.copy_to(offset, data, count);
+                } catch (...) {
+                    target->Unmap(0, nullptr);
+                    throw;
+                }
+                target->Unmap(0, nullptr);
+            };
             if (mapped_gpu_weights) {
-                weights_ = buffer(device, packed.size(), D3D12_HEAP_TYPE_GPU_UPLOAD,
-                                  D3D12_RESOURCE_STATE_GENERIC_READ);
-                model.initialized = true;
-            } else {
+                try {
+                    weights_ = buffer(device, packed.size(), D3D12_HEAP_TYPE_GPU_UPLOAD,
+                                      D3D12_RESOURCE_STATE_GENERIC_READ);
+                    fill_upload(weights_.Get(), 0, packed.size(), D3D12_HEAP_TYPE_GPU_UPLOAD);
+                    model.initialized = true;
+                } catch (const BufferAllocationError& error) {
+                    if (error.code != E_OUTOFMEMORY)
+                        throw;
+                    // Feature support is not an allocation guarantee. A WOW64
+                    // game can lack a model-sized CPU-visible BAR address range.
+                    weights_.Reset();
+                    mapped_gpu_weights = false;
+                }
+            }
+            if (!mapped_gpu_weights) {
                 weights_ = buffer(device, packed.size(), D3D12_HEAP_TYPE_DEFAULT,
                                   D3D12_RESOURCE_STATE_COPY_DEST);
-                model.upload = buffer(device, packed.size(), D3D12_HEAP_TYPE_UPLOAD,
-                                      D3D12_RESOURCE_STATE_GENERIC_READ);
-                memory::resource(device, model.upload.Get(), accounting, memory::Kind::upload);
+                auto append_upload = [&](size_t offset, size_t count) {
+                    auto staging = buffer(device, count, D3D12_HEAP_TYPE_UPLOAD,
+                                          D3D12_RESOURCE_STATE_GENERIC_READ);
+                    fill_upload(staging.Get(), offset, count, D3D12_HEAP_TYPE_UPLOAD);
+                    memory::resource(device, staging.Get(), accounting, memory::Kind::upload);
+                    model.uploads.push_back(std::move(staging));
+                };
+                // Keep the GPU weights contiguous while staging them through
+                // small CPU mappings. These buffers exist only until the first
+                // submitted copy fence completes, including shared refinements.
+                constexpr size_t chunk_bytes = 4 * 1024 * 1024;
+                for (size_t offset = 0; offset < packed.size();) {
+                    const auto count = std::min(chunk_bytes, packed.size() - offset);
+                    append_upload(offset, count);
+                    offset += count;
+                }
                 hr(device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                        IID_PPV_ARGS(&model.upload_complete)));
                 memory::track(model.upload_complete.Get(), accounting, memory::Kind::fence);
             }
+            transfer.finish();
             model.weights = weights_;
             memory::resource(device, weights_.Get(), accounting, memory::Kind::weights);
-            auto* write_target = mapped_gpu_weights ? weights_.Get() : model.upload.Get();
-            void* data = nullptr;
-            D3D12_RANGE empty{};
-            hr(write_target->Map(0, &empty, &data));
-            memcpy(data, packed.data(), packed.size());
-            write_target->Unmap(0, nullptr);
         }
         for (auto& out : output_) {
             out = image(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT,
@@ -634,12 +683,17 @@ class Network {
         try {
             retire_initial_upload();
             auto& model = *model_storage_;
-            require(!model.upload || !model.initialized || model.upload_submitted ||
+            require(model.uploads.empty() || !model.initialized || model.upload_submitted ||
                         model.initialization_command == cmd,
                     "shared model copy must be recorded in the same initial submission");
             if (!model.initialized) {
-                cmd->CopyBufferRegion(weights_.Get(), 0, model.upload.Get(), 0,
-                                      weights_->GetDesc().Width);
+                uint64_t offset = 0;
+                for (const auto& upload : model.uploads) {
+                    const auto bytes = upload->GetDesc().Width;
+                    cmd->CopyBufferRegion(weights_.Get(), offset, upload.Get(), 0, bytes);
+                    offset += bytes;
+                }
+                require(offset == weights_->GetDesc().Width, "Incomplete initial model upload");
                 transition(cmd, weights_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 model.initialization_command = cmd;

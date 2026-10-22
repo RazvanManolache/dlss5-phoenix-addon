@@ -96,6 +96,29 @@ class Model {
     }
 
     explicit Model(const phoenix_model::WeightSource& source) : source_(source), definition_(&source.model()) {
+#ifdef _WIN32
+        (void)decoder_for(definition());
+        phoenix_model::with_streamed_model_resource(source, file_sha,
+            [&](phoenix_model::ReadOnlyModelFile& input, const auto& records,
+                const phoenix_model::ResourceIdentity& identity) {
+                resource_sha256_ = identity.sha256;
+                auto read_record = [&](const phoenix_model::WeightRecord& record) {
+                    std::vector<uint8_t> bytes(record.bytes);
+                    input.read_resource(record.byte_offset, bytes.data(), bytes.size());
+                    return bytes;
+                };
+                auto layout = [&](size_t count, auto visitor) {
+                    if (definition().architecture == phoenix_model::models::original.architecture)
+                        visit_layout(count, visitor);
+                    else if (definition().architecture == phoenix_model::models::small_fp8.architecture)
+                        small_fp8_layouts::visit_layout(count, visitor);
+                    else
+                        throw std::runtime_error("No streamed tensor layout for selected architecture");
+                };
+                decode_record_layout(records, read_record, layout);
+                return 0;
+            });
+#else
         const auto decode = decoder_for(definition());
         phoenix_model::with_model_resource(
             source, file_sha, [&](const uint8_t* resource_bytes, size_t resource_size) {
@@ -103,6 +126,7 @@ class Model {
                 (this->*decode)(resource_bytes, resource_size);
                 return 0;
             });
+#endif
     }
 
     const std::vector<uint8_t>& raw(int block, int layer, const std::string& field) const {

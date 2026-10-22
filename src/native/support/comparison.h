@@ -1,5 +1,6 @@
 #pragma once
 #include "routing.h"
+#include "../../pipeline/comparison_view.h"
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -13,7 +14,7 @@ namespace phoenix_addon::phoenix {
 inline constexpr const char* comparison_names[] = {
     "Three-way", "Pair wipe", "Absolute RGB", "Signed RGB", "Heatmap", "Luminance difference"};
 inline constexpr const char* source_names[] = {"Input", "NVIDIA DLSS5", "Phoenix DLSS5"};
-inline constexpr char comparison_shader[] = R"hlsl(
+inline constexpr char comparison_shader[] = PHOENIX_COMPARISON_VIEW_HLSL R"hlsl(
 Texture2D<float4> inputImage : register(t0);
 Texture2D<float4> nativeImage : register(t1);
 Texture2D<float4> phoenixImage : register(t2);
@@ -27,7 +28,8 @@ float4 source(uint index, uint2 p) {
 }
 [numthreads(16,16,1)] void main(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= width || tid.y >= height) return;
-    float4 a = source(sourceA, tid.xy), b = source(sourceB, tid.xy);
+    uint2 p=ComparisonPoint(tid.xy,width,height,unused);
+    float4 a = source(sourceA, p), b = source(sourceB, p);
     if (mode == 1) { destination[tid.xy] = tid.x < divider ? a : b; return; }
     float3 d = (a.rgb - b.rgb) * gain;
     float3 result = saturate(abs(d));
@@ -156,7 +158,7 @@ class Comparison {
     void record(ID3D12GraphicsCommandList* cmd, const std::array<ID3D12Resource*, 3>& sources,
                 const std::array<D3D12_RESOURCE_STATES, 3>& states, ID3D12Resource* output,
                 D3D12_RESOURCE_STATES output_state, unsigned mode, unsigned source_a,
-                unsigned source_b, float divider, float gain) {
+                unsigned source_b, float divider, float gain,const phoenix_pipeline::Options& view={}) {
         if (!cmd || !output || mode < 1 || mode > 5 || source_a > 2 || source_b > 2 ||
             !std::isfinite(gain) || gain < 1 || gain > 64 || !std::isfinite(divider) ||
             divider < .1f || divider > .9f)
@@ -197,7 +199,7 @@ class Comparison {
             unsigned unused;
         };
         Constants constants{
-            width_, height_, mode, source_a, source_b, unsigned(float(width_) * divider), gain, 0};
+            width_, height_, mode, source_a, source_b, unsigned(float(width_) * divider), gain, phoenix_pipeline::comparison_view_bits(view)};
         auto* heap = heap_.Get();
         cmd->SetDescriptorHeaps(1, &heap);
         cmd->SetComputeRootSignature(root_.Get());

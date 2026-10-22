@@ -64,6 +64,44 @@ static Json check_dll(const std::filesystem::path& path, const std::filesystem::
     const auto digest = phoenix_cpp::file_sha(path);
     WeightSource source{path, digest};
     Json result{{"dll_sha256", digest}};
+#ifdef _WIN32
+    with_streamed_model_resource(source, phoenix_cpp::file_sha,
+        [&](ReadOnlyModelFile& input, const auto& records, const ResourceIdentity& identity) {
+            rejects([&] { input.bytes(); }, "already released");
+            check(records.size() == source.model().record_count, "Streamed record count differs");
+            check(identity.sha256 == models::original.reference_resource_sha256,
+                  "Streamed resource identity differs");
+            result["streamed_without_input_view"] = true;
+            return 0;
+        });
+#endif
+
+#ifdef _WIN32
+    {
+        ReadOnlyModelFile selected(path,models::original.resource,digest);
+        const auto bytes=selected.bytes();
+        check(weight_digest(bytes.data(),bytes.size())==models::original.reference_resource_sha256,
+              "Resource-window bytes differ from the authenticated model");
+        MEMORY_BASIC_INFORMATION view{};
+        check(VirtualQuery(bytes.data(),&view,sizeof(view))==sizeof(view) && view.Protect==PAGE_READONLY,
+              "Model resource window must remain read-only data");
+        check(view.RegionSize<=bytes.size()+65536 && view.RegionSize<std::filesystem::file_size(path),
+              "Resource window still reserves the full DLL extent");
+        result["resource_window_bytes"] = bytes.size();
+        result["mapped_region_bytes"] = view.RegionSize;
+        result["dll_file_bytes"] = std::filesystem::file_size(path);
+        std::array<uint8_t, 16> prefix{}, reread{};
+        std::memcpy(prefix.data(), bytes.data(), prefix.size());
+        selected.release_view();
+        rejects([&] { selected.bytes(); }, "already released");
+        selected.read_resource(0, reread.data(), reread.size());
+        check(prefix == reread, "Unmapped file reader returned different resource bytes");
+        rejects([&] { selected.read_resource(bytes.size(), reread.data(), 1); }, "outside selected extent");
+    }
+    rejects([&]{ReadOnlyModelFile rejected(path,models::original.resource,std::string(64,'0'));},
+            "SHA-256 mismatch");
+#endif
+
     {
         auto packed = packed_model(source, phoenix_cpp::file_sha);
         check(packed.resource.sha256 == models::original.reference_resource_sha256,

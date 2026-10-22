@@ -39,11 +39,19 @@ Worker wall-time medians were 16.96 ms (library), 18.14 ms (driver), 31.54 ms
 (portable) and 5.23 ms (helper); the x64 same-device route lacks that counter.
 These diagnostic samples show why "same-process first" does not mean "fastest".
 
-**0.9 downloads:** the standard add-on and optional portable runtime packages
+**Public downloads:** the standard add-on and optional portable runtime packages
 include no profile-specific WOW64 bundle. The native x86 experiments below retain
-their earlier evidence, not fresh 0.9 Windows/driver-profile certification. They
+their earlier evidence, not fresh Windows/driver-profile certification. They
 require a separately built and verified matching runtime. Automatic/helper
 transport remains available without it.
+
+Current native x86 packages use `phoenix-wow64-bootstrap/3` for coordinated TLS
+and worker restart handling. Older `/2` packages are deliberately refused: rebuild
+the profile-bound runtime with the matching current source rather than mixing
+old bootstrap DLLs with the new add-on. The x86 preflight checks both total free
+address space and the contiguous region needed by the selected route; its safety
+margins are startup guards, not steady-state RAM estimates. Low-space routes
+remain retryable, and the x64 helper is still available.
 
 ## Requested Native Routes
 
@@ -194,20 +202,28 @@ The portable adapter applies live tone, structure, skin/mask conditioning,
 network passes and block repetitions. Comparison uses the input snapshot from
 that exact evaluation, with wipe, absolute, signed, heatmap and luminance views.
 Original bypass, the compatibility screenshot path, markers and timing clearing
-remain available. Backbuffer input has no engine motion/depth, so every evaluation
-resets temporal history rather than pretending guides exist.
+remain available. Backbuffer input has no engine motion/depth. Without an enabled,
+working motion provider, evaluation resets history. The x64 shared frame worker
+can estimate motion from consecutive source images and reject low-confidence
+history; it does not manufacture geometric depth.
 
-This first portable backbuffer adapter uses normal-resolution SDR host planes.
-Super-resolution and adaptive blocks are disabled for it; incompatible saved
-settings fail explicitly and can be reset in the panel. Native NVIDIA DLSS5 host
+The portable backbuffer adapter uses SDR host planes. The x64 shared SDK worker
+supports independent processing/output geometry, NIS/tiny scaling, scene resets
+and pipeline latency policy. GPU-time block budgets use actual backend GPU
+events, independently of optional monitoring. The older equal-extent C API path
+keeps its explicit restrictions. Native NVIDIA DLSS5 host
 exposure/jitter/HDR declarations, override-file reload and offline input-capture
 bursts are not portable-runtime features. Unsupported runtime actions are
 rejected, not falsely acknowledged. Standard game screenshots remain separate.
 
 Status exports distinguish `in_process`, `in_process_portable`,
 `in_process_x64_library`, `in_process_x86_driver`, `helper`, and
-`not_started`. All in-process execution reports the game's PID as `inference_pid` and
-zero `helper_pid`. Its wall time includes host preparation/inference/resolve and
+`not_started`. `processing_host_pid` identifies the capture/stage host. The
+shared portable pipeline reports its actual native neural worker processes in
+`inference_pids`, with the first worker in the compatible `inference_pid` field
+(zero when no neural stage is active). Ordinary in-process inference reports the
+game's PID. Capture inside the game still has zero `helper_pid`; native neural
+workers are separate from the legacy graphics helper. Wall time includes host preparation/inference/resolve and
 is not labeled as GPU-only timing. Game presents and completed model outputs
 remain separate counters.
 
@@ -233,6 +249,26 @@ refused by route 2, rather than continuing with the old library under a new labe
 With fallback enabled the helper handles that selection; otherwise restart the
 game. Phoenix DLSS5-only weight/model selection remains independent of this DLL limit.
 
+Export-relative callback stubs stay immutable once published as executable,
+read-only memory. Worker retirement restores export slots, while subsequent
+workers reuse the same owned stubs. `tools/test_wow64_export_patch.py` checks
+this restart sequence without a GPU or system-image modification; the check
+also runs in the x64 part of `tools/test_model_selection.py`.
+The stub allocator searches the export's legal 32-bit RVA range rather than
+assuming native images and free address space lie below 2 GiB. CPU regressions
+cover a high image, a reserved 128 MiB neighborhood, and adaptation/restoration
+of 300 imports (beyond the former 256-slot ceiling).
+The experimental mixed-bitness loader omits optional NVIDIA overlay capture and
+diagnostic clients. Diagnostic thread callbacks faulted during repeated WARP
+worker restarts; the normal x64 addon/helper loader is unaffected by this rule.
+It also avoids explicitly loading an absent overlay during bridge setup.
+
+The native NVIDIA library route applies import adaptation to the directly loaded
+NGX core and selected model DLL before initialization. Worker retirement releases
+the feature and parameters, then calls device-specific NGX shutdown before
+destroying its D3D12 device. A failed feature creation also retires an initialized
+NGX context; model DLLs remain loaded to preserve cached driver callbacks.
+
 ## Validation Boundary
 
 `tools/validate_portable_bridge.py` runs x86/x64 CPU-only route, live-tuning,
@@ -255,6 +291,12 @@ the disposable client for the dependency-search regression. The native worker
 loads dependencies from its own directory/System32, not the x86 application's
 proxy DLL. This packaged-client test passes with the local x86 ReShade proxy;
 it still does not establish actual swapchain presentation.
+`--runtime PATH --weight-source PATH` selects an explicit local profile and model
+configuration without copying the model. `--opengl` keeps a real NVIDIA x86
+OpenGL context rendering and checking pixels while the probe exercises worker
+creation, live controls, backend changes and retirement. This is a driver
+coexistence test; the addon's x86 OpenGL native-route exclusion remains in place
+until the full presentation path is qualified.
 
 The separate [x86 Vulkan validation](X86_VULKAN.md) covers real standalone neural
 execution. Both layers of evidence are needed before promoting this mechanism

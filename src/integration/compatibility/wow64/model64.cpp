@@ -19,8 +19,21 @@ extern "C" NVSDK_NGX_Result NVSDK_CONV PhoenixNrInit(unsigned long long,const wc
 extern "C" NVSDK_NGX_Result NVSDK_CONV PhoenixNrCreate(ID3D12GraphicsCommandList*,NVSDK_NGX_Feature,NVSDK_NGX_Parameter*,NVSDK_NGX_Handle**);
 extern "C" NVSDK_NGX_Result NVSDK_CONV PhoenixNrEvaluate(ID3D12GraphicsCommandList*,const NVSDK_NGX_Handle*,const NVSDK_NGX_Parameter*,PFN_NVSDK_NGX_ProgressCallback);
 extern "C" NVSDK_NGX_Result NVSDK_CONV PhoenixNrRelease(NVSDK_NGX_Handle*);
+extern "C" NVSDK_NGX_Result NVSDK_CONV PhoenixNrShutdown(ID3D12Device*);
+extern "C" HMODULE WINAPI PhoenixNrModule();
 extern "C" __declspec(dllexport) void PhoenixSetGdiRpc64(PhoenixGdiRpc* rpc) {wow64_umd_probe::gdi=rpc;}
 static void require(bool valid,const char* message) {if(!valid) throw std::runtime_error(message);}
+static std::string host_allocation_context() {
+    std::string detail="; host heap calls="+std::to_string(wow64_runtime_diagnostics::heap_calls)+
+        ", failures="+std::to_string(wow64_runtime_diagnostics::failure_count);
+    HEAP_SUMMARY summary{}; summary.cb=sizeof(summary);
+    if(HeapSummary(GetProcessHeap(),0,&summary))
+        detail+="; heap allocated="+std::to_string(summary.cbAllocated)+
+            ", committed="+std::to_string(summary.cbCommitted)+
+            ", reserved="+std::to_string(summary.cbReserved)+
+            ", maximum reserve="+std::to_string(summary.cbMaxReserve);
+    return detail;
+}
 static void hr(HRESULT result,std::source_location where=std::source_location::current()) {
     if(FAILED(result)) throw std::runtime_error("Native model D3D12 failure "+std::to_string(uint32_t(result))+" at line "+std::to_string(where.line()));
 }
@@ -37,7 +50,39 @@ struct Device {
             hr(factory->EnumAdapters1(i,&adapter)); DXGI_ADAPTER_DESC1 desc{}; hr(adapter->GetDesc1(&desc));
             if(desc.VendorId==0x10de&&!(desc.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)) break; adapter.Reset();
         }
-        hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&device)));
+        const auto created=D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&device));
+        if(FAILED(created)) {
+            auto detail="Native D3D12 device HRESULT="+std::to_string(uint32_t(created));
+            const auto failures=std::min<LONG>(LONG(wow64_runtime_diagnostics::failure_count),32);
+            if(failures>0) {
+                const auto& failure=wow64_runtime_diagnostics::failures[failures-1];
+                detail+="; last allocation operation="+std::to_string(failure.operation)+
+                    ", bytes="+std::to_string(failure.bytes)+", Windows error="+std::to_string(failure.error);
+            }
+            SYSTEM_INFO system{};GetNativeSystemInfo(&system);
+            detail+="; native maximum address="+std::to_string(uint64_t(system.lpMaximumApplicationAddress));
+            const auto reservations=std::min<LONG>(LONG(wow64_runtime_diagnostics::reservation_count),32);
+            unsigned shown=0;
+            for(LONG i=0;i<reservations&&shown<1;++i) {
+                const auto& value=wow64_runtime_diagnostics::reservations[i];
+                if(!value.initial) {
+                    ++shown;
+                    detail+="; reserve="+std::to_string(value.bytes)+
+                        ", err="+std::to_string(value.error)+", retry="+std::to_string(value.retry_error)+
+                        ", method="+std::to_string(value.method)+", params="+std::to_string(value.parameters)+
+                        ", flags="+std::to_string(value.flags)+", protect="+std::to_string(value.protect)+
+                        ", result="+std::to_string(value.retried);
+                }
+            }
+            detail+=host_allocation_context();
+            ComPtr<IDXGIAdapter3> memory;
+            if(SUCCEEDED(adapter.As(&memory))) {
+                DXGI_QUERY_VIDEO_MEMORY_INFO budget{};
+                if(SUCCEEDED(memory->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_LOCAL,&budget)))
+                    detail+="; GPU local usage="+std::to_string(budget.CurrentUsage)+", budget="+std::to_string(budget.Budget);
+            }
+            throw std::runtime_error(detail);
+        }
         D3D12_COMMAND_QUEUE_DESC desc{}; hr(device->CreateCommandQueue(&desc,IID_PPV_ARGS(&queue)));
         hr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)));
         hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&list)));
@@ -79,15 +124,34 @@ class Models {
     ComPtr<ID3D12Resource> color_,motion_,output_,upload_,motion_upload_,readback_;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint_{},motion_fp_{}; uint64_t bytes_=0,motion_bytes_=0;
     bool color_uploaded_=false;
+    bool nvidia_initialized_=false;
+    phoenix_wow64::ModelChannel* packet_=nullptr;
+    unsigned nvidia_imports_=0;
     inline static std::string loaded_nvidia_sha_;
     void initialize_phoenix() {
         if(phoenix_) return;
         native_=LoadLibraryExW(fs::u8path(config_.at("native_library").get<std::string>()).c_str(),nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
         require(native_!=nullptr,"Native Phoenix DLSS5 library unavailable");
+        // The standalone library is loaded directly, just like the NGX core.
+        // Adapt its native imports before it caches loader/allocator entry points.
+        wow64_umd_probe::patch(native_);
         auto create=symbol<decltype(&phoenix_native_create)>(native_,"phoenix_native_create");
-        const auto text=config_.dump(); phoenix_=create(text.c_str(),gpu_.device.Get(),gpu_.queue.Get());
-        require(phoenix_!=nullptr,symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error")());
+        const auto text=config_.dump();
+        phoenix_=create(text.c_str(),gpu_.device.Get(),gpu_.queue.Get());
+        if (!phoenix_) {
+            std::string detail=symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error")();
+            if (detail.find("allocation")!=std::string::npos) {
+                const auto count=wow64_runtime_diagnostics::failure_count;
+                if (count>0) {
+                    const auto& failure=wow64_runtime_diagnostics::failures[std::min<LONG>(count-1,31)];
+                    detail+="; last host allocation bytes="+std::to_string(failure.bytes)+
+                        ", Windows error="+std::to_string(failure.error);
+                }
+                detail+=host_allocation_context();
+            }
+            throw std::runtime_error(detail);
+        }
     }
     void initialize_nvidia(const wchar_t* cuda_path,phoenix_wow64::ModelChannel& packet) {
         if(nvidia_) return;
@@ -97,9 +161,18 @@ class Models {
         require(loaded_nvidia_sha_.empty()||loaded_nvidia_sha_==source.dll_sha256,
             "Changing the NVIDIA DLSS5 library in the native x86 route requires the helper or a game restart; the previous library stays loaded.");
         core_=LoadLibraryW((fs::path(cuda_path).parent_path()/"_nvngx.dll").c_str()); require(core_!=nullptr,"Native NGX core unavailable");
+        // These libraries are loaded here, rather than through the driver's
+        // adapted loader. Apply the same native import/allocation handling
+        // before they initialize or cache dependency entry points.
+        wow64_umd_probe::patch(core_);
         auto allocate=symbol<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter**)>(core_,"NVSDK_NGX_D3D12_AllocateParameters");
         require(NVSDK_NGX_SUCCEED(allocate(&params_))&&params_,"NVIDIA DLSS5 parameter allocation failed");
         require(PhoenixNrLoad(source.dll.c_str())!=0,"NVIDIA DLSS5 model load failed");
+        const auto model_module=PhoenixNrModule();
+        require(model_module!=nullptr,"Loaded NVIDIA model module unavailable");
+        const auto before=wow64_umd_probe::slot_count;
+        wow64_umd_probe::patch(model_module);
+        nvidia_imports_=wow64_umd_probe::slot_count-before;
         loaded_nvidia_sha_=source.dll_sha256;
         if(config_.value("nvidia_preset",1u)==2) {
             const auto mapping=LoadLibraryExW(source.dll.c_str(),nullptr,LOAD_LIBRARY_AS_DATAFILE|LOAD_LIBRARY_AS_IMAGE_RESOURCE);
@@ -113,6 +186,7 @@ class Models {
         fs::create_directories(cache);
         const auto initialized=PhoenixNrInit(0x1000000ull,cache.c_str(),gpu_.device.Get(),NVSDK_NGX_Version_API,params_);
         if(!NVSDK_NGX_SUCCEED(initialized)) throw std::runtime_error("NVIDIA DLSS5 initialization failed: "+std::to_string(uint32_t(initialized)));
+        nvidia_initialized_=true;
         params_->Reset();
         for(auto key:{"DLSSNR.Width","DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.Output.Width","Width"}) params_->Set(key,width_);
         for(auto key:{"DLSSNR.Height","DLSSNR.InputHeight","DLSSNR.OutputHeight","DLSSNR.Output.Height","Height"}) params_->Set(key,height_);
@@ -120,8 +194,23 @@ class Models {
         for(auto key:{"DLSSNR.Upscaling","PerfQualityValue","DLSSNR.Hdr","DLSS.Feature.Create.Flags"}) params_->Set(key,0u);
         params_->Set("DLSSNR.Hint.Render.Preset",config_.value("nvidia_preset",1u));
         for(auto key:{"DLSSNR.Scale","DLSSNR.ScalingRatio","MV.Scale.X","MV.Scale.Y","InPreExposure","InExposureScale"}) params_->Set(key,1.f);
-        packet.nvidia_create_result=uint32_t(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_));
-        require(NVSDK_NGX_SUCCEED(static_cast<NVSDK_NGX_Result>(packet.nvidia_create_result))&&nvidia_,"NVIDIA DLSS5 feature creation failed");
+        try {
+            packet.nvidia_create_result=uint32_t(PhoenixNrCreate(gpu_.list.Get(),static_cast<NVSDK_NGX_Feature>(18),params_,&nvidia_));
+        } catch(const std::bad_alloc&) {
+            throw std::runtime_error("NVIDIA DLSS5 host allocation failed"+host_allocation_context());
+        }
+        if(!NVSDK_NGX_SUCCEED(static_cast<NVSDK_NGX_Result>(packet.nvidia_create_result))||!nvidia_) {
+            std::string detail;
+            if(wow64_runtime_diagnostics::failure_count>0) {
+                const auto index=std::min<LONG>(wow64_runtime_diagnostics::failure_count-1,31);
+                const auto& failure=wow64_runtime_diagnostics::failures[index];
+                detail=" (host allocation: "+std::to_string(failure.bytes)+" bytes, error "+std::to_string(failure.error)+")";
+            }
+            detail+="; adapted imports="+std::to_string(wow64_umd_probe::slot_count);
+            detail+="; model imports="+std::to_string(nvidia_imports_);
+            detail+=host_allocation_context();
+            throw std::runtime_error("NVIDIA DLSS5 feature creation failed: "+std::to_string(packet.nvidia_create_result)+detail);
+        }
         gpu_.submit();++packet.nvidia_creates;
         color_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT); motion_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16_FLOAT);
         output_=gpu_.image(width_,height_,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
@@ -135,7 +224,8 @@ class Models {
         gpu_.list->CopyTextureRegion(&a,0,0,0,&b,nullptr); gpu_.barrier(motion_.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); gpu_.submit();
     }
   public:
-    Models(const Json& config,unsigned width,unsigned height):config_(config),width_(width),height_(height) {gpu_.create();gpu_.submit();}
+    Models(const Json& config,unsigned width,unsigned height,phoenix_wow64::ModelChannel& packet)
+        :config_(config),width_(width),height_(height),packet_(&packet) {gpu_.create();gpu_.submit();}
     ~Models() {
         if(phoenix_) {
             const auto destroy=reinterpret_cast<decltype(&phoenix_native_destroy)>(GetProcAddress(native_,"phoenix_native_destroy"));
@@ -145,6 +235,17 @@ class Models {
         if(params_) {
             const auto destroy=reinterpret_cast<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter*)>(GetProcAddress(core_,"NVSDK_NGX_D3D12_DestroyParameters"));
             if(destroy) destroy(params_);
+        }
+        // Releasing a feature alone leaves NGX's device context alive. Every
+        // worker recreation owns a different D3D12 device; retire that context
+        // as well, before the device is released, including failed creates.
+        if(nvidia_initialized_) {
+            const auto result=PhoenixNrShutdown(gpu_.device.Get());
+            if(!NVSDK_NGX_SUCCEED(result)) {
+                ++packet_->base.cleanup_failures;
+                packet_->base.status=-1;
+                strncpy_s(packet_->base.error,"NVIDIA DLSS5 device shutdown failed",_TRUNCATE);
+            }
         }
     }
     void frame(phoenix_wow64::ModelChannel& packet) {
@@ -207,12 +308,14 @@ extern "C" __declspec(dllexport) int PhoenixModelServe64(phoenix_wow64::ModelCha
         const DWORD offsets[]{c.appcompat_offsets[0],c.appcompat_offsets[1],c.appcompat_offsets[2],c.appcompat_offsets[3]};
         require(wow64_umd_probe::gdi&&wow64_umd_probe::install_native_compat_view(c.ntdll_timestamp,offsets),"Native model compatibility view unavailable");
         wow64_runtime_diagnostics::retry_native_reservation=true;wow64_umd_probe::bridge_dc_creation=true;wow64_umd_probe::bridge_display_gdi=true;
-        require(wow64_umd_probe::install()!=0&&wow64_umd_probe::install_gdi_export()&&wow64_umd_probe::install_display_exports(),"Native model bootstrap unavailable");
+        require(wow64_umd_probe::install()!=0,"Native model import adaptation unavailable");
+        require(wow64_umd_probe::install_gdi_export(),"Native model DeleteDC adaptation unavailable");
+        require(wow64_umd_probe::install_display_exports(),"Native model display adaptation unavailable");
         auto cuda=LoadLibraryW(reinterpret_cast<const wchar_t*>(c.cuda_library));require(cuda!=nullptr,"Native CUDA load failed");
         wow64_umd_probe::owner=GetCurrentThreadId();wow64_umd_probe::patch(cuda);
         require(symbol<int(*)(unsigned)>(cuda,"cuInit")(0)==0,"Native CUDA initialization failed");
         {
-            Models models(Json::parse(reinterpret_cast<const char*>(packet->config_json)),c.width,c.height);
+            Models models(Json::parse(reinterpret_cast<const char*>(packet->config_json)),c.width,c.height,*packet);
             SetEvent(reinterpret_cast<HANDLE>(c.response_event));
             for(;;) {
                 require(WaitForSingleObject(reinterpret_cast<HANDLE>(c.request_event),INFINITE)==WAIT_OBJECT_0,"Native model wait failed");
@@ -225,6 +328,6 @@ extern "C" __declspec(dllexport) int PhoenixModelServe64(phoenix_wow64::ModelCha
     } catch(const std::exception& error) {c.status=-1;strncpy_s(c.error,error.what(),_TRUNCATE);}
     wow64_umd_probe::restore();wow64_umd_probe::restore_gdi_export();wow64_umd_probe::restore_display_exports();
     c.native_compat_restored=wow64_umd_probe::restore_native_compat_view();
-    if(!c.native_compat_restored) {c.status=-1;passed=false;}
+    if(!c.native_compat_restored||c.cleanup_failures) {c.status=-1;passed=false;}
     SetEvent(reinterpret_cast<HANDLE>(c.response_event));return passed?0:2;
 }

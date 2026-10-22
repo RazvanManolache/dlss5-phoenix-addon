@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "../../src/integration/compatibility/session_policy.h"
 #include "../../src/integration/compatibility/portable_policy.h"
+#include "../../src/integration/compatibility/process_address_space.h"
 #include "../../src/native/support/control_mailbox.h"
 #include <iostream>
 
@@ -9,6 +10,26 @@ int main() {
     auto verify = [&](bool condition) { ++checks; if (!condition) throw std::runtime_error("Policy assertion failed"); };
     namespace control = phoenix_addon::phoenix::control_bridge;
     try {
+        constexpr uint64_t mib = 1024 * 1024;
+        using phoenix_compat::in_process_address_space_safe;
+        verify(in_process_address_space_safe(64, {}));
+        verify(!in_process_address_space_safe(32, {}));
+        verify(in_process_address_space_safe(32, {512*mib,64*mib,true}));
+        verify(!in_process_address_space_safe(32, {512*mib-1,64*mib,true}));
+        verify(!in_process_address_space_safe(32, {2048*mib,64*mib-1,true}));
+        verify(!in_process_address_space_safe(32, {473227264,343801856,true}));
+        verify(in_process_address_space_safe(32, {1173*mib,105*mib,true}));
+        verify(!in_process_address_space_safe(32, {1173*mib,105*mib,true},160*mib));
+        const std::string first_gpu = "vulkan:" + std::string(32, '1');
+        const std::string validated_gpu = "vulkan:" + std::string(32, '2');
+        const nlohmann::json discovered = {{{"id",first_gpu}},{{"id",validated_gpu}}};
+        verify(phoenix_compat::automatic_portable_device(discovered,{validated_gpu},false)==validated_gpu);
+        verify(phoenix_compat::automatic_portable_device(discovered,{validated_gpu},true)==validated_gpu);
+        verify(phoenix_compat::automatic_portable_device(discovered,{},true)==first_gpu);
+        bool unqualified_rejected = false;
+        try { phoenix_compat::automatic_portable_device(discovered,{},false); }
+        catch(const std::exception&) { unqualified_rejected = true; }
+        verify(unqualified_rejected);
         phoenix_compat::Settings settings;
         settings.budget_mode = 1;
         verify(phoenix_compat::normalize_capabilities(settings));

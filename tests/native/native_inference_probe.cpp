@@ -69,7 +69,7 @@ struct Payload final : phoenix_device::Payload {
     Texture color, motion, readback[1];
     FrameDispatch dispatch[1];
     std::unique_ptr<phoenix_native::Network> network[1];
-    Payload(ID3D12Device* device, const Json& frame, const std::vector<uint8_t>& weights,
+    Payload(ID3D12Device* device, const Json& frame, const phoenix_model::WeightView& weights,
             const std::vector<phoenix_kernel::Binary>& candidate, const std::vector<uint8_t>& input,
             const std::vector<uint8_t>& vectors, bool allow_gpu_upload) {
         const unsigned w = frame.at("width"), h = frame.at("height");
@@ -112,6 +112,8 @@ struct Payload final : phoenix_device::Payload {
                                              harness_allocation,
                                              phoenix_native::memory::Kind::upload);
 
+            dispatch[kind].configure_repeats(device, frame,
+                std::array<int, 8>{1, 1, 1, 1, 1, 1, 1, 1});
             network[kind] = std::make_unique<phoenix_native::Network>(
                 device, dispatch[kind].api(), frame, weights, candidate, color.resource.Get(),
                 motion.resource.Get(), allocation, allow_gpu_upload);
@@ -181,12 +183,13 @@ int wmain(int argc, wchar_t** argv) {
         check(
             argc >= 5,
             "Usage: native_inference_probe BUNDLE CAPTURE_PREFIX "
-            "NEW_OUTPUT WEIGHT_SOURCE_JSON [--cpu-only|--profile-layers|--check-upload-retirement|--staged-weights] [--frames=N] [--warmup=N]");
+            "NEW_OUTPUT WEIGHT_SOURCE_JSON [--cpu-only|--profile-layers|--check-upload-retirement|--staged-weights] [--streamed-weights] [--frames=N] [--warmup=N]");
         Json source_config;
         std::ifstream(argv[4]) >> source_config;
         auto source = phoenix_model::WeightSource::config(source_config);
         std::wstring option;
         unsigned frame_count = 128, warmup_frames = 16;
+        bool streamed_weights = false;
         for (int argument = 5; argument < argc; ++argument) {
             const std::wstring value = argv[argument];
             const auto parse_count = [&](size_t prefix_length) {
@@ -200,6 +203,8 @@ int wmain(int argc, wchar_t** argv) {
                 frame_count = parse_count(9);
             else if (value.rfind(L"--warmup=", 0) == 0)
                 warmup_frames = parse_count(9);
+            else if (value == L"--streamed-weights")
+                streamed_weights = true;
             else {
                 check(option.empty(), "Only one probe execution mode may be selected");
                 option = value;
@@ -223,8 +228,10 @@ int wmain(int argc, wchar_t** argv) {
         const auto startup_start = std::chrono::steady_clock::now();
         const auto load_start = std::chrono::steady_clock::now();
         phoenix_bundle::Bundle bundle(
-            argv[1], [](const fs::path& p) { return digest(read(p)); }, source);
-        auto weights = bundle.load_weights();
+            argv[1], phoenix_model::mapped_file_digest, source, streamed_weights);
+        std::vector<uint8_t> weight_storage;
+        if (!streamed_weights) weight_storage = bundle.load_weights();
+        auto weights = streamed_weights ? bundle.load_weight_view() : phoenix_model::WeightView(weight_storage);
         report["memory_phases"].push_back(
             {{"stage", "after_model_loaded"}, {"memory", measure_memory(nullptr)}});
         report["model_load_ms"] =
@@ -233,7 +240,8 @@ int wmain(int argc, wchar_t** argv) {
         report["weight_source"] = {{"kind", source.dll.empty() ? "files" : "nvidia_dll"},
                                    {"dll", source.dll.u8string()},
                                    {"dll_sha256", source.dll_sha256},
-                                   {"weights_sha256", digest(weights)},
+                                   {"weights_sha256", streamed_weights ? bundle.weights.at("sha256").get<std::string>() : digest(weight_storage)},
+                                   {"streamed", streamed_weights},
                                    {"bytes", weights.size()}};
         report["comparison_kind"] = "single_instance_smoke";
         auto candidate = phoenix_kernel::load_catalog(phoenix_native::catalog(bundle));
@@ -242,7 +250,7 @@ int wmain(int argc, wchar_t** argv) {
         size_t kernel_capacity = 0;
         for (const auto& binary : candidate)
             kernel_capacity += binary.bytes.capacity();
-        report["host_buffer_capacities"] = {{"model", weights.capacity()},
+        report["host_buffer_capacities"] = {{"model", weight_storage.capacity()},
                                             {"kernel_bytes", kernel_capacity}};
         const fs::path capture = argv[2];
         const auto meta_bytes = read(capture.string() + ".meta");
@@ -516,9 +524,10 @@ int wmain(int argc, wchar_t** argv) {
         report["probe_only_memory_after_shutdown"] = harness_ledger.snapshot();
         report["memory_phases"].push_back(
             {{"stage", "runtime_released"}, {"memory", measure_memory(measured_adapter.Get())}});
-        // Keep host caches throughout the timed run, as the addon does for
-        // resize/recreation. Measure their release separately after shutdown.
-        std::vector<uint8_t>().swap(weights);
+        // This probe retains its host inputs through timing, then measures
+        // their release separately. Production readers end after GPU upload.
+        weights = {};
+        std::vector<uint8_t>().swap(weight_storage);
         std::vector<uint8_t>().swap(input);
         std::vector<uint8_t>().swap(vectors);
         std::vector<phoenix_kernel::Binary>().swap(candidate);

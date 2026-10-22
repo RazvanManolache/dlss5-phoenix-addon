@@ -28,6 +28,42 @@ int wmain(int argc, wchar_t** argv) try {
     metadata = portable_metadata(settings, true);
     verify(metadata["controls"]["skin_structure"] == 1.4f && metadata["passes"] == 2);
     verify(metadata["repeats"][3] == 1 && metadata["repeats"][4] == 0);
+    verify(!metadata.contains("pipeline"));
+    settings.controls.appearance=true;settings.controls.intensity=.3f;settings.controls.style=2;
+    verify(portable_frame_pipeline_requested(settings));
+    const auto appearance=portable_metadata(settings,true,true);
+    verify(appearance.at("controls").at("intensity")==.3f&&appearance.at("controls").at("style")==2);
+    bool appearance_rejected=false;
+    try{portable_metadata(settings,true);}catch(const std::runtime_error&){appearance_rejected=true;}
+    verify(appearance_rejected);settings.controls.appearance=false;
+    {
+        auto view=settings;view.pipeline.compare_zoom=2;view.pipeline.loupe_x=.5f;view.pipeline.loupe_y=.5f;
+        verify(portable_view_only(settings,view));
+        auto applied=settings;verify(phoenix_addon::phoenix::copy_live_selection(applied,view));
+        verify(applied.pipeline.compare_zoom==2);
+        view.pipeline.color_brightness=.1f;verify(!portable_view_only(settings,view));
+        std::vector<uint8_t> gradient(100*100*4);std::vector<float> rendered(100*100*3);
+        for(unsigned y=0;y<100;++y)for(unsigned x=0;x<100;++x){
+            const size_t p=size_t(y)*100+x;gradient[p*4]=uint8_t(x);gradient[p*4+3]=255;
+            rendered[p*3]=float(x)/255;rendered[p*3+1]=float(y)/255;
+        }
+        applied.mode=phoenix_addon::phoenix::ours;
+        const auto zoomed=portable_compose(gradient,rendered,100,applied);
+        // Quantized focus is 64/127. The pixel at (10,10) maps to (30,30).
+        verify(zoomed[(10*100+10)*4]==30&&zoomed[(10*100+10)*4+1]==30);
+        applied.pipeline.loupe=true;
+        const auto loupe=portable_compose(gradient,rendered,100,applied);
+        verify(loupe[(10*100+10)*4]==10); // Outside the circle is unchanged.
+        verify(loupe[(50*100+54)*4]==52); // The magnified center is independent.
+        applied.pipeline.chain_enabled=true;applied.pipeline.color_brightness=.1f;
+        const auto chain=portable_metadata(applied,true);
+        verify(chain.at("pipeline").at("CompareZoom")==1&&chain.at("pipeline").at("CompareLoupe")==false);
+    }
+    settings.pipeline.chain_enabled=true;settings.pipeline.color_brightness=.1f;
+    verify(portable_metadata(settings,true).at("pipeline").at("ChainBrightness")==.1f);
+    settings.pipeline.scaler=1;bool scaler_rejected=false;
+    try{portable_metadata(settings,true);}catch(const std::runtime_error&){scaler_rejected=true;}
+    verify(scaler_rejected);settings.pipeline={};
     std::vector<uint8_t> pixels(4*2*4, 80);
     auto color = portable_color(pixels);
     verify(color.size() == 4*2*3 && color[0] == 80/255.f);
@@ -116,6 +152,12 @@ int wmain(int argc, wchar_t** argv) try {
     verify(state->phase() == Phase::Failed && state->error().find("injected inference failure") != std::string::npos);
     state->stop();
     settings.controls.tone = 1;
+    settings.pipeline.chain_enabled=true;settings.pipeline.color_brightness=.1f;
+    auto unsupported=std::make_shared<HostState>(settings);
+    unsupported->start(nullptr,source,settings,build,options);wait(unsupported,Phase::Ready);
+    verify(unsupported->submit(1,true,pixels));wait(unsupported,Phase::Failed);
+    verify(unsupported->error().find("Update the portable runtime")!=std::string::npos);
+    unsupported->stop();settings.pipeline={};
     auto owner = std::make_shared<HostState>(settings);
     owner->start(nullptr, source, settings, build, options);
     wait(owner, Phase::Ready);

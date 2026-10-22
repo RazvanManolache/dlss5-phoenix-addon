@@ -66,3 +66,9 @@ Auto encoding uses actual swapchain color space at game Present, the external fe
 ## Verification boundary
 
 Focused validation is recorded under `artifacts/current/processing`. It covers 32/64-bit settings and helper serialization, model/preset mappings, resolution bounds, signed transfer/gamut round trips, exposure edge cases, residual detail preservation, real ImGui widget interactions, shader compilation, addon compilation/linking and related CPU contracts. No game, graphics device, GPU inference, timing comparison or new visual parity test was run for this change. Earlier four-model parity receipts cover the earlier rendering recipe and are not evidence for every new option combination. Installed games, extracted research, model DLLs and the frozen reference were not replaced.
+
+## Optional ordered stages
+
+The [shared chain guide](PROCESSING_CHAIN.md) covers the additional stage-order,
+motion, scaling, color, fusion and monitoring controls. Their route capability
+limits are separate from the explicit color/scaling controls described above.

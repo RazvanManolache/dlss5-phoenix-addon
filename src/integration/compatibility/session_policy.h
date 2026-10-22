@@ -73,6 +73,12 @@ inline bool helper_settings_changed(const Settings& previous, const Settings& de
     });
     return before != after;
 }
+inline bool portable_view_only(const Settings& previous,const Settings& desired){
+    auto before=settings_json(previous),after=settings_json(desired);
+    for(const auto* key:{"Divider","Comparison","SourceA","SourceB","DifferenceGain","ComparisonLabels","ComparisonLines",
+        "CompareLoupe","CompareZoom","LoupeX","LoupeY"}){before.erase(key);after.erase(key);}
+    return before==after;
+}
 inline int helper_presentation_mode(const Settings& settings) {
     // Comparison sources/divider/difference are composed once by the evaluator.
     // The transport must not replace its left half with an unrelated input.

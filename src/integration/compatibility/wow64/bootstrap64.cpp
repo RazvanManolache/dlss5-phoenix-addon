@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <intrin.h>
 #include "bootstrap_contract.h"
+#include "umd_bridge.h"
 
 #pragma section(".tls", read, write)
 #pragma section(".tls$ZZZ", read, write)
@@ -166,7 +167,13 @@ extern "C" __declspec(dllexport) unsigned NTAPI PhoenixTlsRunTask64(void* contex
     // sending a native driver's worker through an uninitialized x86 context.
     auto** callbacks=reinterpret_cast<void**>(__readgsqword(0x60)+0x58);
     void* game_callbacks=*callbacks;
+    auto* rpc=task->shared_rpc?reinterpret_cast<PhoenixGdiRpc*>(task->shared_rpc):&task->gdi;
     if(task->kind==4||task->kind==6) {
+        // Install before USER32 and the renderer DLL initialize their TLS.
+        // The shared x86 service remains alive after this native worker exits.
+        if(!task->shared_rpc)return 2;
+        wow64_umd_probe::gdi=rpc;
+        if(!wow64_umd_probe::tls_exports[0].slot&&!wow64_umd_probe::install_tls_exports())return 2;
         // Install mixed-bitness callbacks before DXGI/driver initializers can
         // send messages to existing game windows during model-library loading.
         if(!initialize_native_gui(*task,callbacks,game_callbacks))return 2;
@@ -185,7 +192,7 @@ extern "C" __declspec(dllexport) unsigned NTAPI PhoenixTlsRunTask64(void* contex
         auto run = reinterpret_cast<Run>(GetProcAddress(library, "PhoenixWow64Probe64"));
         if (!run) return 2;
         auto configure = reinterpret_cast<void(*)(PhoenixGdiRpc*)>(GetProcAddress(library, "PhoenixSetGdiRpc64"));
-        if (configure) configure(&task->gdi);
+        if (configure) configure(rpc);
         if(task->cuda_library) {
             auto cuda_path=reinterpret_cast<void(*)(const wchar_t*)>(GetProcAddress(library,"PhoenixSetCudaLibrary64"));
             if(!cuda_path) return 2;
@@ -198,13 +205,13 @@ extern "C" __declspec(dllexport) unsigned NTAPI PhoenixTlsRunTask64(void* contex
         auto run = reinterpret_cast<int(*)(const wchar_t*)>(GetProcAddress(library, "PhoenixPortableFrameProbe64"));
         if (!run) return 2;
         auto configure = reinterpret_cast<void(*)(PhoenixGdiRpc*)>(GetProcAddress(library, "PhoenixSetGdiRpc64"));
-        if (configure) configure(&task->gdi);
+        if (configure) configure(rpc);
         task->status = run(reinterpret_cast<const wchar_t*>(task->kernel));
     } else if (task->kind == 4 || task->kind == 6) {
         auto run = reinterpret_cast<int(*)(void*)>(GetProcAddress(library,task->kind==4?"PhoenixDriverServe64":"PhoenixModelServe64"));
         auto configure = reinterpret_cast<void(*)(PhoenixGdiRpc*)>(GetProcAddress(library,"PhoenixSetGdiRpc64"));
         if(!run||!configure) return 2;
-        configure(&task->gdi);
+        configure(rpc);
         task->status=run(reinterpret_cast<void*>(task->kernel));
     } else if (task->kind == 2) {
         struct Controls { uint32_t bytes, reset; float mx, my, tone, structure, skin; uint32_t mask, inverted; } controls{};

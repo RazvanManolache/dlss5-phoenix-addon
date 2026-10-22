@@ -9,13 +9,10 @@ namespace wow64_umd_probe {
 inline DWORD owner = 0;
 inline unsigned redirects = 0;
 struct Slot { void** address; void* original; };
-inline Slot slots[256]{};
+inline constexpr unsigned import_capacity = 1024;
+inline Slot slots[import_capacity]{};
 inline unsigned slot_count = 0;
 inline PhoenixGdiRpc* gdi = nullptr;
-inline SRWLOCK gdi_lock = SRWLOCK_INIT;
-inline DWORD* gdi_export = nullptr;
-inline DWORD gdi_export_before = 0;
-inline void* gdi_thunk = nullptr;
 struct Allocation { uint64_t requested, bytes, returned; DWORD flags, error; };
 inline Allocation allocations[64]{};
 inline unsigned allocation_count = 0;
@@ -51,7 +48,8 @@ inline bool restore_native_compat_view() {
     }
     return ok;
 }
-struct ExportPatch { DWORD* slot; DWORD before; void* thunk; };
+struct ExportPatch { DWORD* slot; DWORD before; void* thunk; void* thunk_target; };
+inline ExportPatch gdi_export_patch{};
 inline ExportPatch identity_exports[2]{};
 inline ExportPatch display_exports[4]{};
 inline BOOL WINAPI native_identity(HANDLE,BOOL*);
@@ -65,6 +63,35 @@ inline BOOL WINAPI native_identity2(HANDLE process,USHORT* machine,USHORT* nativ
         return TRUE;
     }
     return original_identity2?original_identity2(process,machine,native):FALSE;
+}
+inline void* allocate_export_stub(uintptr_t image, SIZE_T image_bytes) {
+    // An export RVA can address any byte in the next 4 GiB. The former scan
+    // stopped after 128 MiB and below 2 GiB, rejecting valid native image
+    // layouts in a fragmented WOW64 process (or an image above that ceiling).
+    SYSTEM_INFO system{};
+    GetNativeSystemInfo(&system);
+    const auto granularity = uintptr_t(system.dwAllocationGranularity);
+    const auto maximum = uintptr_t(system.lpMaximumApplicationAddress);
+    if (!granularity || image > maximum || image_bytes > maximum-image) return nullptr;
+    const auto rva_limit = maximum-image < UINT32_MAX ? maximum : image+UINT32_MAX;
+    auto address = (image+image_bytes+granularity-1) & ~(granularity-1);
+    while (address <= rva_limit && rva_limit-address >= 4095) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (!VirtualQuery(reinterpret_cast<void*>(address), &region, sizeof(region))) break;
+        const auto region_start = uintptr_t(region.BaseAddress);
+        if (!region.RegionSize || region.RegionSize > maximum-region_start) break;
+        const auto region_end = region_start+region.RegionSize;
+        if (region.State == MEM_FREE && region_end-address >= 4096) {
+            if (auto allocation = VirtualAlloc(reinterpret_cast<void*>(address), 4096,
+                    MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE)) return allocation;
+            // Another thread may have reserved the free range after the query.
+            address += granularity;
+        } else {
+            address = (region_end+granularity-1) & ~(granularity-1);
+        }
+    }
+    SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+    return nullptr;
 }
 inline bool redirect_export(HMODULE image,const char* name,void* destination,ExportPatch& patch) {
     auto base=reinterpret_cast<unsigned char*>(image);
@@ -83,15 +110,24 @@ inline bool redirect_export(HMODULE image,const char* name,void* destination,Exp
     if(!slot) return false;
     auto target=uintptr_t(destination);
     if(target<=uintptr_t(base) || target-uintptr_t(base)>UINT32_MAX) {
-        const auto first=(uintptr_t(base)+nt->OptionalHeader.SizeOfImage+65535)&~uintptr_t(65535);
-        for(auto address=first;!patch.thunk && address-first<128*1024*1024 && address<0x7fff0000;address+=65536)
-            patch.thunk=VirtualAlloc(reinterpret_cast<void*>(address),4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);
-        if(!patch.thunk) return false;
-        auto code=static_cast<unsigned char*>(patch.thunk); code[0]=0x48; code[1]=0xb8;
-        for(unsigned i=0;i<8;++i) code[2+i]=static_cast<unsigned char>(target>>(i*8));
-        code[10]=0xff; code[11]=0xe0; DWORD old=0;
-        if(!VirtualProtect(code,4096,PAGE_EXECUTE_READ,&old)) return false;
-        FlushInstructionCache(GetCurrentProcess(),code,12); target=uintptr_t(code);
+        // Driver imports may retain this address after the export is restored.
+        // Publish the stub once, then reuse it unchanged across worker restarts.
+        // Rewriting its now-RX page caused an access violation on the second
+        // initialization when ASLR required an export-relative trampoline.
+        if(patch.thunk && patch.thunk_target!=destination) return false;
+        if(!patch.thunk) {
+            auto allocation=allocate_export_stub(uintptr_t(base),nt->OptionalHeader.SizeOfImage);
+            if(!allocation) return false;
+            auto code=static_cast<unsigned char*>(allocation); code[0]=0x48; code[1]=0xb8;
+            for(unsigned i=0;i<8;++i) code[2+i]=static_cast<unsigned char>(target>>(i*8));
+            code[10]=0xff; code[11]=0xe0; DWORD old=0;
+            if(!VirtualProtect(code,4096,PAGE_EXECUTE_READ,&old)) {
+                VirtualFree(allocation,0,MEM_RELEASE); return false;
+            }
+            FlushInstructionCache(GetCurrentProcess(),code,12);
+            patch.thunk=allocation; patch.thunk_target=destination;
+        }
+        target=uintptr_t(patch.thunk);
     }
     const auto rva=target-uintptr_t(base);
     if(!rva || rva>UINT32_MAX || (rva>=directory.VirtualAddress && rva<directory.VirtualAddress+directory.Size)) return false;
@@ -273,11 +309,14 @@ inline void patch_driver(HMODULE image) {
         !lstrcmpiW(name,L"WinTypes.dll") || !lstrcmpiW(name,L"combase.dll") || !lstrcmpiW(name,L"vulkan-1.dll") ||
         !lstrcmpiW(name,L"nvoglv64.dll")) patch(image);
 }
-inline bool is_capture(const wchar_t* path) {
+inline bool is_optional_driver_client(const wchar_t* path) {
     if (!path || GetCurrentThreadId() != owner) return false;
     const wchar_t* base = path;
     for (const auto* p = path; *p; ++p) if (*p == L'\\' || *p == L'/') base = p+1;
-    return lstrcmpiW(base, L"nvspcap64.dll") == 0;
+    // Overlay capture and diagnostic clients are not required for inference.
+    // The diagnostic client's thread callbacks faulted during mixed-bitness
+    // worker restarts in WARP testing; omit it from this experimental host.
+    return lstrcmpiW(base, L"nvspcap64.dll") == 0 || lstrcmpiW(base, L"nvdiagclt64.dll") == 0;
 }
 inline bool x64_image(const wchar_t* path) {
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -314,7 +353,7 @@ inline const wchar_t* native_path(const wchar_t* path, wchar_t (&buffer)[1024]) 
     return buffer;
 }
 inline HMODULE WINAPI load_ex(const wchar_t* path, HANDLE file, DWORD flags) {
-    if (is_capture(path)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
+    if (is_optional_driver_client(path)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
     wchar_t buffer[1024]{};
     const auto selected = native_path(path, buffer);
     auto loaded = LoadLibraryExW(selected, file, flags);
@@ -329,7 +368,7 @@ inline HMODULE WINAPI load_ex(const wchar_t* path, HANDLE file, DWORD flags) {
     SetLastError(error); return loaded;
 }
 inline HMODULE WINAPI load_w(const wchar_t* path) {
-    if (is_capture(path)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
+    if (is_optional_driver_client(path)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
     wchar_t buffer[1024]{};
     const auto selected=native_path(path, buffer);
     auto loaded=LoadLibraryW(selected);
@@ -340,7 +379,7 @@ inline HMODULE WINAPI load_w(const wchar_t* path) {
 inline HMODULE WINAPI load_a(const char* path) {
     wchar_t wide[1024]{}, buffer[1024]{};
     if (!path || !MultiByteToWideChar(CP_ACP, 0, path, -1, wide, 1024)) return LoadLibraryA(path);
-    if (is_capture(wide)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
+    if (is_optional_driver_client(wide)) { SetLastError(ERROR_MOD_NOT_FOUND); return nullptr; }
     const auto selected = native_path(wide, buffer);
     auto loaded=selected == wide ? LoadLibraryA(path) : LoadLibraryW(selected);
     const auto error=GetLastError(); record_library(selected,loaded,0,error);
@@ -399,12 +438,14 @@ inline HBITMAP WINAPI unavailable_bitmap(HINSTANCE, const char*) {
 }
 inline uint64_t gdi_request(LONG operation,uint64_t value) {
     if (!gdi) { SetLastError(ERROR_INVALID_HANDLE); return 0; }
-    AcquireSRWLockExclusive(&gdi_lock);
+    // All native modules share this packet, including callbacks retained by
+    // the driver between model sessions. A lock in each DLL cannot serialize it.
+    while(InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(&gdi->busy),1,0)!=0) Sleep(1);
     gdi->handle = value;
     InterlockedExchange(reinterpret_cast<volatile LONG*>(&gdi->pending), operation);
     if (!SetEvent(reinterpret_cast<HANDLE>(gdi->request_event))) {
         InterlockedExchange(reinterpret_cast<volatile LONG*>(&gdi->pending),0);
-        const auto error=GetLastError();ReleaseSRWLockExclusive(&gdi_lock);SetLastError(error);return 0;
+        const auto error=GetLastError();InterlockedExchange(reinterpret_cast<volatile LONG*>(&gdi->busy),0);SetLastError(error);return 0;
     }
     // Requests reference this worker's stack. The owning x86 worker services
     // callbacks until retirement; never terminate the game or abandon a live
@@ -412,9 +453,32 @@ inline uint64_t gdi_request(LONG operation,uint64_t value) {
     WaitForSingleObject(reinterpret_cast<HANDLE>(gdi->response_event),INFINITE);
     const auto error = gdi->error;
     const auto result = gdi->result;
-    ReleaseSRWLockExclusive(&gdi_lock);
+    InterlockedExchange(reinterpret_cast<volatile LONG*>(&gdi->busy),0);
     SetLastError(error);
     return result;
+}
+inline DWORD WINAPI shared_tls_alloc() {
+    // The native and WOW64 TLS bitmaps are distinct, but allocating an index
+    // can clear that index in the game's existing threads. Reserve indices
+    // through the x86 allocator so a native DLL cannot erase game/ICD TLS.
+    const auto slot=DWORD(gdi_request(8,0));
+    if(GetLastError()!=ERROR_SUCCESS||slot==TLS_OUT_OF_INDEXES) return TLS_OUT_OF_INDEXES;
+    TlsSetValue(slot,nullptr);
+    return slot;
+}
+inline BOOL WINAPI shared_tls_free(DWORD slot) {
+    const auto result=BOOL(gdi_request(9,slot));
+    if(result)TlsSetValue(slot,nullptr);
+    return result;
+}
+inline ExportPatch tls_exports[4]{};
+inline bool install_tls_exports() {
+    const auto kernel=GetModuleHandleW(L"kernelbase.dll");
+    const auto facade=GetModuleHandleW(L"kernel32.dll");
+    return gdi && redirect_export(kernel,"TlsAlloc",reinterpret_cast<void*>(&shared_tls_alloc),tls_exports[0]) &&
+        redirect_export(kernel,"TlsFree",reinterpret_cast<void*>(&shared_tls_free),tls_exports[1]) &&
+        redirect_export(facade,"TlsAlloc",reinterpret_cast<void*>(&shared_tls_alloc),tls_exports[2]) &&
+        redirect_export(facade,"TlsFree",reinterpret_cast<void*>(&shared_tls_free),tls_exports[3]);
 }
 inline BOOL WINAPI delete_dc(HDC dc) {
     if ((uint64_t(dc) >> 32) != 0 && (uint64_t(dc) >> 32) != 0xffffffffu) { SetLastError(ERROR_INVALID_HANDLE); return FALSE; }
@@ -478,57 +542,19 @@ inline HDC WINAPI create_dc_a(const char* driver,const char* device,const char* 
 inline bool install_gdi_export() {
     if (!gdi) return false;
     auto image = LoadLibraryExW(L"gdi32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!image) return false;
-    auto bytes = reinterpret_cast<unsigned char*>(image);
-    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(bytes);
-    auto nt = reinterpret_cast<IMAGE_NT_HEADERS64*>(bytes+dos->e_lfanew);
-    if (nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64) return false;
-    auto dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
-    auto table = reinterpret_cast<IMAGE_EXPORT_DIRECTORY*>(bytes+dir.VirtualAddress);
-    auto names = reinterpret_cast<DWORD*>(bytes+table->AddressOfNames);
-    auto ordinals = reinterpret_cast<WORD*>(bytes+table->AddressOfNameOrdinals);
-    auto functions = reinterpret_cast<DWORD*>(bytes+table->AddressOfFunctions);
-    uintptr_t target = uintptr_t(&delete_dc);
-    if (target <= uintptr_t(image) || target-uintptr_t(image) > UINT32_MAX) {
-        // Export RVAs are 32-bit. Keep one own-code jump thunk above this image;
-        // retain it until process exit because a native ICD may cache the export.
-        const auto first = (uintptr_t(image)+nt->OptionalHeader.SizeOfImage+65535)&~uintptr_t(65535);
-        for (uintptr_t address = first; !gdi_thunk && address < 0x7fff0000 && address-first < 64*1024*1024; address += 65536)
-            gdi_thunk = VirtualAlloc(reinterpret_cast<void*>(address), 4096, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-        if (!gdi_thunk) return false;
-        auto code = static_cast<unsigned char*>(gdi_thunk);
-        code[0] = 0x48; code[1] = 0xb8;
-        const auto destination = uintptr_t(&delete_dc);
-        for (unsigned i = 0; i < 8; ++i) code[2+i] = static_cast<unsigned char>(destination>>(i*8));
-        code[10] = 0xff; code[11] = 0xe0;
-        DWORD previous = 0;
-        if (!VirtualProtect(code, 4096, PAGE_EXECUTE_READ, &previous)) return false;
-        FlushInstructionCache(GetCurrentProcess(), code, 12);
-        target = uintptr_t(code);
-    }
-    const auto offset = target-uintptr_t(image);
-    if (!offset || offset > UINT32_MAX || (offset >= dir.VirtualAddress && offset < dir.VirtualAddress+dir.Size)) return false;
-    for (unsigned i = 0; i < table->NumberOfNames; ++i) {
-        if (lstrcmpA(reinterpret_cast<const char*>(bytes+names[i]), "DeleteDC")) continue;
-        auto slot = functions+ordinals[i];
-        DWORD previous = 0, ignored = 0;
-        if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previous)) return false;
-        gdi_export = slot;
-        gdi_export_before = *slot;
-        InterlockedExchange(reinterpret_cast<volatile LONG*>(slot), LONG(offset));
-        VirtualProtect(slot, sizeof(*slot), previous, &ignored);
-        return true;
-    }
-    return false;
+    // Use the same immutable-stub lifecycle as identity and display exports.
+    return image && redirect_export(image, "DeleteDC", reinterpret_cast<void*>(&delete_dc),
+        gdi_export_patch);
 }
 inline void restore_gdi_export() {
-    if (!gdi_export) return;
+    auto& patch = gdi_export_patch;
+    if (!patch.slot) return;
     DWORD previous = 0, ignored = 0;
-    if (VirtualProtect(gdi_export, sizeof(*gdi_export), PAGE_READWRITE, &previous)) {
-        InterlockedExchange(reinterpret_cast<volatile LONG*>(gdi_export), LONG(gdi_export_before));
-        VirtualProtect(gdi_export, sizeof(*gdi_export), previous, &ignored);
+    if (VirtualProtect(patch.slot, sizeof(*patch.slot), PAGE_READWRITE, &previous)) {
+        InterlockedExchange(reinterpret_cast<volatile LONG*>(patch.slot), LONG(patch.before));
+        VirtualProtect(patch.slot, sizeof(*patch.slot), previous, &ignored);
     }
-    gdi_export = nullptr;
+    patch.slot = nullptr;
 }
 inline void patch(HMODULE image) {
     if (!image) return;
@@ -566,7 +592,7 @@ inline void patch(HMODULE image) {
             if (lstrcmpA(name,"NtQueryInformationProcess")==0) replacement=reinterpret_cast<void*>(&query_process);
             if (force_native_identity && lstrcmpA(name,"IsWow64Process")==0)
                 replacement=reinterpret_cast<void*>(&native_identity);
-            if (!replacement || slot_count == 256) continue;
+            if (!replacement || slot_count == import_capacity) continue;
             auto address = reinterpret_cast<void**>(&table[i].u1.Function);
             bool already = false;
             for (unsigned s = 0; s < slot_count; ++s) already |= slots[s].address == address;
@@ -580,9 +606,9 @@ inline void patch(HMODULE image) {
 }
 inline unsigned install() {
     owner = GetCurrentThreadId();
-    // Initialize imports before the driver can cache optional capture callbacks.
-    auto capture = LoadLibraryExW(L"nvspcap64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    patch(capture);
+    // Adapt an existing capture client, but do not load an optional overlay
+    // into a game merely to run inference. Driver requests are excluded above.
+    patch(GetModuleHandleW(L"nvspcap64.dll"));
     auto core = LoadLibraryExW(L"D3D12Core.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     patch(core);
     patch(GetModuleHandleW(L"dxgi.dll"));

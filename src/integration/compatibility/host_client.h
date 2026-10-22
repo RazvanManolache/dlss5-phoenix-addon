@@ -1,6 +1,7 @@
 // An asynchronous, architecture-neutral connection to our own 64-bit helper.
 // Pipe I/O, DLL loading and inference never run on the game's render thread.
 #pragma once
+#include "process_address_space.h"
 #include "../../native/support/embedded_runtime.h"
 #include "../../native/support/model_tools.h"
 #include "../../native/support/routing.h"
@@ -13,6 +14,8 @@
 #include "wow64/bridge_policy.h"
 #include "wow64/graph32.h"
 #include "../../../native_runtime/runtime_api.h"
+#include "../../../native_runtime/pipeline_client.h"
+#include "../../pipeline/tiny_model.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -108,6 +111,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
     bool native_ = false;
     std::string native_mode_;
     FeedFrameMsg request_{};
+    int64_t queued_at_ns_=0;
     std::vector<uint8_t> input_, output_;
     std::string error_;
     double roundtrip_ms_ = 0;
@@ -138,6 +142,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 Sleep(5);
             }
             require(!stopping_, "Portable execution cancelled");
+            require_in_process_address_space();
             require(build.cpu_bridge && build.width == build.output_width &&
                         build.height == build.output_height,
                     "Portable execution requires same-size pixel transport");
@@ -178,7 +183,9 @@ class HostState : public std::enable_shared_from_this<HostState> {
                         devices.push_back({{"id", id}, {"label", std::string(name) + " (portable Vulkan)"}});
                 }
                 require(!devices.empty(), "No capable portable Vulkan device found");
-                options.device = devices.front().at("id").get<std::string>();
+                options.device = automatic_portable_device(devices,
+                    config.value("validated_devices", std::vector<std::string>{}),
+                    options.allow_unvalidated || config.value("allow_unvalidated", false));
             }
             config["runtime_root"] = phoenix_model::source_path_string(options.root);
             config["backend"] = portable_backend(options.device);
@@ -191,17 +198,25 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
             runtime.open(options.root, config.dump(), working.image_width, working.image_height);
+            const bool shared_pipeline=phoenix_cpp::PipelineClient::supported(options.root);
+            std::unique_ptr<phoenix_cpp::PipelineClient> frame_pipeline;
+            bool pipeline_reset=true;
             uint64_t portable_phoenix_frames = 0;
             auto snapshot = [&](Json status) {
+                if(shared_pipeline){status["portable_pipeline_contract"]=2;status["pipeline_frame_services"]=true;}
                 const auto schedule = status.value("network_schedule", Json::object());
                 return Json{{"schema", "phoenix-panel/1"}, {"runtime", status},
+                    {"pipeline_status",status.value("pipeline_telemetry",Json::object())},
                     {"execution", {{"kind", "portable"}}},
                     {"phoenix", {{"submitted_frames", portable_phoenix_frames}}},
                     {"transformer_blocks", schedule.value("transformer_blocks", 8u)},
                     {"budget_estimate_ms", schedule.value("estimate_ms", 0.0)},
                     {"runtime_root", phoenix_model::source_path_string(options.root)},
                     {"processing_location", "in_process_portable"},
-                    {"inference_pid", GetCurrentProcessId()}, {"device", options.device},
+                    {"processing_host_pid",GetCurrentProcessId()},
+                    {"inference_pid",status.value("inference_pid",GetCurrentProcessId())},
+                    {"inference_pids",status.value("inference_pids",Json::array({GetCurrentProcessId()}))},
+                    {"device", options.device},
                     {"execution_devices", devices}, {"ui_clear_revision", ui_clear_revision_},
                     {"nvidia", {{"ready", false}, {"status", "NVIDIA DLSS5 modes use the retained helper"}}}};
             };
@@ -225,11 +240,14 @@ class HostState : public std::enable_shared_from_this<HostState> {
                         roundtrip_ms_ = 0;
                     } else if (action.action == uint32_t(phoenix_ui::Action::Marker))
                         ui_snapshot_["markers"] = ui_snapshot_.value("markers", uint64_t(0)) + 1;
-                    // Backbuffer frames always reset history: no invented motion guides.
+                    if(action.action==uint32_t(phoenix_ui::Action::ResetHistory))pipeline_reset=true;
+                    // Legacy color-only evaluations reset. The shared SDK owns
+                    // flow/history when its optional frame services are selected.
                 }
                 ui_actions_.clear();
                 if (phase_ != Phase::Busy) continue;
                 const auto request = request_;
+                const auto queued_ns=queued_at_ns_;
                 const auto revision = applied_tuning_revision_;
                 const auto frame_settings = settings;
                 auto pixels = std::move(input_);
@@ -243,22 +261,55 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     processing.emplace(color,build.width,build.height,frame_settings.processing);
                     color=processing->encoded;
                 }
-                std::vector<float> enhanced(color.size());
-                auto metadata = portable_metadata(frame_settings, true);
-                if (metadata.contains("adaptive_budget"))
-                    require(Json::parse(runtime.status_json()).value("capabilities", Json::object()).contains("granular_controls"),
-                            "Adaptive portable controls require the matching updated runtime");
-                for (unsigned iteration = 0; iteration < request.iterations; ++iteration) {
-                    require(!stopping_, "Portable execution cancelled");
-                    if (iteration) color = enhanced;
-                    if (runtime.frame(runtime.instance, color.data(), nullptr, nullptr,
-                                nullptr, metadata.dump().c_str(), enhanced.data()) != 0)
-                        throw std::runtime_error(runtime.error());
+                const bool use_pipeline=shared_pipeline&&portable_frame_pipeline_requested(frame_settings);
+                std::vector<float> enhanced;
+                Json runtime_status;
+                if(use_pipeline){
+                    if(runtime.instance)runtime.close();
+                    if(!frame_pipeline)frame_pipeline=std::make_unique<phoenix_cpp::PipelineClient>(options.root);
+                    const auto sw=processing?processing->working_width:build.width;
+                    const auto sh=processing?processing->working_height:build.height;
+                    auto metadata=portable_metadata(frame_settings,pipeline_reset||!frame_settings.pipeline.motion_enabled,true);
+                    require(request.iterations*metadata.at("passes").get<unsigned>()<=10,"Total whole-network passes exceed ten");
+                    metadata["passes"]=request.iterations*metadata.at("passes").get<unsigned>();
+                    std::string tiny;
+                    if(frame_settings.pipeline.chain_enabled&&frame_settings.pipeline.scaler==3){
+                        const auto model=phoenix_pipeline::find_tiny_model(fs::u8path(frame_settings.model_library_directory));
+                        require(bool(model),"Install the tiny 2x model through DLSS Everything first");tiny=phoenix_model::source_path_string(*model);
+                    }
+                    const auto now_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                    enhanced=frame_pipeline->frame(options.root,config,color,sw,sh,build.width,build.height,metadata,
+                        request.n,queued_ns,queued_ns?double(now_ns-queued_ns)*1e-6:0,tiny);
+                    pipeline_reset=false;runtime_status=frame_pipeline->status();
+                    if(processing)enhanced=processing->finish(std::move(enhanced),true);
                     ++portable_phoenix_frames;
+                }else{
+                    require(!frame_settings.pipeline.motion_enabled&&!frame_settings.pipeline.scene_detection&&!frame_settings.pipeline.monitoring&&
+                        !frame_settings.pipeline.priority,"Update the x64 native pipeline SDK before using portable frame services");
+                    if(frame_pipeline){frame_pipeline.reset();pipeline_reset=true;}
+                    if(!runtime.instance)runtime.open(options.root,config.dump(),working.image_width,working.image_height);
+                    enhanced.resize(color.size());
+                    auto metadata=portable_metadata(frame_settings,true);
+                    if(metadata.contains("pipeline")){
+                        require(!processing||(processing->encoded.size()==size_t(build.width)*build.height*3),
+                            "This portable runtime requires full processing extent for custom chains");
+                        require(Json::parse(runtime.status_json()).value("portable_pipeline_contract",0)>=1,
+                            "Update the portable runtime before using custom processing chains");
+                    }
+                    if(metadata.contains("adaptive_budget"))
+                        require(Json::parse(runtime.status_json()).value("capabilities",Json::object()).contains("granular_controls"),
+                            "Adaptive portable controls require the matching updated runtime");
+                    for(unsigned iteration=0;iteration<request.iterations;++iteration){
+                        require(!stopping_,"Portable execution cancelled");if(iteration)color=enhanced;
+                        if(runtime.frame(runtime.instance,color.data(),nullptr,nullptr,nullptr,metadata.dump().c_str(),enhanced.data())!=0)
+                            throw std::runtime_error(runtime.error());
+                        ++portable_phoenix_frames;
+                    }
+                    if(processing)enhanced=processing->finish(std::move(enhanced));
+                    runtime_status=Json::parse(runtime.status_json());
                 }
-                if (processing) enhanced=processing->finish(std::move(enhanced));
-                auto result = portable_compose(pixels, enhanced, build.width, frame_settings);
-                auto status = snapshot(Json::parse(runtime.status_json()));
+                auto result=portable_compose(pixels,enhanced,build.width,frame_settings);
+                auto status=snapshot(std::move(runtime_status));
                 const auto wall_ms = std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - started).count();
                 status["frame_wall_ms"] = wall_ms;
@@ -731,6 +782,9 @@ class HostState : public std::enable_shared_from_this<HostState> {
             return false;
         request_ = {serial, uint32_t(reset), uint32_t(model_enabled_), iterations, 0};
         input_ = std::move(pixels);
+        const auto& pipeline=tuning_settings_.pipeline;
+        queued_at_ns_=(pipeline.motion_enabled||pipeline.scene_detection||pipeline.monitoring)?
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count():0;
         phase_ = Phase::Busy;
         changed_.notify_all();
         return true;
@@ -761,7 +815,9 @@ class HostState : public std::enable_shared_from_this<HostState> {
         if (stopping_) return false;
         if (phase() == Phase::Failed || phase() == Phase::Stopped)
             return live_tuning_json(settings) == live_tuning_json(tuning_settings_);
-        if (phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings)) {
+        const bool view_changed=portable_&&phoenix_addon::phoenix::copy_live_selection(tuning_settings_,settings);
+        const bool controls_changed=phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings);
+        if (view_changed||controls_changed) {
             pending_tuning_ = live_tuning_json(tuning_settings_).dump();
             ++tuning_revision_;
             changed_.notify_all();

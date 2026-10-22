@@ -5,6 +5,7 @@
 #include "../../../native/support/network_policy.h"
 #include "../../../native/support/controls.h"
 #include "../host/phoenix-host-pixels.h"
+#include "../process_address_space.h"
 #ifndef _WIN64
 namespace phoenix_wow64 {
 class FrameSession {
@@ -25,6 +26,9 @@ class FrameSession {
     FrameSession(const std::filesystem::path& root,const std::filesystem::path& bundle,
         const phoenix_model::WeightSource& source,unsigned width,unsigned height,
         const phoenix_compat::Settings& settings,bool driver):driver_(driver) {
+        // The driver ABI still materializes Original's 141 MiB packed image.
+        // The streamed x64-library path needs only small bounded CPU chunks.
+        phoenix_compat::require_in_process_address_space((driver ? 160ull : 64ull) * 1024 * 1024);
         phoenix_compat::validate_native_settings(settings,driver);
         if(driver) {
             phoenix_bundle::require(source.model().id=="original",

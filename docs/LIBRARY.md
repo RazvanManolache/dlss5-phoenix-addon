@@ -371,6 +371,103 @@ devices with `phoenix_frame --vulkan-devices /absolute/runtime/root`. Configure
 `PHOENIX_VULKAN_TEST_DEVICE=vulkan:<32-character-UUID>` to add the device operator
 suite to CTest. Shader and provider generation is shared with the Windows build.
 
+## Portable color and fusion stages
+
+The updated portable runtime accepts shared processing options in the frame
+metadata's `pipeline` object. Query `host_processing_chain` in capabilities, or
+`portable_pipeline_contract: 1` in status, before enabling these controls. Older
+libraries must be rejected instead of silently ignoring the recipe.
+
+```json
+{
+  "reset": true,
+  "passes": 2,
+  "repeats": [1, 1, 1, 1, 1, 1, 1, 1],
+  "pipeline": {
+    "ProcessingChain": true,
+    "ChainFusion": true,
+    "MultiscaleFusion": true,
+    "FusionLayers": 2,
+    "FusionSecondScale": 0.5,
+    "ChainBrightness": 0.02
+  }
+}
+```
+
+Neural inference uses the selected compiled backend. Native C++ host code
+resamples the branches, applies color treatment and combines full-size
+predictions. Branches share the same immutable source and have separate
+recurrence, including separate histories for whole-network passes. Standalone
+fusion includes its full-size prediction. Vulkan children share the owning
+device context while retaining independent graphs and histories; this does
+not enable concurrent public Vulkan sessions.
+
+The frame ABI keeps input and output extents equal. This first portable chain
+uses the existing spatial scaler and fixed pipeline quality. UI/distortion
+composition remains outside the chain. Pipeline motion estimation, scene
+detection and latency adaptation are not advertised by this portable contract;
+callers still supply real guides and explicit discontinuity/reset metadata.
+The existing neural block/pass and backend-budget controls remain separate.
+Host stages add CPU work and existing host-plane transfers remain present.
+
+Both models have independent fusion/history oracles on CPU, CUDA, NVIDIA Vulkan
+and AMD Vulkan. GPU checks exercise eight blocks; CPU checks exercise one block;
+all use two whole-network passes. Ordinary reset/history/reset output also
+matches the frozen released runtime byte for byte. These are small fixtures,
+not gameplay or performance claims. Metal/HIP/SYCL use the same C++ path but
+were not executed here.
+
+`phoenix_frame JOB.json NEW_OUTPUT.rgb32f` forwards this metadata unchanged.
+The job uses its existing `config`, `width`, `height` and packed RGB32F `color`
+file fields. Models stay at the caller's verified external DLL/model path. This
+CLI is separate from the shared `phoenix-process` framed-stream
+interface; no deployed Python runtime is needed by either.
+
+### Portable inference in the shared D3D12 stage graph
+
+The native SDK additionally exports `phoenix_native_portable_contract()` (1).
+Its existing create/reconfigure/host/D3D12 entry points accept a
+`portable_runtime` object alongside the ordinary external `weight_source`:
+
+```json
+{
+  "runtime_root": "C:/Phoenix/portable-runtime",
+  "runtime_sha256": "<verified phoenix_runtime_cpp.dll SHA-256>",
+  "backend": "vulkan",
+  "device": "vulkan:<ID from phoenix_cpp_devices.exe>",
+  "allow_unvalidated": true
+}
+```
+
+The root must be absolute. Packaged callers also supply the manifest's relative
+`files`/SHA-256 map; the SDK verifies all dependencies and rejects linked paths.
+This additive SDK adapter leaves the equal-extent portable C ABI unchanged.
+Each neural pass/branch has a native worker and independent recurrence; the
+parent owns motion, scene detection, geometry, NIS/tiny scaling, color, fusion
+and the one pipeline governor. Stage execution uses D3D12 and neural transfers
+cross host memory. NVIDIA optical flow is capability-gated, including minimum
+dimensions; unsupported sources keep the explicit fallback and never gain
+synthetic depth. These are not portable RTX-performance claims.
+
+The x64 asynchronous final-frame addon worker advertises
+`portable_pipeline_contract: 2` and `pipeline_frame_services: true` for this
+adapter. Other insertion routes retain their existing capability gates. Player
+appearance strength/style settings are forwarded on this route, and the addon
+offers them when the shared frame-service capability is present. Status exposes
+`processing_host_pid`, `inference_pids` and the first worker as `inference_pid`;
+each portable neural stage includes its own actual broker PID. A graph with no
+portable neural stages reports no neural processes.
+Player and Everything device selectors use a pinned native device inventory and
+transactional replacement. `phoenix-process` can execute either native RTX or
+portable neural stages, including PXF1 framed streams. Offline jobs fix quality
+and process every source frame. Ordinary neural FPS/time limits work with
+optional monitoring off; the addon GPU-time limit uses actual backend GPU
+network events while media processing budgets use source-call duration.
+
+CPU, CUDA, NVIDIA Vulkan and AMD Vulkan are checked on both models with D3D12
+stages/presentation on the 5080. AMD-only D3D12 presentation, unavailable
+HIP/SYCL/Metal runtimes and physical older GPUs remain unverified.
+
 ## Embed it
 
 Installed CMake packages provide `Phoenix::Runtime`:

@@ -2,12 +2,65 @@
 #include <DirectXPackedVector.h>
 #include "../../src/integration/compatibility/host_client.h"
 #include <iostream>
+#include <GL/gl.h>
+#include <atomic>
+
+// Exercise native-worker startup/retirement while an x86 OpenGL ICD is live.
+// This isolates mixed-bitness driver teardown; it is not swapchain acceptance.
+class OpenGlContext {
+    HWND window_=nullptr;
+    HDC dc_=nullptr;
+    HGLRC context_=nullptr;
+    std::array<void*,64> thread_slots_{};
+  public:
+    ~OpenGlContext() {
+        // Preserve test cleanup if an unqualified native loader cleared an
+        // existing x86 slot. Never use this restoration in the actual addon.
+        for(unsigned i=0;i<thread_slots_.size();++i)
+            if(thread_slots_[i]&&!TlsGetValue(i))TlsSetValue(i,thread_slots_[i]);
+        if(context_) {wglMakeCurrent(nullptr,nullptr);wglDeleteContext(context_);}
+        if(dc_)ReleaseDC(window_,dc_);
+        if(window_)DestroyWindow(window_);
+    }
+    void create() {
+        WNDCLASSW type{};type.style=CS_OWNDC;type.lpfnWndProc=DefWindowProcW;
+        type.hInstance=GetModuleHandleW(nullptr);type.lpszClassName=L"PhoenixNativeGlProbe";
+        phoenix_bundle::require(RegisterClassW(&type)!=0,"OpenGL probe class failed");
+        window_=CreateWindowW(type.lpszClassName,L"Phoenix native OpenGL probe",WS_POPUP,
+            0,0,64,64,nullptr,nullptr,type.hInstance,nullptr);
+        phoenix_bundle::require(window_!=nullptr,"OpenGL probe window failed");
+        dc_=GetDC(window_);
+        PIXELFORMATDESCRIPTOR format{};format.nSize=sizeof(format);format.nVersion=1;
+        format.dwFlags=PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL|PFD_DOUBLEBUFFER;
+        format.iPixelType=PFD_TYPE_RGBA;format.cColorBits=24;
+        const auto index=ChoosePixelFormat(dc_,&format);
+        phoenix_bundle::require(index&&SetPixelFormat(dc_,index,&format),"OpenGL pixel format failed");
+        context_=wglCreateContext(dc_);
+        phoenix_bundle::require(context_&&wglMakeCurrent(dc_,context_),"OpenGL context failed");
+        const auto renderer=reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+        phoenix_bundle::require(renderer&&strstr(renderer,"NVIDIA"),"Probe needs the NVIDIA x86 OpenGL ICD");
+        std::cout<<nlohmann::json{{"opengl_renderer",renderer}}.dump()<<std::endl;
+        for(unsigned i=0;i<thread_slots_.size();++i)thread_slots_[i]=TlsGetValue(i);
+    }
+    void render() {
+        for(unsigned i=0;i<thread_slots_.size();++i)
+            if(thread_slots_[i]&&!TlsGetValue(i)) {
+                std::cout<<nlohmann::json{{"cleared_x86_tls_slot",i}}.dump()<<std::endl;
+                throw std::runtime_error("Native worker cleared an existing x86 TLS slot "+std::to_string(i));
+            }
+        glViewport(0,0,64,64);glClearColor(.25f,.5f,.75f,1.f);glClear(GL_COLOR_BUFFER_BIT);
+        unsigned char pixel[3]{};glReadPixels(16,16,1,1,GL_RGB,GL_UNSIGNED_BYTE,pixel);
+        phoenix_bundle::require(glGetError()==GL_NO_ERROR&&pixel[0]>=62&&pixel[0]<=66&&
+            pixel[1]>=126&&pixel[1]<=130&&pixel[2]>=189&&pixel[2]<=193,"OpenGL probe pixels changed");
+        phoenix_bundle::require(SwapBuffers(dc_)!=0,"OpenGL probe swap failed");
+    }
+};
 
 int validate(int argc,wchar_t** argv) {
     using namespace phoenix_wow64;
     using Json=nlohmann::json;
     try {
-        phoenix_bundle::require(argc==3,"runtime root and weight source required");
+        phoenix_bundle::require(argc==3||(argc==4&&!wcscmp(argv[3],L"--opengl")),"runtime root and weight source required");
         const auto root=std::filesystem::absolute(argv[1]);
         const auto source=phoenix_model::WeightSource::config(phoenix_bundle::json_file(argv[2]));
         constexpr unsigned width=640,height=384;
@@ -101,8 +154,27 @@ int validate(int argc,wchar_t** argv) {
 int wmain(int argc,wchar_t** argv) {
     // Real add-ons first load native images from a fresh x86 processing worker.
     // Main-thread priming can hide missing per-thread native loader state.
+    OpenGlContext graphics;
+    const bool opengl=argc==4&&!wcscmp(argv[3],L"--opengl");
+    try {if(opengl)graphics.create();}
+    catch(const std::exception& error) {std::cerr<<error.what()<<std::endl;return 2;}
     int result=2;
-    std::thread worker([&]{result=validate(argc,argv);});
+    std::atomic<bool> finished=false;
+    std::thread worker([&]{result=validate(argc,argv);finished=true;});
+    std::string graphics_error;
+    while(opengl&&!finished) {
+        if(graphics_error.empty()) {
+            try {graphics.render();}
+            catch(const std::exception& error) {graphics_error=error.what();}
+        }
+        MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE))DispatchMessageW(&message);
+        Sleep(5);
+    }
     worker.join();
+    if(opengl&&graphics_error.empty()) {
+        try {graphics.render();}
+        catch(const std::exception& error) {graphics_error=error.what();}
+    }
+    if(!graphics_error.empty()){std::cerr<<graphics_error<<std::endl;return 2;}
     return result;
 }

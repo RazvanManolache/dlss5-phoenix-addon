@@ -45,6 +45,23 @@ int main() {
         check(reconstruct_weights(resource.data(), resource.size(), catalogue) == expected);
         const auto packed = pack_resource(resource.data(), resource.size());
         check(packed.bytes.size() == 153 * 512 && packed.catalogue.at("records").size() == 153);
+        auto disposable = resource;
+        bool released = false;
+        auto streamed = pack_resource_with_reader(disposable.data(), disposable.size(), models::original,
+            [&] { std::vector<uint8_t>().swap(disposable); released = true; },
+            [&](size_t offset, void* destination, size_t count) {
+                check(released);
+                std::memcpy(destination, resource.data() + offset, count);
+            });
+        check(released && streamed.bytes == packed.bytes && streamed.catalogue == packed.catalogue);
+        rejects([&] {
+            pack_resource_with_reader(resource.data(), resource.size(), models::original, [] {},
+                [&](size_t offset, void* destination, size_t count) {
+                    std::memcpy(destination, resource.data() + offset, count);
+                    static_cast<uint8_t*>(destination)[0] ^= 1;
+                });
+        });
+
         std::string previous;
         for (const auto& record : packed.catalogue.at("records")) {
             const auto name = record.at("name").get<std::string>();

@@ -5,6 +5,10 @@
 #include "host/phoenix-host-config.h"
 #include "host/phoenix-host-safety.h"
 #include <wrl/client.h>
+#include "../../pipeline/session.h"
+#if defined(_WIN64)
+#include "../../pipeline/d3d12_motion.h"
+#endif
 
 namespace phoenix_compat {
 // This route borrows the game's DIRECT queue. It owns its command list and all
@@ -18,10 +22,16 @@ class D3D12Bridge {
         Com<ID3D12GraphicsCommandList> list;
         Com<ID3D12Fence> fence;
         Com<ID3D12Resource> capture, presentation, motion;
+        Com<ID3D12QueryHeap> pipeline_queries;
+        Com<ID3D12Resource> pipeline_readback;
+        uint64_t timestamp_frequency = 0;
         Com<ID3D12DescriptorHeap> clear_cpu, clear_gpu;
         PhoenixFormatAdapter adapter;
         void (*forget)(ID3D12GraphicsCommandList*) noexcept = nullptr;
         HANDLE event = nullptr;
+#if defined(_WIN64)
+        std::unique_ptr<phoenix_pipeline::D3D12Motion> estimated_motion;
+#endif
         ~Resources() {
             if (forget && list) forget(list.Get());
             if (event) CloseHandle(event);
@@ -35,6 +45,11 @@ class D3D12Bridge {
     uint64_t signal_ = 0, completed_ = 0, presented_ = 0;
     bool retired_ = true, primed_ = false, reset_ = true, owner_ = false;
     Json ui_ = Json::object();
+    phoenix_pipeline::Monitor pipeline_monitor_;
+    phoenix_pipeline::LatencyPolicy latency_policy_;
+    Settings adaptive_, adaptive_request_;
+    bool adaptive_active_ = false, reconfigure_pipeline_ = false;
+    Json pipeline_report_ = Json::object();
     uint64_t ui_tick_ = 0;
     DeferredTimeout deferred_;
 
@@ -185,7 +200,9 @@ public:
             ui_ = local_json(in_process_api.ui);
             ui_tick_ = now;
         }
-        return ui_;
+        auto result = ui_;
+        result["pipeline_status"] = pipeline_report_;
+        return result;
     }
     bool action(phoenix_ui::Action action, unsigned argument) {
         if (action == phoenix_ui::Action::ResetHistory) reset_ = true;
@@ -193,8 +210,44 @@ public:
         if (accepted) ui_tick_ = 0;
         return accepted;
     }
-    bool frame(reshade::api::resource back, const Settings& settings, bool apply) {
+    bool frame(reshade::api::resource back, const Settings& requested, bool apply) {
         auto& r = *resources_;
+        const bool adaptive = requested.pipeline.monitoring != 0 && requested.pipeline.priority != 0;
+        if (adaptive && (!adaptive_active_ || apply || requested.pipeline != adaptive_request_.pipeline ||
+            requested.block_repeats != adaptive_request_.block_repeats ||
+            requested.transformer_blocks != adaptive_request_.transformer_blocks ||
+            requested.minimum_blocks != adaptive_request_.minimum_blocks ||
+            requested.automatic_budget != adaptive_request_.automatic_budget ||
+            requested.budget_mode != adaptive_request_.budget_mode ||
+            requested.budget_ms != adaptive_request_.budget_ms ||
+            requested.desired_fps != adaptive_request_.desired_fps ||
+            requested.processing != adaptive_request_.processing || requested.refinement_passes != adaptive_request_.refinement_passes)) {
+            adaptive_ = requested; adaptive_request_ = requested; latency_policy_.reset();
+            // The pipeline governor is the single authority while active.
+            adaptive_.automatic_budget = false;
+        }
+        adaptive_active_ = adaptive;
+        const auto& settings = adaptive ? adaptive_ : requested;
+        apply = apply || reconfigure_pipeline_; reconfigure_pipeline_ = false;
+        pipeline_monitor_.configure(settings.pipeline);
+        const bool monitored = pipeline_monitor_.enabled();
+        const auto started = monitored ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        const bool sampled = pipeline_monitor_.gpu_sample(completed_);
+        if (sampled && !r.pipeline_queries) {
+            D3D12_QUERY_HEAP_DESC description{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 6, 0};
+            checked(r.device->CreateQueryHeap(&description, IID_PPV_ARGS(&r.pipeline_queries)), "Cannot allocate pipeline queries");
+            checked(r.queue->GetTimestampFrequency(&r.timestamp_frequency), "Cannot read pipeline timestamp frequency");
+            if (!r.timestamp_frequency) throw std::runtime_error("Invalid pipeline timestamp frequency");
+            D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC buffer{}; buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            buffer.Width = 48; buffer.Height = 1; buffer.DepthOrArraySize = 1;
+            buffer.MipLevels = 1; buffer.SampleDesc.Count = 1; buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            checked(r.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&r.pipeline_readback)), "Cannot allocate pipeline timing readback");
+        }
+        auto stamp = [&](unsigned index) {
+            if (sampled) r.list->EndQuery(r.pipeline_queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
+        };
         if (!retired_) throw std::runtime_error("Previous in-process submission has not retired");
         if (!owner_ || apply) {
             deferred_.reset(); ui_tick_ = 0;
@@ -214,6 +267,7 @@ public:
         }
         const auto before = local_json(in_process_api.progress);
         begin();
+        stamp(0);
         auto* image = reinterpret_cast<ID3D12Resource*>(uintptr_t(back.handle));
         copy(image, r.capture.Get());
         r.adapter.RecordInput(r.device.Get(), r.list.Get(), r.capture.Get());
@@ -242,9 +296,55 @@ public:
             checked(r.list->Close(), "Cannot discard Present without required guides");
             reset_history(); return false;
         }
+        stamp(1);
         frame.reset = backbuffer_requires_reset(have_guides, reset_) ? 1u : 0u;
+#if defined(_WIN64)
+        bool estimated = false;
+        if (settings.pipeline.motion_enabled || settings.pipeline.scene_detection) {
+            // Retire the captured color and any guide copies before the optical
+            // flow engine consumes them on its own driver submission.
+            submit();
+            if (!r.estimated_motion)
+                r.estimated_motion = std::make_unique<phoenix_pipeline::D3D12Motion>(
+                    r.device.Get(), r.queue.Get(), r.fence.Get());
+            phoenix_pipeline::D3D12Motion::Result motion;
+            try {
+                motion = r.estimated_motion->prepare(r.adapter.Color(), D3D12_RESOURCE_STATE_COMMON,
+                    have_guides ? frame.motion : nullptr, settings.pipeline, reset_,
+                    int64_t(GetTickCount64()) * 1000000);
+            } catch (...) {
+                in_process_gpu_uncertain = true;
+                throw;
+            }
+            begin();
+            frame.command_list = r.list.Get();
+            if (motion.source == phoenix_pipeline::MotionSource::Nvidia) {
+                frame.motion = motion.motion; estimated = true; have_guides = true;
+                auto barrier = transition(frame.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COMMON);
+                r.list->ResourceBarrier(1, &barrier);
+            }
+            // Fresh observed COMMON barriers belong to this new recording.
+            for (auto* resource : {frame.output, frame.motion}) {
+                auto barrier = transition(resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                r.list->ResourceBarrier(1, &barrier);
+                std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+                r.list->ResourceBarrier(1, &barrier);
+            }
+            frame.reset = (motion.reset || backbuffer_requires_reset(have_guides, reset_)) ? 1u : 0u;
+        }
+#endif
+        stamp(2);
         PhoenixFeederResultV1 result;
         const auto status = in_process_api.evaluate(&frame, &result);
+#if defined(_WIN64)
+        if (estimated) {
+            auto barrier = transition(frame.motion, D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            r.list->ResourceBarrier(1, &barrier);
+        }
+#endif
+        stamp(3);
         if (status == S_FALSE && result.status == PhoenixFeederStatusV1::Deferred) {
             checked(r.list->Close(), "Cannot discard deferred in-process recording");
             reset_ = true;
@@ -262,17 +362,82 @@ public:
         // Retire inference before reading its completion proof. Conversion and
         // final writeback only follow a proven, successfully processed frame.
         submit();
+#if defined(_WIN64)
+        if (estimated) r.estimated_motion->consumed(signal_);
+#endif
         const auto after = local_json(in_process_api.progress);
         if (!PhoenixOutputAdvanced(before, after))
             throw std::runtime_error("In-process output lacks completed Phoenix DLSS5 execution proof");
         ++completed_;
         begin();
+#if defined(_WIN64)
+        if (estimated && settings.pipeline.motion_view) {
+            auto barrier = transition(r.adapter.Output(), D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            r.list->ResourceBarrier(1, &barrier);
+            r.estimated_motion->visualize(r.list.Get(), r.adapter.Output(), unsigned(settings.pipeline.motion_view));
+            std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+            r.list->ResourceBarrier(1, &barrier);
+        }
+#endif
         r.adapter.RecordOutput(r.device.Get(), r.list.Get(), r.presentation.Get());
+        stamp(4);
         copy(r.presentation.Get(), image);
+        stamp(5);
+        if (sampled) r.list->ResolveQueryData(r.pipeline_queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+            0, 6, r.pipeline_readback.Get(), 0);
         submit();
         ++presented_;
         deferred_.reset();
         reset_ = false;
+        if (monitored) {
+            const auto age = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+            std::array<double, 5> stages{};
+            if (sampled) {
+                uint64_t* values = nullptr; D3D12_RANGE range{0, 48}, empty{};
+                checked(r.pipeline_readback->Map(0, &range, reinterpret_cast<void**>(&values)), "Cannot read pipeline timings");
+                for (unsigned i = 0; i != 5; ++i)
+                    stages[i] = values[i + 1] >= values[i] ? double(values[i + 1] - values[i]) * 1000. / r.timestamp_frequency : 0;
+                r.pipeline_readback->Unmap(0, &empty);
+            }
+            pipeline_monitor_.complete(stages, age);
+            pipeline_report_ = {{"monitoring", settings.pipeline.monitoring}, {"capture_to_output_ms", age},
+                {"stage_ms", stages}, {"sampled_gpu_stages", sampled}, {"completed", completed_},
+                {"scope", "processing queue elapsed intervals including dependency waits; not input latency"}};
+#if defined(_WIN64)
+            if (r.estimated_motion) pipeline_report_["motion_provider"] = r.estimated_motion->status();
+#endif
+            if (adaptive) {
+                auto coordinated_budget=settings.pipeline;
+                if(requested.automatic_budget)coordinated_budget.latency_ms=std::min(coordinated_budget.latency_ms,float(requested.budget_target_ms()));
+                pipeline_report_["budget_ms"]=coordinated_budget.latency_ms;
+                const auto knob = latency_policy_.sample(coordinated_budget, age, false, {
+                    settings.pipeline.motion_enabled && settings.pipeline.flow_height > settings.pipeline.minimum_flow_height,
+                    settings.processing.enabled && settings.processing.scale > settings.pipeline.minimum_scale,
+                    settings.mode == phoenix_addon::phoenix::ours && settings.experimental && settings.transformer_blocks > settings.minimum_blocks,
+                    settings.refinement_passes > settings.pipeline.minimum_passes,
+                    settings.pipeline.flow_height < adaptive_request_.pipeline.flow_height,
+                    settings.processing.scale < adaptive_request_.processing.scale,
+                    settings.transformer_blocks < adaptive_request_.transformer_blocks,
+                    settings.refinement_passes < adaptive_request_.refinement_passes});
+                if (knob == phoenix_pipeline::BudgetKnob::Flow)
+                    adaptive_.pipeline.flow_height = std::max(adaptive_.pipeline.minimum_flow_height, adaptive_.pipeline.flow_height / 2);
+                else if (knob == phoenix_pipeline::BudgetKnob::Passes) { --adaptive_.refinement_passes; reconfigure_pipeline_ = true; }
+                else if (knob == phoenix_pipeline::BudgetKnob::Blocks) { --adaptive_.transformer_blocks; reconfigure_pipeline_ = true; }
+                else if (knob == phoenix_pipeline::BudgetKnob::Scale) {
+                    adaptive_.processing.scale = std::max(adaptive_.pipeline.minimum_scale, adaptive_.processing.scale - 10.f);
+                    reconfigure_pipeline_ = true;
+                }
+                else if (knob == phoenix_pipeline::BudgetKnob::RestoreFlow)
+                    adaptive_.pipeline.flow_height = std::min(adaptive_request_.pipeline.flow_height, adaptive_.pipeline.flow_height * 2);
+                else if (knob == phoenix_pipeline::BudgetKnob::RestorePasses) { ++adaptive_.refinement_passes;reconfigure_pipeline_=true; }
+                else if (knob == phoenix_pipeline::BudgetKnob::RestoreBlocks) { ++adaptive_.transformer_blocks;reconfigure_pipeline_=true; }
+                else if (knob == phoenix_pipeline::BudgetKnob::RestoreScale) {
+                    adaptive_.processing.scale=std::min(adaptive_request_.processing.scale,adaptive_.processing.scale+10.f);reconfigure_pipeline_=true;
+                }
+                pipeline_report_["last_adjustment"] = int(knob);
+            }
+        } else pipeline_report_ = {{"monitoring", 0}};
         return true;
     }
 };

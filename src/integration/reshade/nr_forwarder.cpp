@@ -11,11 +11,13 @@ using Create = NVSDK_NGX_Result(NVSDK_CONV*)(ID3D12GraphicsCommandList*, NVSDK_N
 using Evaluate = NVSDK_NGX_Result(NVSDK_CONV*)(ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
                                              const NVSDK_NGX_Parameter*, PFN_NVSDK_NGX_ProgressCallback);
 using Release = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Handle*);
+using ShutdownDevice = NVSDK_NGX_Result(NVSDK_CONV*)(ID3D12Device*);
 HMODULE runtime = nullptr;
 Init initialize = nullptr;
 Create create = nullptr;
 Evaluate evaluate = nullptr;
 Release release = nullptr;
+ShutdownDevice shutdown_device = nullptr;
 volatile LONG last_result = 0;
 // Keep a real call frame in this named module; an optimized tail jump would
 // restore the caller identity that the NR runtime refuses with PlatformError.
@@ -33,6 +35,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI PhoenixNrLoad(const wchar_t* path) 
     create = reinterpret_cast<Create>(GetProcAddress(module, "NVSDK_NGX_D3D12_CreateFeature"));
     evaluate = reinterpret_cast<Evaluate>(GetProcAddress(module, "NVSDK_NGX_D3D12_EvaluateFeature"));
     release = reinterpret_cast<Release>(GetProcAddress(module, "NVSDK_NGX_D3D12_ReleaseFeature"));
+    shutdown_device = reinterpret_cast<ShutdownDevice>(GetProcAddress(module, "NVSDK_NGX_D3D12_Shutdown1"));
     if (!initialize || !create || !evaluate || !release) {
         initialize = nullptr; create = nullptr; evaluate = nullptr; release = nullptr;
         FreeLibrary(module);
@@ -60,3 +63,7 @@ extern "C" __declspec(dllexport) NVSDK_NGX_Result NVSDK_CONV PhoenixNrEvaluate(
 extern "C" __declspec(dllexport) NVSDK_NGX_Result NVSDK_CONV PhoenixNrRelease(NVSDK_NGX_Handle* handle) {
     return completed(release ? release(handle) : NVSDK_NGX_Result_FAIL_NotInitialized);
 }
+extern "C" __declspec(dllexport) NVSDK_NGX_Result NVSDK_CONV PhoenixNrShutdown(ID3D12Device* device) {
+    return completed(shutdown_device ? shutdown_device(device) : NVSDK_NGX_Result_FAIL_NotInitialized);
+}
+extern "C" __declspec(dllexport) HMODULE WINAPI PhoenixNrModule() { return runtime; }
