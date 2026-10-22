@@ -33,6 +33,8 @@
 #include "../../native/support/device_catalog.h"
 #include "../../native/support/model_status.h"
 #include "../../native/support/model_tools.h"
+#include "../../native/support/model_selection_state.h"
+#include "../../native/support/optional_feature_lifetime.h"
 #include "../../native/support/diagnostic.h"
 #include <dxgi1_4.h>
 #include <psapi.h>
@@ -207,6 +209,8 @@ struct State {
         unsigned long long dll_bytes = 0;
     };
     SelfDrive selfdrive;
+    std::string model_switch_error;
+    uint64_t nvidia_retirements = 0;
     bool feeder_nr_initialization_recorded = false;
     bool direct_game = false;
     bool direct_feeder = false;
@@ -2177,20 +2181,10 @@ void selfdrive_direct_ensure(ID3D12GraphicsCommandList* cmd, ID3D12Device* devic
             return;
         check(!addon_state.direct_runner || addon_state.direct_runner->idle(),
               "NVIDIA feature change waits for previous frame retirement");
-        if (selfdrive_state.release_fn)
-            selfdrive_state.release_fn(selfdrive_state.handle);
-        for (auto& pass : selfdrive_state.refinement)
-            if (pass.handle && selfdrive_state.release_fn) selfdrive_state.release_fn(pass.handle);
-        selfdrive_state.refinement.clear();
-        selfdrive_state.handle = nullptr;
-        selfdrive_state.output.Reset();
-        selfdrive_state.device.Reset();
-        selfdrive_state.inited = false;
-        selfdrive_state.failed = false;
-        selfdrive_state.attempts = 0;
-        selfdrive_state.warmup = 0;
-        selfdrive_state.first = true;
-        selfdrive_state.abandons = 0;
+        phoenix_model_tools::retire_optional_feature(selfdrive_state, true, [&](auto* handle) {
+            check(selfdrive_state.release_fn != nullptr, "NVIDIA release entry unavailable");
+            check(NVSDK_NGX_SUCCEED(selfdrive_state.release_fn(handle)), "NVIDIA feature retirement failed");
+        });
         selfdrive_state.core_init_attempted = false;
         reshade::log::message(reshade::log::level::info,
                               "[Phoenix DLSS5] self-drive: geometry changed, recreating");
@@ -3686,113 +3680,157 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 "Waiting for previous Phoenix DLSS5 frame fence; game output preserved";
             return;
         }
-        if (addon_state.direct_runner &&
-            (!addon_state.direct_runner->matches(queue, color_description, motion_description) ||
-             !addon_state.direct_runner->architecture_matches(addon_state.panel) ||
-             !addon_state.direct_runner->depth_matches(worker_depth))) {
-            const char* reason =
-                !addon_state.direct_runner->matches(queue, color_description, motion_description)
-                    ? "output geometry or queue changed"
-                : !addon_state.direct_runner->architecture_matches(addon_state.panel)
-                    ? "processing settings changed"
-                    : "depth geometry changed";
-            reshade::log::message(
-                reshade::log::level::info,
-                (std::string("[Phoenix DLSS5] Retiring executor: ") + reason).c_str());
-            check(addon_state.direct_runner->idle(),
-                  "Direct geometry change awaits old generation fence");
-            addon_state.candidate_launches += addon_state.direct_runner->launches();
-            addon_state.completed_retired += addon_state.direct_runner->completed();
-            addon_state.direct_runner.reset();
+        const bool nvidia_source_requested = addon_state.panel.mode == phoenix::nvidia ||
+            (addon_state.panel.mode == phoenix::split &&
+             (addon_state.panel.source_a == 1 || addon_state.panel.source_b == 1));
+        if (!nvidia_source_requested && (addon_state.selfdrive.handle || addon_state.selfdrive.output ||
+                                        !addon_state.selfdrive.refinement.empty())) {
+            const bool idle = !addon_state.direct_runner || addon_state.direct_runner->idle();
+            if (!phoenix_model_tools::retire_optional_feature(addon_state.selfdrive, idle,
+                    [&](auto* handle) {
+                        check(addon_state.selfdrive.release_fn != nullptr, "NVIDIA release entry unavailable");
+                        check(NVSDK_NGX_SUCCEED(addon_state.selfdrive.release_fn(handle)), "NVIDIA feature retirement failed");
+                    })) {
+                addon_state.direct_status = "Waiting for the last NVIDIA frame before releasing its resources";
+                return;
+            }
+            ++addon_state.nvidia_retirements;
+            addon_state.direct_nr_ready = false;
+            addon_state.direct_nr_status = "NVIDIA resources released; Phoenix is the displayed source";
+        }
+        const phoenix_model_tools::ModelSelectionState active_selection{
+            addon_state.active_model_source, addon_state.active_model_folder,
+            addon_state.active_model_dll, addon_state.active_model_id,
+            addon_state.active_nvidia_dll_folder};
+        const bool model_changed = own_route &&
+            phoenix_model_tools::ModelSelectionState::read(addon_state.panel) != active_selection;
+        const bool replace_runner = !addon_state.direct_runner || model_changed ||
+            !addon_state.direct_runner->matches(queue, color_description, motion_description) ||
+            !addon_state.direct_runner->architecture_matches(addon_state.panel) ||
+            !addon_state.direct_runner->depth_matches(worker_depth);
+        if (replace_runner) {
+            // The old generation is never destroyed with borrowed GPU work in
+            // flight. A candidate may allocate resources, but cannot record or
+            // submit a frame before it is published below.
+            if (addon_state.direct_runner && !addon_state.direct_runner->idle()) {
+                ++addon_state.direct_busy;
+                addon_state.direct_status = "Waiting for the current frame before changing model/settings";
+                return;
+            }
+            initializing = true;
+            std::unique_ptr<phoenix_bundle::Bundle> candidate_bundle;
+            std::vector<phoenix_kernel::Binary> candidate_kernels;
+            std::unique_ptr<phoenix::GpuTiming> candidate_timing;
+            auto selected_source = addon_state.weight_source;
+            try {
+                if (own_route && (model_changed || !addon_state.bundle))
+                    selected_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
+                if (native_network && (model_changed || !addon_state.bundle)) {
+                    candidate_bundle = std::make_unique<phoenix_bundle::Bundle>(
+                        addon_state.bundle_path,
+                        [](const auto& path) { return sha_file(path.c_str()); }, selected_source, true);
+                    check(candidate_bundle->weights.at("unknown_gap_bytes") == 0, "Direct weights incomplete");
+                    candidate_kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(*candidate_bundle));
+                }
+                auto* selected_bundle = candidate_bundle ? candidate_bundle.get() : addon_state.bundle.get();
+                const auto& selected_kernels = candidate_bundle ? candidate_kernels : addon_state.candidates;
+                const bool replaced = phoenix_model_tools::replace_idle_generation(
+                    addon_state.direct_runner, [&] {
+                        Json portable_plan = {{"width", resolution.width}, {"height", resolution.height}};
+                        const Json* selected = &portable_plan;
+                        if (native_network) {
+                            check(selected_bundle != nullptr, "Native model bundle unavailable");
+                            selected = &selected_bundle->select_frame(resolution.width, resolution.height,
+                                [&](const Json& frame) { phoenix_native::preflight(frame, selected_kernels); });
+                        }
+                        auto choice = resolve_allocation_device(queue, color);
+                        check(choice.resolved, "Direct allocation device unresolved");
+                        std::unique_ptr<phoenix::NeuralExecutor> executor;
+                        if (own_route && addon_state.panel.execution_device != "native") {
+                            check(std::any_of(addon_state.execution_devices.begin(),
+                                              addon_state.execution_devices.end(),
+                                              [&](const auto& device_info) {
+                                                  return device_info.id == addon_state.panel.execution_device;
+                                              }),
+                                  "Selected processing device is unavailable");
+                            executor = std::make_unique<phoenix::portable::OffloadExecutor>(
+                                choice.device.Get(), resolution.width, resolution.height,
+                                addon_state.worker_python, addon_state.worker_script,
+                                addon_state.worker_weights,
+                                std::filesystem::u8path(addon_state.panel.execution_device).wstring(),
+                                addon_state.output_directory, unsigned(addon_state.panel.offload_age_frames),
+                                uint64_t(addon_state.panel.offload_age_ms), addon_state.worker_vulkan_build,
+                                std::wstring(addon_state.panel.worker_engine.begin(),
+                                             addon_state.panel.worker_engine.end()),
+                                addon_state.worker_hip_build, addon_state.worker_sycl_build,
+                                selected_source, unsigned(addon_state.panel.cpu_threads));
+                        }
+                        const auto packed_weights = native_network ? selected_bundle->load_weight_view()
+                                                                  : phoenix_model::WeightView{};
+                        auto replacement = std::make_unique<phoenix::direct::Runner>(
+                            choice.device.Get(), queue, *selected, packed_weights, selected_kernels,
+                            color_description.Format, motion_description.Format, addon_state.direct_srgb,
+                            unsigned(addon_state.panel.refinement_passes), addon_state.panel.block_repeats,
+                            std::move(executor), &addon_state.panel,
+                            addon_state.owned_allocations.begin(unsigned(color_description.Width),
+                                                                color_description.Height),
+                            true, unsigned(color_description.Width), color_description.Height, std::filesystem::path{},
+                            motion_description.Width != color_description.Width || motion_description.Height != color_description.Height,
+                            [&](unsigned w,unsigned h){
+                                check(selected_bundle!=nullptr,"Native chain model bundle unavailable");
+                                return Json(selected_bundle->select_frame(w,h,[&](const Json& frame){phoenix_native::preflight(frame,selected_kernels);}));
+                            });
+                        candidate_timing = std::make_unique<phoenix::GpuTiming>(
+                            choice.device.Get(), queue, addon_state.timing_archive);
+                        return replacement;
+                    }, [&](const auto& previous) {
+                        addon_state.candidate_launches += previous.launches();
+                        addon_state.completed_retired += previous.completed();
+                    });
+                check(replaced, "Executor replacement awaits its retirement fence");
+                if (candidate_bundle) {
+                    addon_state.bundle = std::move(candidate_bundle);
+                    addon_state.candidates = std::move(candidate_kernels);
+                }
+                if (own_route) {
+                    addon_state.weight_source = std::move(selected_source);
+                    addon_state.active_model_source = addon_state.panel.model_source;
+                    addon_state.active_model_folder = addon_state.panel.model_folder;
+                    addon_state.active_model_dll = addon_state.panel.model_dll;
+                    addon_state.active_model_id = addon_state.panel.model_id;
+                    addon_state.active_nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
+                }
+                addon_state.model_switch_error.clear();
+            } catch (const std::exception& failure) {
+                if (model_changed && addon_state.direct_runner) {
+                    // Keep the working executor and its authenticated bundle.
+                    // Reject this request once; do not rehash/reload a bad DLL
+                    // on every frame or label the old output as the new model.
+                    active_selection.restore(addon_state.panel);
+                    addon_state.model_switch_error = std::string("Model change refused; kept the loaded model: ") + failure.what();
+                    initializing = false;
+                    throw std::runtime_error(addon_state.model_switch_error);
+                }
+                throw;
+            }
             addon_state.live.reset_requested = true;
             addon_state.depth_budget.reset_samples();
-        }
-        if (own_route && !addon_state.bundle && !addon_state.direct_runner) {
-            initializing = true;
-            addon_state.weight_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
-            addon_state.active_model_source = addon_state.panel.model_source;
-            addon_state.active_model_folder = addon_state.panel.model_folder;
-            addon_state.active_model_dll = addon_state.panel.model_dll;
-            addon_state.active_model_id = addon_state.panel.model_id;
-            addon_state.active_nvidia_dll_folder = addon_state.panel.nvidia_dll_folder;
-        }
-        if (native_network && !addon_state.bundle) {
-            addon_state.bundle = std::make_unique<phoenix_bundle::Bundle>(
-                addon_state.bundle_path,
-                [](const auto& file_path) { return sha_file(file_path.c_str()); },
-                addon_state.weight_source, true);
-            check(addon_state.bundle->weights.at("unknown_gap_bytes") == 0,
-                  "Direct weights incomplete");
-            addon_state.candidates =
-                phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
-        }
-        if (!addon_state.direct_runner) {
-            initializing = true;
-            Json portable_plan = {{"width", resolution.width}, {"height", resolution.height}};
-            const Json* selected = &portable_plan;
-            if (native_network) {
-                selected = &addon_state.bundle->select_frame(
-                    resolution.width, resolution.height, [&](const Json& frame) {
-                        phoenix_native::preflight(frame, addon_state.candidates);
-                    });
-            }
-            auto choice = resolve_allocation_device(queue, color);
-            check(choice.resolved, "Direct allocation device unresolved");
-            std::unique_ptr<phoenix::NeuralExecutor> executor;
-            if (own_route && addon_state.panel.execution_device != "native") {
-                check(std::any_of(addon_state.execution_devices.begin(),
-                                  addon_state.execution_devices.end(),
-                                  [&](const auto& device_info) {
-                                      return device_info.id == addon_state.panel.execution_device;
-                                  }),
-                      "Selected processing device is unavailable");
-                executor = std::make_unique<phoenix::portable::OffloadExecutor>(
-                    choice.device.Get(), resolution.width, resolution.height,
-                    addon_state.worker_python, addon_state.worker_script,
-                    addon_state.worker_weights,
-                    std::filesystem::u8path(addon_state.panel.execution_device).wstring(),
-                    addon_state.output_directory, unsigned(addon_state.panel.offload_age_frames),
-                    uint64_t(addon_state.panel.offload_age_ms), addon_state.worker_vulkan_build,
-                    std::wstring(addon_state.panel.worker_engine.begin(),
-                                 addon_state.panel.worker_engine.end()),
-                    addon_state.worker_hip_build, addon_state.worker_sycl_build,
-                    addon_state.weight_source, unsigned(addon_state.panel.cpu_threads));
-            }
-            const auto packed_weights = native_network ? addon_state.bundle->load_weight_view()
-                                                      : phoenix_model::WeightView{};
-            addon_state.direct_runner = std::make_unique<phoenix::direct::Runner>(
-                choice.device.Get(), queue, *selected, packed_weights, addon_state.candidates,
-                color_description.Format, motion_description.Format, addon_state.direct_srgb,
-                unsigned(addon_state.panel.refinement_passes), addon_state.panel.block_repeats,
-                std::move(executor), &addon_state.panel,
-                addon_state.owned_allocations.begin(unsigned(color_description.Width),
-                                                    color_description.Height),
-                true, unsigned(color_description.Width), color_description.Height, std::filesystem::path{},
-                motion_description.Width != color_description.Width || motion_description.Height != color_description.Height,
-                [&](unsigned w,unsigned h){
-                    check(addon_state.bundle!=nullptr,"Native chain model bundle unavailable");
-                    return Json(addon_state.bundle->select_frame(w,h,[&](const Json& frame){phoenix_native::preflight(frame,addon_state.candidates);}));
-                });
             addon_state.timing_settings_dirty = true;
             initializing = false;
             if (addon_state.live_timing) {
                 addon_state.live_timing->budget(nullptr);
                 addon_state.retired_timing.push_back(std::move(addon_state.live_timing));
             }
-            addon_state.live_timing = std::make_unique<phoenix::GpuTiming>(
-                choice.device.Get(), queue, addon_state.timing_archive);
+            addon_state.live_timing = std::move(candidate_timing);
             addon_state.live_timing->budget(&addon_state.depth_budget);
             phoenix_native::group_marker = [](ID3D12GraphicsCommandList* list, unsigned group) {
-                auto& timing = state().live_timing;
-                if (timing)
-                    timing->group(list, group);
+                if (auto& timing = state().live_timing) timing->group(list, group);
             };
             ++addon_state.generations;
-            reshade::log::message(
-                reshade::log::level::info,
-                addon_state.direct_runner->external()
-                    ? "[Phoenix DLSS5] External Phoenix DLSS5 executor constructed"
-                    : "[Phoenix DLSS5] Direct network constructed: 41 reconstructed modules, no NR feature");
+            reshade::log::message(reshade::log::level::info,
+                ("[Phoenix DLSS5] Executor generation " + std::to_string(addon_state.generations) +
+                 ": " + (own_route ? addon_state.weight_source.model_id : std::string("NVIDIA")) +
+                 " (previous generation retired)").c_str());
         }
         Controls controls;
         unsigned host_flags = 0;
@@ -3887,6 +3925,10 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 key.erase(name);
             if (!own_route)
                 key["ExecutionDevice"] = "native";
+            if (own_route) {
+                key["ModelId"] = addon_state.weight_source.model_id;
+                key["LoadedModelSource"] = addon_state.weight_source.configuration();
+            }
             key["InferenceWidth"] = resolution.width;
             key["InferenceHeight"] = resolution.height;
             addon_state.live_timing->settings(key.dump());
@@ -5180,13 +5222,18 @@ Json bridge_snapshot() {
         {"tick_ms", GetTickCount64()},
         {"settings", panel_json(addon_state.panel)},
         {"execution_devices", devices},
+        {"presentation_scope", "DLSS output texture; final game display is not independently verified"},
+        {"nvapi", phoenix_native::Api::lifetime_report()},
         {"model_source",
-         {{"kind", addon_state.weight_source.disk_model()  ? "model_folder"
+         {{"loaded_model_id", addon_state.weight_source.model_id},
+          {"switch_error", addon_state.model_switch_error},
+          {"restart_required", false},
+          {"kind", addon_state.weight_source.disk_model()  ? "model_folder"
                    : addon_state.weight_source.dll.empty() ? "files"
                                                            : "nvidia_dll"},
           {"path", phoenix_model::source_path_string(addon_state.weight_source.disk_model() ? addon_state.weight_source.folder
                                                            : addon_state.weight_source.dll)},
-          {"restart_required",
+          {"reload_pending",
            addon_state.panel.nvidia_dll_folder != addon_state.active_nvidia_dll_folder ||
            addon_state.panel.model_source != addon_state.active_model_source ||
                (addon_state.panel.model_folder != addon_state.active_model_folder ||
@@ -5488,6 +5535,16 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     phoenix_ui::Context ui{value.panel, value.live, value.presets, value.hotkeys,
                            value.capture_hotkey, value.hotkey_deadline, value.model_picker,
                            value.execution_devices, value.error, value.markers};
+    ui.status = phoenix::direct::startup_status(value.configured, value.automatic, gpu_gate(), value.direct_game,
+        bool(value.endpoint.session) || (value.direct_runner && value.direct_runner->submitted() > 0),
+        value.terminal, value.observe);
+    ui.processing_active = !value.terminal && value.last_mode >= 0 &&
+        (bool(value.endpoint.session) || (value.direct_runner && value.direct_runner->submitted() > 0));
+    ui.active_route = value.direct_runner && value.direct_runner->external()
+        ? "Portable worker / game DLSS textures" : "Native D3D12 / game DLSS textures";
+    if (value.direct_game) ui.status += " | " + value.direct_status;
+    ui.active_device = value.direct_runner && value.direct_runner->external()
+        ? "Worker device (details in Performance)" : "Game graphics device";
     ui.direct_game = value.direct_game;
     ui.host_controls_stage = value.direct_feeder;
     ui.direct_nr_ready = value.direct_nr_ready;
@@ -5515,6 +5572,12 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.active_model_dll = value.active_model_dll;
     ui.active_nvidia_dll_folder = value.active_nvidia_dll_folder;
     ui.active_model_id = value.active_model_id;
+    ui.loaded_model_id = value.direct_runner && phoenix::uses_ours(value.panel.mode)
+        ? value.weight_source.model_id : std::string{};
+    ui.model_restart = value.model_switch_error.empty()
+        ? "Model change pending; it will load after the current GPU frame finishes."
+        : value.model_switch_error;
+    ui.model_switch_error = value.model_switch_error;
     ui.override_status = value.override_status;
     ui.last_transformer_blocks = value.last_transformer_blocks;
     ui.last_mode = value.last_mode;
@@ -5560,72 +5623,14 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     return ui;
 }
 
-// UI and Evaluate share this lock; settings are immutable during recording.
-void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
-    if(phoenix_compat::applies(runtime)){phoenix_compat::panel(runtime);return;}
+// Detailed route telemetry lives behind Performance, away from the play controls.
+void draw_native_performance_details() {
     auto& addon_state = state();
-    std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
-    load_live_controls(runtime);
-    ImGui::TextUnformatted("Phoenix DLSS5 Neural Rendering");
-    if (!addon_state.recovery_notice.empty()) ImGui::TextWrapped("%s", addon_state.recovery_notice.c_str());
-#if defined(PHOENIX_EXPERIMENTAL_NATIVE)
-    ImGui::TextUnformatted("Experimental RTX compatibility build");
-    ImGui::TextWrapped("RTX 20/30/40 execution needs testing on those cards. RTX 5080 checks are listed in the package notes.");
-#endif
-    if (ImGui::Button("Save configuration")) {
-        save_live_controls(runtime);
-        addon_state.settings_saved_at = GetTickCount64();
-    }
-    if (addon_state.settings_saved_at && GetTickCount64() - addon_state.settings_saved_at < 5000) {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("Configuration saved");
-    }
-    const bool disk_model =
-        addon_state.active_model_source == "model_folder" || addon_state.weight_source.disk_model();
-    const auto model_path =
-        disk_model
-            ? addon_state.weight_source.folder / "model.json"
-            : (!addon_state.weight_source.dll.empty()
-                   ? addon_state.weight_source.dll
-                   : ((addon_state.direct_game && addon_state.panel.execution_device != "native" &&
-                       addon_state.model_dll_path.empty())
-                          ? addon_state.portable_model_dll_path
-                          : addon_state.model_dll_path));
-    const auto model_status = addon_state.model_dll_monitor.poll(model_path, GetTickCount64());
-    if (phoenix::uses_ours(addon_state.panel.mode) &&
-        model_status != phoenix::ModelDllStatus::available) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
-        if (disk_model)
-            ImGui::TextWrapped(
-                "Warning: Phoenix DLSS5 cannot read model.json in the selected model folder.");
-        else
-            ImGui::TextWrapped("Warning: %s", phoenix::model_dll_warning(model_status));
-        ImGui::PopStyleColor();
-        if (!model_path.empty())
-            ImGui::TextWrapped("Configured path: %s", phoenix_model::source_path_string(model_path).c_str());
-        ImGui::TextWrapped(
-            "Choose a model source below, or configure weight_source in Phoenix.json. The NVIDIA DLSS5 DLL and model files are separate local files. Restart the game after changing the model source or after a loader failure.");
-        ImGui::Separator();
-    }
-    ImGui::PushItemWidth(std::max(100.f, ImGui::GetContentRegionAvail().x * .42f));
-    ImGui::TextWrapped(
-        "Status: %s",
-        phoenix::direct::startup_status(
-            addon_state.configured, addon_state.automatic, gpu_gate(), addon_state.direct_game,
-            bool(addon_state.endpoint.session) ||
-                (addon_state.direct_runner && addon_state.direct_runner->submitted() > 0),
-            addon_state.terminal, addon_state.observe));
-    if (addon_state.direct_game)
-        ImGui::TextWrapped("%s", addon_state.direct_status.c_str());
     ImGui::Text("Phoenix DLSS5 frames submitted: %llu", addon_state.submitted);
-    if (!addon_state.error.empty())
-        ImGui::TextWrapped("%s", addon_state.error.c_str());
-#if CNR_PHOENIX_DIAGNOSTIC
-    ImGui::TextUnformatted("Paired DLL diagnostic | game controls locked");
-#else
-    ImGui::Separator();
-    auto ui = make_panel_context(runtime, model_path, disk_model);
-    bool changed = phoenix_ui::draw_controls(ui);
+    if (addon_state.direct_game) {
+        ImGui::TextWrapped("%s", addon_state.direct_status.c_str());
+        ImGui::TextDisabled("Output status tracks the DLSS texture; final display needs a visual check.");
+    }
     const phoenix::PanelVisibility visible{addon_state.panel};
     ImGui::Text("Active: %s",
                 addon_state.last_mode >= 0 ? phoenix::names[addon_state.last_mode] : "Waiting");
@@ -5727,19 +5732,6 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
             ImGui::Text("Last Phoenix DLSS5 tone %.2f | structure %.2f",
                         controls.at("tone").get<double>(), controls.at("structure").get<double>());
     }
-
-#endif
-    // Settings below the main controls also persist immediately.
-#if !CNR_PHOENIX_DIAGNOSTIC
-    if (changed) {
-        addon_state.live.reset_requested = true;
-        addon_state.timing_settings_dirty = true;
-        save_live_controls(runtime);
-    }
-#endif
-    ImGui::Separator();
-    auto timing_ui = make_panel_context(runtime, model_path, disk_model);
-    phoenix_ui::draw_timing(timing_ui);
     if (addon_state.timestamps && addon_state.endpoint.session) {
         const auto report = addon_state.timestamps->report();
         ImGui::Text("candidate %.3f ms (%llu samples)",
@@ -5761,7 +5753,56 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     } else if (!addon_state.live_timing) {
         ImGui::TextUnformatted("GPU profiling inactive");
     }
-    ImGui::PopItemWidth();
+
+}
+
+// UI and Evaluate share this lock; settings are immutable during recording.
+void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
+    if (phoenix_compat::applies(runtime)) { phoenix_compat::panel(runtime); return; }
+    auto& addon_state = state();
+    std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    load_live_controls(runtime);
+    const bool disk_model =
+        addon_state.active_model_source == "model_folder" || addon_state.weight_source.disk_model();
+    const auto model_path =
+        disk_model
+            ? addon_state.weight_source.folder / "model.json"
+            : (!addon_state.weight_source.dll.empty()
+                   ? addon_state.weight_source.dll
+                   : ((addon_state.direct_game && addon_state.panel.execution_device != "native" &&
+                       addon_state.model_dll_path.empty())
+                          ? addon_state.portable_model_dll_path
+                          : addon_state.model_dll_path));
+    const auto model_status = addon_state.model_dll_monitor.poll(model_path, GetTickCount64());
+    auto ui = make_panel_context(runtime, model_path, disk_model);
+    ui.route_notice = addon_state.recovery_notice;
+    if (phoenix::uses_ours(addon_state.panel.mode) && model_status != phoenix::ModelDllStatus::available) {
+        ui.route_notice += (ui.route_notice.empty() ? "" : "\n") + std::string(disk_model
+            ? "Cannot read model.json. Open Setup to choose and validate model files."
+            : phoenix::model_dll_warning(model_status));
+    }
+    ui.setup_details = [&] {
+#if defined(PHOENIX_EXPERIMENTAL_NATIVE)
+        ImGui::TextWrapped("Experimental RTX compatibility build. RTX 20/30/40 execution needs testing on those cards; RTX 5080 checks are listed in the package notes.");
+#endif
+        if (!model_path.empty()) ImGui::TextWrapped("Configured path: %s", phoenix_model::source_path_string(model_path).c_str());
+        ImGui::TextWrapped("The NVIDIA DLSS5 DLL and model files are separate local files. Choose a model source above, or configure weight_source in Phoenix.json.");
+    };
+    ui.performance_details = [] { draw_native_performance_details(); };
+#if CNR_PHOENIX_DIAGNOSTIC
+    ImGui::TextUnformatted("Paired DLL diagnostic | game controls locked");
+    if (ImGui::Button("Save configuration")) ui.save();
+    ImGui::TextWrapped("%s", ui.status.c_str());
+    if (!ui.error.empty()) ImGui::TextWrapped("%s", ui.error.c_str());
+    phoenix_ui::draw_timing(ui);
+    draw_native_performance_details();
+#else
+    if (phoenix_ui::draw_controls(ui)) {
+        addon_state.live.reset_requested = true;
+        addon_state.timing_settings_dirty = true;
+        save_live_controls(runtime);
+    }
+#endif
 }
 
 phoenix::direct::AppearanceTextures harvest_appearance(ID3D12GraphicsCommandList* cmd,
@@ -6072,22 +6113,8 @@ void prepare_backbuffer_input(reshade::api::effect_runtime* runtime,
     const bool model_changed = settings.model_source != value.active_model_source ||
         settings.nvidia_dll_folder != value.active_nvidia_dll_folder ||
         settings.model_folder != value.active_model_folder || (settings.model_dll != value.active_model_dll || settings.model_id != value.active_model_id);
-    const auto selected = phoenix_model_tools::selection(settings, value.configured_weight_source);
-    if (model_changed) {
-        check(!value.direct_runner || value.direct_runner->idle(), "Model change waits for retired in-process work");
-        if (value.direct_runner) {
-            value.candidate_launches += value.direct_runner->launches();
-            value.completed_retired += value.direct_runner->completed();
-            value.direct_runner.reset();
-        }
-        value.bundle.reset(); value.candidates.clear();
-        value.weight_source = selected;
-        value.active_model_source = settings.model_source;
-        value.active_model_folder = settings.model_folder;
-        value.active_model_dll = settings.model_dll;
-        value.active_nvidia_dll_folder = settings.nvidia_dll_folder;
-        value.active_model_id = settings.model_id;
-    }
+    // The frame path validates and publishes the replacement transactionally.
+    // Dropping the active bundle here would lose rollback on a bad selection.
     const bool reset = value.live.reset_requested ||
         phoenix_compat::helper_settings_changed(value.panel, settings);
     value.panel = settings;
@@ -6470,6 +6497,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
             {"memory_series", addon_state.memory_series},
             {"series_interval_ms", addon_state.series_interval},
             {"owned_allocation_accounting", addon_state.owned_allocations.snapshot()},
+            {"nvapi", phoenix_native::Api::lifetime_report()},
             {"host_bookkeeping",
              [&] {
                  auto& observed = observation::observer();
@@ -6589,6 +6617,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
               {"template_valid",
                sl_shim::negotiate_sl_sizes(addon_state.sl_observed.drive_template()).valid},
               {"created_id", addon_state.selfdrive.feature_id},
+              {"retirements", addon_state.nvidia_retirements},
               {"evaluates", addon_state.selfdrive.evaluates},
               {"depth_present", addon_state.selfdrive.depth_present},
               {"depth_proven", addon_state.selfdrive.depth_proven},

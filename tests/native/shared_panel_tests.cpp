@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 namespace {
-ImRect clear_timing_button;
+ImRect clear_timing_button, confirm_timing_button;
 struct Widget {
     ImGuiID id;
     std::string label;
@@ -39,19 +39,27 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Backend", "Backend##phoenix_compact", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target"})
+    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
                                    [&](const Widget &widget) { return widget.id == id; });
     if (found == widgets.end())
-        widgets.push_back({id, label, data ? data->NavRect : rect,
+        widgets.push_back({id, label, rect,
                            ((data ? data->ItemFlags : context->CurrentItemFlags) & ImGuiItemFlags_Disabled) != 0});
+    else {
+        // Tabs report their label before ItemAdd; replace that preliminary
+        // rectangle with the real hit bounds when they arrive.
+        found->rect = rect;
+        found->disabled = ((data ? data->ItemFlags : context->CurrentItemFlags) & ImGuiItemFlags_Disabled) != 0;
+        if (found->label.empty()) found->label = label;
+    }
 }
 void ImGuiTestEngineHook_ItemInfo(ImGuiContext *context, ImGuiID id, const char *label,
                                   ImGuiItemStatusFlags) {
     if (std::strcmp(label, "Clear GPU timing") == 0)
         clear_timing_button = context->LastItemData.Rect;
+    if (std::strcmp(label, "Clear timings") == 0) confirm_timing_button = context->LastItemData.Rect;
     if (record_widgets) {
         const auto found = std::find_if(widgets.begin(), widgets.end(),
                                        [&](const Widget &widget) { return widget.id == id; });
@@ -65,6 +73,7 @@ void ImGuiTestEngineHook_ItemInfo(ImGuiContext *context, ImGuiID id, const char 
 }
 void ImGuiTestEngineHook_Log(ImGuiContext *, const char *, ...) {}
 const char *ImGuiTestEngine_FindItemDebugLabel(ImGuiContext *, ImGuiID) { return ""; }
+#include "dashboard_tests.h"
 int run_tests() {
     struct LibraryFixture {
         std::filesystem::path root = std::filesystem::absolute(std::filesystem::temp_directory_path() /
@@ -150,9 +159,9 @@ int run_tests() {
                 for (const char *section :
                      {"History policy", "Phoenix DLSS5 experiments",
                       "Transformer block repetitions", "Hotkeys", "Settings / logging",
-                      "Phoenix DLSS5 model", "GPU stage breakdown"})
+                      "Phoenix DLSS5 model", "GPU stage breakdown", "Skin and automatic mask", "Appearance details", "Engine motion and depth"})
                     ImGui::GetStateStorage()->SetInt(ImGui::GetID(section), 1);
-                phoenix_ui::draw_controls(context);
+                phoenix_ui::draw_sections(context, phoenix_ui::PanelPage::All);
                 phoenix_ui::draw_timing(context);
                 ImGui::End();
                 ImGui::Render();
@@ -235,7 +244,7 @@ int run_tests() {
         ImGui::NewFrame();
         ImGui::SetNextWindowPos({0, 0});
         ImGui::SetNextWindowSize({1200, 6000});
-        ImGui::SetNextWindowFocus();
+        if (ImGui::GetCurrentContext()->OpenPopupStack.empty()) ImGui::SetNextWindowFocus();
         ImGui::Begin("Shared UI action checks");
         phoenix_ui::draw_timing(interaction);
         ImGui::End();
@@ -252,6 +261,11 @@ int run_tests() {
     check(actions == 0);
     io.AddMouseButtonEvent(0, false);
     draw_interaction();
+    check(actions == 0);
+    draw_interaction();
+    io.AddMousePosEvent(confirm_timing_button.GetCenter().x, confirm_timing_button.GetCenter().y);
+    io.AddMouseButtonEvent(0, true); draw_interaction();
+    io.AddMouseButtonEvent(0, false); draw_interaction();
     check(actions == 1);
     ImGui::NewFrame();
     ImGui::Begin("Shared compact panel checks");
@@ -316,9 +330,12 @@ int run_tests() {
                 ImGui::SetNextWindowPos({0, 0});
                 ImGui::SetNextWindowSize({1600, 6000});
                 ImGui::Begin(window_name.c_str());
+                if (!compact)
+                    for (const char* group : {"Skin and automatic mask", "Appearance details", "Engine motion and depth"})
+                        ImGui::GetStateStorage()->SetInt(ImGui::GetID(group), 1);
                 record_widgets = true;
                 const bool changed = compact ? phoenix_ui::draw_compact(interaction)
-                                             : phoenix_ui::draw_controls(interaction);
+                                             : phoenix_ui::draw_sections(interaction, phoenix_ui::PanelPage::All);
                 record_widgets = false;
                 ImGui::End();
                 ImGui::Render();
@@ -339,12 +356,13 @@ int run_tests() {
                 return click_at(widget_rect(label).GetCenter());
             };
             const auto select = [&](const char *combo, const char *option) {
+                frame(); frame(); // Settle text wrapping after the preceding selection.
                 const auto rect = widget_rect(combo);
                 // Combo bounds include the label; click inside the frame at its left edge.
                 Changes result = click_at(ImVec2(rect.Min.x + 12, rect.GetCenter().y));
                 result.merge(frame()); // Let an appearing popup settle before locating its rows.
                 require_widget(ImGui::GetCurrentContext()->OpenPopupStack.Size > 0,
-                               std::string("Combo did not open: ") + combo);
+                               std::string("Combo did not open: ") + combo + " at " + std::to_string(rect.Min.x) + "," + std::to_string(rect.Min.y) + " hover=" + (ImGui::GetCurrentContext()->HoveredWindow ? ImGui::GetCurrentContext()->HoveredWindow->Name : "none"));
                 result.merge(click(option));
                 return result;
             };
@@ -353,7 +371,7 @@ int run_tests() {
             };
             frame();
             require_widget(!frame().changed, "Passive drawing changed settings");
-            const char *backend = compact ? "Backend##phoenix_compact" : "Backend";
+            const char *backend = compact ? "Output" : "Output";
             require_widget(count_widget("Enable neural rendering") == 1,
                            "There must be one shared enable checkbox");
             for (const char *obsolete : {"Enable graphics bridge", "Graphics bridge", "Enable NR",
@@ -418,7 +436,7 @@ int run_tests() {
                 require_widget(settings.processing.signal==2,"Explicit linear NR signal selection");
                 for(const char* label:{"Scaling domain","Downsample filter","Upsample filter",
                     "Scale reconstruction","Override diffuse white","Exposure multiplier",
-                    "Use exposure value","Block Hudless","UI correction policy","Processing passes"})
+                    "Use exposure value","Block Hudless","UI correction policy","Network passes per frame"})
                     require_widget(count_widget(label)==1,std::string("Missing processing widget: ")+label);
                 // Restore this scenario so existing presentation/tuning checks
                 // continue to exercise their original, independent defaults.
@@ -746,8 +764,9 @@ int run_tests() {
             }
         }
     interaction.processing_enabled = nullptr;
+    const auto dashboard = run_dashboard_tests(interaction);
     ImGui::DestroyContext();
-    std::cout << nlohmann::json({{"passed", true},
+    std::cout << nlohmann::json({{"passed", true}, {"dashboard", dashboard},
                                  {"bits", sizeof(void *) * 8},
                                  {"rendered_panels", rendered},
                                  {"validation_controls_drawn", validation_polls},

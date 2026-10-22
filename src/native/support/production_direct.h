@@ -1,6 +1,7 @@
 #pragma once
 // Production direct, post-SR/RR integration. No NR DLL or synthetic NGX feature is created.
 // The host serializes all methods and supplies observed states and queue ownership.
+#include "model_selection_state.h"
 #include "../session/session.h"
 #include "routing.h"
 #include "compute_pass.h"
@@ -823,6 +824,7 @@ class Runner {
     bool bridge_announced_ = false;
     float host_white_div_ = 5.0f;
     Processing processing_;
+    phoenix_model_tools::ModelSelectionState model_selection_;
     std::unique_ptr<Pass> processing_encode_, processing_own_decode_, processing_native_decode_;
     ComPtr<ID3D12Resource> processing_own_, processing_native_;
     float processing_host_white_ = 100, processing_host_exposure_ = 1;
@@ -963,6 +965,7 @@ class Runner {
         geometry_ = fit_resolution(output_width ? output_width : width_,
                                    output_height ? output_height : height_, width_, height_);
         if (execution_settings) {
+            model_selection_ = phoenix_model_tools::ModelSelectionState::read(*execution_settings);
             additional_pipeline_=execution_settings->pipeline;
             additional_library_path_=execution_settings->model_library_directory;
             processing_ = execution_settings->processing;
@@ -1148,6 +1151,8 @@ class Runner {
         return !guides_ || guides_->matches(depth);
     }
     bool architecture_matches(const Settings& settings) const {
+        if (!bridge_only_ && model_selection_ != phoenix_model_tools::ModelSelectionState::read(settings))
+            return false;
         if(additional_pipeline_.order!=settings.pipeline.order||additional_pipeline_.enabled!=settings.pipeline.enabled||
            additional_pipeline_.fusion!=settings.pipeline.fusion||additional_pipeline_.fusion_layers!=settings.pipeline.fusion_layers||
            additional_pipeline_.fusion_second_scale!=settings.pipeline.fusion_second_scale||additional_pipeline_.fusion_third_scale!=settings.pipeline.fusion_third_scale||

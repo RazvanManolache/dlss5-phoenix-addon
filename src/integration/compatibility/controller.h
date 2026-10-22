@@ -582,6 +582,19 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     if (resident_active(value)) ui.portable_wall_ms = info.value("frame_wall_ms", 0.0);
     ui.input_capture = !ui.portable_backbuffer && !native_active(value);
     ui.status = value.message;
+    ui.route_failed = !value.processing_error.empty();
+    ui.processing_active = value.displayed && value.presented_revision == value.selection_revision;
+    const std::string actual = execution_mode(value);
+    ui.active_route = actual == "in_process" ? "Native D3D12 / same-device processing"
+        : actual == "in_process_portable" ? "Portable runtime / same-process processing"
+        : actual == "in_process_x86_driver" ? "Native x86 driver / same-process processing"
+        : actual == "in_process_x64_library" ? "Native x64 library / x86 game process"
+        : actual == "helper" ? "External x64 helper / graphics bridge" : "Waiting for a processing route";
+    ui.route_notice = value.fallback_reason;
+    if (!value.processing_error.empty()) ui.route_notice += "\n" + value.processing_error;
+    if (value.settings_dirty) ui.route_notice += "\nRenderer setup change pending.";
+    ui.loaded_model_id = info.value("model_source", Json::object()).value("loaded_model_id", std::string());
+
     ui.switches = value.switches;
     ui.mode_frames = value.mode_frames;
     ui.mode_own = value.mode_own;
@@ -789,20 +802,8 @@ inline void comparison_hud(reshade::api::effect_runtime* runtime) {
     if (value.enabled && value.displayed && value.presented_revision == value.selection_revision)
         phoenix_ui::draw_presentation_hud(value.displayed_settings);
 }
-inline void panel(reshade::api::effect_runtime *runtime) {
-    std::lock_guard lock(sessions_mutex);
-    auto &value = session(runtime);
-    if (!value.processing_error.empty() && ImGui::Button("Retry rendering"))
-        save(runtime, value);
-    ImGui::TextWrapped("Status: %s", value.message.c_str());
-    auto ui = panel_context(runtime, value);
-    phoenix_ui::draw_controls(ui);
-    apply_ui_edits(runtime, value, ui);
-    if (value.settings_dirty)
-        ImGui::TextDisabled("Editing renderer setup...");
-    if (!value.ui_error.empty())
-        ImGui::TextWrapped("%s", value.ui_error.c_str());
-    ImGui::Separator();
+// The same Setup tab hosts architecture-specific transport controls.
+inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value) {
     if (ImGui::CollapsingHeader("Advanced transport")) {
     ImGui::TextWrapped("%s", value.local ? "Phoenix DLSS5 runs inside the game on its D3D12 device." : native_active(value) ?
         "Processing runs inside this x86 game on a native 64-bit thread; no helper process. Pixel transfers still use CPU staging." : portable_active(value) ?
@@ -951,8 +952,17 @@ inline void panel(reshade::api::effect_runtime *runtime) {
             ImGui::TextWrapped("Processor stopped: %s", host->error().c_str());
     }
     }
-    phoenix_ui::draw_timing(ui);
 }
+inline void panel(reshade::api::effect_runtime* runtime) {
+    std::lock_guard lock(sessions_mutex);
+    auto& value = session(runtime);
+    auto ui = panel_context(runtime, value);
+    ui.setup_details = [runtime, &value] { draw_transport(runtime, value); };
+    ui.retry = [runtime, &value] { save(runtime, value); };
+    phoenix_ui::draw_controls(ui);
+    apply_ui_edits(runtime, value, ui);
+}
+
 inline void destroy(reshade::api::effect_runtime *runtime) {
     std::lock_guard lock(sessions_mutex);
     sessions.erase(runtime);

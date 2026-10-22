@@ -1,39 +1,26 @@
-"""Focused source contracts for renderer-first layout and stable saved choices."""
+"""Adapter/source wiring checks; actual UI interaction lives in shared_panel_tests."""
 from pathlib import Path
 import unittest
-
-ROOT=Path(__file__).resolve().parents[1]
-
+ROOT = Path(__file__).resolve().parents[1]
 
 class CompatibilityPanelLayoutTests(unittest.TestCase):
-    def setUp(self):
-        source=(ROOT/'src/integration/compatibility/controller.h').read_text()
-        self.panel=source.split('inline void panel(',1)[1].split('inline void destroy(',1)[0]
+    def test_one_shared_dashboard_owns_compatibility_layout(self):
+        source = (ROOT/'src/integration/compatibility/controller.h').read_text()
+        panel = source.split('inline void panel(', 1)[1].split('inline void destroy(', 1)[0]
+        self.assertEqual(panel.count('phoenix_ui::draw_controls(ui)'), 1)
+        self.assertIn('ui.setup_details =', panel)
+        self.assertIn('draw_transport(runtime, value)', panel)
+        self.assertLess(panel.index('phoenix_ui::draw_controls(ui)'), panel.index('apply_ui_edits(runtime, value, ui)'))
+        self.assertNotIn('phoenix_ui::draw_timing', panel)
 
-    def test_renderer_controls_and_edits_precede_transport(self):
-        controls=self.panel.index('phoenix_ui::draw_controls(ui)')
-        edits=self.panel.index('apply_ui_edits(runtime, value, ui)')
-        transport=self.panel.index('ImGui::CollapsingHeader("Advanced transport")')
-        self.assertLess(controls,edits)
-        self.assertLess(edits,transport)
-        self.assertEqual(self.panel.count('phoenix_ui::draw_controls(ui)'),1)
-
-    def test_execution_labels_have_no_investigation_numbers(self):
-        labels=self.panel.split('const char* choices[]{',1)[1].split('};',1)[0]
-        self.assertNotIn('#',labels)
-        for name in ('Automatic','In-process native D3D12','External x64 helper',
-                     'In-process portable (experimental)','x64 library inside x86 (experimental)',
-                     'x86 Phoenix DLSS5 + native driver (experimental)'):
-            self.assertIn('"'+name+'"',labels)
-
-    def test_status_reasons_have_no_investigation_numbers(self):
-        route=(ROOT/'src/integration/compatibility/backbuffer_route.h').read_text()
-        for number in range(1,5):
-            self.assertNotIn(f'#{number}',route)
-
-    def test_saved_execution_identifiers_are_unchanged(self):
+    def test_saved_execution_identifiers_and_eligibility_remain_shared(self):
+        source = (ROOT/'src/integration/compatibility/backbuffer_route.h').read_text()
         for value in ('in_process','helper','portable','wow64_library','wow64_driver','auto'):
-            self.assertIn('"'+value+'"',self.panel)
+            self.assertIn('"'+value+'"', source)
+        for number in range(1, 5): self.assertNotIn(f'#{number}', source)
+        controller = (ROOT/'src/integration/compatibility/controller.h').read_text()
+        transport = controller.split('inline void draw_transport(', 1)[1].split('inline void panel(', 1)[0]
+        self.assertIn('available_execution_preferences(value.selectable_capabilities)', transport)
+        self.assertIn('execution_preference_label(choice)', transport)
 
-
-if __name__=='__main__': unittest.main()
+if __name__ == '__main__': unittest.main()

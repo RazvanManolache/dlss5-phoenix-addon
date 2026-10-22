@@ -37,6 +37,8 @@ def main():
     parser.add_argument(
         "--production-only", action="store_true", help="Omit the separate diagnostic addon"
     )
+    parser.add_argument("--test-set", choices=("all", "model-switch"), default="all",
+                        help="Run the normal contracts or the focused model/lifetime/output regressions")
     parser.add_argument("--experimental-native", action="store_true",
                         help="Embed compiled native targets as explicitly experimental without claiming device validation")
     args = parser.parse_args()
@@ -88,6 +90,8 @@ def main():
         ("session_tests", "tests.cpp"),
         ("feeder_api_tests", "feeder_api_tests.cpp"),
         ("memory_tests", "memory_tests.cpp"),
+        ("model_switch_lifetime_tests", "model_switch_lifetime_tests.cpp"),
+        ("nvapi_lifetime_tests", "nvapi_lifetime_tests.cpp"),
         ("observer_tests", "observer_tests.cpp"),
         ("colour_bridge_tests", "colour_bridge_tests.cpp"),
         ("diagnostic_tests", "diagnostic_tests.cpp"),
@@ -110,6 +114,10 @@ def main():
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
                       ("resolution_bridge_tests", "resolution_bridge_tests.cpp")]
+    if args.test_set == "model-switch":
+        selected_tests = {"session_tests", "feeder_api_tests", "memory_tests", "direct_tests",
+                          "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests"}
+        tests = [test for test in tests if test[0] in selected_tests]
     embedded_report = None
     resource = ""
     if args.embed_runtime:

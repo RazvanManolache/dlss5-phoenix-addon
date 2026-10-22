@@ -15,6 +15,16 @@ from embed_runtime import compress
 from verify_source_provenance import verify_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+PANEL_SOURCE_INPUTS = (
+    'src/integration/reshade/addon.cpp', 'src/integration/reshade/shared_panel.h',
+    'src/integration/reshade/panel_contract.h', 'src/integration/reshade/panel_context.h',
+    'src/integration/reshade/panel_sections.h', 'src/integration/reshade/panel_chrome.h',
+    'src/integration/reshade/panel_timing.h', 'src/integration/reshade/pipeline_panel.h',
+    'src/integration/reshade/panel_style.h',
+    'src/integration/compatibility/controller.h', 'tests/native/shared_panel_tests.cpp',
+    'tests/native/dashboard_tests.h',
+)
 LIBRARIES = "d3d11.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib psapi.lib cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib"
 CORE_ABI = {"AddonInit", "AddonUninit", "CnrPHOENIXCompatibilityStatus",
             "CnrPHOENIXFeederVersion", "CnrPHOENIXFeederEvaluate",
@@ -62,11 +72,7 @@ def verify_core_inputs(core, report):
         verified[name] = bindings[name]
     sources = report.get('source_inputs', {})
     required_sources = set(report.get('project_dependencies', []))
-    required_sources.update(('src/integration/reshade/addon.cpp',
-                             'src/integration/reshade/shared_panel.h',
-                             'src/integration/reshade/panel_contract.h',
-                             'src/integration/compatibility/controller.h',
-                             'tests/native/shared_panel_tests.cpp'))
+    required_sources.update(PANEL_SOURCE_INPUTS)
     if not isinstance(sources, dict) or not required_sources.issubset(sources):
         raise ValueError('Core report must bind project source and test identities in source_inputs')
     for name, digest in sources.items():

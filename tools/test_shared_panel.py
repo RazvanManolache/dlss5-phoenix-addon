@@ -36,9 +36,7 @@ def check_build_gates():
                   'link_inputs': {name: packaging.file_sha256(core / name) for name in
                       [*names, 'embedded/manifest.json']},
                   'source_inputs': {name: packaging.file_sha256(ROOT / name) for name in
-                      ['src/integration/reshade/addon.cpp', 'src/integration/reshade/shared_panel.h',
-                       'src/integration/reshade/panel_contract.h', 'src/integration/compatibility/controller.h',
-                       'tests/native/shared_panel_tests.cpp']}}
+                      packaging.PANEL_SOURCE_INPUTS}}
         def reject(label, receipt, exports):
             with patch.object(packaging, 'pe_exports', return_value=exports):
                 try:

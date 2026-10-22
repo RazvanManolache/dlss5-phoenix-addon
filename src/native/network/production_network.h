@@ -8,6 +8,7 @@
 #include "../support/controls.h"
 #include "../support/memory.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <source_location>
 #include <sstream>
@@ -35,30 +36,61 @@ inline void nv(NvAPI_Status value) {
     require(value == NVAPI_OK, "phoenix NVAPI failure");
 }
 struct Api {
+    using LifecycleFn = NvAPI_Status(__cdecl*)();
+    inline static std::atomic<uint64_t> initialization_count{0}, unload_count{0}, unload_failures{0};
     HMODULE library = nullptr;
+    LifecycleFn unload = nullptr;
+    bool initialized = false;
+    void initialize_session(LifecycleFn initialize, LifecycleFn release) {
+        require(!initialized, "NVAPI session already initialized");
+        require(initialize && release, "NVAPI lifecycle interface unavailable");
+        nv(initialize());
+        unload = release;
+        initialized = true;
+        ++initialization_count;
+    }
+    void close() noexcept {
+        if (initialized) {
+            if (unload() == NVAPI_OK) ++unload_count;
+            else ++unload_failures;
+            initialized = false;
+        }
+        if (library) { FreeLibrary(library); library = nullptr; }
+    }
+    static Json lifetime_report() {
+        return {{"initializations", initialization_count.load()}, {"unloads", unload_count.load()},
+                {"unload_failures", unload_failures.load()}};
+    }
     phoenix_kernel::Api modules;
     decltype(&NvAPI_D3D12_LaunchCuKernelChain) dispatch = nullptr;
     decltype(&NvAPI_D3D12_GetCudaMergedTextureSamplerObject) texture = nullptr;
     decltype(&NvAPI_D3D12_GetCudaSurfaceObject) surface = nullptr;
     Api() {
-        library = LoadLibraryExW(nvapi_library_name(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        require(library != nullptr, "NVAPI unavailable");
-        auto query = reinterpret_cast<void*(__cdecl*)(unsigned)>(
-            GetProcAddress(library, "nvapi_QueryInterface"));
-        require(query != nullptr, "NVAPI query unavailable");
-        auto initialize = reinterpret_cast<NvAPI_Status(__cdecl*)()>(query(0x0150e828));
-        require(initialize != nullptr, "NVAPI init unavailable");
-        nv(initialize());
-        modules = {reinterpret_cast<decltype(modules.create_module)>(query(0xad1a677d)),
-                   reinterpret_cast<decltype(modules.create_function)>(query(0xe2436e22)),
-                   reinterpret_cast<decltype(modules.destroy_function)>(query(0xdf295ea6)),
-                   reinterpret_cast<decltype(modules.destroy_module)>(query(0x41c65285)),
-                   reinterpret_cast<decltype(modules.fatbin_supported)>(query(0x70c07832))};
-        modules.validate();
-        dispatch = reinterpret_cast<decltype(dispatch)>(query(0x24973538));
-        texture = reinterpret_cast<decltype(texture)>(query(0x329fe6e0));
-        surface = reinterpret_cast<decltype(surface)>(query(0x48f5b2ee));
-        require(dispatch && texture && surface, "NVAPI binding/dispatch unavailable");
+        try {
+            library = LoadLibraryExW(nvapi_library_name(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            require(library != nullptr, "NVAPI unavailable");
+            auto query = reinterpret_cast<void*(__cdecl*)(unsigned)>(
+                GetProcAddress(library, "nvapi_QueryInterface"));
+            require(query != nullptr, "NVAPI query unavailable");
+            auto initialize = reinterpret_cast<NvAPI_Status(__cdecl*)()>(query(0x0150e828));
+            require(initialize != nullptr, "NVAPI init unavailable");
+            initialize_session(initialize, reinterpret_cast<LifecycleFn>(query(0xd22bdd7e)));
+            modules = {reinterpret_cast<decltype(modules.create_module)>(query(0xad1a677d)),
+                       reinterpret_cast<decltype(modules.create_function)>(query(0xe2436e22)),
+                       reinterpret_cast<decltype(modules.destroy_function)>(query(0xdf295ea6)),
+                       reinterpret_cast<decltype(modules.destroy_module)>(query(0x41c65285)),
+                       reinterpret_cast<decltype(modules.fatbin_supported)>(query(0x70c07832))};
+            modules.validate();
+            dispatch = reinterpret_cast<decltype(dispatch)>(query(0x24973538));
+            texture = reinterpret_cast<decltype(texture)>(query(0x329fe6e0));
+            surface = reinterpret_cast<decltype(surface)>(query(0x48f5b2ee));
+            require(dispatch && texture && surface, "NVAPI binding/dispatch unavailable");
+        } catch (...) {
+            // A throwing constructor does not run ~Api(). Balance the module
+            // reference even when querying an unsupported interface fails.
+            close();
+            throw;
+        }
     }
     // CPU-test construction only: loads nothing and binds nothing. Every
     // entry stays null, so any use faults instead of silently dispatching.
@@ -66,10 +98,7 @@ struct Api {
     struct NoLoad {};
     explicit Api(NoLoad) noexcept {}
     Api(const Api&) = delete;
-    ~Api() {
-        if (library)
-            FreeLibrary(library);
-    }
+    ~Api() { close(); }
 };
 // Build module specifications from the bundle's named kernel records. Clear
 // and copy helpers are supplied elsewhere, so they are excluded from this list.

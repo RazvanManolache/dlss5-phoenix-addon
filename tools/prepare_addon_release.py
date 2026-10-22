@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.14'
+VERSION = '0.15'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -116,7 +116,7 @@ def common_files():
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
                  'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md',
-                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'UPSTREAM_CREDITS.md'):
+                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'UPSTREAM_CREDITS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
         'Use a current ReShade build with full add-on support. Copy only the matching add-on and graphics helper.\n'
@@ -124,6 +124,49 @@ def common_files():
         f'See docs/RELEASE_{VERSION}.md for installation and validation boundaries.\n'
         'No model weights, NVIDIA model DLLs or private configurations are included.\n').encode()
     return files
+
+
+def input_package(candidate):
+    """Keep the optional input hooks outside the neural-rendering packages."""
+    candidate = Path(candidate).resolve()
+    receipt = json.loads((candidate/'VALIDATION.json').read_text(encoding='utf-8'))
+    expected = {'PhoenixInput.addon32', 'PhoenixInput.addon64'}
+    required_sources = {'src/integration/input/phoenix_input_addon.cpp',
+                        'tools/build_input_addon.py', 'tests/native/input_addon_load_tests.cpp'}
+    if receipt.get('passed') is not True or set(receipt.get('binaries', {})) != expected:
+        raise ValueError('Input companion build validation is incomplete')
+    sources = receipt.get('source_inputs', {})
+    if not required_sources.issubset(sources):
+        raise ValueError('Input companion source bindings are incomplete')
+    for name, digest in sources.items():
+        path = (ROOT/name).resolve()
+        if not path.is_relative_to(ROOT) or sha(path.read_bytes()) != digest:
+            raise ValueError('Input companion source changed: '+name)
+    for bits in ('32', '64'):
+        case = receipt.get('cases', {}).get(bits, {})
+        if not all(case.get(key) is True for key in ('passed', 'actual_dll_loaded',
+                'balanced_attach_detach', 'mailbox_status', 'stale_session_rejected')):
+            raise ValueError('Input companion smoke validation is incomplete: '+bits)
+    files = {name: (ROOT/name).read_bytes() for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY.md')}
+    for name in expected:
+        raw = (candidate/name).read_bytes()
+        if sha(raw) != receipt['binaries'][name]:
+            raise ValueError('Input companion changed: '+name)
+        safe_payload(name, raw)
+        files[name] = raw
+    for name in ('PHOENIX_INPUT.md', f'VALIDATION_{VERSION}.md'):
+        files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
+    for name in ('minhook/LICENSE.txt', 'reshade/LICENSE.txt',
+                 'nlohmann/LICENSE.MIT', 'nlohmann/json.hpp'):
+        files['licenses/'+name] = (ROOT/'third_party'/name).read_bytes()
+    files['VALIDATION.json'] = (json.dumps(receipt, indent=2)+'\n').encode()
+    files['README.txt'] = (
+        f'Phoenix Input {VERSION} - optional experimental background-input companion\n'
+        'Copy only PhoenixInput.addon32 OR PhoenixInput.addon64, matching the game architecture, beside ReShade.\n'
+        'The rendering addon does not require this companion. Virtual focus is off by default.\n'
+        'See docs/PHOENIX_INPUT.md for setup, mailbox operations, limits and removal.\n'
+        'Smoke checks cover loading, status/session handling and clean unload, not broad gameplay compatibility.\n').encode()
+    return files, receipt
 
 
 def main():
@@ -135,6 +178,8 @@ def main():
     parser.add_argument('--validation', type=Path, required=True)
     parser.add_argument('--experimental-candidate', type=Path)
     parser.add_argument('--experimental-validation', type=Path)
+    parser.add_argument('--input-candidate', type=Path, required=True,
+                        help='Separately built and smoke-tested optional input companion')
     args = parser.parse_args()
     if bool(args.experimental_candidate) != bool(args.experimental_validation):
         parser.error('Supply both the experimental candidate and its validation receipt')
@@ -167,6 +212,9 @@ def main():
         for name in ('Phoenix.addon32','Phoenix.addon64','phoenix_graphics_host.exe'):
             files[name]=(candidate/name).read_bytes()
         assets={}
+        input_files, input_validation = input_package(args.input_candidate)
+        name=f'DLSS5-Phoenix-{VERSION}-Input-Windows.zip'
+        assets[name]=write_archive(staging/name,input_files)
         name=f'DLSS5-Phoenix-{VERSION}-Windows.zip'
         assets[name]=write_archive(staging/name,files)
         experimental = None
@@ -222,9 +270,10 @@ def main():
             private_paths_secrets_models_and_logs_excluded=True,retail_games_launched=False,
             vendor_parity=False,release_validation=tests,
             experimental_compatibility_validation=experimental,
+            input_companion_validation=input_validation,
             embedded_resources={bits:row['resources'] for bits,row in embedded.items()},assets=assets)
         (staging/'VALIDATION.json').write_text(json.dumps(validation,indent=2)+'\n')
-        (staging/'RELEASE_NOTES.md').write_text((ROOT/f'docs/RELEASE_{VERSION}.md').read_text(),encoding='utf-8')
+        (staging/'RELEASE_NOTES.md').write_text((ROOT/f'docs/RELEASE_{VERSION}.md').read_text(encoding='utf-8'),encoding='utf-8')
         names=[*assets,'VALIDATION.json']
         (staging/'SHA256SUMS.txt').write_text(''.join(sha((staging/n).read_bytes())+'  '+n+'\n' for n in names),encoding='ascii')
         output.mkdir(parents=True)

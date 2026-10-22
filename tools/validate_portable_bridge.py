@@ -77,11 +77,11 @@ def main():
     report_path = current/'portable-bridge-validation.json'
     inputs = [*list((ROOT/'src/integration/compatibility').glob('*.h')),
         *[p for p in (ROOT/'src/integration/compatibility/wow64').rglob('*') if p.is_file()],
-        ROOT/'src/integration/reshade/shared_panel.h', ROOT/'src/integration/reshade/addon.cpp',
+        *list((ROOT/'src/integration/reshade').glob('*.h')), ROOT/'src/integration/reshade/addon.cpp',
         ROOT/'native_runtime/runtime_api.h', ROOT/'tools/validate_portable_bridge.py',
         ROOT/'tests/native/portable_bridge_fake.cpp', ROOT/'tests/native/portable_bridge_tests.cpp',
         ROOT/'tests/native/backbuffer_route_tests.cpp']
-    inputs.append(ROOT/'tests/native/shared_panel_tests.cpp')
+    inputs.extend([ROOT/'tests/native/shared_panel_tests.cpp', ROOT/'tests/native/dashboard_tests.h'])
     bindings = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     report = dict(schema='phoenix-portable-bridge-validation/1', passed=False,
         gpu_used=False, games_launched=False, game_presentation_validated=False,

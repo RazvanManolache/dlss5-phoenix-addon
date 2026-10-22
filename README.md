@@ -9,8 +9,24 @@ what actually changes. Better pixels shouldn't require blind trust. The
 alternate backends are our slightly obsessive portability side quest. Yes,
 we may have taken the side quest too far.
 
+**The controls got a makeover. Your sliders survived.** Four tabs, colored cards,
+live Look controls and useful details that expand when you need them.
+
+<table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix Play tab with status, measurement tiles and Look card" width="420"></a></td><td><a href="docs/features/overlay-setup.png"><img src="docs/features/overlay-setup.png" alt="Phoenix Setup tab with model validation and device cards" width="420"></a></td></tr></table>
+
+*Native UI fixture renders, with synthetic status and no personal game captures.
+Dashes mean no measurement. [All controls and screenshots](#a-quick-look).*
+
 ## Features
 
+- **Useful first, detailed when needed:** Play / Image / Performance / Setup,
+  a fixed Save button, measured status tiles and expandable cards. The x86 and
+  x64 add-ons share the same controls.
+- **Switch models without collecting old work:** transactional replacement,
+  clearer pending/loaded model feedback and retirement of unused GPU buffers.
+- **Optional background-input companion:** a separate [Phoenix Input](docs/PHOENIX_INPUT.md)
+  download for local keyboard, mouse and virtual-controller automation. Your
+  desktop cursor can keep its day job; the rendering addon does not need it.
 - **Two sizes of neural rendering:** Original and the faster [Lightweight FP8](docs/SMALL_FP8.md).
 - **RTX 20 / 30 / 40 / 50:** an optional **RTX Compatibility** package includes
   architecture-specific kernels for both models. Older RTX 20/30/40 paths are
@@ -56,7 +72,7 @@ hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
 where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.14.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.15.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 The latest package checks are CPU/software-rendering-only. The performance
@@ -104,7 +120,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.14.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.15.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -147,7 +163,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.14.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.15.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 
@@ -365,26 +381,39 @@ The fresh two-model results are at the top. The collapsed Original-only study
 above is retained as historical context; the [full current report](docs/benchmarks/current/README.md)
 has the detailed timings, memory measurements and limits.
 
-**Save without the scroll.** Configuration stays one button away.
+**Less hunting. More playing.** Source and Look controls get their own cards;
+model files, device choices and transport details live in Setup. Save and timing
+summaries stay visible while the body scrolls. All 136 saved settings are retained.
 
-![Save configuration button at the top of the Phoenix DLSS5 panel](docs/features/save-configuration.png)
+<details>
+<summary>See the new cards, detailed controls and narrow-panel layout</summary>
 
-**Your model, your runner.** Browse and validate a compatible model; choose an
-available processing device.
+**Look, skin and masks**
 
-![Model source, Browse and Validate model controls](docs/features/model-selection.png)
+![Live strengths and expandable skin controls](docs/features/overlay-look.png)
 
-**Control the pixels.** Choose the processing resolution, upscaler and aspect.
+**Resolution, comparison and presets**
 
-![Super resolution, upscaler, quality and processing aspect controls with actual input and output dimensions](docs/features/resolution-upscaling.png)
+![Resolution, comparison and preset cards lower in Play](docs/features/overlay-details.png)
 
-**See the difference.** Pick two sources, move the split and save a preset.
+**Image and pipeline details**
 
-![Comparison sources, split position, labels and preset controls](docs/features/comparison.png)
+![Image tab with expandable motion, processing-chain, appearance and history controls](docs/features/overlay-image.png)
 
-These are cropped screenshots of the addon running in Resident Evil Requiem.
-Available devices vary by machine; the screenshots illustrate controls, not
-benchmark results.
+**Performance and retained comparisons**
+
+![Quality budgets, network workload and retained timing comparisons](docs/features/overlay-performance.png)
+
+**Narrow panels and useful errors**
+
+<table><tr><td><img src="docs/features/overlay-narrow.png" alt="Narrow Phoenix panel with independently scrolling cards" width="300"></td><td><img src="docs/features/overlay-attention.png" alt="Actionable missing-model status in the Phoenix panel" width="420"></td></tr></table>
+
+These are the actual C++/ImGui widgets rendered in a CPU UI fixture, with
+synthetic status metadata. They are not gameplay screenshots, hardware
+qualification or benchmark measurements. Available controls depend on the route,
+hardware and installed runtimes. [UI guide](docs/overlay-ui.md).
+
+</details>
 
 [Appearance and timing controls](#what-you-can-play-with) ·
 [Native RTX results](#native-rtx-the-main-event) ·
