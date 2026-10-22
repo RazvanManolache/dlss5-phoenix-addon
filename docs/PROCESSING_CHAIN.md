@@ -56,7 +56,7 @@ compatibility escape route. These changes target startup pressure, not a claimed
 reduction in steady-state model VRAM or faster inference.
 
 The [implementation ledger](PIPELINE_IMPLEMENTATION.md) records prior small-fixture
-checks separately from [current release validation](VALIDATION_0.13.md). No fresh
+checks separately from [current release validation](VALIDATION_0.14.md). No fresh
 GPU or gameplay check is implied by a successful release build. Physical older
 RTX cards, AMD-only D3D12 presentation and unavailable HIP/SYCL/Metal hardware
 remain outside the measured matrix.

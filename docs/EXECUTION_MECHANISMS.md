@@ -60,7 +60,7 @@ These numbers refer to the requested experiments, not the menu order above.
 | Number | Mechanism | Status |
 | --- | --- | --- |
 | 1 | x64 Phoenix DLSS5/NVIDIA DLSS5 inside an x64 application | Working; native DX12 fixture benchmarks retained separately |
-| 2 | x86 application loads the x64 Phoenix DLSS5/NVIDIA DLSS5 library in the same process | Matching-package development route; presented Phoenix output verified in a generated x86 DX12 fixture; wider game compatibility remains unqualified |
+| 2 | x86 application loads the x64 Phoenix DLSS5 library in the same process | Phoenix-only matching-package development route; NVIDIA DLL evaluation requires the helper; wider game compatibility remains unqualified |
 | 3 | x86 Phoenix DLSS5 host calls the native driver through a same-process x64 driver thunk | Matching-package development route; presented Phoenix output verified in a generated x86 DX12 fixture; Original model and full eight-block network; wider game compatibility remains unqualified |
 | 4 | x86 application communicates with a separate x64 helper | Working and retained |
 
@@ -81,7 +81,7 @@ See [native driver investigation](X86_NATIVE_INVESTIGATION.md#direct-driver-brid
 | In-process native D3D12 | Optimized native executor inside the game | Same-device GPU resources | Requires supported D3D12/device/format/executor; refuses unsupported combinations |
 | External x64 helper | Existing graphics companion | Automatic, D3D11 shared textures only, or staging/CPU pixels | Always available as a selectable alternative |
 | In-process portable (experimental) | Matching-bitness C++ runtime on a worker thread inside the game | Existing fenced readback and upload | Offered when provider/device requirements pass |
-| x64 library inside x86 (experimental) | Complete native x64 Phoenix DLSS5/NVIDIA DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | x86 only; locally matched Windows/driver bootstrap package required |
+| x64 library inside x86 (experimental) | Native x64 Phoenix DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | x86 only; Phoenix-only; locally matched Windows/driver bootstrap package required |
 | x86 Phoenix DLSS5 + native driver (experimental) | x86 graph/model/controls host with generic x64 driver executor in the same process | Existing fenced CPU capture and return | x86 only; Phoenix DLSS5 full network; requires a large-address-aware executable; never patches the game EXE |
 
 The two experimental native x86 routes are selectable in **Advanced transport**.
@@ -104,8 +104,12 @@ in-process does **not** mean zero-copy or guaranteed better performance.
 
 For portable and route 3, NVIDIA DLSS5 DLL evaluation and comparisons containing
 NVIDIA DLSS5 use the retained x64 helper while the saved preference remains intact.
-Returning to a Phoenix DLSS5-only view restores the selected route. Route 2 can
-evaluate both renderers in the same x86 process. The ordinary same-device native
+Returning to a Phoenix DLSS5-only view restores an eligible selected route.
+Route 2 is also Phoenix-only: repeated x86 NVIDIA trials exposed model-image
+mapping failures, host allocation failures and access violations. It is excluded
+from NVIDIA/comparison transport choices. Automatic selects the x64 helper;
+an explicitly saved route-2 NVIDIA selection is refused with an explanation,
+without silently changing that saved preference. The ordinary same-device native
 D3D12 route remains x64-only. Automatic can select the separate x86 routes when
 their installed package, Windows/driver profile and settings are eligible.
 
@@ -244,10 +248,9 @@ Native code stays loaded through process exit. A retiring processing worker owns
 its packets and services driver callbacks until the native thread exits; the
 render thread does not join it. A stuck driver may strand a processing worker,
 but there is no timeout that terminates the game.
-Changing to a different NVIDIA DLSS5 model DLL after one has been loaded is explicitly
-refused by route 2, rather than continuing with the old library under a new label.
-With fallback enabled the helper handles that selection; otherwise restart the
-game. Phoenix DLSS5-only weight/model selection remains independent of this DLL limit.
+Phoenix reads the selected model's resources as data; route 2 does not execute
+the NVIDIA DLL. NVIDIA DLL evaluation and model changes use the helper in x86
+games. The x64 addon's same-device NVIDIA route is unaffected.
 
 Export-relative callback stubs stay immutable once published as executable,
 read-only memory. Worker retirement restores export slots, while subsequent
@@ -263,11 +266,12 @@ diagnostic clients. Diagnostic thread callbacks faulted during repeated WARP
 worker restarts; the normal x64 addon/helper loader is unaffected by this rule.
 It also avoids explicitly loading an absent overlay during bridge setup.
 
-The native NVIDIA library route applies import adaptation to the directly loaded
+The retained experimental NVIDIA library implementation applies import adaptation to the directly loaded
 NGX core and selected model DLL before initialization. Worker retirement releases
 the feature and parameters, then calls device-specific NGX shutdown before
 destroying its D3D12 device. A failed feature creation also retires an initialized
 NGX context; model DLLs remain loaded to preserve cached driver callbacks.
+This experimental implementation is not an available x86 addon route.
 
 ## Validation Boundary
 

@@ -79,7 +79,7 @@ int main() try {
                        (local ? BackbufferRoute::InProcess : BackbufferRoute::Unsupported));
                 caps.bits = 32;
                 verify(choose_backbuffer_route(caps, automatic).route ==
-                       (local ? BackbufferRoute::NativeLibrary : BackbufferRoute::Helper));
+                       (local && !caps.nvidia_required ? BackbufferRoute::NativeLibrary : BackbufferRoute::Helper));
                 verify(choose_backbuffer_route(caps, ExecutionPreference::InProcess).route ==
                        BackbufferRoute::Unsupported);
             }
@@ -93,7 +93,7 @@ int main() try {
         auto caps = base; caps.bits = 32;
         caps.nvidia_required = needs_nvidia_dll(comparison);
         verify(choose_backbuffer_route(caps, automatic).route ==
-               BackbufferRoute::NativeLibrary);
+               (caps.nvidia_required ? BackbufferRoute::Helper : BackbufferRoute::NativeLibrary));
     }
     for (unsigned failure = 0; failure < 2; ++failure) {
         auto caps = base;
@@ -138,8 +138,8 @@ int main() try {
             verify(choose_backbuffer_route(caps,preference).route==expected);
             caps.nvidia_required=true;
             verify(choose_backbuffer_route(caps,preference).route==
-                (api==A::opengl?BackbufferRoute::Unsupported:
-                 preference==ExecutionPreference::NativeLibrary?BackbufferRoute::NativeLibrary:BackbufferRoute::Helper));
+                (api==A::opengl || preference==ExecutionPreference::NativeLibrary ?
+                 BackbufferRoute::Unsupported:BackbufferRoute::Helper));
             caps.nvidia_required=false;
             for(unsigned failure=0;failure<6;++failure) {
                 auto invalid=caps;
@@ -170,6 +170,22 @@ int main() try {
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Portable);
     ordered.portable_available = false;
     verify(choose_backbuffer_route(ordered, automatic).route == BackbufferRoute::Helper);
+    const std::string exhausted="Low 32-bit address space: 415 MiB free; use the helper.";
+    ordered.native_library_reason=ordered.native_driver_reason=ordered.portable_reason=exhausted;
+    for(auto forced:{ExecutionPreference::NativeLibrary,ExecutionPreference::NativeDriver,ExecutionPreference::Portable}) {
+        const auto refusal=choose_backbuffer_route(ordered,forced);
+        verify(refusal.route==BackbufferRoute::Unsupported);
+        verify(refusal.reason==exhausted);
+        const auto choices=available_execution_preferences(ordered);
+        verify(std::find(choices.begin(),choices.end(),forced)==choices.end());
+    }
+    verify(choose_backbuffer_route(ordered,automatic).route==BackbufferRoute::Helper);
+    const auto blocked=choose_backbuffer_route(ordered,ExecutionPreference::NativeLibrary);
+    verify(terminal_route_refusal(ordered,blocked));
+    ordered.discovery_pending=true;
+    verify(!terminal_route_refusal(ordered,blocked));
+    ordered.discovery_pending=false;
+    verify(!terminal_route_refusal(ordered,choose_backbuffer_route(ordered,automatic)));
     auto opengl = base; opengl.bits = 32; opengl.api = A::opengl;
     auto coordinated_gl=opengl;coordinated_gl.native_tls_coordinated=true;
     verify(choose_backbuffer_route(coordinated_gl,automatic).route==BackbufferRoute::NativeLibrary);
@@ -193,6 +209,18 @@ int main() try {
         verify((std::find(choices.begin(), choices.end(), ExecutionPreference::NativeLibrary) != choices.end()) == (bits == 32));
         verify(std::find(choices.begin(), choices.end(), ExecutionPreference::Portable) == choices.end());
     }
+    for(auto api:{A::d3d9,A::d3d10,A::d3d11,A::d3d12,A::opengl,A::vulkan}) {
+        auto vendor=base;vendor.bits=32;vendor.api=api;
+        vendor.native_tls_coordinated=true;vendor.nvidia_required=true;vendor.portable_available=true;
+        const auto choices=available_execution_preferences(vendor);
+        verify(choices==std::vector<ExecutionPreference>{ExecutionPreference::Automatic,ExecutionPreference::Helper});
+        verify(choose_backbuffer_route(vendor,automatic).route==BackbufferRoute::Helper);
+        const auto refused=choose_backbuffer_route(vendor,ExecutionPreference::NativeLibrary);
+        verify(refused.route==BackbufferRoute::Unsupported && refused.reason.find("x64 helper")!=std::string::npos);
+        vendor.bits=64;
+        verify(choose_backbuffer_route(vendor,automatic).route==
+            (api==A::d3d12?BackbufferRoute::InProcess:BackbufferRoute::Helper));
+    }
     Settings native; native.mode = phoenix_addon::phoenix::ours;
     verify(!*native_settings_unavailable_reason(native, false));
     verify(!*native_settings_unavailable_reason(native, true));
@@ -203,7 +231,7 @@ int main() try {
     verify(!*native_settings_unavailable_reason(native, false));
     verify(*native_settings_unavailable_reason(native, true));
     native.block_repeats[0] = 1; native.mode = phoenix_addon::phoenix::nvidia;
-    verify(!*native_settings_unavailable_reason(native, false));
+    verify(*native_settings_unavailable_reason(native, false));
     verify(*native_settings_unavailable_reason(native, true));
     native.mode = phoenix_addon::phoenix::ours; native.execution_device = "cpu";
     verify(*native_settings_unavailable_reason(native, false));

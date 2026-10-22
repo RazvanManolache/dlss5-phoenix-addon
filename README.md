@@ -56,7 +56,7 @@ hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
 where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.13.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.14.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 The latest package checks are CPU/software-rendering-only. The performance
@@ -104,7 +104,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.13.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.14.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -147,7 +147,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.13.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.14.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 
@@ -249,7 +249,7 @@ the x86 game's process instead of using that separate helper:
 | x86 execution choice | What happens | Renderers |
 | --- | --- | --- |
 | External x64 helper | The game sends frames to a separate 64-bit processing program | Phoenix DLSS5 and NVIDIA DLSS5 |
-| x64 library inside x86 (experimental) | A native 64-bit worker runs the complete renderer inside the 32-bit game's process | Phoenix DLSS5 and NVIDIA DLSS5 |
+| x64 library inside x86 (experimental) | A native 64-bit worker runs Phoenix inside the 32-bit game's process | Phoenix DLSS5 only; NVIDIA DLL/comparison uses Automatic or the x64 helper |
 | x86 Phoenix DLSS5 + native driver (experimental) | A 32-bit Phoenix DLSS5 host prepares the network work; a native 64-bit executor submits it to the GPU | Phoenix DLSS5 only; NVIDIA DLSS5 views use the helper |
 
 The experiments passed packaged-client inference, controls and switching tests
@@ -323,8 +323,10 @@ The helper row uses a different fixture image and sampled latency. The other
 rows use isolated synthetic resident inputs; their timing does **not** measure
 the new add-on routes' CPU capture/upload cost. One serial run per case cannot
 establish architectural speed differences. The x86 Phoenix DLSS5 graph-host mechanism
-has no NVIDIA DLSS5 equivalent; NVIDIA's complete x64 library works through the other
-x86 in-process option. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
+has no NVIDIA DLSS5 equivalent. The earlier NVIDIA x86 in-process experiment is
+unavailable after wider testing found intermittent allocation failures and crashes;
+NVIDIA DLL evaluation in 32-bit games uses the x64 helper. These old probe timings
+do not qualify that withdrawn experiment. [Scopes, sample counts and p95 values](docs/benchmarks/0.81/README.md).
 
 </details>
 

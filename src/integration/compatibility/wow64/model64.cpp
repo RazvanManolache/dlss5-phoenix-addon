@@ -26,6 +26,13 @@ static void require(bool valid,const char* message) {if(!valid) throw std::runti
 static std::string host_allocation_context() {
     std::string detail="; host heap calls="+std::to_string(wow64_runtime_diagnostics::heap_calls)+
         ", failures="+std::to_string(wow64_runtime_diagnostics::failure_count);
+    const auto failures=std::min<LONG>(LONG(wow64_runtime_diagnostics::failure_count),32);
+    if(failures>0) {
+        const auto& failure=wow64_runtime_diagnostics::failures[failures-1];
+        detail+="; last host operation="+std::to_string(failure.operation)+
+            ", bytes="+std::to_string(failure.bytes)+", flags="+std::to_string(failure.flags)+
+            ", Windows error="+std::to_string(failure.error);
+    }
     HEAP_SUMMARY summary{}; summary.cb=sizeof(summary);
     if(HeapSummary(GetProcessHeap(),0,&summary))
         detail+="; heap allocated="+std::to_string(summary.cbAllocated)+
@@ -33,6 +40,25 @@ static std::string host_allocation_context() {
             ", reserved="+std::to_string(summary.cbReserved)+
             ", maximum reserve="+std::to_string(summary.cbMaxReserve);
     return detail;
+}
+static std::string low_address_space_context() {
+    constexpr uint64_t limit = uint64_t(1) << 32;
+    uint64_t cursor = 0, free_bytes = 0, largest = 0;
+    while (cursor < limit) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (!VirtualQuery(reinterpret_cast<void*>(cursor), &region, sizeof(region))) break;
+        const auto begin = uint64_t(region.BaseAddress);
+        const auto end = std::min(limit, begin + uint64_t(region.RegionSize));
+        if (end <= cursor) break;
+        if (region.State == MEM_FREE) {
+            const auto bytes = end - std::max(cursor, begin);
+            free_bytes += bytes;
+            largest = std::max(largest, bytes);
+        }
+        cursor = end;
+    }
+    return "; before model load, free low address bytes=" + std::to_string(free_bytes) +
+        ", largest low region=" + std::to_string(largest);
 }
 static void hr(HRESULT result,std::source_location where=std::source_location::current()) {
     if(FAILED(result)) throw std::runtime_error("Native model D3D12 failure "+std::to_string(uint32_t(result))+" at line "+std::to_string(where.line()));
@@ -167,7 +193,16 @@ class Models {
         wow64_umd_probe::patch(core_);
         auto allocate=symbol<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter**)>(core_,"NVSDK_NGX_D3D12_AllocateParameters");
         require(NVSDK_NGX_SUCCEED(allocate(&params_))&&params_,"NVIDIA DLSS5 parameter allocation failed");
-        require(PhoenixNrLoad(source.dll.c_str())!=0,"NVIDIA DLSS5 model load failed");
+        const auto address_space = low_address_space_context();
+        const auto last_status = reinterpret_cast<LONG(NTAPI*)()>(GetProcAddress(
+            GetModuleHandleW(L"ntdll.dll"), "RtlGetLastNtStatus"));
+        if (!PhoenixNrLoad(source.dll.c_str())) {
+            const auto error = GetLastError();
+            const auto status = last_status ? uint32_t(last_status()) : 0;
+            throw std::runtime_error("NVIDIA DLSS5 model load failed; Windows error=" +
+                std::to_string(error) + ", NT status=" + std::to_string(status) +
+                address_space + host_allocation_context());
+        }
         const auto model_module=PhoenixNrModule();
         require(model_module!=nullptr,"Loaded NVIDIA model module unavailable");
         const auto before=wow64_umd_probe::slot_count;

@@ -139,6 +139,9 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     if (settings.resolution_mode != 0 || settings.host_unjitter)
         value.portable_reason = "Portable backbuffer execution requires normal resolution and no unjitter.";
     if (caps.nvidia_required) value.portable_reason = "Portable processing cannot evaluate the NVIDIA DLL.";
+    caps.native_library_reason=value.native_library_reason;
+    caps.native_driver_reason=value.native_driver_reason;
+    caps.portable_reason=value.portable_reason;
     // Failure history controls Automatic's next attempt, while compatible
     // choices remain available for an explicit retry. Status reads use the
     // cached selection rather than starting discovery or mutating the session.
@@ -1131,6 +1134,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
     }
     if (decision.route == BackbufferRoute::Unsupported) {
         value.message = decision.reason; value.fallback_reason = decision.reason;
+        if(terminal_route_refusal(capabilities,decision)) value.processing_error=value.message;
         return;
     }
     if (decision.route == BackbufferRoute::InProcess) {

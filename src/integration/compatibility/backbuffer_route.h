@@ -25,11 +25,17 @@ struct BackbufferCapabilities {
     bool sdr = true, queue_matches = true, protected_resource = false;
     bool software_device = false;
     reshade::api::format format = reshade::api::format::unknown;
+    std::string native_library_reason, native_driver_reason, portable_reason;
 };
 struct BackbufferDecision {
     BackbufferRoute route;
     std::string reason;
 };
+inline bool terminal_route_refusal(const BackbufferCapabilities& caps,const BackbufferDecision& decision) {
+    // Missing runtimes/unsupported settings are terminal after discovery.
+    // Keep polling while the asynchronous package inspection is unfinished.
+    return decision.route==BackbufferRoute::Unsupported && !caps.discovery_pending;
+}
 inline bool local_color_format(reshade::api::format format) {
     using F = reshade::api::format;
     return format == F::r8g8b8a8_unorm || format == F::r8g8b8a8_unorm_srgb ||
@@ -79,7 +85,9 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
             return {BackbufferRoute::Unsupported, "Checking installed same-process runtimes..."};
         auto decision = choose_backbuffer_route(caps, ExecutionPreference::Helper);
         if (decision.route == BackbufferRoute::Helper)
-            decision.reason = "No eligible same-process route remains; using the x64 helper.";
+            decision.reason = caps.bits==32 && caps.nvidia_required ?
+                "NVIDIA DLSS5/comparison uses the x64 helper in a 32-bit game; Phoenix can run in-process." :
+                "No eligible same-process route remains; using the x64 helper.";
         return decision;
     }
     if(preference==ExecutionPreference::NativeLibrary||preference==ExecutionPreference::NativeDriver) {
@@ -88,8 +96,15 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
             return {BackbufferRoute::Unsupported,"Native x86 OpenGL requires the matching TLS-coordinated v3 addon/runtime; use portable execution or the helper with older builds."};
         if (!caps.native_executor)
             return {BackbufferRoute::Unsupported, "Native cross-bitness routes require the Native RTX executor."};
-        if (!(preference == ExecutionPreference::NativeLibrary ? caps.native_library_available : caps.native_driver_available))
-            return {BackbufferRoute::Unsupported, "The selected x86 runtime is missing, incompatible with this setup, or failed. Check transport availability."};
+        if(preference==ExecutionPreference::NativeLibrary && caps.nvidia_required)
+            return {BackbufferRoute::Unsupported,
+                "NVIDIA DLSS5/comparison requires the x64 helper in a 32-bit game. Its x64 DLL is not qualified for WOW64 in-process execution. Choose Automatic or External x64 helper; Phoenix supports in-process execution."};
+        if (!(preference == ExecutionPreference::NativeLibrary ? caps.native_library_available : caps.native_driver_available)) {
+            const auto& reason=preference==ExecutionPreference::NativeLibrary?
+                caps.native_library_reason:caps.native_driver_reason;
+            return {BackbufferRoute::Unsupported, reason.empty() ?
+                "The selected x86 runtime is missing, incompatible with this setup, or failed. Check transport availability." : reason};
+        }
         if(caps.width>8192||caps.height>8192||!caps.sdr||caps.layers!=1||caps.levels!=1||
             (caps.samples!=1&&caps.api!=reshade::api::device_api::d3d9))
             return {BackbufferRoute::Unsupported,"Experimental native x86 processing requires one SDR canvas up to 8192 per axis."};
@@ -100,7 +115,8 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
     }
     if (preference == ExecutionPreference::Portable && !caps.nvidia_required) {
         if (!caps.portable_available)
-            return {BackbufferRoute::Unsupported, "A matching portable runtime/device is unavailable or failed for this setup."};
+            return {BackbufferRoute::Unsupported, caps.portable_reason.empty() ?
+                "A matching portable runtime/device is unavailable or failed for this setup." : caps.portable_reason};
         if (caps.width > 8192 || caps.height > 8192 || !caps.sdr ||
             caps.layers != 1 || caps.levels != 1 ||
             (caps.samples != 1 && caps.api != reshade::api::device_api::d3d9))
