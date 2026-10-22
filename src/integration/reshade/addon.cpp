@@ -93,7 +93,7 @@ struct State {
         worker_hip_build, worker_sycl_build;
     PhoenixLiveControls& live = panel.controls;
     std::array<phoenix::Settings, 4> presets;
-    std::array<int, 6> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0}};
+    std::array<int, 7> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0}};
     // Offline input-capture burst bookkeeping: base path + frames written.
     std::string capture_base;
     unsigned captures_taken = 0;
@@ -5090,6 +5090,15 @@ void poll_overrides(reshade::api::effect_runtime* runtime, bool force = false) {
 // for the replay probe. Bursts up to 64 full frames (~1.6 GB worst case)
 // hitch the game while flushing to disk; captured content itself is
 // unaffected.
+bool request_screenshot_pair() {
+    auto& value=state();
+    if (!value.panel.uplift || value.panel.mode==phoenix::input || !value.direct_runner ||
+        !value.direct_runner->request_screenshot_pair(value.output_directory)) {
+        value.error="Enable processed output before capturing a pair; an existing request must finish first.";
+        return false;
+    }
+    value.error.clear();return true;
+}
 void arm_input_capture(unsigned frames) {
     auto& addon_state = state();
     if (!frames || !addon_state.direct_runner || addon_state.direct_runner->capture_armed())
@@ -5272,6 +5281,8 @@ Json bridge_snapshot() {
           {"readback_bytes",
            addon_state.direct_runner ? addon_state.direct_runner->capture_readback_bytes() : 0},
           {"base", addon_state.capture_base}}},
+        {"screenshot_pair", addon_state.direct_runner ? addon_state.direct_runner->screenshot_pair_status() : Json::object()},
+        {"screenshot_pair_readback_bytes", addon_state.direct_runner ? addon_state.direct_runner->screenshot_pair_bytes() : 0},
         {"present_fps", addon_state.present_fps},
         {"gpu_timing", addon_state.live_timing ? addon_state.live_timing->report() : Json(nullptr)},
         {"scope",
@@ -5422,6 +5433,8 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     load_live_controls(runtime);
+    // Retire a requested export even if processing was disabled after capture.
+    if(addon_state.direct_runner)addon_state.direct_runner->poll_screenshot_pair();
     addon_state.present_runtime = runtime;
     phoenix_ui::sanitize_bindings(addon_state.hotkeys);
     if (runtime && !addon_state.output_directory.empty() &&
@@ -5523,6 +5536,8 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
         addon_state.live_timing->restart();
         addon_state.worker_timing.clear();
     }
+    if (addon_state.hotkeys[6] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[6])))
+        request_screenshot_pair();
     if (addon_state.hotkeys[5] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[5])))
         arm_input_capture(
             addon_state.panel.capture_burst > 0 ? unsigned(addon_state.panel.capture_burst) : 8u);
@@ -5600,6 +5615,8 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.mode_native = value.mode_native;
     if (value.direct_runner)
         ui.direct_runner = phoenix_ui::Preview{value.direct_runner->resolution(), value.direct_runner->upscale_status()};
+    ui.screenshot_pair_available=value.panel.uplift && value.panel.mode!=phoenix::input && value.direct_runner && !value.direct_runner->external();
+    if(value.direct_runner)ui.screenshot_pair_status=value.direct_runner->screenshot_pair_message();
     ui.save = [runtime] { save_live_controls(runtime); };
     ui.capture = [](unsigned count) { arm_input_capture(count); };
     ui.reload = [runtime] { poll_overrides(runtime, true); };
@@ -5610,6 +5627,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     };
     ui.action = [](phoenix_ui::Action action) {
         auto& value = state();
+        if (action == phoenix_ui::Action::SaveScreenshotPair) request_screenshot_pair();
         if (action == phoenix_ui::Action::ResetHistory) value.live.reset_requested = true;
         if (action == phoenix_ui::Action::ClearTiming) {
             if (value.live_timing) value.live_timing->restart();
@@ -6245,6 +6263,8 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederUiAction(uint32_t c
         case phoenix_ui::Action::ClearTiming:
             if (value.live_timing) value.live_timing->restart();
             value.worker_timing.clear(); break;
+        case phoenix_ui::Action::SaveScreenshotPair:
+            if(!request_screenshot_pair()) return FALSE; break;
         case phoenix_ui::Action::ValidateModel:
             value.model_validation.validate(value.weight_source, phoenix::portable::native_runtime_root()); break;
         }

@@ -19,6 +19,10 @@ Dashes mean no measurement. [All controls and screenshots](#a-quick-look).*
 
 ## Features
 
+- **Catch the same pixel twice:** [Save original + modified](docs/PAIRED_SCREENSHOTS.md)
+  exports matching PNGs from one processed frame. Click it in Play or assign a
+  hotkey in Setup; no extra neural pass required.
+
 - **Useful first, detailed when needed:** Play / Image / Performance / Setup,
   a fixed Save button, measured status tiles and expandable cards. The x86 and
   x64 add-ons share the same controls.
@@ -72,7 +76,7 @@ hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
 where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.15.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.16.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 The latest package checks are CPU/software-rendering-only. The performance
@@ -120,7 +124,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.15.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.16.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -163,7 +167,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.15.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.16.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 

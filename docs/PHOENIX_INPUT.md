@@ -59,4 +59,4 @@ python tools/build_input_addon.py
 
 The builder uses the repository's ReShade, nlohmann/json and MinHook dependencies, builds both architectures in temporary staging, and promotes only the binaries and a compact validation receipt into `artifacts/current/input-addon`. No model or NGX SDK is required.
 
-Published checks cover actual load/unload, mailbox status and stale-session rejection on both architectures. They do **not** establish broad game compatibility, background gameplay or every input API. See [validation scope](VALIDATION_0.15.md) and [third-party notices](../THIRD_PARTY.md).
+Published checks cover actual load/unload, mailbox status and stale-session rejection on both architectures. They do **not** establish broad game compatibility, background gameplay or every input API. See [validation scope](VALIDATION_0.16.md) and [third-party notices](../THIRD_PARTY.md).

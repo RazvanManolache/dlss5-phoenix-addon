@@ -113,7 +113,8 @@ def main():
         ("screenshot_tests", "screenshot_tests.cpp"),
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
-                      ("resolution_bridge_tests", "resolution_bridge_tests.cpp")]
+                      ("resolution_bridge_tests", "resolution_bridge_tests.cpp"),
+                      ("paired_screenshot_tests", "paired_screenshot_tests.cpp")]
     if args.test_set == "model-switch":
         selected_tests = {"session_tests", "feeder_api_tests", "memory_tests", "direct_tests",
                           "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests"}

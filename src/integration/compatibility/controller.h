@@ -18,7 +18,7 @@ struct Session {
     phoenix_addon::phoenix::Settings applied_settings;
     phoenix_addon::phoenix::Settings displayed_settings;
     std::array<phoenix_addon::phoenix::Settings, 4> presets;
-    std::array<int, 6> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0}};
+    std::array<int, 7> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0}};
     int capture_hotkey = -1;
     uint64_t hotkey_deadline = 0, markers = 0, fps_tick = 0, fps_frames = 0;
     double present_fps = 0;
@@ -53,6 +53,8 @@ struct Session {
     bool displayed = false;
     bool timing_clear_pending = false;
     uint64_t timing_clear_revision = 0, timing_clear_generation = 0, helper_generation = 0;
+    bool pair_requested=false;
+    Json screenshot_pair=Json::object();
     fs::path screenshot_pending, screenshot_complete;
     std::unique_ptr<Snapshot> screenshot;
     std::string screenshot_error;
@@ -71,6 +73,17 @@ struct Session {
     std::string message = "Select a model and enable neural rendering.";
 };
 inline HMODULE module = nullptr;
+template<class Bridge> inline void prepare_pair_request(Session& value,Bridge* bridge) {
+    if(value.pair_requested) {
+        if(!bridge->request_screenshot_pair(value.output_directory)) value.screenshot_pair={{"state","error"},{"error","A screenshot pair is already pending."}};
+        value.pair_requested=false;
+    } else if(value.screenshot_pair.value("state",std::string())=="pending" && bridge->screenshot_pair_status().empty()) {
+        value.screenshot_pair={{"state","error"},{"error","Capture canceled because the processing route or resolution changed. Please request another pair."}};
+    }
+}
+inline void update_pair_result(Session& value,const Json& result) {
+    if(!result.empty() && result!=value.screenshot_pair)value.screenshot_pair=result;
+}
 inline void reset_route_failures(Session& value) {
     value.local_failed = value.portable_failed = value.native_library_failed = value.native_driver_failed = false;
     value.failed_routes.clear(); value.fallback_reason.clear();
@@ -500,6 +513,12 @@ inline void remember_timing(Session &value) {
     }
 }
 inline bool send_action(Session &value, phoenix_ui::Action action, unsigned argument = 0) {
+    if(action==phoenix_ui::Action::SaveScreenshotPair) {
+        if(!value.enabled || value.applied_settings.mode==phoenix_addon::phoenix::input || value.pair_requested || value.screenshot_pair.value("state",std::string())=="pending") {
+            value.ui_error="Enable processed output before capturing a pair; an existing request must finish first.";return false;
+        }
+        value.pair_requested=true;value.screenshot_pair={{"state","pending"}};value.ui_error.clear();return true;
+    }
     if (value.local) {
         if (action == phoenix_ui::Action::ClearTiming) {
             value.previous_gpu_rows = Json::array(); value.previous_worker_rows = Json::array();
@@ -654,6 +673,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
         ui.worker_timing.data["rows"] = Json::array();
     for (const auto &row : value.previous_worker_rows)
         ui.worker_timing.data["rows"].push_back(row);
+    ui.screenshot_pair_available=value.enabled && value.applied_settings.mode!=phoenix_addon::phoenix::input;
+    { phoenix_pipeline::screenshots::PairExport view;view.result=value.screenshot_pair;ui.screenshot_pair_status=view.message(); }
     ui.save = [runtime, &value] { save(runtime, value); };
     ui.persist = [runtime, &value] { save(runtime, value, false); };
     ui.capture = [&value](unsigned frames) {
@@ -723,6 +744,7 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"helper", host && !resident_active(value) ? host->ui_snapshot() : Json::object()},
         {"in_process", value.local || resident_active(value) ? processing_info(value) : Json::object()},
         {"present_fps", value.present_fps},
+        {"screenshot_pair",value.screenshot_pair},
         {"screenshot", {{"pending", !value.screenshot_pending.empty()},
                         {"path", phoenix_model::source_path_string(value.screenshot_complete)},
                         {"error", value.screenshot_error}}}};
@@ -1065,6 +1087,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             }
             if (index == 4)
                 send_action(value, phoenix_ui::Action::ClearTiming);
+            if (index == 6) send_action(value, phoenix_ui::Action::SaveScreenshotPair);
             if (index == 5)
                 send_action(value, phoenix_ui::Action::CaptureInputs,
                             value.settings.capture_burst ? value.settings.capture_burst : 8);
@@ -1166,7 +1189,10 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             const bool apply = value.restart;
             if (apply) value.local->reset_history();
             value.restart = false;
-            if (value.local->frame(back_resource, value.applied_settings, apply)) {
+            prepare_pair_request(value,value.local.get());
+            const bool composed=value.local->frame(back_resource, value.applied_settings, apply);
+            update_pair_result(value,value.local->screenshot_pair_status());
+            if (composed) {
                 value.local_composed_frame = value.frames;
                 value.presented_revision = value.selection_revision;
                 value.displayed_settings = value.applied_settings;
@@ -1258,8 +1284,10 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 reject_route(value, decision.route, value.readback->host()->error()); return;
             }
             require(value.readback->host()->update_tuning(value.applied_settings), "Helper refused live tuning");
+            prepare_pair_request(value,value.readback.get());
             value.readback->frame(command, back, value.frames, value.applied_settings,
                                   value.coherent_frames);
+            update_pair_result(value,value.readback->screenshot_pair_status());
             log_progress(value);
         } catch (const std::exception &error) {
             value.message = error.what();
@@ -1309,8 +1337,10 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             value.message = "D3D11 shared GPU textures / asynchronous 64-bit D3D12 helper (SDR).";
         }
         require(value.bridge->host()->update_tuning(value.applied_settings), "Helper refused live tuning");
+        prepare_pair_request(value,value.bridge.get());
         value.bridge->frame(back.Get(), value.frames, value.applied_settings,
                             value.coherent_frames);
+        update_pair_result(value,value.bridge->screenshot_pair_status());
         log_progress(value);
     } catch (const std::exception &error) {
         value.message = error.what();

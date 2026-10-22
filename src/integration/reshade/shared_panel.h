@@ -55,6 +55,12 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
                 edited |= draw_comparison_controls(context);
                 edited |= pipeline_group(context,PipelineSection::Inspection);
             }
+            ImGui::BeginDisabled(!context.screenshot_pair_available);
+            if (ImGui::Button("Save original + modified")) context.action(Action::SaveScreenshotPair);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Save two PNGs from the same processed frame, before later game effects and the overlay. Direct game captures retain the selected comparison view; helper captures save the full processed result. HDR is converted to SDR.");
+            if (!context.screenshot_pair_status.empty()) ImGui::TextWrapped("%s",context.screenshot_pair_status.c_str());
             if (!all) {
                 if (ImGui::Button("Reset history")) context.action(Action::ResetHistory);
                 if (ImGui::Button("Timing comparisons")) context.requested_page = PanelPage::Performance;

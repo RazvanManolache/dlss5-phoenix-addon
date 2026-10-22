@@ -43,7 +43,7 @@ struct Context {
     Settings &panel;
     phoenix_addon::PhoenixLiveControls &live;
     std::array<Settings, 4> &presets;
-    std::array<int, 6> &hotkeys;
+    std::array<int, 7> &hotkeys;
     int &capture_hotkey;
     uint64_t &hotkey_deadline;
     phoenix_model_tools::Task &model_picker;
@@ -71,6 +71,8 @@ struct Context {
     bool inference_process = false, telemetry_available = true;
     std::optional<PanelPage> requested_page;
     std::string status;
+    bool screenshot_pair_available = false;
+    std::string screenshot_pair_status;
     std::string active_route, active_device, route_notice;
     bool processing_active = false, route_failed = false;
     std::function<void()> setup_details, performance_details;

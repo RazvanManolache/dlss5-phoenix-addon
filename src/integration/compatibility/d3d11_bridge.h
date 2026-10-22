@@ -1,5 +1,6 @@
 // D3D11 presents; D3D12 computes. Shared NT textures avoid CPU pixel transfers.
 #pragma once
+#include "../../pipeline/paired_screenshot.h"
 #include "host_client.h"
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -7,6 +8,7 @@
 
 namespace phoenix_compat {
 class D3D11Bridge {
+    phoenix_pipeline::screenshots::PairExport screenshot_pair_;
     Ptr<ID3D11Device5> device_;
     Ptr<ID3D11DeviceContext4> context_;
     Ptr<ID3DDeviceContextState> clean_state_;
@@ -114,6 +116,26 @@ class D3D11Bridge {
     }
 
   public:
+    bool request_screenshot_pair(const fs::path& folder) { return screenshot_pair_.request(folder); }
+    const Json& screenshot_pair_status() const { return screenshot_pair_.result; }
+    void save_screenshot_pair() noexcept {
+        if(!screenshot_pair_.pending || !snapshot_ || !host_->tuning_current_output()) return;
+        try {
+            std::array<std::vector<uint8_t>,2> images;
+            ID3D11Texture2D* textures[]{previous_input_.Get(),previous_output_.Get()};
+            for(unsigned i=0;i<2;++i) {
+                D3D11_TEXTURE2D_DESC desc{};textures[i]->GetDesc(&desc);
+                desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=desc.MiscFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+                Ptr<ID3D11Texture2D> readback;hr(device_->CreateTexture2D(&desc,nullptr,&readback));
+                context_->CopyResource(readback.Get(),textures[i]);D3D11_MAPPED_SUBRESOURCE map{};
+                hr(context_->Map(readback.Get(),0,D3D11_MAP_READ,0,&map));
+                try {images[i]=phoenix_pipeline::screenshots::rgba8(static_cast<const uint8_t*>(map.pData),size_t(map.RowPitch)*desc.Height,desc.Width,desc.Height,map.RowPitch,desc.Format,false);}
+                catch(...) {context_->Unmap(readback.Get(),0);throw;}
+                context_->Unmap(readback.Get(),0);
+            }
+            screenshot_pair_.save(images[0],images[1],width_,height_,delivered_frame_,{{"route","D3D11 shared completed pair"}});
+        } catch(const std::exception& error) {screenshot_pair_.fail(error.what());}
+    }
     D3D11Bridge(ID3D11Device* game, unsigned width, unsigned height, DXGI_FORMAT format,
                 ID3D12Device* sharing_device = nullptr)
         : width_(width), height_(height) {
@@ -298,6 +320,7 @@ class D3D11Bridge {
             delivered_frame_ = submitted_frame_;
             delivered_tick_ = submitted_tick_;
         }
+        save_screenshot_pair();
         const bool submit_input =
             host_->phase() == Phase::Ready && settings.mode != phoenix_addon::phoenix::input;
         const bool show_live_edit =

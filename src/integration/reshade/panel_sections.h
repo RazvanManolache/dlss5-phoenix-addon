@@ -971,7 +971,7 @@ inline bool draw_hotkey_controls(Context& addon_state) {
     if (ImGui::CollapsingHeader("Hotkeys")) {
         const char *actions[]{"Cycle backend",    "Reset history",
                               "Log marker",       "Cycle experimental depth",
-                              "Clear GPU timing", "Capture inputs"};
+                              "Clear GPU timing", "Capture inputs", "Save original + modified"};
         for (unsigned iteration_index = 0; iteration_index < addon_state.hotkeys.size();
              ++iteration_index) {
             if (!visible.hotkey(iteration_index)) {

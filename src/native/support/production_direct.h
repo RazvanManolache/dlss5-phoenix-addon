@@ -12,6 +12,7 @@
 #include "../../pipeline/recorded_chain.h"
 #include "../../pipeline/comparison_view.h"
 #include "../../pipeline/color_bridge.h"
+#include "../../pipeline/paired_screenshot.h"
 #include <cstdint>
 #include <cstring>
 #include <d3dcompiler.h>
@@ -747,6 +748,7 @@ class Resources final : public NVSDK_NGX_Parameter {
 class Runner {
     // Destroyed last: callbacks from every owned resource can close this generation.
     phoenix_native::memory::SessionLifetime allocation_lifetime_;
+    phoenix_pipeline::screenshots::D3D12Pair screenshot_pair_;
     ComPtr<ID3D12Device> device_;
     ComPtr<ID3D12CommandQueue> queue_;
     ComPtr<ID3D12Fence> fence_;
@@ -1136,6 +1138,11 @@ class Runner {
     unsigned passes() const {
         return passes_;
     }
+    bool request_screenshot_pair(const std::filesystem::path& folder) { return !external_ && screenshot_pair_.output.request(folder); }
+    Json screenshot_pair_status() const { return screenshot_pair_.output.result; }
+    std::string screenshot_pair_message() const { return screenshot_pair_.output.message(); }
+    uint64_t screenshot_pair_bytes() const { return screenshot_pair_.readback_bytes(); }
+    void poll_screenshot_pair() { screenshot_pair_.poll(fence_->GetCompletedValue()); }
     bool external() const {
         return bool(external_);
     }
@@ -1612,6 +1619,7 @@ class Runner {
     // readback into tightly packed CPU snapshots. Preserve the frame metadata
     // so replay uses the same controls, jitter, formats and refinement passes.
     void poll_captures() {
+        poll_screenshot_pair();
         if (!cap_armed_)
             return;
         const auto done = fence_->GetCompletedValue();
@@ -1723,6 +1731,7 @@ class Runner {
     // this unsubmitted recording. A recycled list pointer must not retain a
     // failed claim and accidentally match an unrelated game submission.
     void abandon_unsubmitted(ID3D12GraphicsCommandList* cmd) {
+        screenshot_pair_.abandon(cmd);
         if (pending_ == cmd) {
             invalidate();
             pending_ = nullptr;
@@ -1757,6 +1766,7 @@ class Runner {
                 }
                 network_recorded_ = false;
                 pending_ = nullptr;
+                screenshot_pair_.submitted(lists[iteration_index]);
                 ++submitted_;
                 return true;
             }
@@ -1836,6 +1846,9 @@ class Runner {
         engine_optional_.clear();for(auto* resource:resources)if(resource)engine_optional_.emplace_back(resource);
         pending_ = cmd;
         try {
+            if(screenshot_pair_.output.pending) screenshot_pair_.start(cmd,color,evidence.color_state,submitted_+1,
+                processing_auto_encoding_!=2 && (color->GetDesc().Format==DXGI_FORMAT_R16G16B16A16_FLOAT || color->GetDesc().Format==DXGI_FORMAT_R11G11B10_FLOAT),
+                {{"mode",settings.mode},{"comparison",settings.comparison},{"source_a",settings.source_a},{"source_b",settings.source_b}});
             copy_input(cmd, color, evidence.color_state, input_.Get());
             copy_input(cmd, motion, evidence.motion_state, motion_.Get(), true);
             prepare_upscale(cmd, controls, depth, depth_state);
@@ -2020,6 +2033,7 @@ class Runner {
                 cmd->CopyResource(color,chain_output_.Get());
                 phoenix_native::transition(cmd,color,D3D12_RESOURCE_STATE_COPY_DEST,evidence.color_state);
                 phoenix_native::transition(cmd,chain_output_.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,read);
+                screenshot_pair_.finish(cmd,color,evidence.color_state,submitted_+1);
                 evidence.restore_bindings(evidence.restore_context,cmd);initialized_=true;return;
             }
             if (processing_.enabled) {
@@ -2068,6 +2082,7 @@ class Runner {
             phoenix_native::transition(cmd, output_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                        D3D12_RESOURCE_STATE_COPY_SOURCE);
             present(cmd, output_.Get(), color, evidence.color_state);
+            screenshot_pair_.finish(cmd,color,evidence.color_state,submitted_+1);
             if (cap_left_)
                 capture_output(cmd, output_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
             evidence.restore_bindings(evidence.restore_context, cmd);

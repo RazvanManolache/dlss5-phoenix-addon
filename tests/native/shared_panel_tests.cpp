@@ -109,7 +109,7 @@ int run_tests() {
     io.Fonts->SetTexID(ImTextureID(1));
     phoenix_ui::Settings settings;
     std::array<phoenix_ui::Settings, 4> presets;
-    std::array<int, 6> hotkeys{};
+    std::array<int, 7> hotkeys{};
     int capture_key = -1;
     uint64_t deadline = 0, markers = 0;
     phoenix_model_tools::Task picker;
@@ -193,11 +193,16 @@ int run_tests() {
     check(phoenix_ui::capture_binding(hotkeys, 0, 0x79) == BindingResult::Duplicate);
     check(hotkeys == original_keys);
     check(phoenix_ui::capture_binding(hotkeys, -1, 0x75) == BindingResult::Invalid);
-    check(phoenix_ui::capture_binding(hotkeys, 6, 0x75) == BindingResult::Invalid);
+    check(phoenix_ui::capture_binding(hotkeys, 7, 0x75) == BindingResult::Invalid);
     check(phoenix_ui::capture_binding(hotkeys, 0, 256) == BindingResult::Invalid);
     check(phoenix_ui::capture_binding(hotkeys, 0, 0x75) == BindingResult::Accepted);
     check(hotkeys[0] == 0x75);
-    std::array<int, 6> imported{{0x78, 0x78, 0x24, -1, 256, 0x1b}};
+    check(phoenix_ui::capture_binding(hotkeys, 6, 0x74) == BindingResult::Accepted);
+    check(hotkeys[6] == 0x74);
+    check(phoenix_ui::capture_binding(hotkeys, 0, 0x74) == BindingResult::Duplicate);
+    hotkeys[6]=0;
+    check(phoenix_ui::valid_action(7) && !phoenix_ui::valid_action(8));
+    std::array<int, 7> imported{{0x78, 0x78, 0x24, -1, 256, 0x1b}};
     check(phoenix_ui::sanitize_bindings(imported) == 5);
     check(imported[0] == 0x78 && imported[1] == 0 && imported[5] == 0);
     check(phoenix_ui::sanitize_bindings(imported) == 0);

@@ -1,5 +1,6 @@
 #pragma once
 #include "inprocess_api.h"
+#include "../../pipeline/paired_screenshot.h"
 #include "session_policy.h"
 #include "host/phoenix-format-adapter.h"
 #include "host/phoenix-host-config.h"
@@ -16,6 +17,9 @@ namespace phoenix_compat {
 class D3D12Bridge {
     template<class T> using Com = Microsoft::WRL::ComPtr<T>;
     struct Resources {
+        // Share the failed-generation lifetime: a timeout cannot free readbacks
+        // that an unretired GPU submission may still reference.
+        phoenix_pipeline::screenshots::D3D12Pair screenshot_pair;
         Com<ID3D12Device> device;
         Com<ID3D12CommandQueue> queue;
         Com<ID3D12CommandAllocator> allocator;
@@ -114,6 +118,8 @@ class D3D12Bridge {
         r.list->ResourceBarrier(1, &barrier);
     }
 public:
+    bool request_screenshot_pair(const fs::path& folder) { return resources_->screenshot_pair.output.request(folder); }
+    const Json& screenshot_pair_status() const { return resources_->screenshot_pair.output.result; }
     static DXGI_FORMAT typed_format(reshade::api::format format) {
         using F = reshade::api::format;
         if (format == F::r8g8b8a8_unorm || format == F::r8g8b8a8_unorm_srgb || format == F::r8g8b8a8_typeless)
@@ -382,11 +388,15 @@ public:
 #endif
         r.adapter.RecordOutput(r.device.Get(), r.list.Get(), r.presentation.Get());
         stamp(4);
+        if(r.screenshot_pair.output.pending) r.screenshot_pair.start(r.list.Get(),r.capture.Get(),D3D12_RESOURCE_STATE_COMMON,completed_,false,{{"route","in-process D3D12"}});
+        r.screenshot_pair.finish(r.list.Get(),r.presentation.Get(),D3D12_RESOURCE_STATE_COMMON,signal_+1);
         copy(r.presentation.Get(), image);
         stamp(5);
         if (sampled) r.list->ResolveQueryData(r.pipeline_queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
             0, 6, r.pipeline_readback.Get(), 0);
         submit();
+        r.screenshot_pair.submitted(r.list.Get());
+        r.screenshot_pair.poll(r.fence->GetCompletedValue());
         ++presented_;
         deferred_.reset();
         reset_ = false;

@@ -4,6 +4,7 @@
 #include "host_client.h"
 #include "pixel_transport.h"
 #include "d3d9_compositor.h"
+#include "../../pipeline/paired_screenshot.h"
 namespace phoenix_compat {
 class ReadbackBridge {
     reshade::api::device* device_;
@@ -21,6 +22,7 @@ class ReadbackBridge {
     uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
     uint64_t capture_tick_ = 0, submitted_tick_ = 0, delivered_tick_ = 0;
     std::vector<uint8_t> submitted_pixels_;
+    phoenix_pipeline::screenshots::CompletedPair screenshot_pair_;
     double capture_ms_ = 0, upload_ms_ = 0, compose_ms_ = 0;
     double deferred_readback_ms_ = 0;
     uint64_t capture_copies_ = 0, deferred_readbacks_ = 0;
@@ -41,6 +43,8 @@ class ReadbackBridge {
     };
 
   public:
+    bool request_screenshot_pair(const fs::path& folder) { return screenshot_pair_.output.request(folder); }
+    const Json& screenshot_pair_status() const { return screenshot_pair_.output.result; }
     ReadbackBridge(reshade::api::effect_runtime* runtime,
                    const reshade::api::resource_desc& description, HMODULE addon,
                    const phoenix_model::WeightSource& source,
@@ -215,6 +219,7 @@ class ReadbackBridge {
         if (host_->phase() == Phase::Finished && completed >= upload_serial_) {
             const auto upload_begin = std::chrono::steady_clock::now();
             auto pixels = host_->take();
+            screenshot_pair_.complete(submitted_frame_,pixels,width_,height_);
             require(pixels.size() == size_t(width_) * height_ * 4,
                     "Helper returned an incomplete image");
             if (buffer_readback_) {
@@ -303,10 +308,11 @@ class ReadbackBridge {
             pending_ = false;
             if (settings.mode == phoenix_addon::phoenix::split && !compositor9_)
                 submitted_pixels_ = pixels;
+            screenshot_pair_.remember(capture_frame_,pixels);
             if (host_->submit(capture_serial_, true, std::move(pixels))) {
                 submitted_frame_ = capture_frame_;
                 submitted_tick_ = capture_tick_;
-            }
+            } else screenshot_pair_.rejected(capture_frame_);
         }
         if (!pending_ && host_->phase() == Phase::Ready &&
             settings.mode != phoenix_addon::phoenix::input) {

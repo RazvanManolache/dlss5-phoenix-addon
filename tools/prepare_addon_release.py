@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.15'
+VERSION = '0.16'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -116,7 +116,7 @@ def common_files():
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
                  'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md',
-                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'UPSTREAM_CREDITS.md'):
+                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'PAIRED_SCREENSHOTS.md', 'PHOENIX_INPUT.md', 'UPSTREAM_CREDITS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
         'Use a current ReShade build with full add-on support. Copy only the matching add-on and graphics helper.\n'

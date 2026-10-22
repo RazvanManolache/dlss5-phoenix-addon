@@ -3,7 +3,8 @@
 #pragma once
 inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
     auto& io = ImGui::GetIO();
-    unsigned checks = 0, saves = 0, adapter_views = 0, frames = 0;
+    unsigned checks = 0, saves = 0, adapter_views = 0, frames = 0, paired_actions=0;
+    context.action=[&](phoenix_ui::Action action) { if(action==phoenix_ui::Action::SaveScreenshotPair)++paired_actions; };
     const auto require = [&](bool passed, const char* reason) {
         ++checks;
         if (!passed) throw std::runtime_error(std::string("Dashboard: ") + reason);
@@ -63,6 +64,7 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
         context.active_route = "Native D3D12 / game DLSS textures";
         context.active_device = "Game graphics device";
         context.processing_active = true;
+        context.screenshot_pair_available=true;
         context.status = "UI fixture: no game or inference running";
         context.error.clear();
         context.save = [&] { ++saves; };
@@ -159,6 +161,17 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
             frame(); frame(); frame(); frame();
             capture("play-details-700");
         }
+        click("Play");
+        const auto before_pair=paired_actions;
+        for(int scroll=0;scroll<12 && std::none_of(widgets.begin(),widgets.end(),[](const Widget& item){return item.label=="Save original + modified";});++scroll) {
+            io.AddMousePosEvent(float(width)*.75f,650);io.AddMouseWheelEvent(0,-2);frame();frame();frame();frame();
+        }
+        click("Save original + modified");
+        require(paired_actions==before_pair+1,"Paired screenshot button did not dispatch exactly once");
+        context.screenshot_pair_available=false;
+        click("Save original + modified");
+        require(paired_actions==before_pair+1,"Unavailable pair capture dispatched an action");
+        context.screenshot_pair_available=true;
         click("Advanced details");
         click("Setup");
         require(adapter_views > 0, "Adapter-specific Setup controls disappeared");
@@ -178,5 +191,5 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
     }
     context.setup_details = {}; context.performance_details = {}; context.save = {};
     return {{"passed",true},{"checks",checks},{"frames",frames},{"widths",{360,700,1100}},
-            {"save_actions",saves},{"gpu_executed",false}};
+            {"save_actions",saves},{"paired_screenshot_actions",paired_actions},{"gpu_executed",false}};
 }
