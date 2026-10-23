@@ -67,6 +67,8 @@ std::thread g_worker;
 fs::path g_folder;
 std::string g_session;
 std::string g_last_error;
+Json g_pending_reply;
+bool g_request_claimed = false;
 
 std::array<std::atomic<uint8_t>, 256> g_vk{}; // virtual key/button state
 POINT g_cursor{};                              // virtual cursor, client coords
@@ -120,6 +122,9 @@ using XGetState = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
 std::array<XGetState, 4> o_xinput{};
 std::array<void*, 4> xinput_targets{};
 std::vector<void*> g_hook_targets;
+bool g_minhook_owned = false;
+bool g_batch_install = false;
+std::vector<HMODULE> g_owned_libraries;
 WNDPROC o_wndproc = nullptr;
 HWND g_subclassed = nullptr;
 bool g_subclass_unicode = true;
@@ -565,18 +570,26 @@ bool hook(void* target, void* detour, void** original) {
     if (!target) return false;
     for (auto existing : g_hook_targets) if (existing == target) return true;
     if (MH_CreateHook(target, detour, original) != MH_OK) return false;
-    if (MH_EnableHook(target) != MH_OK) { MH_RemoveHook(target); return false; }
+    const auto enabled = g_batch_install ? MH_QueueEnableHook(target) : MH_EnableHook(target);
+    if (enabled != MH_OK) { MH_RemoveHook(target); return false; }
     g_hook_targets.push_back(target);
     return true;
 }
 template <class T> bool hook_export(const char* library, const char* name, T detour, T* original) {
     HMODULE module = GetModuleHandleA(library);
-    if (!module) module = LoadLibraryA(library);
+    if (!module) {
+        module = LoadLibraryA(library);
+        if (module) g_owned_libraries.push_back(module);
+    }
     return module && hook(reinterpret_cast<void*>(GetProcAddress(module, name)),
                           reinterpret_cast<void*>(detour), reinterpret_cast<void**>(original));
 }
 void install_dinput() {
-    HMODULE dinput = LoadLibraryA("dinput8.dll");
+    HMODULE dinput = GetModuleHandleA("dinput8.dll");
+    if (!dinput) {
+        dinput = LoadLibraryA("dinput8.dll");
+        if (dinput) g_owned_libraries.push_back(dinput);
+    }
     if (!dinput) return;
     using Create = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
     auto create = reinterpret_cast<Create>(GetProcAddress(dinput, "DirectInput8Create"));
@@ -635,6 +648,10 @@ void install_xinput() {
 void install_hooks() {
     const auto init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) { g_last_error = "MinHook initialization failed"; return; }
+    g_minhook_owned = init == MH_OK;
+    // Installing one hook at a time repeatedly suspends the rendering thread.
+    // Prepare the full startup set first, then activate it in one transaction.
+    g_batch_install = true;
     hook_export("user32.dll", "GetForegroundWindow", &h_GetForegroundWindow, &o_GetForegroundWindow);
     hook_export("user32.dll", "GetActiveWindow", &h_GetActiveWindow, &o_GetActiveWindow);
     hook_export("user32.dll", "GetFocus", &h_GetFocus, &o_GetFocus);
@@ -647,6 +664,8 @@ void install_hooks() {
     hook_export("user32.dll", "GetRawInputData", &h_GetRawInputData, &o_GetRawInputData);
     install_dinput();
     install_xinput();
+    g_batch_install = false;
+    if (MH_ApplyQueued() != MH_OK) g_last_error = "Input hook activation failed";
 }
 
 // ---------------------------------------------------------------------------
@@ -693,15 +712,17 @@ void restore_window() {
 // ---------------------------------------------------------------------------
 // Mailbox
 // ---------------------------------------------------------------------------
-void write_json(const fs::path& path, const Json& value) {
+bool write_json(const fs::path& path, const Json& value) {
     auto temporary = path;
     temporary += L".tmp";
     {
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        if (!output) return;
+        if (!output) return false;
         output << value.dump(2);
+        output.close();
+        if (!output) return false;
     }
-    MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+    return MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
 }
 int key_code(const Json& value) {
     if (value.is_number_integer()) return value.get<int>();
@@ -864,28 +885,56 @@ Json status_json() {
 void poll_mailbox() {
     const auto incoming = g_folder / "request.json", claimed = g_folder / "processing.json";
     std::error_code error;
-    if (!fs::exists(incoming, error)) return;
-    if (!MoveFileExW(incoming.c_str(), claimed.c_str(), MOVEFILE_REPLACE_EXISTING)) return;
-    Json response{{"schema", "phoenix-input/1"}, {"session", g_session}, {"id", nullptr}, {"ok", false}};
-    try {
-        if (fs::file_size(claimed) > 262144) throw std::runtime_error("request exceeds 256 KiB");
+    // A reader or scanner may temporarily deny replacement. Keep the reply
+    // until publication succeeds; never replay the accepted input operations.
+    if (!g_pending_reply.is_null()) {
+        if (write_json(g_folder / "response.json", g_pending_reply)) {
+            g_pending_reply = Json();
+            if (g_last_error == "Waiting to publish Input reply.") g_last_error.clear();
+        } else g_last_error = "Waiting to publish Input reply.";
+        return;
+    }
+    if (!g_request_claimed) {
+        if (!fs::exists(incoming, error)) return;
+        if (!MoveFileExW(incoming.c_str(), claimed.c_str(), MOVEFILE_REPLACE_EXISTING)) return;
+        g_request_claimed = true;
+    }
+    const auto bytes = fs::file_size(claimed, error);
+    if (error) { g_last_error = "Waiting to read Input request."; return; }
+    std::string text;
+    if (bytes <= 262144) {
         std::ifstream input(claimed, std::ios::binary);
-        const Json request = Json::parse(input);
+        if (!input) { g_last_error = "Waiting to read Input request."; return; }
+        text.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        if (input.bad() || text.size() != bytes) { g_last_error = "Waiting to read Input request."; return; }
+    }
+    if (g_last_error == "Waiting to read Input request.") g_last_error.clear();
+    Json response{{"schema", "phoenix-input/1"}, {"session", g_session}, {"id", nullptr}, {"ok", false}};
+    size_t previous_actions = 0;
+    { std::lock_guard lock(g_lock); previous_actions = g_timed.size(); }
+    try {
+        if (bytes > 262144) throw std::runtime_error("request exceeds 256 KiB");
+        const Json request = Json::parse(text);
         if (request.contains("id")) response["id"] = request["id"];
         if (request.value("schema", std::string()) != "phoenix-input/1") throw std::runtime_error("schema mismatch");
         if (request.value("session", std::string()) != g_session) throw std::runtime_error("session changed; reconnect");
         const auto& ops = request.at("ops");
         if (!ops.is_array() || ops.size() > 4096) throw std::runtime_error("ops must be an array of at most 4096 items");
         const ULONGLONG base = GetTickCount64();
-        for (const auto& op : ops) execute(op, base); // validate+schedule; throws before partial use is rare
+        for (const auto& op : ops) execute(op, base);
         response["ok"] = true;
         response["accepted"] = ops.size();
     } catch (const std::exception& failure) {
+        // execute() only schedules work. Reject a malformed batch atomically,
+        // preserving earlier accepted macros and discarding this batch's tail.
+        { std::lock_guard lock(g_lock); g_timed.resize(previous_actions); }
         response["error"] = failure.what();
     }
     fs::remove(claimed, error);
+    g_request_claimed = false;
     response["status"] = status_json();
-    write_json(g_folder / "response.json", response);
+    g_pending_reply = std::move(response);
+    if (write_json(g_folder / "response.json", g_pending_reply)) g_pending_reply = Json();
 }
 void run_due() {
     std::vector<std::function<void()>> ready;
@@ -975,8 +1024,17 @@ void detach(HMODULE module, bool can_join, bool process_exit) {
     if (!process_exit) {
         g_focus = false;
         restore_window();
-        for (auto target : g_hook_targets) { MH_DisableHook(target); MH_RemoveHook(target); }
+        // Disable this addon's hooks in one suspended-thread transaction.
+        // Repeated per-hook snapshots made teardown unnecessarily expensive.
+        for (auto target : g_hook_targets) MH_QueueDisableHook(target);
+        MH_ApplyQueued();
+        for (auto target : g_hook_targets) MH_RemoveHook(target);
         g_hook_targets.clear();
+        // MinHook's private heap is not a C++ static: unloading our DLL cannot
+        // release it. Balance initialization after the worker has stopped.
+        if (g_minhook_owned) { MH_Uninitialize(); g_minhook_owned = false; }
+        for (auto module : g_owned_libraries) FreeLibrary(module);
+        g_owned_libraries.clear();
     }
     reshade::unregister_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
     reshade::unregister_addon(module);

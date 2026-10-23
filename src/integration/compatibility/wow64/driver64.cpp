@@ -5,6 +5,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
+#include <algorithm>
 #include <vector>
 #include <array>
 #include <cstring>
@@ -84,7 +85,10 @@ struct Driver {
         desc.Height=1; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1; desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         if(heap==D3D12_HEAP_TYPE_DEFAULT) desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         ComPtr<ID3D12Resource> result;
-        hr(device->CreateCommittedResource(&properties,D3D12_HEAP_FLAG_NONE,&desc,state,nullptr,IID_PPV_ARGS(&result))); return result;
+        const auto allocated=device->CreateCommittedResource(&properties,D3D12_HEAP_FLAG_NONE,&desc,state,nullptr,IID_PPV_ARGS(&result));
+        if(FAILED(allocated)) throw std::runtime_error("Driver D3D12 buffer allocation failed: "+std::to_string(bytes)+
+            " bytes, heap type "+std::to_string(unsigned(heap))+", HRESULT "+std::to_string(uint32_t(allocated)));
+        return result;
     }
     ComPtr<ID3D12Resource> image(unsigned width,unsigned height,DXGI_FORMAT format) {
         D3D12_HEAP_PROPERTIES properties{}; properties.Type=D3D12_HEAP_TYPE_DEFAULT;
@@ -149,11 +153,21 @@ struct Driver {
         }
         workspace=buffer(c.workspace_bytes,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         weights=buffer(c.weight_bytes,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_COPY_DEST);
-        auto staging=buffer(c.weight_bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
-        void* data=nullptr; D3D12_RANGE empty{}; hr(staging->Map(0,&empty,&data));
-        memcpy(data,reinterpret_cast<const void*>(c.weights),size_t(c.weight_bytes)); staging->Unmap(0,nullptr);
-        list->CopyBufferRegion(weights.Get(),0,staging.Get(),0,c.weight_bytes);
-        transition(weights.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); submit();
+        // Keep the temporary mapped upload small in a fragmented x86 process.
+        // Each fence retires the copy before this same staging storage is reused.
+        constexpr uint64_t upload_chunk_bytes=4ull*1024*1024;
+        const auto staging_bytes=std::min(c.weight_bytes,upload_chunk_bytes);
+        auto staging=buffer(staging_bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
+        for(uint64_t offset=0;offset<c.weight_bytes;) {
+            const auto bytes=std::min(staging_bytes,c.weight_bytes-offset);
+            void* data=nullptr; D3D12_RANGE empty{}; hr(staging->Map(0,&empty,&data));
+            memcpy(data,reinterpret_cast<const uint8_t*>(c.weights)+offset,size_t(bytes)); staging->Unmap(0,nullptr);
+            list->CopyBufferRegion(weights.Get(),offset,staging.Get(),0,bytes);
+            offset+=bytes;
+            if(offset==c.weight_bytes)
+                transition(weights.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            submit();
+        }
         color=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT); motion=image(c.width,c.height,DXGI_FORMAT_R16G16_FLOAT);
         for(auto& value:output) value=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT);
         resolved=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT);

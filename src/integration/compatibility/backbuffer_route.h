@@ -143,6 +143,24 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         return {BackbufferRoute::Unsupported, "The helper cannot transport this DX12 extent; no automatic downscale is applied."};
     return {BackbufferRoute::Helper, reason};
 }
+inline BackbufferDecision choose_backbuffer_route_with_fallback(const BackbufferCapabilities& caps,
+        ExecutionPreference preference, bool native_fallback, bool portable_fallback) {
+    auto decision = choose_backbuffer_route(caps, preference);
+    const bool fallback_enabled =
+        ((preference == ExecutionPreference::NativeLibrary || preference == ExecutionPreference::NativeDriver) && native_fallback) ||
+        (preference == ExecutionPreference::Portable && portable_fallback);
+    // Availability checks can reject a route before its executor is created.
+    // Honour the same opt-in recovery as an initialization failure, but wait
+    // for discovery and retain Automatic's resource/queue safety checks.
+    if (fallback_enabled && terminal_route_refusal(caps, decision)) {
+        auto recovery = choose_backbuffer_route(caps, ExecutionPreference::Automatic);
+        if (recovery.route != BackbufferRoute::Unsupported) {
+            recovery.reason = decision.reason + " " + recovery.reason;
+            return recovery;
+        }
+    }
+    return decision;
+}
 inline bool may_fallback_to_helper(ExecutionPreference preference, bool submission_retired) {
     return preference == ExecutionPreference::Automatic && submission_retired;
 }

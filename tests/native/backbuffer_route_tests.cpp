@@ -180,6 +180,23 @@ int main() try {
         verify(std::find(choices.begin(),choices.end(),forced)==choices.end());
     }
     verify(choose_backbuffer_route(ordered,automatic).route==BackbufferRoute::Helper);
+    for (auto forced : {ExecutionPreference::NativeLibrary, ExecutionPreference::NativeDriver, ExecutionPreference::Portable}) {
+        verify(choose_backbuffer_route_with_fallback(ordered, forced, false, false).route == BackbufferRoute::Unsupported);
+        const bool portable = forced == ExecutionPreference::Portable;
+        verify(choose_backbuffer_route_with_fallback(ordered, forced, portable, !portable).route == BackbufferRoute::Unsupported);
+        const auto recovered = choose_backbuffer_route_with_fallback(ordered, forced, !portable, portable);
+        verify(recovered.route == BackbufferRoute::Helper);
+        verify(recovered.reason.find(exhausted) != std::string::npos);
+        auto pending = ordered; pending.discovery_pending = true;
+        verify(choose_backbuffer_route_with_fallback(pending, forced, true, true).route == BackbufferRoute::Unsupported);
+        auto protected_frame = ordered; protected_frame.protected_resource = true;
+        verify(choose_backbuffer_route_with_fallback(protected_frame, forced, true, true).route == BackbufferRoute::Unsupported);
+        auto wrong_queue = ordered; wrong_queue.queue_matches = false;
+        verify(choose_backbuffer_route_with_fallback(wrong_queue, forced, true, true).route == BackbufferRoute::Unsupported);
+    }
+    auto alternate = ordered; alternate.portable_available = true;
+    verify(choose_backbuffer_route_with_fallback(alternate, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::Portable);
+    verify(choose_backbuffer_route_with_fallback(ordered, ExecutionPreference::Invalid, true, true).route == BackbufferRoute::Unsupported);
     const auto blocked=choose_backbuffer_route(ordered,ExecutionPreference::NativeLibrary);
     verify(terminal_route_refusal(ordered,blocked));
     ordered.discovery_pending=true;

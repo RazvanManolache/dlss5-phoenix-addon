@@ -30,6 +30,12 @@ the UI exposes failure history and a recheck/retry action. Unretired GPU work
 still requires a restart rather than an unsafe fallback. This order is a
 preference for avoiding external transport, not a universal speed claim.
 
+Explicit library, driver and portable selections also use this recovery order
+when their native/portable fallback checkbox is enabled. This includes startup
+availability refusals such as insufficient 32-bit address space, not just errors
+after executor creation. Disabling fallback keeps the explicit route strict.
+Discovery and graphics resource/queue safety checks still apply.
+
 The 2026-10-20 development build passed presented-output checks in generated
 640×360 DX12 fixtures for x86 library, x86 driver, portable fallback from a
 configured external folder, final helper fallback and x64 same-device execution.

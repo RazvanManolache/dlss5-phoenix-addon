@@ -3,10 +3,40 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 from prepare_addon_release import ROOT, input_package, safe_payload, sha
+from validate_addon_release import inspect_payload
 
 
 class PackageGuards(unittest.TestCase):
+    def test_nested_core_identity_and_retained_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root/'candidate'; candidate.mkdir()
+            (candidate/'phoenix_graphics_host.exe').write_bytes(b'fresh helper')
+            (candidate/'Phoenix.addon64').write_bytes(b'public addon with extra helper resources')
+            core = b'verified core addon'
+            payload = {'compatibility/Phoenix.addon64':core,
+                       'compatibility/phoenix_graphics_host.exe':b'fresh helper',
+                       'native/native_graph.json':b'unchanged graph'}
+            def fake_resources(binary, destination):
+                entries = []
+                for identity,(name,raw) in enumerate(payload.items(),1100):
+                    (destination/f'{identity}.bin').write_bytes(raw)
+                    entries.append(dict(path=name,resource=identity,algorithm='raw',bytes=len(raw),sha256=sha(raw)))
+                (destination/'1001.bin').write_text(json.dumps(dict(files=entries)))
+            baseline = {'native/native_graph.json':sha(b'unchanged graph')}
+            with patch('validate_addon_release.resources',side_effect=fake_resources):
+                self.assertEqual(inspect_payload(root/'unused',root/'valid',candidate,baseline,sha(core)),baseline)
+                with self.assertRaisesRegex(ValueError,'Nested x64 addon'):
+                    inspect_payload(root/'unused',root/'badcore',candidate,baseline,sha((candidate/'Phoenix.addon64').read_bytes()))
+                del payload['native/native_graph.json']
+                with self.assertRaisesRegex(ValueError,'inventory'):
+                    inspect_payload(root/'unused',root/'missing',candidate,baseline,sha(core))
+                (candidate/'phoenix_graphics_host.exe').write_bytes(b'wrong helper')
+                with self.assertRaisesRegex(ValueError,'graphics helper'):
+                    inspect_payload(root/'unused',root/'badhelper',candidate,{},sha(core))
+
     def test_rejects_unsafe_names_and_payloads(self):
         for name in ('../outside', '/outside', 'C:outside', 'a\\outside', 'run.log',
                      'capture.bmp', 'nvngx_dlssnr.dll', 'models/weights.bin'):

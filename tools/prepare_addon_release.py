@@ -11,7 +11,7 @@ import zipfile
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.16'
+VERSION = '0.17'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',

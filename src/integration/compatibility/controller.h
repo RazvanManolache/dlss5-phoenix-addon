@@ -1147,7 +1147,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         return;
     }
     auto capabilities = value.capabilities;
-    auto decision = choose_backbuffer_route(capabilities, value.execution);
+    auto decision = choose_backbuffer_route_with_fallback(capabilities, value.execution,
+                                                        value.native_fallback, value.portable_fallback);
     if ((value.execution == ExecutionPreference::NativeLibrary && value.native_library_failed && value.native_fallback) ||
         (value.execution == ExecutionPreference::NativeDriver && value.native_driver_failed && value.native_fallback) ||
         (value.execution == ExecutionPreference::Portable && value.portable_failed && value.portable_fallback))
