@@ -19,6 +19,12 @@ extern "C" __declspec(dllexport) void ReShadeUnregisterEvent(unsigned, void*) { 
 int wmain(int argc, wchar_t** argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     if (argc != 2) return 2;
+    // Existing window, no swapchain callback: model an addon hot-loaded after
+    // the renderer started. Offscreen and non-activating; no desktop input.
+    HWND window = CreateWindowExW(WS_EX_NOACTIVATE, L"STATIC", L"Phoenix input load probe",
+        WS_POPUP, -30000, -30000, 64, 64, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!window) return 6;
+    ShowWindow(window, SW_SHOWNOACTIVATE);
     HMODULE module = LoadLibraryW(argv[1]);
     if (!module || addons != 1 || events != 1) return 3;
     auto name = reinterpret_cast<const char**>(GetProcAddress(module, "NAME"));
@@ -33,6 +39,7 @@ int wmain(int argc, wchar_t** argv) {
     std::getline(std::cin, command);
     uninit(module, GetModuleHandleW(nullptr));
     if (addons || events || !FreeLibrary(module)) return 5;
+    DestroyWindow(window);
     std::cout << "{\"passed\":true,\"actual_dll_loaded\":true,"
                  "\"balanced_attach_detach\":true,\"games_launched\":false}" << std::endl;
     return 0;

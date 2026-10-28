@@ -43,7 +43,7 @@ inline Command validate(const Json& request, const std::string& session, unsigne
               "Invalid bridge request id character");
     check(cmd.op == "status" || cmd.op == "set" || cmd.op == "reset_history" ||
               cmd.op == "screenshot" || cmd.op == "capture" || cmd.op == "save" ||
-              cmd.op == "validate_model",
+              cmd.op == "validate_model" || cmd.op == "screenshot_pair",
           "Unknown bridge operation");
     cmd.settings = current;
     const bool frontend = request.contains("enabled") || request.contains("coherent_frames");

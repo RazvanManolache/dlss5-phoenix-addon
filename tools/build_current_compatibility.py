@@ -16,7 +16,10 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--experimental-native', action='store_true',
                         help='Build explicitly experimental multi-architecture kernels')
+    parser.add_argument('--output', type=Path, help='Candidate directory under artifacts/current; default promotes the current package')
     args = parser.parse_args()
+    if args.output and not args.output.resolve().is_relative_to((ROOT/'artifacts/current').resolve()):
+        parser.error('Candidate output must stay under artifacts/current')
     build = ROOT / 'build'
     with tempfile.TemporaryDirectory(prefix='current_', dir=build) as temporary:
         anchor = Path(temporary)
@@ -38,7 +41,7 @@ def main():
             report = json.loads((package / 'report.json').read_text())
             if report.get('passed') is not True:
                 raise RuntimeError('Package verification failed')
-            current = ROOT / 'artifacts/current' / ('addon-experimental-rtx' if args.experimental_native else 'addon')
+            current = args.output.resolve() if args.output else ROOT / 'artifacts/current' / ('addon-experimental-rtx' if args.experimental_native else 'addon')
             current.mkdir(parents=True, exist_ok=True)
             for name in ('Phoenix.addon32', 'Phoenix.addon64', 'phoenix_graphics_host.exe', 'report.json'):
                 shutil.copy2(package / name, current / name)

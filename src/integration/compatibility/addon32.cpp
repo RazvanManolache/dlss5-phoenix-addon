@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <reshade.hpp>
 #include "controller.h"
+#include "../../native/support/process_shutdown.h"
 extern "C" __declspec(dllexport) const char* NAME = "Phoenix DLSS5 (32-bit compatibility)";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "32-bit game transport with a private 64-bit D3D12 neural-rendering helper.";
@@ -21,6 +22,8 @@ bool attach(HMODULE module) {
     return true;
 }
 void detach(HMODULE module) {
+    if (phoenix_process::shutting_down())
+        return;
     if (!attached)
         return;
     attached = false;

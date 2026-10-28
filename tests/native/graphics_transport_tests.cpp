@@ -15,6 +15,11 @@ int main() {
         if (!value)
             throw std::runtime_error("Graphics transport contract failed");
     };
+    check(supports_rgb10_readback(device_api::d3d10));
+    check(supports_rgb10_readback(device_api::d3d11));
+    check(supports_rgb10_readback(device_api::d3d12));
+    check(!supports_rgb10_readback(device_api::d3d9));
+    check(!supports_rgb10_readback(device_api::opengl));
     using phoenix_addon::phoenix::capture_age_valid;
     check(capture_age_valid(7,7,10000,120000,4,100));
     check(!capture_age_valid(7,8,0,0,4,100));

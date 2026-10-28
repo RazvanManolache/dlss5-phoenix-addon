@@ -30,9 +30,11 @@ def main():
     parser.add_argument('--vulkan-compute-present', action='store_true', help='Present from a compute-only queue family in base Vulkan cases')
     parser.add_argument('--d3d9-msaa', action='store_true', help='Use the highest supported windowed D3D9 multisampling (8x, 4x or 2x)')
     parser.add_argument('--d3d12-rgb10', action='store_true', help='Exercise packed 10-bit SDR capture and final-frame presentation')
+    parser.add_argument('--dxgi-rgb10', action='store_true', help='Exercise packed 10-bit SDR on every selected DXGI API')
     parser.add_argument('--execution-mode', choices=['auto', 'in_process', 'helper'], default='auto',
                         help='Require an in-process route or explicitly exercise the helper fallback')
     parser.add_argument('--control-checks', action='store_true', help='Exercise writable game-control and screenshot commands')
+    parser.add_argument('--process-exit-checks', action='store_true', help='Exit with live graphics resources and require bounded process termination')
     parser.add_argument('--thin-d3d12', action='store_true', help='Use the test-only thin frontend instead of testing the shipped x64 addon')
     parser.add_argument('--multiwindow-check', action='store_true', help='Verify two OpenGL windows sharing one device stay isolated')
     parser.add_argument('--resize-checks', action='store_true', help='Cycle DXGI resolutions and verify processed output after each resize')
@@ -68,7 +70,7 @@ def main():
 
     try:
         for bits in args.bits:
-            common = f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /I"{ROOT}/third_party/reshade"'
+            common = f'cl /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX /I"{ROOT}/third_party/reshade"'
             if args.vulkan_headers:
                 common += f' /DPHOENIX_TEST_VULKAN /I"{args.vulkan_headers.resolve()}"'
             build(f'api{bits}', bits, f'{common} "{ROOT}/tests/native/compatibility_graphics_matrix.cpp" '
@@ -108,7 +110,7 @@ def main():
                 environment.pop('PHOENIX_EXPECT_INPROCESS', None)
                 if args.execution_mode == 'in_process':
                     environment['PHOENIX_EXPECT_INPROCESS'] = '1'
-                if api == 'd3d12' and args.d3d12_rgb10:
+                if (api == 'd3d12' and args.d3d12_rgb10) or (args.dxgi_rgb10 and api in ('d3d10', 'd3d10_1', 'd3d11', 'd3d12')):
                     environment['PHOENIX_TEST_RGB10'] = '1'
                 if api == 'vulkan':
                     (case / 'VkLayer_phoenix_test.json').write_text(json.dumps({
@@ -124,6 +126,7 @@ def main():
                 evidence['d3d9_multisampling_requested'] = api == 'd3d9' and args.d3d9_msaa
                 try:
                     command = [str(case / f'api{bits}.exe'), api]
+                    if args.process_exit_checks: command.append('--process-exit')
                     if api == 'vulkan' and args.vulkan_secondary: command.append('--secondary-queue')
                     if api == 'vulkan' and args.vulkan_compute_present: command.append('--compute-present')
                     if api == 'd3d9' and args.d3d9_msaa: command.append('--msaa-control' if args.control_checks else '--msaa')
@@ -134,6 +137,8 @@ def main():
                     evidence.update(json.loads((case / 'result.json').read_text()))
                     evidence['exit_code'] = completed.returncode
                     evidence['passed'] = completed.returncode == 0 and evidence['passed']
+                    if args.process_exit_checks:
+                        evidence['passed'] = evidence['passed'] and evidence.get('process_exit_requested') is True
                 except (OSError, subprocess.TimeoutExpired) as error:
                     evidence['error'] = str(error)
                     # Do not retry, rename or weaken protections after an OS denial.

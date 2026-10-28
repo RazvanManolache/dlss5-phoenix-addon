@@ -6,6 +6,10 @@
 #include <vector>
 #include "../../../third_party/reshade/reshade_api.hpp"
 namespace phoenix_compat {
+inline bool supports_rgb10_readback(reshade::api::device_api api) {
+    using reshade::api::device_api;
+    return api == device_api::d3d10 || api == device_api::d3d11 || api == device_api::d3d12;
+}
 inline bool uses_buffer_readback(reshade::api::device_api api) {
     using reshade::api::device_api;
     return api == device_api::d3d12 || api == device_api::vulkan || api == device_api::opengl;

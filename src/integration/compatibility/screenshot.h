@@ -8,7 +8,7 @@
 namespace phoenix_compat {
 struct ScreenshotLayout {
     uint32_t width, height, row_pitch;
-    bool buffers, bgra, flip_rows;
+    bool buffers, bgra, flip_rows, rgb10;
 };
 inline ScreenshotLayout screenshot_layout(reshade::api::device_api api,
                                           const reshade::api::resource_desc& description) {
@@ -23,21 +23,41 @@ inline ScreenshotLayout screenshot_layout(reshade::api::device_api api,
                 description.texture.levels == 1,
             "Screenshot requires SDR up to 8192 pixels per side; multisampling requires D3D9");
     const auto pixel_format = description.texture.format;
+    const bool rgb10 = supports_rgb10_readback(api) &&
+        (pixel_format == format::r10g10b10a2_unorm || pixel_format == format::r10g10b10a2_typeless);
     const bool bgra =
         pixel_format == format::b8g8r8a8_typeless || pixel_format == format::b8g8r8x8_typeless ||
         pixel_format == format::b8g8r8a8_unorm || pixel_format == format::b8g8r8x8_unorm ||
         pixel_format == format::b8g8r8a8_unorm_srgb || pixel_format == format::b8g8r8x8_unorm_srgb;
     require(
-        bgra || pixel_format == format::r8g8b8a8_typeless ||
+        rgb10 || bgra || pixel_format == format::r8g8b8a8_typeless ||
             pixel_format == format::r8g8b8a8_unorm || pixel_format == format::r8g8b8a8_unorm_srgb ||
             pixel_format == format::r8g8b8x8_unorm || pixel_format == format::r8g8b8x8_unorm_srgb,
-        "Screenshot supports SDR RGBA8/BGRA8 only; HDR capture is rejected");
+        "Screenshot supports SDR RGBA8/BGRA8 or DXGI RGB10A2; HDR capture is rejected");
     return {width,
             height,
             transfer_row_pitch(api, width),
             uses_buffer_readback(api),
             bgra,
-            api == device_api::opengl};
+            api == device_api::opengl, rgb10};
+}
+inline reshade::api::resource_desc screenshot_readback_description(
+    reshade::api::device_api api, const reshade::api::resource_desc& description) {
+    using namespace reshade::api;
+    const auto layout = screenshot_layout(api, description);
+    if (layout.buffers)
+        return resource_desc(uint64_t(layout.row_pitch) * layout.height,
+                             memory_heap::readback, resource_usage::copy_dest);
+    auto read = description;
+    read.texture.samples = 1;
+    read.heap = memory_heap::readback;
+    read.usage = resource_usage::copy_dest;
+    read.flags = resource_flags::none;
+    // GetRenderTargetData requires IDirect3DSurface9, including when ReShade
+    // describes the game's backbuffer as a texture rather than a surface.
+    if (api == device_api::d3d9)
+        read.type = resource_type::surface;
+    return read;
 }
 // Accept only normalized top-down RGBA8. Native HDR bytes never enter this
 // function, and size checks precede all encoder allocations.
@@ -87,7 +107,7 @@ class Snapshot {
     reshade::api::resource readback_{}, d3d9_snapshot_{};
     reshade::api::fence retired_{};
     uint32_t width_ = 0, height_ = 0, row_pitch_ = 0;
-    bool buffers_ = false, bgra_ = false, flip_rows_ = false;
+    bool buffers_ = false, bgra_ = false, flip_rows_ = false, rgb10_ = false;
     bool recorded_ = false, submitted_ = false, complete_ = false;
     uint64_t recorded_tick_ = 0;
     fs::path path_;
@@ -144,14 +164,8 @@ class Snapshot {
         buffers_ = layout.buffers;
         bgra_ = layout.bgra;
         flip_rows_ = layout.flip_rows;
-        auto read = description;
-        read.texture.samples = 1;
-        read.heap = memory_heap::readback;
-        read.usage = resource_usage::copy_dest;
-        read.flags = resource_flags::none;
-        if (buffers_)
-            read = resource_desc(uint64_t(row_pitch_) * height_, memory_heap::readback,
-                                 resource_usage::copy_dest);
+        rgb10_ = layout.rgb10;
+        const auto read = screenshot_readback_description(device_->get_api(), description);
         // Allocate before recording: unsupported formats or allocation failures
         // must not leave a partial capture in the shared immediate command list.
         require(device_->create_resource(read, nullptr, resource_usage::copy_dest, &readback_),
@@ -235,8 +249,12 @@ class Snapshot {
         };
         {
             Unmap scope{device_, readback_, buffers_};
-            copy_pixel_rows(rgba.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
-                            mapped.row_pitch, width_, height_, flip_rows_, bgra_);
+            if (rgb10_)
+                copy_rgb10a2_rows(rgba.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                                 mapped.row_pitch, width_, height_, true);
+            else
+                copy_pixel_rows(rgba.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                                mapped.row_pitch, width_, height_, flip_rows_, bgra_);
         }
         // Presented game images are opaque; an unused X8 alpha byte may be zero.
         for (size_t pixel = 0; pixel < rgba.size(); pixel += 4)

@@ -12,9 +12,8 @@ we may have taken the side quest too far.
 **The controls got a makeover. Your sliders survived.** Four tabs, colored cards,
 live Look controls and useful details that expand when you need them.
 
-**New in 0.17: less startup drama.** Enabled fallback now handles low-memory
-refusals too, and the optional Input companion tidies up its hooks and survives
-brief mailbox locks. [Release notes](docs/RELEASE_0.17.md).
+**Old APIs, fewer surprises.** SDR RGB10A2 capture, legacy DirectInput,
+late-loaded input hooks and temporary renderer probes get dedicated handling.
 
 <table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix Play tab with status, measurement tiles and Look card" width="420"></a></td><td><a href="docs/features/overlay-setup.png"><img src="docs/features/overlay-setup.png" alt="Phoenix Setup tab with model validation and device cards" width="420"></a></td></tr></table>
 
@@ -23,6 +22,12 @@ Dashes mean no measurement. [All controls and screenshots](#a-quick-look).*
 
 ## Features
 
+- **Keep the pixels moving:** native D3D9 readback uses system-memory surfaces;
+  SDR RGB10A2 capture supports D3D10/11/12. HDR capture remains guarded.
+- **Survive the warm-up act:** temporary renderer probes can give way to the
+  real ReShade provider without leaving callbacks aimed at the old one.
+- **Old-school controls included:** the optional Phoenix Input companion
+  handles DirectInput 7/8 A/W, buffered polling and late window discovery.
 - **Catch the same pixel twice:** [Save original + modified](docs/PAIRED_SCREENSHOTS.md)
   exports matching PNGs from one processed frame. Click it in Play or assign a
   hotkey in Setup; no extra neural pass required.
@@ -80,13 +85,13 @@ hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
 where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.17.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.18.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
 Final-package checks cover CPU/software rendering, with three targeted live
 fallback checks on the standard x86 candidate. The performance studies below
 retain their original dates and build identities; they are not fresh benchmarks
-of this download. [Validation scope](docs/VALIDATION_0.17.md).
+of this download. [Validation scope](docs/VALIDATION_0.18.md).
 
 <details>
 <summary>RTX generations, compatibility DLLs and validation limits</summary>
@@ -129,7 +134,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.17.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.18.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -172,7 +177,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.17.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.18.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 

@@ -26,6 +26,7 @@
 #include "../../native/support/comparison.h"
 #include "../../native/support/overrides.h"
 #include "../../native/support/control_bridge.h"
+#include "../../native/support/process_shutdown.h"
 #include "../../native/support/direct.h"
 #include "feeder_parameters.h"
 #include "../../native/support/present_guides.h"
@@ -1883,6 +1884,18 @@ sl::Result sl_export_evaluate(sl::Feature feature, const sl::FrameToken& frame,
     }
     return result;
 }
+bool sl_d3d12_command_known(sl::CommandBuffer* command) {
+    auto& observed = observation::observer();
+    std::lock_guard<std::recursive_mutex> lock(observed.mutex);
+    return command && observed.commands.count(
+        reinterpret_cast<ID3D12GraphicsCommandList*>(command));
+}
+bool sl_d3d12_resource_known(void* resource, sl::CommandBuffer* command) {
+    auto& observed = observation::observer();
+    std::lock_guard<std::recursive_mutex> lock(observed.mutex);
+    return resource && (observed.committed.count(reinterpret_cast<ID3D12Resource*>(resource)) ||
+        (command && observed.commands.count(reinterpret_cast<ID3D12GraphicsCommandList*>(command))));
+}
 // Translate the host tag table into owned observation records. Prefer
 // immutable resource dimensions when the host supplies only native pointers;
 // keep the tag extent as the fallback, then join tags to the frame/viewport.
@@ -1897,7 +1910,7 @@ sl::Result sl_export_settag(const sl::FrameToken& frame, const sl::ViewportHandl
     {
         std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
         const auto& p=addon_state.panel.processing;
-        if(tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
+        if(sl_d3d12_command_known(cmdBuffer) && tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
             !addon_state.terminal && gpu_gate() && addon_state.panel.uplift &&
             addon_state.panel.mode!=phoenix::input && p.enabled && p.hook==3 && p.block_hudless) {
             filtered.assign(tags,tags+numTags);
@@ -1927,12 +1940,16 @@ sl::Result sl_export_settag(const sl::FrameToken& frame, const sl::ViewportHandl
                 // RE9 tags zero-filled Resource structs (pointers only): the
                 // geometry lives on the resource itself. GetDesc is immutable
                 // and safe here; the struct/extent stay as fallback.
-                auto* native = reinterpret_cast<ID3D12Resource*>(resource_tag.resource->native);
-                const auto desc = native->GetDesc();
-                if (desc.Width && desc.Height) {
-                    translated_tag.w = unsigned(desc.Width);
-                    translated_tag.h = unsigned(desc.Height);
-                    translated_tag.format = unsigned(desc.Format);
+                // Streamline also tags VkImage handles. Only a resource or
+                // command list observed through D3D12 may be called as COM.
+                if (sl_d3d12_resource_known(resource_tag.resource->native, cmdBuffer)) {
+                    auto* native = reinterpret_cast<ID3D12Resource*>(resource_tag.resource->native);
+                    const auto desc = native->GetDesc();
+                    if (desc.Width && desc.Height) {
+                        translated_tag.w = unsigned(desc.Width);
+                        translated_tag.h = unsigned(desc.Height);
+                        translated_tag.format = unsigned(desc.Format);
+                    }
                 }
                 buf[tag_count++] = translated_tag;
             }
@@ -1960,7 +1977,7 @@ sl::Result sl_export_settag_old(const sl::ViewportHandle& viewport, const sl::Re
     {
         std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
         const auto& p=addon_state.panel.processing;
-        if(tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
+        if(sl_d3d12_command_known(cmdBuffer) && tags && numTags && numTags<256 && addon_state.direct_game && !addon_state.direct_feeder &&
             !addon_state.terminal && gpu_gate() && addon_state.panel.uplift &&
             addon_state.panel.mode!=phoenix::input && p.enabled && p.hook==3 && p.block_hudless) {
             filtered.assign(tags,tags+numTags);
@@ -1987,12 +2004,14 @@ sl::Result sl_export_settag_old(const sl::ViewportHandle& viewport, const sl::Re
                 translated_tag.format = resource_tag.resource->nativeFormat;
                 translated_tag.ex_w = resource_tag.extent.width;
                 translated_tag.ex_h = resource_tag.extent.height;
-                auto* native = reinterpret_cast<ID3D12Resource*>(resource_tag.resource->native);
-                const auto desc = native->GetDesc();
-                if (desc.Width && desc.Height) {
-                    translated_tag.w = unsigned(desc.Width);
-                    translated_tag.h = unsigned(desc.Height);
-                    translated_tag.format = unsigned(desc.Format);
+                if (sl_d3d12_resource_known(resource_tag.resource->native, cmdBuffer)) {
+                    auto* native = reinterpret_cast<ID3D12Resource*>(resource_tag.resource->native);
+                    const auto desc = native->GetDesc();
+                    if (desc.Width && desc.Height) {
+                        translated_tag.w = unsigned(desc.Width);
+                        translated_tag.h = unsigned(desc.Height);
+                        translated_tag.format = unsigned(desc.Format);
+                    }
                 }
                 buf[tag_count++] = translated_tag;
             }
@@ -5332,7 +5351,7 @@ void poll_control_bridge(reshade::api::effect_runtime* runtime) {
                           {"session", addon_state.bridge_session},
                           {"pid", GetCurrentProcessId()},
                           {"operations",
-                           {"status", "set", "reset_history", "screenshot", "capture", "save",
+                           {"status", "set", "reset_history", "screenshot", "screenshot_pair", "capture", "save",
                             "validate_model"}}});
             addon_state.bridge_endpoint_written = true;
         }
@@ -5396,6 +5415,9 @@ void poll_control_bridge(reshade::api::effect_runtime* runtime) {
                 phase = "queued";
             } else if (cmd.op == "reset_history") {
                 addon_state.live.reset_requested = true;
+                phase = "queued";
+            } else if (cmd.op == "screenshot_pair") {
+                check(request_screenshot_pair(), "Paired screenshot unavailable or already pending");
                 phase = "queued";
             } else if (cmd.op == "screenshot") {
                 route_screenshots(runtime);
@@ -6765,12 +6787,42 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXSummary(const wchar_t* pa
 namespace {
 std::atomic<bool> addon_registered{false};
 HMODULE addon_module = nullptr;
+void addon_detach(HMODULE module);
 
-bool addon_attach(HMODULE module) {
+bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
+    if (provider && addon_registered.load() &&
+        provider != reshade::internal::get_reshade_module_handle())
+        addon_detach(module);
     bool expected = false;
     if (!addon_registered.compare_exchange_strong(expected, true))
         return true;
-    if (!reshade::register_addon(module)) {
+    if (!reshade::register_addon(module, provider)) {
+        addon_registered.store(false);
+        return false;
+    }
+    // Device probes may unload/reload ReShade before the real renderer starts.
+    // Native COM observers and export detours have process-wide lifetimes;
+    // their callbacks and MinHook registry must survive those device probes,
+    // including probes before NGX/Streamline have loaded. AddonUninit still
+    // unregisters device callbacks; AddonInit can register them again.
+    HMODULE owner = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(&addon_attach), &owner)) {
+        reshade::unregister_addon(module);
+        addon_registered.store(false);
+        return false;
+    }
+    // ReShade API entry points are cached by its public addon SDK. A pinned
+    // addon must retain that provider too, otherwise the next device probe
+    // calls cached entry points in an unloaded graphics-proxy module.
+    provider = reshade::internal::get_reshade_module_handle();
+    auto registration = provider ? GetProcAddress(provider, "ReShadeRegisterAddon") : nullptr;
+    HMODULE provider_owner = nullptr;
+    if (!registration || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                                GET_MODULE_HANDLE_EX_FLAG_PIN,
+                                            reinterpret_cast<LPCWSTR>(registration), &provider_owner)) {
+        reshade::unregister_addon(module);
         addon_registered.store(false);
         return false;
     }
@@ -6838,6 +6890,10 @@ bool addon_attach(HMODULE module) {
 }
 
 void addon_detach(HMODULE module) {
+    // Other threads have already been terminated at process shutdown. GPU
+    // waits or worker joins under the loader lock can never complete.
+    if (phoenix_process::shutting_down())
+        return;
     bool expected = true;
     if (!addon_registered.compare_exchange_strong(expected, false))
         return;
@@ -6870,20 +6926,21 @@ void addon_detach(HMODULE module) {
 
 // ReShade calls these before LoadLibrary's refcount matters and before
 // FreeLibrary, so they run even when DLL_PROCESS_DETACH does not.
-extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon, HMODULE) {
-    return addon_attach(addon);
+extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon, HMODULE provider) {
+    return addon_attach(addon, provider);
 }
-extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon, HMODULE) {
-    addon_detach(addon);
+extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon, HMODULE provider) {
+    if (!provider || provider == reshade::internal::get_reshade_module_handle())
+        addon_detach(addon);
 }
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     // Fallback only. On a host that calls AddonInit this attach is a no-op
     // because ReShade has already registered us, and vice versa.
     if (reason == DLL_PROCESS_ATTACH) {
         if (!addon_attach(module))
             return FALSE;
-    } else if (reason == DLL_PROCESS_DETACH)
+    } else if (reason == DLL_PROCESS_DETACH && !reserved)
         addon_detach(module);
     return TRUE;
 }

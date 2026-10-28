@@ -163,7 +163,7 @@ int main() {
                 }
             };
             test(validate(base).op == "status");
-            for (const auto* operation_name : {"reset_history", "screenshot"}) {
+            for (const auto* operation_name : {"reset_history", "screenshot", "screenshot_pair"}) {
                 auto inner_index = base;
                 inner_index["op"] = operation_name;
                 test(validate(inner_index).op == operation_name);

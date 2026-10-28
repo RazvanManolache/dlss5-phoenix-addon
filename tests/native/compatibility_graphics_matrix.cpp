@@ -300,22 +300,20 @@ void upload_known_input(device* graphics, std::vector<uint8_t>& rgba) {
     } else
         graphics->update_texture_region({rgba.data(), width * 4, width * height * 4}, input, 0);
 }
+#include "graphics_fixture_options.h"
 int main(int argc, char** argv) {
     HWND window = nullptr;
     HWND second_window = nullptr;
     try {
-        check(argc == 2 || argc == 3,
-              "Specify a graphics API and optional --dynamic, --multiwindow, --control or --resize");
+        const auto options = GraphicsFixtureOptions::parse(argc, argv);
         const std::string api = argv[1];
-        const bool rgb10 = api == "d3d12" && GetEnvironmentVariableA("PHOENIX_TEST_RGB10", nullptr, 0) != 0;
-        const bool dynamic = argc == 3 && std::string(argv[2]) == "--dynamic";
-        multiwindow = argc == 3 && std::string(argv[2]) == "--multiwindow";
-        const bool control_test = argc == 3 && (std::string(argv[2]) == "--control" || std::string(argv[2]) == "--msaa-control");
-        const bool resize_test = argc == 3 && std::string(argv[2]) == "--resize";
-        const bool secondary_queue = argc == 3 && std::string(argv[2]) == "--secondary-queue";
-        const bool compute_present = argc == 3 && std::string(argv[2]) == "--compute-present";
-        const bool multisample = argc == 3 && (std::string(argv[2]) == "--msaa" || std::string(argv[2]) == "--msaa-control");
-        check(argc == 2 || dynamic || multiwindow || control_test || resize_test || secondary_queue || compute_present || multisample, "Unknown fixture option");
+        const bool rgb10 = (api == "d3d10" || api == "d3d10_1" || api == "d3d11" || api == "d3d12") &&
+                           GetEnvironmentVariableA("PHOENIX_TEST_RGB10", nullptr, 0) != 0;
+        const bool dynamic = options.dynamic, process_exit = options.process_exit;
+        multiwindow = options.multiwindow;
+        const bool control_test = options.control, resize_test = options.resize;
+        const bool secondary_queue = options.secondary_queue, compute_present = options.compute_present;
+        const bool multisample = options.multisample;
         check(!multisample || api == "d3d9", "The multisample fixture currently exercises D3D9");
         check(!(secondary_queue || compute_present) || api == "vulkan", "Separate queues require Vulkan");
         check(!multiwindow || api == "opengl", "Multiwindow scenario currently requires OpenGL");
@@ -837,7 +835,27 @@ int main(int argc, char** argv) {
             const auto screenshot_pixels = decode_png_rgba(screenshot);
             check(screenshot_pixels == expected_screenshot,
                   "Addon screenshot pixels differ from the actual processed frame");
+            request("screenshot_pair");
+            const auto pair_deadline = GetTickCount64() + 20000;
+            Json pair_status;
+            do {
+                pump_frame();
+                pair_status = request("status").at("snapshot").value("screenshot_pair", Json::object());
+            } while (pair_status.value("state", std::string()) == "pending" &&
+                     GetTickCount64() < pair_deadline);
+            check(pair_status.value("state", std::string()) == "saved",
+                  "Direct paired-screenshot command did not complete");
+            const auto pair_folder = std::filesystem::u8path(pair_status.at("directory").get<std::string>());
+            Json pair_receipt;
+            std::ifstream(pair_folder / "pair.json") >> pair_receipt;
+            check(pair_receipt.value("same_frame", false) &&
+                      pair_receipt.at("frame") == pair_status.at("frame"),
+                  "Pair receipt does not identify the completed frame");
+            check(decode_png_rgba(pair_folder / "original.png") == original &&
+                      decode_png_rgba(pair_folder / "modified.png") == expected_screenshot,
+                  "Pair pixels do not match the static input and processed presentation");
             evidence = completed_evidence;
+            evidence["control_same_frame_pair_verified"] = true;
             evidence["control_endpoint_verified"] = true;
             evidence["control_disable_input_phoenix_verified"] = true;
             evidence["control_screenshot_verified"] = true;
@@ -848,8 +866,15 @@ int main(int argc, char** argv) {
             evidence["control_responses"] = std::move(responses);
             evidence["control_final_status"] = status();
         }
+        if (process_exit)
+            evidence["process_exit_requested"] = true;
         std::ofstream("result.json") << evidence.dump(2);
         std::cout << evidence.dump() << '\n';
+        // Retain the live graphics device and Phoenix session intentionally.
+        // The caller must observe a bounded successful process exit; a written
+        // pixel receipt alone does not pass this loader-lock regression.
+        if (process_exit)
+            ExitProcess(0);
         queue->wait_idle();
         device->destroy_resource(input);
         reshade::unregister_event<reshade::addon_event::present>(observe);

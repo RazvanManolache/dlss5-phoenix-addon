@@ -68,7 +68,7 @@ class ReadbackBridge {
                 description.texture.format == format::b8g8r8x8_unorm ||
                 description.texture.format == format::b8g8r8a8_unorm_srgb ||
                 description.texture.format == format::b8g8r8x8_unorm_srgb;
-        rgb10_ = device_->get_api() == device_api::d3d12 &&
+        rgb10_ = supports_rgb10_readback(device_->get_api()) &&
                  (description.texture.format == format::r10g10b10a2_unorm ||
                   description.texture.format == format::r10g10b10a2_typeless);
         require(rgb10_ || bgra_ || description.texture.format == format::r8g8b8a8_typeless ||
@@ -76,7 +76,7 @@ class ReadbackBridge {
                     description.texture.format == format::r8g8b8a8_unorm_srgb ||
                     description.texture.format == format::r8g8b8x8_unorm ||
                     description.texture.format == format::r8g8b8x8_unorm_srgb,
-                "Readback compatibility requires SDR RGBA8/BGRA8 or D3D12 RGB10A2");
+                "Readback compatibility requires SDR RGBA8/BGRA8 or DXGI RGB10A2");
         auto read = description;
         // D3D9Compositor captures via StretchRect, which resolves the game's
         // multisampled render target. CPU staging and sampled upload textures
@@ -85,6 +85,11 @@ class ReadbackBridge {
         read.heap = memory_heap::readback;
         read.usage = resource_usage::copy_dest;
         read.flags = resource_flags::none;
+        // A D3D9 canvas may be described as a texture. GetRenderTargetData
+        // requires a system-memory SURFACE, never the texture COM interface.
+        // The upload staging path already makes the same distinction below.
+        if (d3d9_upload_)
+            read.type = resource_type::surface;
         if (buffer_readback_)
             read = resource_desc(uint64_t(row_pitch_) * height_, memory_heap::readback,
                                  resource_usage::copy_dest);
@@ -262,8 +267,12 @@ class ReadbackBridge {
                 upload_serial_ = queued_signal_ = ++serial_;
             } else {
                 std::vector<uint8_t> native_pixels(pixels.size());
-                copy_pixel_rows(native_pixels.data(), width_ * 4, pixels.data(), width_ * 4, width_,
-                                height_, false, bgra_);
+                if (rgb10_)
+                    copy_rgb10a2_rows(native_pixels.data(), width_ * 4, pixels.data(), width_ * 4,
+                                     width_, height_, false);
+                else
+                    copy_pixel_rows(native_pixels.data(), width_ * 4, pixels.data(), width_ * 4, width_,
+                                    height_, false, bgra_);
                 device_->update_texture_region(
                     {native_pixels.data(), width_ * 4, width_ * height_ * 4}, upload_, 0);
             }

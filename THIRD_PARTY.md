@@ -30,6 +30,11 @@ Keep the applicable license text, copyright notices and disclaimers when
 redistributing these sources. Consult each component's terms for binary
 distribution requirements; this summary does not replace those terms.
 
+The vendored ReShade SDK has a Phoenix-local provider-rebinding adaptation:
+explicit registration can replace the detected provider and API wrappers cache
+exports per provider instead of retaining the first provider forever. Original
+copyright and license declarations remain intact.
+
 The [upstream credit ledger](docs/UPSTREAM_CREDITS.md) also records research-only
 references and companion-project adaptations. Studying a repository does not
 mean its source or binaries are included in this dependency inventory.

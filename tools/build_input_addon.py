@@ -29,7 +29,8 @@ def main():
     args = parser.parse_args()
     source = ROOT / 'src/integration/input/phoenix_input_addon.cpp'
     bindings = {p.relative_to(ROOT).as_posix(): sha(p.read_bytes()) for p in
-        (source, Path(__file__), ROOT / 'tests/native/input_addon_load_tests.cpp')}
+        (source, Path(__file__), ROOT / 'tests/native/input_addon_load_tests.cpp',
+         ROOT / 'third_party/reshade/reshade.hpp')}
     results, binaries = {}, {}
     with tempfile.TemporaryDirectory(prefix='input-addon-', dir=ROOT / 'build') as temp:
         work = Path(temp)
@@ -62,6 +63,12 @@ def main():
                 mailbox = folder / 'PhoenixOutput/input'
                 endpoint = read_json(mailbox / 'endpoint.json')
                 assert endpoint['schema'] == 'phoenix-input/1'
+                deadline = time.monotonic() + 15
+                while not (endpoint.get('hwnd') and endpoint.get('hooks', {}).get('user32')):
+                    if time.monotonic() > deadline:
+                        raise RuntimeError('Hot-loaded input addon did not discover existing window')
+                    time.sleep(0.1)
+                    endpoint = read_json(mailbox / 'endpoint.json')
                 # Status requests exercise session matching without sending input.
                 for request_id, session, expected in [('status', endpoint['session'], True),
                                                        ('stale', 'stale-session', False)]:
@@ -85,6 +92,7 @@ def main():
                 result = json.loads(output.splitlines()[-1])
                 assert result['passed']
                 results[str(bits)] = dict(**result, mailbox_status=True, stale_session_rejected=True,
+                                         hot_loaded_window_discovered=True,
                                          game_input_injection_validated=False)
             finally:
                 if process.poll() is None:

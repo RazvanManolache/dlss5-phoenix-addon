@@ -73,6 +73,7 @@ bool g_request_claimed = false;
 std::array<std::atomic<uint8_t>, 256> g_vk{}; // virtual key/button state
 POINT g_cursor{};                              // virtual cursor, client coords
 bool g_cursor_valid = false;
+std::atomic<bool> g_scripted_cursor{false};
 long g_di_dx = 0, g_di_dy = 0, g_di_dz = 0;    // pending DirectInput deltas
 XINPUT_GAMEPAD g_pad{};
 DWORD g_pad_packet = 1;
@@ -117,7 +118,7 @@ using DiSetCoop = HRESULT(STDMETHODCALLTYPE*)(void*, HWND, DWORD);
 using DiAcquire = HRESULT(STDMETHODCALLTYPE*)(void*);
 struct DiHooks { DiGetState state = nullptr; DiGetData data = nullptr; DiSetFormat format = nullptr;
                  DiSetCoop coop = nullptr; DiAcquire acquire = nullptr; };
-std::array<DiHooks, 2> o_di{}; // [0] ANSI vtable, [1] wide vtable
+std::array<DiHooks, 4> o_di{}; // modern A/W, legacy A/W
 using XGetState = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
 std::array<XGetState, 4> o_xinput{};
 std::array<void*, 4> xinput_targets{};
@@ -233,13 +234,9 @@ void set_key(int vk, bool down) {
     LPARAM lparam = key_lparam(vk, down);
     if (down && was) lparam |= LPARAM(1) << 30; // auto-repeat
     post(message, WPARAM(vk), lparam);
-    if (down) {
-        UINT ch = MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_CHAR) & 0x7FFF;
-        if (vk == VK_RETURN) ch = '\r';
-        if (ch >= 'A' && ch <= 'Z' && !virtual_down(VK_SHIFT)) ch = ch - 'A' + 'a';
-        if (ch && vk != VK_ESCAPE && vk != VK_BACK && vk != VK_TAB) post(WM_CHAR, WPARAM(ch), lparam);
-        else if (vk == VK_ESCAPE) post(WM_CHAR, 27, lparam);
-    }
+    // The game message pump translates key-down into WM_CHAR. Posting a
+    // second character here duplicates Return/Escape in menus. Explicit text
+    // operations remain character-only and do not synthesize key-down.
     if (!was || !down) {
         std::lock_guard lock(g_lock);
         const int dik = dik_for_vk(vk);
@@ -284,6 +281,7 @@ void set_button(int vk, bool down) {
     }
 }
 void move_mouse(long dx, long dy, bool absolute, long x, long y) {
+    g_scripted_cursor = true;
     {
         std::lock_guard lock(g_lock);
         if (!g_cursor_valid) { client_center(g_cursor); g_cursor_valid = true; }
@@ -330,6 +328,7 @@ void wheel(int delta) {
     }
 }
 void release_all() {
+    g_scripted_cursor = false;
     for (int vk = 1; vk < 256; ++vk) {
         if (!virtual_down(vk)) continue;
         if (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON) set_button(vk, false);
@@ -397,7 +396,9 @@ BOOL WINAPI h_GetKeyboardState(PBYTE state) {
 }
 BOOL WINAPI h_GetCursorPos(LPPOINT point) {
     ++g_count.cursor;
-    if (point && isolate()) {
+    // Scripted absolute input must also work when the game is foreground.
+    // Physical desktop navigation is available through focus_override=false.
+    if (point && g_focus.load() && (g_scripted_cursor.load() || !real_foreground_is_game())) {
         HWND hwnd = g_hwnd.load();
         std::lock_guard lock(g_lock);
         if (!g_cursor_valid) { client_center(g_cursor); g_cursor_valid = true; }
@@ -410,7 +411,7 @@ BOOL WINAPI h_GetCursorPos(LPPOINT point) {
 }
 BOOL WINAPI h_SetCursorPos(int x, int y) {
     ++g_count.set_cursor;
-    if (isolate()) {
+    if (g_focus.load() && (g_scripted_cursor.load() || !real_foreground_is_game())) {
         POINT client{x, y};
         if (HWND hwnd = g_hwnd.load()) ScreenToClient(hwnd, &client);
         std::lock_guard lock(g_lock);
@@ -421,7 +422,7 @@ BOOL WINAPI h_SetCursorPos(int x, int y) {
     return o_SetCursorPos(x, y);
 }
 BOOL WINAPI h_ClipCursor(const RECT* rect) {
-    if (rect && g_focus.load() && !real_foreground_is_game()) return TRUE;
+    if (rect && g_focus.load()) return TRUE;
     return o_ClipCursor(rect);
 }
 UINT WINAPI h_GetRawInputData(HRAWINPUT handle, UINT command, LPVOID data, PUINT size, UINT header_size) {
@@ -473,9 +474,21 @@ int di_kind(void* device, DWORD bytes) {
     std::lock_guard lock(g_lock);
     auto found = g_di_kind.find(device);
     if (found != g_di_kind.end()) return found->second;
-    if (bytes == 256) return 1;
-    if (bytes == sizeof(DIMOUSESTATE) || bytes == sizeof(DIMOUSESTATE2)) return 2;
-    return 0;
+    int kind = bytes == 256 ? 1 : (bytes == sizeof(DIMOUSESTATE) || bytes == sizeof(DIMOUSESTATE2)) ? 2 : 0;
+    if (!kind && device) {
+        // Devices can be formatted before hooks attach; buffered-only games
+        // never call GetDeviceState, so infer from the real capabilities.
+        using GetCaps = HRESULT(STDMETHODCALLTYPE*)(void*, LPDIDEVCAPS);
+        auto caps_fn = reinterpret_cast<GetCaps>((*reinterpret_cast<void***>(device))[3]);
+        DIDEVCAPS caps{}; caps.dwSize = sizeof(caps);
+        if (SUCCEEDED(caps_fn(device, &caps))) {
+            const DWORD type = GET_DIDEVICE_TYPE(caps.dwDevType);
+            if (type == DI8DEVTYPE_KEYBOARD || type == 3 /* pre-DI8 keyboard */) kind = 1;
+            else if (type == DI8DEVTYPE_MOUSE || type == 2 /* pre-DI8 mouse */) kind = 2;
+        }
+    }
+    if (kind) g_di_kind[device] = kind;
+    return kind;
 }
 template <size_t Wide> HRESULT STDMETHODCALLTYPE h_DiGetState(void* device, DWORD bytes, LPVOID data) {
     ++g_count.dinput_state;
@@ -509,27 +522,34 @@ template <size_t Wide> HRESULT STDMETHODCALLTYPE h_DiGetData(void* device, DWORD
     ++g_count.dinput_data;
     const DWORD capacity = count ? *count : 0;
     HRESULT result = o_di[Wide].data(device, object_bytes, data, count, flags);
-    if (!count || !g_focus.load() || (flags & DIGDD_PEEK)) return result;
+    if (!count || !g_focus.load()) return result;
     const int kind = di_kind(device, 0);
     if (!kind) return result;
     if (FAILED(result)) { o_di[Wide].acquire(device); *count = 0; result = DI_OK; }
     if (isolate()) *count = 0;
-    if (!data || object_bytes < 16) return result;
+    if (object_bytes < 16) return result;
     std::lock_guard lock(g_lock);
     auto& queue = kind == 1 ? g_di_keyboard_events : g_di_mouse_events;
     DWORD written = *count;
-    while (!queue.empty() && written < capacity) {
-        auto* item = reinterpret_cast<DIDEVICEOBJECTDATA*>(reinterpret_cast<uint8_t*>(data) + size_t(written) * object_bytes);
-        memset(item, 0, object_bytes);
-        item->dwOfs = queue.front().ofs;
-        item->dwData = queue.front().data;
-        item->dwTimeStamp = GetTickCount();
-        item->dwSequence = GetTickCount();
-        queue.pop_front();
+    size_t consumed = 0;
+    const bool peek = (flags & DIGDD_PEEK) != 0;
+    while (consumed < queue.size() && written < capacity) {
+        // NULL is a valid count-only peek or discard, with the same buffer
+        // side effects as a populated output array.
+        if (data) {
+            auto* item = reinterpret_cast<DIDEVICEOBJECTDATA*>(reinterpret_cast<uint8_t*>(data) + size_t(written) * object_bytes);
+            memset(item, 0, object_bytes);
+            item->dwOfs = queue[consumed].ofs;
+            item->dwData = queue[consumed].data;
+            item->dwTimeStamp = GetTickCount();
+            item->dwSequence = GetTickCount();
+        }
+        ++consumed;
         ++written;
     }
+    if (!peek) while (consumed > 0) { queue.pop_front(); --consumed; }
     // Relative axes delivered as buffered data must not be counted twice.
-    if (kind == 2 && written > *count) g_di_dx = g_di_dy = g_di_dz = 0;
+    if (!peek && kind == 2 && written > *count) g_di_dx = g_di_dy = g_di_dz = 0;
     *count = written;
     return result;
 }
@@ -584,6 +604,44 @@ template <class T> bool hook_export(const char* library, const char* name, T det
     return module && hook(reinterpret_cast<void*>(GetProcAddress(module, name)),
                           reinterpret_cast<void*>(detour), reinterpret_cast<void**>(original));
 }
+// Implementations can be shared across interface generations and A/W tables.
+std::map<void*, void*> g_di_originals;
+bool hook_di(void* target, void* detour, void** original) {
+    auto found = g_di_originals.find(target);
+    if (found != g_di_originals.end()) { *original = found->second; return true; }
+    if (!hook(target, detour, original)) return false;
+    g_di_originals[target] = *original;
+    return true;
+}
+template<size_t Slot> void bind_di(void* device) {
+    void** table = *reinterpret_cast<void***>(device);
+    o_di[Slot].acquire = reinterpret_cast<DiAcquire>(table[7]);
+    hook_di(table[9], reinterpret_cast<void*>(&h_DiGetState<Slot>), reinterpret_cast<void**>(&o_di[Slot].state));
+    hook_di(table[10], reinterpret_cast<void*>(&h_DiGetData<Slot>), reinterpret_cast<void**>(&o_di[Slot].data));
+    hook_di(table[11], reinterpret_cast<void*>(&h_DiSetFormat<Slot>), reinterpret_cast<void**>(&o_di[Slot].format));
+    hook_di(table[13], reinterpret_cast<void*>(&h_DiSetCoop<Slot>), reinterpret_cast<void**>(&o_di[Slot].coop));
+}
+void install_legacy_dinput() {
+    HMODULE module = GetModuleHandleA("dinput.dll");
+    if (!module) return;
+    using Create = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
+    auto create = reinterpret_cast<Create>(GetProcAddress(module, "DirectInputCreateEx"));
+    if (!create) return;
+    for (size_t wide = 0; wide < 2; ++wide) {
+        IUnknown* root = nullptr;
+        if (FAILED(create(GetModuleHandleW(nullptr), 0x700, wide ? IID_IDirectInput7W : IID_IDirectInput7A,
+                          reinterpret_cast<void**>(&root), nullptr)) || !root) continue;
+        void* device = nullptr;
+        HRESULT result = wide
+            ? static_cast<IDirectInput7W*>(static_cast<void*>(root))->CreateDevice(GUID_SysKeyboard, reinterpret_cast<LPDIRECTINPUTDEVICEW*>(&device), nullptr)
+            : static_cast<IDirectInput7A*>(static_cast<void*>(root))->CreateDevice(GUID_SysKeyboard, reinterpret_cast<LPDIRECTINPUTDEVICEA*>(&device), nullptr);
+        if (SUCCEEDED(result) && device) {
+            if (wide) bind_di<3>(device); else bind_di<2>(device);
+            static_cast<IUnknown*>(device)->Release();
+        }
+        root->Release();
+    }
+}
 void install_dinput() {
     HMODULE dinput = GetModuleHandleA("dinput8.dll");
     if (!dinput) {
@@ -603,32 +661,12 @@ void install_dinput() {
         HRESULT created = wide ? static_cast<IDirectInput8W*>(static_cast<void*>(root))->CreateDevice(GUID_SysKeyboard, reinterpret_cast<LPDIRECTINPUTDEVICE8W*>(&device), nullptr)
                                : static_cast<IDirectInput8A*>(static_cast<void*>(root))->CreateDevice(GUID_SysKeyboard, reinterpret_cast<LPDIRECTINPUTDEVICE8A*>(&device), nullptr);
         if (SUCCEEDED(created) && device) {
-            void** table = *reinterpret_cast<void***>(device);
-            o_di[wide].acquire = reinterpret_cast<DiAcquire>(table[7]);
-            if (wide) {
-                hook(table[9], reinterpret_cast<void*>(&h_DiGetState<1>), reinterpret_cast<void**>(&o_di[1].state));
-                hook(table[10], reinterpret_cast<void*>(&h_DiGetData<1>), reinterpret_cast<void**>(&o_di[1].data));
-                hook(table[11], reinterpret_cast<void*>(&h_DiSetFormat<1>), reinterpret_cast<void**>(&o_di[1].format));
-                hook(table[13], reinterpret_cast<void*>(&h_DiSetCoop<1>), reinterpret_cast<void**>(&o_di[1].coop));
-            } else {
-                hook(table[9], reinterpret_cast<void*>(&h_DiGetState<0>), reinterpret_cast<void**>(&o_di[0].state));
-                hook(table[10], reinterpret_cast<void*>(&h_DiGetData<0>), reinterpret_cast<void**>(&o_di[0].data));
-                hook(table[11], reinterpret_cast<void*>(&h_DiSetFormat<0>), reinterpret_cast<void**>(&o_di[0].format));
-                hook(table[13], reinterpret_cast<void*>(&h_DiSetCoop<0>), reinterpret_cast<void**>(&o_di[0].coop));
-            }
+            if (wide) bind_di<1>(device); else bind_di<0>(device);
             static_cast<IUnknown*>(device)->Release();
         }
         root->Release();
     }
-    // If ANSI and wide share an implementation, one hook covers both tables.
-    for (size_t wide = 0; wide < 2; ++wide) {
-        auto& self = o_di[wide];
-        const auto& other = o_di[1 - wide];
-        if (!self.state) self.state = other.state;
-        if (!self.data) self.data = other.data;
-        if (!self.format) self.format = other.format;
-        if (!self.coop) self.coop = other.coop;
-    }
+    install_legacy_dinput();
 }
 void install_xinput() {
     const char* libraries[] = {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll", "xinput1_2.dll"};
@@ -677,6 +715,7 @@ BOOL CALLBACK find_window(HWND hwnd, LPARAM best) {
     if (pid != GetCurrentProcessId() || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER)) return TRUE;
     RECT rect{};
     GetClientRect(hwnd, &rect);
+    if (rect.right - rect.left <= 1 || rect.bottom - rect.top <= 1) return TRUE;
     const long area = (rect.right - rect.left) * (rect.bottom - rect.top);
     auto* result = reinterpret_cast<std::pair<HWND, long>*>(best);
     if (area > result->second) *result = {hwnd, area};
@@ -852,11 +891,19 @@ Json status_json() {
     Json hooks = Json::object();
     hooks["user32"] = o_GetForegroundWindow != nullptr;
     hooks["raw_input"] = o_GetRawInputData != nullptr;
+    hooks["dinput_legacy"] = o_di[2].state != nullptr || o_di[3].state != nullptr;
     hooks["dinput8"] = o_di[0].state != nullptr || o_di[1].state != nullptr;
     int xinput = 0;
     for (auto target : xinput_targets) xinput += target != nullptr;
     hooks["xinput_modules"] = xinput;
     HWND hwnd = g_hwnd.load();
+    char window_class[256]{};
+    GetClassNameA(hwnd, window_class, sizeof(window_class));
+    HWND owner = GetWindow(hwnd, GW_OWNER);
+    DWORD owner_pid = 0;
+    GetWindowThreadProcessId(owner, &owner_pid);
+    char owner_class[256]{};
+    if (owner_pid == GetCurrentProcessId()) GetClassNameA(owner, owner_class, sizeof(owner_class));
     size_t pending = 0;
     {
         std::lock_guard lock(g_lock);
@@ -864,6 +911,9 @@ Json status_json() {
     }
     return {{"schema", "phoenix-input/1"}, {"session", g_session}, {"pid", GetCurrentProcessId()},
             {"tick_ms", GetTickCount64()}, {"hwnd", uint64_t(reinterpret_cast<uintptr_t>(hwnd))},
+            {"window_class", window_class},
+            {"owner_hwnd", owner_pid == GetCurrentProcessId() ? uint64_t(reinterpret_cast<uintptr_t>(owner)) : 0},
+            {"owner_window_class", owner_class},
             {"focus_override", g_focus.load()}, {"real_foreground_is_game", real_foreground_is_game()},
             {"subclassed", g_subclassed != nullptr}, {"pad_connected", g_pad_enabled.load()},
             {"pending_actions", pending}, {"hooks", hooks}, {"last_error", g_last_error},
@@ -965,15 +1015,37 @@ void load_startup_config() {
     }
 }
 void worker() {
-    install_hooks();
     load_startup_config();
+    bool hooks_installed = false;
     ULONGLONG next_poll = 0, next_status = 0, next_scan = 0;
     while (!g_stop.load()) {
         const ULONGLONG now = GetTickCount64();
+        // Adapter probes may unload ReShade before any game swapchain exists.
+        // Do not load DirectInput or suspend threads for MinHook during that
+        // temporary device lifetime; normal unload must be able to join us.
+        // Hot-loading after swapchain creation has no future init event. A
+        // visible, non-probe game window is also a valid discovery signal.
+        if (!hooks_installed && now >= next_scan) ensure_window();
+        if (!hooks_installed && g_hwnd.load() && IsWindow(g_hwnd.load())) {
+            install_hooks();
+            hooks_installed = true;
+        }
         if (now >= next_scan) {
             next_scan = now + 1000;
-            ensure_window();
-            install_xinput();
+            if (hooks_installed) {
+                ensure_window();
+                install_xinput();
+                // Some Glide/legacy games load dinput.dll only after their
+                // graphics wrapper has initialized. The initial scan can miss
+                // it, leaving all subsequent scripted keyboard states unused.
+                if (!o_di[2].state || !o_di[3].state) {
+                    g_batch_install = true;
+                    install_legacy_dinput();
+                    g_batch_install = false;
+                    if (MH_ApplyQueued() != MH_OK)
+                        g_last_error = "Late DirectInput hook activation failed";
+                }
+            }
         }
         if (now >= next_poll) { next_poll = now + 20; poll_mailbox(); }
         run_due();
@@ -987,13 +1059,28 @@ void worker() {
 
 void on_init_swapchain(reshade::api::swapchain* swapchain, bool) {
     if (!swapchain) return;
+    // Legacy translators create a 1x1 adapter-probe swapchain and unload
+    // ReShade immediately afterward. Starting DirectInput hook discovery on
+    // that temporary window races unload and can spoof a probe as the game.
+    const auto back_buffer = swapchain->get_back_buffer(0);
+    if (back_buffer.handle) {
+        const auto description = swapchain->get_device()->get_resource_desc(back_buffer);
+        if (description.texture.width <= 1 || description.texture.height <= 1) return;
+    }
     if (auto hwnd = static_cast<HWND>(swapchain->get_hwnd())) g_hwnd = hwnd;
 }
 
 bool g_attached = false;
-bool attach(HMODULE module) {
+void detach(HMODULE module, bool can_join, bool process_exit);
+bool attach(HMODULE module, HMODULE provider = nullptr) {
+#ifndef PHOENIX_INPUT_STANDALONE
+    if (g_attached && provider && provider != reshade::internal::get_reshade_module_handle())
+        detach(module, true, false);
+#endif
     if (g_attached) return true;
-    if (!reshade::register_addon(module)) return false;
+#ifndef PHOENIX_INPUT_STANDALONE
+    if (!reshade::register_addon(module, provider)) return false;
+#endif
     g_attached = true;
     g_module = module;
     wchar_t path[32768]{};
@@ -1005,7 +1092,9 @@ bool attach(HMODULE module) {
     GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
     g_session = std::to_string(GetCurrentProcessId()) + "-" +
                 std::to_string((uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime);
+#ifndef PHOENIX_INPUT_STANDALONE
     reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
+#endif
     g_stop = false;
     // Hooks are installed on the worker, outside the loader lock.
     g_worker = std::thread(worker);
@@ -1030,19 +1119,27 @@ void detach(HMODULE module, bool can_join, bool process_exit) {
         MH_ApplyQueued();
         for (auto target : g_hook_targets) MH_RemoveHook(target);
         g_hook_targets.clear();
+        g_di_originals.clear();
         // MinHook's private heap is not a C++ static: unloading our DLL cannot
         // release it. Balance initialization after the worker has stopped.
         if (g_minhook_owned) { MH_Uninitialize(); g_minhook_owned = false; }
         for (auto module : g_owned_libraries) FreeLibrary(module);
         g_owned_libraries.clear();
     }
+#ifndef PHOENIX_INPUT_STANDALONE
     reshade::unregister_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
     reshade::unregister_addon(module);
+#endif
 }
 } // namespace
 
-extern "C" __declspec(dllexport) bool AddonInit(HMODULE module, HMODULE) { return attach(module); }
-extern "C" __declspec(dllexport) void AddonUninit(HMODULE module, HMODULE) { detach(module, true, false); }
+extern "C" __declspec(dllexport) bool AddonInit(HMODULE module, HMODULE provider) { return attach(module, provider); }
+extern "C" __declspec(dllexport) void AddonUninit(HMODULE module, HMODULE provider) {
+#ifndef PHOENIX_INPUT_STANDALONE
+    if (provider && provider != reshade::internal::get_reshade_module_handle()) return;
+#endif
+    detach(module, true, false);
+}
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(module);

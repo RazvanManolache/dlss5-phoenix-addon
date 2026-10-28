@@ -57,6 +57,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         // The caller first retires the event query issued after capture().
         // D3D9 readback is synchronous, but now reads an already completed
         // snapshot rather than draining the freshly rendered game backbuffer.
+        require(staging && staging->GetType() == D3DRTYPE_SURFACE,
+                "D3D9 readback requires a surface, not a texture interface");
+        D3DSURFACE_DESC description{};
+        hr(staging->GetDesc(&description));
+        require(description.Pool == D3DPOOL_SYSTEMMEM && description.Width == width_ &&
+                    description.Height == height_ && description.MultiSampleType == D3DMULTISAMPLE_NONE,
+                "D3D9 readback requires matching single-sample system-memory storage");
         auto source = surface(captured_.Get());
         hr(device_->GetRenderTargetData(source.Get(), staging));
     }

@@ -50,7 +50,7 @@ class Mailbox {
             write(folder_ / "endpoint.json", {{"schema", "phoenix-control/1"},
                 {"session", session_}, {"pid", GetCurrentProcessId()},
                 {"frontend_controls", {"enabled", "coherent_frames"}},
-                {"operations", {"status", "set", "save", "reset_history", "screenshot", "capture", "validate_model"}}});
+                {"operations", {"status", "set", "save", "reset_history", "screenshot", "screenshot_pair", "capture", "validate_model"}}});
             published_ = true;
         }
         if (!pending_.is_null()) {

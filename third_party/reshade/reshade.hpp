@@ -8,6 +8,7 @@
 #include "reshade_events.hpp"
 #include "reshade_overlay.hpp"
 #include <charconv>
+#include <atomic>
 
 // Current version of the ReShade API
 #define RESHADE_API_VERSION 20
@@ -61,7 +62,12 @@ namespace reshade::internal
 	/// </summary>
 	inline HMODULE get_reshade_module_handle(HMODULE initial_handle = nullptr)
 	{
-		static HMODULE handle = initial_handle;
+		// Phoenix: a pinned addon can outlive a temporary ReShade provider.
+		// AddonInit's explicit provider supersedes module-enumeration fallback.
+		static std::atomic<HMODULE> selected{nullptr};
+		if (initial_handle != nullptr)
+			selected.store(initial_handle);
+		HMODULE handle = selected.load();
 		if (handle == nullptr)
 		{
 			HMODULE modules[1024]; DWORD num = 0;
@@ -76,6 +82,7 @@ namespace reshade::internal
 						GetProcAddress(modules[i], "ReShadeUnregisterAddon"))
 					{
 						handle = modules[i];
+						selected.store(handle);
 						break;
 					}
 				}
@@ -83,6 +90,25 @@ namespace reshade::internal
 		}
 		return handle;
 	}
+
+	// Cache exports per calling thread and provider. Steady-state calls do not
+	// repeat GetProcAddress; rebinding invalidates every wrapper's old target.
+	template <typename Function> struct provider_function
+	{
+		const char *name;
+		HMODULE provider = nullptr;
+		Function target = nullptr;
+		operator Function()
+		{
+			const auto current = get_reshade_module_handle();
+			if (provider != current || target == nullptr)
+			{
+				target = reinterpret_cast<Function>(GetProcAddress(current, name));
+				provider = current;
+			}
+			return target;
+		}
+	};
 
 	/// <summary>
 	/// Gets the handle to the current add-on module.
@@ -134,8 +160,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 			ReShadeLogMessage(nullptr, static_cast<int>(level), message);
 #else
-			static const auto func = reinterpret_cast<void(*)(void *, int, const char *)>(
-				GetProcAddress(internal::get_reshade_module_handle(), "ReShadeLogMessage"));
+			static thread_local internal::provider_function<void(*)(void *, int, const char *)> func{"ReShadeLogMessage"};
 			func(internal::get_current_module_handle(), static_cast<int>(level), message);
 #endif
 		}
@@ -152,8 +177,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeGetBasePath(path, path_size);
 #else
-		static const auto func = reinterpret_cast<bool(*)(char *, size_t *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeGetBasePath"));
+		static thread_local internal::provider_function<bool(*)(char *, size_t *)> func{"ReShadeGetBasePath"};
 		func(path, path_size);
 #endif
 	}
@@ -173,8 +197,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		return ReShadeGetConfigValue(nullptr, runtime, section, key, value, value_size);
 #else
-		static const auto func = reinterpret_cast<bool(*)(void *, api::effect_runtime *, const char *, const char *, char *, size_t *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeGetConfigValue"));
+		static thread_local internal::provider_function<bool(*)(void *, api::effect_runtime *, const char *, const char *, char *, size_t *)> func{"ReShadeGetConfigValue"};
 		return func(internal::get_current_module_handle(), runtime, section, key, value, value_size);
 #endif
 	}
@@ -211,8 +234,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeSetConfigValue(nullptr, runtime, section, key, value);
 #else
-		static const auto func = reinterpret_cast<void(*)(void *, api::effect_runtime *, const char *, const char *, const char *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeSetConfigValue"));
+		static thread_local internal::provider_function<void(*)(void *, api::effect_runtime *, const char *, const char *, const char *)> func{"ReShadeSetConfigValue"};
 		func(internal::get_current_module_handle(), runtime, section, key, value);
 #endif
 	}
@@ -235,8 +257,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeSetConfigArray(nullptr, runtime, section, key, value, value_size);
 #else
-		static const auto func = reinterpret_cast<void(*)(void *, api::effect_runtime *, const char *, const char *, const char *, size_t)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeSetConfigArray"));
+		static thread_local internal::provider_function<void(*)(void *, api::effect_runtime *, const char *, const char *, const char *, size_t)> func{"ReShadeSetConfigArray"};
 		func(internal::get_current_module_handle(), runtime, section, key, value, value_size);
 #endif
 	}
@@ -311,8 +332,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeRegisterEvent(ev, reinterpret_cast<void *>(callback));
 #else
-		static const auto func = reinterpret_cast<void(*)(addon_event, void *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeRegisterEvent"));
+		static thread_local internal::provider_function<void(*)(addon_event, void *)> func{"ReShadeRegisterEvent"};
 		if (func != nullptr)
 			func(ev, reinterpret_cast<void *>(callback));
 #endif
@@ -328,8 +348,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeUnregisterEvent(ev, reinterpret_cast<void *>(callback));
 #else
-		static const auto func = reinterpret_cast<void(*)(addon_event, void *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeUnregisterEvent"));
+		static thread_local internal::provider_function<void(*)(addon_event, void *)> func{"ReShadeUnregisterEvent"};
 		if (func != nullptr)
 			func(ev, reinterpret_cast<void *>(callback));
 #endif
@@ -346,8 +365,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeRegisterOverlay(title, callback);
 #else
-		static const auto func = reinterpret_cast<void(*)(const char *, void(*)(api::effect_runtime *))>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeRegisterOverlay"));
+		static thread_local internal::provider_function<void(*)(const char *, void(*)(api::effect_runtime *))> func{"ReShadeRegisterOverlay"};
 		if (func != nullptr)
 			func(title, callback);
 #endif
@@ -362,8 +380,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeUnregisterOverlay(title, callback);
 #else
-		static const auto func = reinterpret_cast<void(*)(const char *, void(*)(api::effect_runtime *))>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeUnregisterOverlay"));
+		static thread_local internal::provider_function<void(*)(const char *, void(*)(api::effect_runtime *))> func{"ReShadeUnregisterOverlay"};
 		if (func != nullptr)
 			func(title, callback);
 #endif
@@ -384,8 +401,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		return ReShadeCreateEffectRuntime(api, device, command_queue, swapchain, config_path, out_runtime);
 #else
-		static const auto func = reinterpret_cast<bool(*)(reshade::api::device_api, void *, void *, void *, const char *, reshade::api::effect_runtime **)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeCreateEffectRuntime"));
+		static thread_local internal::provider_function<bool(*)(reshade::api::device_api, void *, void *, void *, const char *, reshade::api::effect_runtime **)> func{"ReShadeCreateEffectRuntime"};
 		if (func == nullptr)
 		{
 			*out_runtime = nullptr;
@@ -403,8 +419,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeDestroyEffectRuntime(runtime);
 #else
-		static const auto func = reinterpret_cast<void(*)(reshade::api::effect_runtime *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeDestroyEffectRuntime"));
+		static thread_local internal::provider_function<void(*)(reshade::api::effect_runtime *)> func{"ReShadeDestroyEffectRuntime"};
 		if (func != nullptr)
 			func(runtime);
 #endif
@@ -418,8 +433,7 @@ namespace reshade
 #if defined(RESHADE_API_LIBRARY)
 		ReShadeUpdateAndPresentEffectRuntime(runtime);
 #else
-		static const auto func = reinterpret_cast<void(*)(reshade::api::effect_runtime *)>(
-			GetProcAddress(internal::get_reshade_module_handle(), "ReShadeUpdateAndPresentEffectRuntime"));
+		static thread_local internal::provider_function<void(*)(reshade::api::effect_runtime *)> func{"ReShadeUpdateAndPresentEffectRuntime"};
 		if (func != nullptr)
 			func(runtime);
 #endif

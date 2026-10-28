@@ -28,6 +28,12 @@ int main() {
               format::b8g8r8a8_typeless, format::r8g8b8a8_unorm_srgb}) {
             canvas.texture.format = pixel_format;
             const auto layout = screenshot_layout(api, canvas);
+            const auto staging = screenshot_readback_description(api, canvas);
+            check(staging.heap == memory_heap::readback &&
+                  staging.usage == resource_usage::copy_dest);
+            check(staging.type == (layout.buffers ? resource_type::buffer :
+                                  api == device_api::d3d9 ? resource_type::surface :
+                                  resource_type::texture_2d));
             check(layout.width == 257 && layout.height == 193);
             check(layout.row_pitch == (api == device_api::d3d12 ? 1280u : 1028u));
             check(layout.flip_rows == (api == device_api::opengl));
@@ -35,7 +41,12 @@ int main() {
                                   pixel_format == format::b8g8r8x8_unorm ||
                                   pixel_format == format::b8g8r8a8_typeless));
         }
-        for (auto unsupported : {format::r16g16b16a16_float, format::r10g10b10a2_unorm,
+        for (auto packed : {format::r10g10b10a2_unorm, format::r10g10b10a2_typeless}) {
+            canvas.texture.format = packed;
+            if (supports_rgb10_readback(api)) check(screenshot_layout(api, canvas).rgb10);
+            else refused([&] { screenshot_layout(api, canvas); });
+        }
+        for (auto unsupported : {format::r16g16b16a16_float,
                                  format::r8_unorm, format::unknown}) {
             canvas.texture.format = unsupported;
             refused([&] { screenshot_layout(api, canvas); });
@@ -48,6 +59,9 @@ int main() {
         canvas.texture.samples = uint16_t(samples);
         const auto layout = screenshot_layout(device_api::d3d9, canvas);
         check(layout.width == 257 && layout.height == 193 && !layout.buffers);
+        const auto staging = screenshot_readback_description(device_api::d3d9, canvas);
+        check(staging.type == resource_type::surface && staging.texture.samples == 1 &&
+              staging.texture.width == 257 && staging.texture.height == 193);
     }
     canvas.texture.samples = 1;
     canvas.texture.width = 0;

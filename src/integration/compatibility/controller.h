@@ -776,6 +776,10 @@ inline void poll_control(reshade::api::effect_runtime* runtime, Session& value) 
                     value.validator.validate(source, {}, module);
                     return "queued";
                 }
+                if (command.op == "screenshot_pair") {
+                    require(send_action(value, phoenix_ui::Action::SaveScreenshotPair), value.ui_error.c_str());
+                    return "queued";
+                }
                 if (command.op == "screenshot") {
                     require(value.screenshot_pending.empty(), "A game screenshot is already queued");
                     fs::create_directories(value.output_directory);
