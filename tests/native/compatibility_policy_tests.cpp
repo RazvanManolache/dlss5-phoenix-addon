@@ -119,6 +119,14 @@ int main() {
         std::swap(draft.source_a, draft.source_b);
         verify(phoenix_compat::apply_live_selection(applied, draft));
         verify(applied.source_a == 2 && applied.source_b == 0);
+        auto hud=applied;
+        hud.comparison_labels=!applied.comparison_labels;
+        verify(phoenix_compat::hud_only_change(applied,hud));
+        verify(!phoenix_compat::helper_settings_changed(applied,hud));
+        hud.model_id="small-fp8";
+        if(hud.model_id==applied.model_id)hud.model_id="original";
+        verify(!phoenix_compat::hud_only_change(applied,hud));
+        verify(phoenix_compat::helper_settings_changed(applied,hud));
         auto pending = draft;
         applied.controls.tone = .7f;
         phoenix_compat::merge_settings_patch(pending, applied, {});

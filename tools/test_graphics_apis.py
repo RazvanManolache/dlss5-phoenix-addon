@@ -13,6 +13,17 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def copy_case_configuration(source, directory):
+    """Keep each cloned fixture's in-place approval tied to its own folder."""
+    destination = directory / source.name
+    if source.name == 'Phoenix.json':
+        settings = json.loads(source.read_text(encoding='utf-8-sig'))
+        settings['sandbox'] = settings['in_place_game_directory'] = str(directory.resolve())
+        destination.write_text(json.dumps(settings))
+    else:
+        destination.write_bytes(source.read_bytes())
+
+
 def report_exit_code(report):
     """A written failure receipt must also fail shell/CI callers."""
     return 0 if report.get('passed') is True else 1
@@ -152,7 +163,7 @@ def main():
                         if file.suffix in ('.exe', '.dll', '.addon32', '.addon64'):
                             os.link(file, moving / file.name)
                         elif file.name in ('Phoenix.json', 'ReShade.ini', 'VkLayer_phoenix_test.json'):
-                            (moving / file.name).write_bytes(file.read_bytes())
+                            copy_case_configuration(file, moving)
                     moving_env = environment.copy()
                     if api == 'vulkan':
                         moving_env['VK_LAYER_PATH'] = str(moving)
@@ -182,7 +193,7 @@ def main():
                         if file.suffix in ('.exe', '.dll', '.addon32', '.addon64'):
                             os.link(file, folder / file.name)
                         elif file.name in ('Phoenix.json', 'ReShade.ini', 'VkLayer_phoenix_test.json'):
-                            (folder / file.name).write_bytes(file.read_bytes())
+                            copy_case_configuration(file, folder)
                     extra_env = environment.copy()
                     if api == 'vulkan': extra_env['VK_LAYER_PATH'] = str(folder)
                     result = subprocess.run([str(folder / f'api{bits}.exe'), api, '--' + extra],

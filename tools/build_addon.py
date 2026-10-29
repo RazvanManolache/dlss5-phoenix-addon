@@ -114,10 +114,11 @@ def main():
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
                       ("resolution_bridge_tests", "resolution_bridge_tests.cpp"),
-                      ("paired_screenshot_tests", "paired_screenshot_tests.cpp")]
+                      ("paired_screenshot_tests", "paired_screenshot_tests.cpp"),
+                      ("completed_presentation_tests", "completed_presentation_tests.cpp")]
     if args.test_set == "model-switch":
         selected_tests = {"session_tests", "feeder_api_tests", "memory_tests", "direct_tests",
-                          "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests"}
+                          "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests", "observer_tests"}
         tests = [test for test in tests if test[0] in selected_tests]
     embedded_report = None
     resource = ""

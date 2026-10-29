@@ -63,7 +63,7 @@ inline bool normalize_capabilities(Settings& settings) {
 }
 inline bool helper_settings_changed(const Settings& previous, const Settings& desired) {
     auto before = settings_json(previous), after = settings_json(desired);
-    for (const auto* key : {"Split", "ComparisonView", "ScreenshotRequest", "CaptureBurst"}) {
+    for (const auto* key : {"Split", "ComparisonView", "ScreenshotRequest", "CaptureBurst", "ComparisonLabels", "ComparisonLines"}) {
         before.erase(key);
         after.erase(key);
     }
@@ -72,6 +72,16 @@ inline bool helper_settings_changed(const Settings& previous, const Settings& de
         before.erase(key); after.erase(key);
     });
     return before != after;
+}
+inline bool hud_only_change(const Settings& previous, const Settings& desired) {
+    auto before = settings_json(previous), after = settings_json(desired);
+    if (before == after) return false;
+    // Overlay decoration never changes the image consumed by the runner.
+    for (const auto* key : {"ComparisonLabels", "ComparisonLines"}) {
+        before.erase(key);
+        after.erase(key);
+    }
+    return before == after;
 }
 inline bool portable_view_only(const Settings& previous,const Settings& desired){
     auto before=settings_json(previous),after=settings_json(desired);

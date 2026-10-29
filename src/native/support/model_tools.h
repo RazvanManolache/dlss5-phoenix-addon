@@ -9,6 +9,7 @@
 #include "embedded_runtime.h"
 #include "../model/resource_identity.h"
 #include "../model/dll_search.h"
+#include "../model/model_library.h"
 #include "../../../native_runtime/broker_client.h"
 
 namespace phoenix_model_tools {
@@ -111,6 +112,23 @@ inline phoenix_model::WeightSource selection(const std::string& kind, const std:
 template <class Settings>
 inline phoenix_model::WeightSource selection(const Settings& settings,
                                              const phoenix_model::WeightSource& configured) {
+    if (settings.model_source == "configured" && configured.disk_model() &&
+        !settings.model_id.empty() && settings.model_id != configured.model_id) {
+        // A folder contains one architecture, unlike a DLL that may contain
+        // both. Resolve a family change through the authenticated library;
+        // changing only the ID would reinterpret Original weights as FP8.
+        const auto entries = phoenix_model::discover_models(
+            std::filesystem::u8path(settings.model_library_directory));
+        const phoenix_model::InstalledModel* selected = nullptr;
+        for (const auto& entry : entries) {
+            if (entry.model_id != settings.model_id) continue;
+            if (selected) throw std::runtime_error("Several installed models match this family; choose a model folder explicitly");
+            selected = &entry;
+        }
+        if (!selected) throw std::runtime_error("Selected model family is not installed in the configured model library");
+        return phoenix_model::WeightSource::config({{"kind", "model_folder"},
+            {"path", phoenix_model::source_path_string(selected->folder)}, {"model", selected->model_id}});
+    }
     return selection(settings.model_source, settings.model_folder, settings.model_dll,
                      configured, settings.model_id, settings.nvidia_dll_folder);
 }

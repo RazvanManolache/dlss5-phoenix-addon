@@ -1261,6 +1261,23 @@ inline bool current_provider_resource(ID3D12GraphicsCommandList* cmd, ID3D12Reso
     return resource_state_entry != observer_state.commands.end() &&
            current_provider_resource(resource_state_entry->second, resource);
 }
+// A submission-boundary snapshot runs before the entire provider list. It is
+// eligible only if neither input was transitioned/aliased earlier in that
+// list before Evaluate. Read-only entry states are checked at submission too.
+inline bool inputs_precede_recording(ID3D12GraphicsCommandList* cmd,
+                                     ID3D12Resource* motion, ID3D12Resource* depth) {
+    auto& source = observer();
+    std::lock_guard<std::recursive_mutex> lock(source.mutex);
+    const auto found = source.commands.find(cmd);
+    if (found == source.commands.end()) return false;
+    const auto& recording = found->second;
+    if (!recording.epoch_known || recording.closed || recording.unsupported ||
+        recording.render_pass || recording.predicated || recording.aliasing_barriers) return false;
+    for (auto* input : {motion,depth})
+        if (!input || recording.states.count(input) || recording.depth_plane_states.count(input) ||
+            recording.discarded_states.count(input) || recording.deactivated.count(input)) return false;
+    return true;
+}
 inline std::string command_refusal_detail(ID3D12GraphicsCommandList* cmd) {
     auto& observer_state = observer();
     std::lock_guard<std::recursive_mutex> lock(observer_state.mutex);
@@ -1274,6 +1291,18 @@ inline std::string command_refusal_detail(ID3D12GraphicsCommandList* cmd) {
            " pass=" + std::to_string(command.render_pass) +
            " predicated=" + std::to_string(command.predicated) +
            " closed=" + std::to_string(command.closed);
+}
+inline std::shared_ptr<Bindings> snapshot_bindings(ID3D12GraphicsCommandList* cmd) {
+    auto& source = observer();
+    std::lock_guard<std::recursive_mutex> lock(source.mutex);
+    const auto found = source.commands.find(cmd);
+    check(found != source.commands.end(), "phoenix command not observed from creation/reset");
+    const auto& command = found->second;
+    check(command.epoch_known && !command.unsupported && !command.render_pass &&
+              !command.predicated && !command.closed && command.bindings.heaps_known,
+          "phoenix unknown/unsupported command bindings or barrier path");
+    return std::allocate_shared<Bindings>(
+        host_memory::Allocator<Bindings, host_memory::Tag::snapshots>{}, command.bindings);
 }
 inline std::shared_ptr<Bindings> resolve(ID3D12GraphicsCommandList* cmd,
                                          const NVSDK_NGX_Parameter* params, FrameEvidence& frame,
@@ -1303,8 +1332,7 @@ inline std::shared_ptr<Bindings> resolve(ID3D12GraphicsCommandList* cmd,
         require_output ? state("DLSSNR.Output", false) : D3D12_RESOURCE_STATE_COMMON;
     frame.states_verified = true;
     frame.output_state_verified = require_output;
-    auto snapshot = std::allocate_shared<Bindings>(
-        host_memory::Allocator<Bindings, host_memory::Tag::snapshots>{}, command.bindings);
+    auto snapshot = snapshot_bindings(cmd);
     frame.restore_bindings = [](void* context, ID3D12GraphicsCommandList* command) {
         static_cast<Bindings*>(context)->restore(command);
     };

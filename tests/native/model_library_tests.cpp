@@ -1,5 +1,6 @@
 #include "../../src/native/model/model_library.h"
 #include "../../src/native/support/routing.h"
+#include "../../src/native/support/model_tools.h"
 #include <iostream>
 
 using namespace phoenix_model;
@@ -31,6 +32,27 @@ int main(int argc, char** argv) {
         };
         expect(discover_models(root).empty());
         publish(entry); expect(discover_models(root).size() == 1);
+        {
+            // Switching the family of a configured one-model folder must
+            // select the matching library folder, never relabel its weights.
+            auto configured = WeightSource::config({{"kind", "model_folder"},
+                {"path", source_path_string(folder)}, {"model", "small-fp8"}});
+            phoenix_addon::phoenix::Settings requested;
+            requested.model_source = "configured";
+            requested.model_id = "original";
+            requested.model_library_directory = source_path_string(root);
+            const auto selected = phoenix_model_tools::selection(requested, configured);
+            expect(selected.folder == folder && selected.model_id == "original");
+            requested.model_id = "small-fp8";
+            const auto unchanged = phoenix_model_tools::selection(requested, configured);
+            expect(unchanged.folder == configured.folder && unchanged.model_id == configured.model_id);
+            requested.model_id = "original";
+            requested.model_library_directory = source_path_string(root / "missing");
+            bool refused = false;
+            try { phoenix_model_tools::selection(requested, configured); } catch(const std::exception&) {refused=true;}
+            expect(refused);
+            expect(configured.model_id == "small-fp8" && configured.folder == folder);
+        }
         auto broken = entry; broken["manifest"] = "../model.json"; publish(broken);
         expect(discover_models(root).empty());
         broken = entry; broken["model"] = "onnx-fp16"; publish(broken);

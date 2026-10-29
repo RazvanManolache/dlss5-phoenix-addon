@@ -679,6 +679,20 @@ static void ledger_tests() {
     check(answer.known && answer.state == 0x800 && answer.basis == Basis::submitted_transition,
           "a submitted transition on the same queue is ordered before this recording");
     ++cases;
+    ledger.transition(list_b,output,0x40);
+    check(!ledger.state(output,list_a,queue).known &&
+              ledger.at_submission_boundary(output,queue).known &&
+              ledger.at_submission_boundary(output,queue).state==0x800,
+          "serialized submission boundary ignores future recordings without using their planned states");
+    ++cases;
+    check(!ledger.at_submission_boundary(output,other_queue).known &&
+              !ledger.at_submission_boundary(0xdead,queue).known,
+          "submission boundary still refuses foreign queues and unknown resources");
+    ++cases;
+    ledger.submitted(list_b,queue);
+    check(ledger.at_submission_boundary(output,queue).state==0x40,
+          "the actual submitted prefix updates the boundary state");
+    ++cases;
     check(!ledger.state(output, list_a, other_queue).known,
           "a transition submitted on another queue is not ordered against this one");
     ++cases;

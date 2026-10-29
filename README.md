@@ -85,13 +85,17 @@ hook. [Processing-chain guide](docs/PROCESSING_CHAIN.md) explains what runs
 where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 [Download addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/latest) ·
-[Installation and package choice](docs/RELEASE_0.18.md) · [Controls](#a-quick-look) ·
+[Installation and package choice](docs/RELEASE_0.19.md) · [Controls](#a-quick-look) ·
 [Why I'm making this](#why-im-making-this) · [Support and limits](docs/SUPPORT.md)
 
-Final-package checks cover CPU/software rendering, with three targeted live
-fallback checks on the standard x86 candidate. The performance studies below
-retain their original dates and build identities; they are not fresh benchmarks
-of this download. [Validation scope](docs/VALIDATION_0.18.md).
+**New in 0.19:** steadier D3D12 presentation, safer engine-motion snapshots,
+Original/Lightweight disk-model switching, and an always-visible **Show on-screen
+labels** toggle under Play → Compare. Your game can keep its name tag to itself.
+
+Final-package checks cover both addon architectures, CPU/software rendering and
+the shared UI. Earlier targeted Bodycam checks cover both models with engine-motion
+selection and optical-flow fallback. The performance studies below retain their
+original dates and build identities; they are not fresh benchmarks of this download. [Validation scope](docs/VALIDATION_0.19.md).
 
 <details>
 <summary>RTX generations, compatibility DLLs and validation limits</summary>
@@ -134,7 +138,7 @@ comparisons at 320×180 and 1080p, plus 22 CPU and two software graphics suites.
 1080p GPU times remain about **3.83 ms Original / 2.26 ms Lightweight**.
 [Package build instructions and receipt](docs/NATIVE_ARCHITECTURES.md#packaged-addon-verification).
 Those retained development timings are not measurements of every packaged route.
-Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.18.md)
+Older RTX cards still need physical-device tests; [package validation](docs/VALIDATION_0.19.md)
 separates the fresh package checks from earlier measurements.
 
 </details>
@@ -177,7 +181,7 @@ Small timing margins vary between tests. Some higher-resolution cases have large
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
-[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.18.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
+[Feature guide](docs/NEURAL_CONTROLS.md) · [Installation](docs/RELEASE_0.19.md) · [Native correctness](docs/NATIVE_CORRECTNESS_0.82.md)
 
 
 

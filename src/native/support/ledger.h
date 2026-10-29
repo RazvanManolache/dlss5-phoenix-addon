@@ -148,6 +148,21 @@ class Ledger {
             return {true, entry->second.created_state, Basis::creation};
         return answer;
     }
+    // Only at a serialized Execute boundary: all earlier chunks have actually
+    // been submitted and the caller enqueues its copy before releasing the
+    // submission lock. Other OPEN recordings cannot run ahead of that copy.
+    // Never use their planned states here; only committed same-queue state is
+    // evidence of the state at this boundary. state() keeps its stricter rule.
+    Answer at_submission_boundary(uint64_t resource, uint64_t queue) const {
+        const auto found = resources_.find(resource);
+        if (found == resources_.end()) return {};
+        const auto& entry = found->second;
+        if (entry.committed && entry.committed_queue == queue)
+            return {true, entry.committed_state, Basis::submitted_transition};
+        if (!entry.committed && entry.created && entry.transitions == 0)
+            return {true, entry.created_state, Basis::creation};
+        return {};
+    }
     // Read-only refusal evidence: names WHY state() answers unknown for a
     // resource, so a live refusal carries the disambiguation instead of
     // needing a follow-up run. No mutation, no inference.

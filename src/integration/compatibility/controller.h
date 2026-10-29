@@ -50,6 +50,7 @@ struct Session {
     uint64_t switches = 0;
     uint64_t selection_revision = 1, presented_revision = 0;
     uint64_t local_composed_frame = 0;
+    uint64_t local_composed_at_frame = 0;
     bool displayed = false;
     bool timing_clear_pending = false;
     uint64_t timing_clear_revision = 0, timing_clear_generation = 0, helper_generation = 0;
@@ -65,6 +66,7 @@ struct Session {
     bool enabled = false, restart = false, shared_unavailable = false;
     // Hold complete input/output pairs: never put an old mask over newer motion.
     bool coherent_frames = true;
+    uint64_t presentation_holds = 0, loading_presentations = 0;
     unsigned width = 0, height = 0;
     uint64_t frames = 0;
     uint64_t logged_outputs = 0;
@@ -414,6 +416,7 @@ inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value
     // Live controls update even during a drag. Resource edits wait until the
     // editing gesture ends, rather than rebuilding on every intermediate value.
     const auto previous_selection=value.applied_settings;
+    const bool hud_only=hud_only_change(previous_selection,value.settings);
     bool selection = false;
     if (!ImGui::IsAnyItemActive())
         selection = apply_live_selection(value.applied_settings, value.settings);
@@ -424,12 +427,12 @@ inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value
     const bool tuning = phoenix_addon::phoenix::copy_live_tuning(value.applied_settings, value.settings);
     if (selection || ui.processing_changed || tuning) {
         const bool retry = !value.processing_error.empty();
-        ++value.selection_revision;
+        if(!hud_only)++value.selection_revision;
         value.settings.uplift = value.applied_settings.uplift = true;
         value.processing_error.clear(); value.local_failed = false;
-        if (selection || ui.processing_changed || retry) reset_route_failures(value);
+        if (!hud_only && (selection || ui.processing_changed || retry)) reset_route_failures(value);
         if (!value.portable_failed) value.fallback_reason.clear();
-        value.restart = value.restart || (selection&&!portable_view) || ui.processing_changed || retry;
+        value.restart = value.restart || (selection&&!portable_view&&!hud_only) || ui.processing_changed || retry;
         save(runtime, value, false);
     }
     value.settings_dirty = settings_json(value.settings) != settings_json(value.applied_settings);
@@ -702,6 +705,8 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
     return {{"tick_ms", GetTickCount64()}, {"api", api_name(runtime->get_device()->get_api())},
         {"window_id", uint64_t(reinterpret_cast<uintptr_t>(runtime->get_hwnd()))},
         {"enabled", value.enabled}, {"coherent_frames", value.coherent_frames},
+        {"presentation_gate", {{"held",value.presentation_holds},{"loading",value.loading_presentations},
+            {"policy",value.coherent_frames?"completed_output_or_loading":"experimental_unmatched_output"}}},
         {"history_policy",value.applied_settings.pipeline.motion_enabled?
             "motion_provider_owns_history; unavailable guides reset recurrence":"spatial_reset_no_engine_motion_vectors"},
         {"settings", settings_json(value.settings)}, {"applied_settings", settings_json(value.applied_settings)},
@@ -733,7 +738,7 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
                                          : value.bridge ? value.bridge->transfer_timings()
                                          : value.local ? Json{{"input_frame", value.local_composed_frame},
                                                               {"output_frame", value.local_composed_frame},
-                                                              {"composed_at_frame", value.local_composed_frame},
+                                                              {"composed_at_frame", value.local_composed_at_frame},
                                                               {"width", value.width}, {"height", value.height}}
                                                        : Json::object()},
         {"helper_roundtrip_ms", host && !resident_active(value) ? host->roundtrip() : 0},
@@ -825,8 +830,12 @@ inline void comparison_hud(reshade::api::effect_runtime* runtime) {
     auto found = sessions.find(runtime);
     if (found == sessions.end()) return;
     auto& value = *found->second;
-    if (value.enabled && value.displayed && value.presented_revision == value.selection_revision)
-        phoenix_ui::draw_presentation_hud(value.displayed_settings);
+    if (value.enabled && value.displayed && value.presented_revision == value.selection_revision) {
+        auto presentation=value.displayed_settings;
+        presentation.comparison_labels=value.settings.comparison_labels;
+        presentation.comparison_lines=value.settings.comparison_lines;
+        phoenix_ui::draw_presentation_hud(presentation);
+    }
 }
 // The same Setup tab hosts architecture-specific transport controls.
 inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value) {
@@ -944,8 +953,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
         reshade::set_config_value(runtime, "Phoenix.Compatibility", "CoherentFrames",
                                   value.coherent_frames);
     ImGui::TextWrapped(value.coherent_frames
-                           ? "Hold the completed frame until the next result is ready. Camera "
-                             "movement is delayed by processing time."
+                           ? "Show completed output only. Hold the last result while processing; show a black loading frame before the first result. Camera movement is delayed by processing time."
                            : "Experimental: apply the old model edit to the current image on "
                              "D3D9/D3D11. Moving objects can show through older masks.");
 #ifndef _WIN64
@@ -1195,16 +1203,19 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             if (apply) value.local->reset_history();
             value.restart = false;
             prepare_pair_request(value,value.local.get());
-            const bool composed=value.local->frame(back_resource, value.applied_settings, apply);
+            const bool composed=value.local->frame(back_resource, value.applied_settings, apply, value.coherent_frames);
             update_pair_result(value,value.local->screenshot_pair_status());
             if (composed) {
-                value.local_composed_frame = value.frames;
-                value.presented_revision = value.selection_revision;
-                value.displayed_settings = value.applied_settings;
+                value.local_composed_at_frame = value.frames;
+                if (!value.local->held_last_frame()) {
+                    value.local_composed_frame = value.frames;
+                    value.presented_revision = value.selection_revision;
+                    value.displayed_settings = value.applied_settings;
+                }
                 value.displayed = true;
                 ++value.mode_own[size_t(value.applied_settings.mode)];
-                value.message = decision.reason;
-            } else value.message = "In-process Phoenix DLSS5 waiting for a usable output; game frame preserved.";
+                value.message = value.local->held_last_frame() ? "Holding the last completed Phoenix frame while inference is deferred." : decision.reason;
+            } else value.message = "In-process Phoenix DLSS5 waiting for a usable output.";
             return;
         } catch (const std::exception& error) {
             value.fallback_reason = std::string("In-process initialization/evaluation: ") + error.what();
@@ -1419,7 +1430,34 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
         }
         // Present is independent of ReShade shader loading. Process before its
         // effects and overlay, so neither a dummy shader nor UI filtering is needed.
+        const auto previous_presented = presented(*value);
         process(runtime, commands, back);
+        // All processing exits converge here, including initialization errors,
+        // required-guide refusals and route changes. A skipped inference must
+        // never silently become an unprocessed display frame in coherent mode.
+        const auto& settings = value->applied_settings;
+        const bool processing_requested = value->enabled && value->coherent_frames &&
+            settings.mode != phoenix_addon::phoenix::input &&
+            (!settings.processing.enabled || settings.processing.hook != 0);
+        const bool composed = value->local ? value->local_composed_at_frame == value->frames :
+            presented(*value) > previous_presented;
+        if (processing_requested && !composed && queue->get_device()->get_api() == reshade::api::device_api::d3d12) {
+            bool held = false;
+            if (value->local && value->local->safe_to_fallback() &&
+                value->local->matches(queue->get_device()->get_resource_desc(back)))
+                held = value->local->protect_presentation(back);
+            if (held) {
+                ++value->presentation_holds;
+                value->local_composed_at_frame = value->frames;
+                value->message += " Holding completed output.";
+            } else {
+                CompletedPresentation::record_loading(
+                    reinterpret_cast<ID3D12GraphicsCommandList*>(uintptr_t(commands->get_native())),
+                    reinterpret_cast<ID3D12Resource*>(uintptr_t(back.handle)));
+                ++value->loading_presentations;
+                value->message += " Waiting for processed output; raw game image hidden.";
+            }
+        }
         record_screenshot(runtime, *value, commands, back);
         return;
     }

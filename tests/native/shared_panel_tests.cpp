@@ -473,6 +473,17 @@ int run_tests() {
                 ++master_toggles;
             };
             toggle_master();
+            if (!compact) {
+                // Labels must also be reachable without switching to a split view.
+                require_widget(settings.mode != phoenix_ui::phoenix::split,
+                               "Fullscreen label test must start outside Comparison");
+                const bool labels_before = settings.comparison_labels;
+                expect_selection(click("Show on-screen labels"),
+                                 "Fullscreen labels must report only live selection");
+                require_widget(settings.comparison_labels != labels_before,
+                               "Fullscreen label toggle failed");
+                click("Show on-screen labels");
+            }
             expect_selection(select(backend, "Comparison"), "Comparison must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::split,
                            "Phoenix DLSS5 -> Comparison selection failed");
@@ -507,7 +518,7 @@ int run_tests() {
                 expect_selection(click("Separator lines"), "Separator lines must report live selection");
                 require_widget(settings.comparison_lines != lines_before, "Separator toggle failed");
                 const bool labels_before = settings.comparison_labels;
-                expect_selection(click("Labels"), "Labels must report live selection");
+                expect_selection(click("Show on-screen labels"), "Labels must report live selection");
                 require_widget(settings.comparison_labels != labels_before, "Labels toggle failed");
                 expect_selection(select("View", "Absolute RGB"), "View must report live selection");
                 require_widget(settings.comparison == 2, "Absolute RGB selection failed");

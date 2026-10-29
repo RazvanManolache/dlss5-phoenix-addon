@@ -538,7 +538,6 @@ inline bool draw_comparison_controls(Context& addon_state) {
             changed |= ImGui::SliderFloat(
                 "Difference gain", &addon_state.panel.difference_gain, 1.f, 64.f, "%.1fx",
                 ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-        changed |= ImGui::Checkbox("Labels", &addon_state.panel.comparison_labels);
         if (visible.divider())
             changed |= ImGui::Checkbox("Separator lines", &addon_state.panel.comparison_lines);
         ImGui::EndDisabled();

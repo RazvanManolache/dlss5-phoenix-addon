@@ -247,11 +247,21 @@ int main() {
         observer_state.commands.try_emplace(cmd);
         FrameEvidence frame;
         rejected([&] { obs::resolve(cmd, params, frame); });
+        rejected([&] { obs::snapshot_bindings(cmd); });
         obs::reset(cmd, nullptr, reinterpret_cast<ID3D12PipelineState*>(&pipeline));
         check(obs::permits_ledger_fallback(cmd), "known clean epoch permits ledger lookup");
         ++cases;
         auto* descriptor_heap = reinterpret_cast<ID3D12DescriptorHeap*>(&heap);
         obs::heaps(cmd, 1, &descriptor_heap);
+        {
+            const auto bindings = obs::snapshot_bindings(cmd);
+            check(bindings->heaps_known && observer_state.commands.at(cmd).states.empty(),
+                  "Guide binding snapshot must not require an unwritten SR output state");
+            ++cases;
+        }
+        check(obs::inputs_precede_recording(cmd,parameters.resources.at("DLSSNR.Color"),parameters.resources.at("DLSSNR.Output")),
+              "untouched inputs can be captured before a clean provider list");
+        ++cases;
         obs::signature<0>(cmd, reinterpret_cast<ID3D12RootSignature*>(&signature));
         obs::table<0>(cmd, 3, {12345});
         obs::heaps(cmd, 1, &descriptor_heap);
@@ -276,6 +286,9 @@ int main() {
                                      D3D12_RESOURCE_STATE_COMMON,
                                      D3D12_RESOURCE_STATE_UNORDERED_ACCESS};
         obs::barriers(cmd, 2, transitions);
+        check(!obs::inputs_precede_recording(cmd,parameters.resources.at("DLSSNR.Color"),parameters.resources.at("DLSSNR.Output")),
+              "inputs transitioned inside the provider list cannot be captured at list entry");
+        ++cases;
         auto snapshot = obs::resolve(cmd, params, frame);
         check(frame.states_verified &&
                   frame.color_state == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE &&

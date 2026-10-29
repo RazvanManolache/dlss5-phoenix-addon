@@ -78,6 +78,7 @@ using namespace phoenix_addon;
 static_assert(ngx_shim::kSuperSampling == static_cast<unsigned>(NVSDK_NGX_Feature_SuperSampling),
               "Direct-game SR routing must match the NGX SDK feature ID");
 thread_local unsigned phoenix_ngx_depth = 0;
+thread_local unsigned phoenix_feeder_depth = 0;
 thread_local bool phoenix_render_stage = false, phoenix_present_stage = false;
 thread_local int phoenix_present_encoding = 2;
 using Evaluate = NVSDK_NGX_Result (*)(void*, ID3D12GraphicsCommandList*, const NVSDK_NGX_Handle*,
@@ -232,7 +233,10 @@ struct State {
     std::unique_ptr<phoenix::direct::PresentGuides> present_guides;
     std::unique_ptr<phoenix_compat::D3D12Bridge> present_bridge;
     reshade::api::effect_runtime* present_runtime = nullptr;
+    reshade::api::effect_runtime* guide_runtime = nullptr;
     uint64_t present_serial = 0;
+    uint64_t guide_evaluations = 0, guide_attempts = 0;
+    std::string guide_reason = "No game DLSS evaluation observed";
     std::string direct_status = "Waiting for game DLSS evaluation";
     uint64_t direct_calls = 0, direct_deferred = 0, direct_busy = 0;
     uint64_t direct_status_tick = 0;
@@ -1422,7 +1426,32 @@ void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count,
         snprintf(crumb, sizeof(crumb), "execute: submitting claimed game list batch=%u", count);
         phoenix_crumb(crumb);
     }
-    addon_state.original_execute(queue, count, lists);
+    // A provider can consume inputs prepared by earlier lists in this very
+    // batch. Submit that prefix first, then snapshot read-only guides before
+    // the provider list. The global mutex serializes every observed Execute,
+    // so future recordings cannot overtake the owned snapshot command.
+    const auto submit_chunk=[&](UINT first, UINT end) {
+        if(first==end)return;
+        addon_state.original_execute(queue,end-first,lists+first);
+        for(UINT index=first;index<end;++index)
+            if(lists[index])addon_state.states.submitted(uint64_t(lists[index]),uint64_t(queue));
+    };
+    UINT chunk_start=0;
+    for(UINT index=0;addon_state.present_guides&&index<count;++index) {
+        if(!addon_state.present_guides->pending_before(lists[index]))continue;
+        submit_chunk(chunk_start,index); chunk_start=index;
+        try {
+            const bool captured=addon_state.present_guides->capture_before(queue,lists[index],
+                [&](ID3D12Resource* resource) {
+                    return addon_state.states.at_submission_boundary(uint64_t(resource),uint64_t(queue));
+                },addon_state.original_execute);
+            addon_state.guide_reason=captured?"Game motion/depth captured at the proven submission boundary":
+                addon_state.present_guides->status().value("submission_status",std::string());
+        } catch(const std::exception& e) {
+            addon_state.guide_reason=std::string("Submission guide capture refused: ")+e.what();
+        }
+    }
+    submit_chunk(chunk_start,count);
     try { if (addon_state.present_guides) addon_state.present_guides->submitted(queue,count,lists); }
     catch(const std::exception& e) {addon_state.terminal=true;error(e.what());return;}
     if (direct_batch && addon_state.panel.log_level == 2) {
@@ -1451,9 +1480,6 @@ void STDMETHODCALLTYPE execute(ID3D12CommandQueue* queue, UINT count,
         error(feature_entry.what());
         return;
     }
-    for (UINT iteration_index = 0; iteration_index < count; ++iteration_index)
-        if (lists[iteration_index])
-            addon_state.states.submitted(uint64_t(lists[iteration_index]), uint64_t(queue));
     if (!matches)
         return;
     try {
@@ -1700,12 +1726,19 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
     try {
         std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
         const auto* obs = feature ? addon_state.ngx_observed.find(native_feature_key(feature)) : nullptr;
+        if (phoenix_feeder_depth == 0 && phoenix_ngx_depth == 1 && addon_state.direct_game &&
+            obs && ngx_shim::is_direct_game_feature(obs->feature_id) &&
+            addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3)
+            capture_present_guides(cmd, params);
         if (phoenix_ngx_depth == 1 && addon_state.direct_game && !addon_state.direct_feeder &&
             obs && ngx_shim::is_direct_game_feature(obs->feature_id) &&
             addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 1) {
             struct RenderScope { RenderScope(){phoenix_render_stage=true;} ~RenderScope(){phoenix_render_stage=false;} } scope;
             direct_game_frame(cmd, feature, params);
         }
+    } catch (const std::exception& e) {
+        std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+        addon_state.guide_reason = std::string("Guide capture refused: ") + e.what();
     } catch (...) {}
     const auto result = next(cmd, feature, params, progress_callback);
     try {
@@ -1722,11 +1755,21 @@ NVSDK_NGX_Result NVSDK_CONV ngx_export_evaluate(ID3D12GraphicsCommandList* cmd,
         if (feature) {
             std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
             const auto* obs = addon_state.ngx_observed.find(native_feature_key(feature));
-            if (addon_state.direct_game && !addon_state.direct_feeder && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
+            if (phoenix_feeder_depth == 0 && phoenix_ngx_depth == 1) {
+                ++addon_state.guide_evaluations;
+                if (!obs) addon_state.guide_reason = "Game feature handle was not observed at creation";
+            }
+            if (addon_state.direct_game && phoenix_feeder_depth == 0 && phoenix_ngx_depth == 1 && NVSDK_NGX_SUCCEED(result) &&
                 obs && ngx_shim::is_direct_game_feature(obs->feature_id)) {
-                if (addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3)
-                    capture_present_guides(cmd, params);
-                else if (!addon_state.panel.processing.enabled || addon_state.panel.processing.hook == 2)
+                // Final-frame processing still needs the game's same-frame
+                // motion/depth. Observe these without processing engine color
+                // twice or treating our own feeder evaluation as game input.
+                if (addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3) {
+                    if (addon_state.present_guides && addon_state.present_guides->confirm(
+                            resolve_native_list(cmd), addon_state.present_serial))
+                        addon_state.guide_reason = "Game guide inputs confirmed; awaiting submission proof";
+                }
+                else if (!addon_state.direct_feeder && (!addon_state.panel.processing.enabled || addon_state.panel.processing.hook == 2))
                     direct_game_frame(cmd, feature, params);
                 if (addon_state.panel.mode == phoenix::nvidia)
                     phoenix_crumb("nr-frame: evaluate returned to game");
@@ -3526,39 +3569,92 @@ static std::string phoenix_describe(ID3D12Resource* resource, D3D12_RESOURCE_STA
 }
 void capture_present_guides(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Parameter* params) {
     auto& value=state();
+    ++value.guide_attempts;
     if(!params || value.panel.processing.reuse_guides==0)return;
     auto* cmd=resolve_native_list(supplied);auto* queue=resolve_queue(cmd);
     auto* motion=parameter_resource(params,NVSDK_NGX_Parameter_MotionVectors);
     auto* depth=parameter_resource(params,NVSDK_NGX_Parameter_Depth);
     auto* output=parameter_resource(params,NVSDK_NGX_Parameter_Output);
     D3D12_RESOURCE_STATES ms{},ds{};
-    if(!output||!motion||!depth||!observation::epoch_state(cmd,motion,ms)||
-       !observation::epoch_state(cmd,depth,ds))return;
-    phoenix::direct::Resources resources(output,motion);
-    FrameEvidence proof;
-    proof.queue=queue;
-    proof.binding_lease=observation::resolve(cmd,&resources,proof,false);
-    struct RestoreBindings {
-        FrameEvidence& proof;
-        ID3D12GraphicsCommandList* command;
-        ~RestoreBindings() {
-            if(proof.restore_bindings)proof.restore_bindings(proof.restore_context,command);
+    if(!output||!motion||!depth) {
+        value.guide_reason = "Game DLSS evaluation has no complete color/motion/depth inputs";
+        return;
+    }
+    // Engines may transition the inputs on an earlier list and evaluate DLSS
+    // on a separate list. Use the existing queue-ordered ledger in that case,
+    // not a guessed SRV state. Confirmation below proves this frame's usage.
+    const auto input_state = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES& result) {
+        if (observation::epoch_state(cmd,resource,result)) return true;
+        if (!observation::permits_ledger_fallback(cmd) || !observation::aliasing_permits(cmd,resource)) return false;
+        const auto answer=value.states.state(uint64_t(resource),uint64_t(cmd),uint64_t(queue));
+        if (!answer.known) return false;
+        result=D3D12_RESOURCE_STATES(answer.state);
+        return true;
+    };
+    const bool motion_known=input_state(motion,ms);
+    const bool depth_known=input_state(depth,ds);
+    const bool motion_only=value.panel.mode==phoenix::ours && value.panel.execution_device=="native" &&
+        value.panel.processing.reuse_guides!=2 && value.panel.upscaler==0 && !value.panel.pipeline.chain_enabled;
+    const auto depth_format=depth->GetDesc().Format;
+    const bool scalar_depth=depth_format==DXGI_FORMAT_R32_FLOAT || depth_format==DXGI_FORMAT_R32_TYPELESS || depth_format==DXGI_FORMAT_D32_FLOAT;
+    if(!motion_known||((!depth_known||!scalar_depth)&&!motion_only)) {
+        if(observation::inputs_precede_recording(cmd,motion,depth)) {
+            if(value.present_guides&&!value.present_guides->owner(queue)) {
+                if(!value.present_guides->idle())return;
+                value.present_guides.reset();
+            }
+            if(!value.present_guides) {
+                const auto allocation=resolve_allocation_device(queue,motion);
+                check(allocation.resolved,"Cannot allocate unwrapped submission guide objects");
+                value.present_guides=std::make_unique<phoenix::direct::PresentGuides>(allocation.device.Get(),queue);
+            }
+            float sx=1,sy=1;unsigned flags=0;
+            params->Get("MV.Scale.X",&sx);params->Get("MV.Scale.Y",&sy);
+            params->Get("DLSS.Feature.Create.Flags",&flags);
+            const auto extent=output->GetDesc();
+            if(value.present_guides->stage(cmd,motion,depth,unsigned(extent.Width),extent.Height,
+                    value.present_serial,sx,sy,(flags&8)!=0,motion_only)) {
+                value.guide_reason="Guide detection deferred to ordered command submission";
+                return;
+            }
         }
-    } restore{proof,cmd};
+        value.guide_reason = "Game input states: motion=" + std::string(motion_known?"observed":"unknown") +
+            " depth=" + (depth_known?"observed":"unknown") + " " + observation::command_refusal_detail(cmd) +
+            " " + observation::aliasing_detail(cmd,motion);
+        for (auto* resource : {motion,depth}) {
+            const auto explanation=value.states.explain(uint64_t(resource),uint64_t(cmd),uint64_t(queue));
+            value.guide_reason += " ledger(tracked=" + std::to_string(explanation.tracked) +
+                " own=" + std::to_string(explanation.open_in_this_list) +
+                " others=" + std::to_string(explanation.other_open_recordings) +
+                " queue=" + std::to_string(explanation.committed_queue_matches) + ")";
+        }
+        return;
+    }
+    if (!depth_known || !scalar_depth) depth=nullptr;
+    // Guide copies touch only motion/depth. The SR output is still unwritten
+    // here, and its state is unrelated to preserving the game's bindings.
+    const auto bindings=observation::snapshot_bindings(cmd);
+    struct RestoreBindings {
+        const observation::Bindings& bindings;
+        ID3D12GraphicsCommandList* command;
+        ~RestoreBindings() { bindings.restore(command); }
+    } restore{*bindings,cmd};
     if(value.present_guides&&!value.present_guides->owner(queue)) {
         if(!value.present_guides->idle())return;
         value.present_guides.reset();
     }
     if(!value.present_guides) {
-        ComPtr<ID3D12Device> device;phoenix_native::hr(cmd->GetDevice(IID_PPV_ARGS(&device)));
-        value.present_guides=std::make_unique<phoenix::direct::PresentGuides>(device.Get(),queue);
+        const auto allocation=resolve_allocation_device(queue,motion);
+        check(allocation.resolved,"Cannot allocate unwrapped inline guide objects");
+        value.present_guides=std::make_unique<phoenix::direct::PresentGuides>(allocation.device.Get(),queue);
     }
     float sx=1,sy=1;unsigned flags=0;
     params->Get("MV.Scale.X",&sx);params->Get("MV.Scale.Y",&sy);
     params->Get("DLSS.Feature.Create.Flags",&flags);
     const auto d=output->GetDesc();
-    value.present_guides->record(cmd,motion,ms,depth,ds,unsigned(d.Width),d.Height,
-                                value.present_serial,sx,sy,(flags&8)!=0);
+    const bool recorded=value.present_guides->record(cmd,motion,ms,depth,ds,unsigned(d.Width),d.Height,
+                                value.present_serial,sx,sy,(flags&8)!=0,true);
+    value.guide_reason=recorded?"Same-frame guides recorded":"Game motion/depth texture layout is unsupported";
 }
 void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Handle* feature,
                        const NVSDK_NGX_Parameter* params) {
@@ -4431,6 +4527,7 @@ void command_close(ID3D12GraphicsCommandList* cmd, bool success) {
         return;
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
+    if (addon_state.present_guides) addon_state.present_guides->abandoned(cmd);
     if (addon_state.endpoint.session && addon_state.endpoint.session->command() == cmd) {
         addon_state.endpoint.session->uncertain_submission();
         addon_state.terminal = true;
@@ -4679,6 +4776,17 @@ bool set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, v
     return false; // observation only; never change what the engine asked for
 }
 
+void finish_present_guides(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain) {
+    if (!queue || !swapchain || queue->get_device()->get_api() != reshade::api::device_api::d3d12) return;
+    auto& value = state();
+    std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    auto* owner = value.guide_runtime ? value.guide_runtime : value.present_runtime;
+    if (owner && (owner->get_hwnd() != swapchain->get_hwnd() || owner->get_command_queue() != queue)) return;
+    // All pre-Present consumers share the current guide epoch. Advancing it
+    // here prevents callback registration order from making guides one frame old.
+    ++value.present_serial;
+    if(value.present_guides)value.present_guides->expire_before(value.present_serial);
+}
 void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain, const reshade::api::rect*,
              const reshade::api::rect*, uint32_t, const reshade::api::rect*) {
     if(queue && queue->get_device()->get_api()!=reshade::api::device_api::d3d12)return;
@@ -4728,8 +4836,6 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
                 addon_state.live.reset_requested=true;
             }
         }
-        if (!addon_state.present_runtime || !swapchain ||
-            addon_state.present_runtime->get_hwnd()==swapchain->get_hwnd()) ++addon_state.present_serial;
         collect();
         poll_route_pairs();
         const auto now = GetTickCount64();
@@ -5837,9 +5943,12 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     phoenix_ui::draw_timing(ui);
     draw_native_performance_details();
 #else
+    const auto before_ui=addon_state.panel;
     if (phoenix_ui::draw_controls(ui)) {
-        addon_state.live.reset_requested = true;
-        addon_state.timing_settings_dirty = true;
+        if (!phoenix_compat::hud_only_change(before_ui,addon_state.panel)) {
+            addon_state.live.reset_requested = true;
+            addon_state.timing_settings_dirty = true;
+        }
         save_live_controls(runtime);
     }
 #endif
@@ -5892,7 +6001,9 @@ void draw_comparison_hud(reshade::api::effect_runtime* runtime) {
 #if !CNR_PHOENIX_DIAGNOSTIC
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
-    const auto& presentation = addon_state.displayed;
+    auto presentation = addon_state.displayed;
+    presentation.comparison_labels=addon_state.panel.comparison_labels;
+    presentation.comparison_lines=addon_state.panel.comparison_lines;
     if (addon_state.terminal || !addon_state.display_tick ||
         GetTickCount64() - addon_state.display_tick > 2000)
         return;
@@ -5922,6 +6033,10 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
         return E_INVALIDARG;
     result->status = PhoenixFeederStatusV1::Deferred;
     result->recorded_frames = 0;
+    struct FeederEvaluationScope {
+        FeederEvaluationScope() { ++phoenix_feeder_depth; }
+        ~FeederEvaluationScope() { --phoenix_feeder_depth; }
+    } feeder_scope;
     auto& addon_state = state();
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     try {
@@ -6163,12 +6278,14 @@ void prepare_backbuffer_input(reshade::api::effect_runtime* runtime,
     value.timing_settings_dirty = true;
     install_native(nullptr);
     backbuffer_owner = runtime;
+    value.guide_runtime = runtime;
 }
 void release_backbuffer_input(reshade::api::effect_runtime* runtime) {
     auto& value = state();
     std::lock_guard<std::recursive_mutex> lock(value.mutex);
     if (backbuffer_owner == runtime) {
         backbuffer_owner = nullptr;
+        if (value.guide_runtime == runtime) value.guide_runtime = nullptr;
         value.live.reset_requested = true;
     }
 }
@@ -6842,7 +6959,25 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
     phoenix_compat::in_process_api.present_guides = [](ID3D12GraphicsCommandList* cmd,
         ID3D12CommandQueue* queue, PhoenixFeederFrameV1& frame) {
         auto& value=state();
-        return value.present_guides && value.present_guides->acquire(cmd,queue,value.present_serial,frame);
+        std::lock_guard<std::recursive_mutex> lock(value.mutex);
+        const auto& panel=value.panel;
+        const bool require_depth=panel.processing.reuse_guides==2 || panel.mode!=phoenix::ours ||
+            panel.execution_device!="native" || panel.upscaler!=0 || panel.pipeline.chain_enabled;
+        return value.present_guides && value.present_guides->acquire(cmd,queue,value.present_serial,frame,require_depth,true);
+    };
+    phoenix_compat::in_process_api.release_present_guides=[](ID3D12Resource* motion) {
+        auto& value=state();
+        std::lock_guard<std::recursive_mutex> lock(value.mutex);
+        if(value.present_guides)value.present_guides->release(motion);
+    };
+    phoenix_compat::in_process_api.guide_status = [] {
+        auto& value = state();
+        std::lock_guard<std::recursive_mutex> lock(value.mutex);
+        Json result=value.present_guides ? value.present_guides->status() : Json{{"captured",0},{"acquired",0},{"missed",0}};
+        result["game_evaluations"]=value.guide_evaluations;
+        result["capture_attempts"]=value.guide_attempts;
+        result["status"]=value.guide_reason;
+        return result;
     };
 #endif
     phoenix_compat::attach(module);
@@ -6879,6 +7014,7 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
     reshade::register_event<reshade::addon_event::destroy_swapchain>(destroy_swapchain);
     reshade::register_event<reshade::addon_event::set_fullscreen_state>(set_fullscreen_state);
     reshade::register_event<reshade::addon_event::present>(present);
+    reshade::register_event<reshade::addon_event::finish_present>(finish_present_guides);
     reshade::register_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
     reshade::register_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);
     reshade::register_event<reshade::addon_event::reshade_present>(live_runtime_tick);
@@ -6909,6 +7045,7 @@ void addon_detach(HMODULE module) {
     reshade::unregister_event<reshade::addon_event::init_effect_runtime>(live_runtime_tick);
     reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(destroy_present_runtime);
     reshade::unregister_event<reshade::addon_event::present>(present);
+    reshade::unregister_event<reshade::addon_event::finish_present>(finish_present_guides);
     reshade::unregister_event<reshade::addon_event::set_fullscreen_state>(set_fullscreen_state);
     reshade::unregister_event<reshade::addon_event::destroy_swapchain>(destroy_swapchain);
     reshade::unregister_event<reshade::addon_event::init_swapchain>(init_swapchain);

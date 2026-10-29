@@ -20,6 +20,11 @@ panel keeps the host theme colors.
 - **Setup:** model files, Browse and Validate, devices and CPU threads,
   execution mechanisms and eligibility, recovery, hotkeys and diagnostics.
 
+Under **Play → Compare**, turn off **Show on-screen labels** to hide the
+source-name overlays in full-screen and comparison views. This saves with your
+configuration and takes effect immediately, without restarting the runner or
+clearing temporal history. Split-view separator lines have their own control.
+
 The header includes three measured-summary tiles: neural GPU (or worker wall
 time), capture-to-output age when supplied by the active pipeline, and the
 loaded processing canvas. Unavailable timings remain `--`; the UI does not

@@ -43,6 +43,9 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
         changed |= section_card(all,"compare_card","Compare",
             "Inspect matching input and processed output; retained measurements are in Performance.",violet,[&] {
             bool edited = false;
+            edited |= ImGui::Checkbox("Show on-screen labels", &context.panel.comparison_labels);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show or hide the source labels over fullscreen and comparison output. Separator lines are controlled separately.");
             if (all || ImGui::CollapsingHeader("Compare and inspect")) {
                 if (!all && context.panel.mode != phoenix::split && ImGui::Button("Compare input / processed")) {
                     const bool nvidia = context.panel.mode == phoenix::nvidia;

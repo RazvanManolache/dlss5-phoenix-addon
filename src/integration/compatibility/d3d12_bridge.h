@@ -2,6 +2,7 @@
 #include "inprocess_api.h"
 #include "../../pipeline/paired_screenshot.h"
 #include "session_policy.h"
+#include "completed_presentation.h"
 #include "host/phoenix-format-adapter.h"
 #include "host/phoenix-host-config.h"
 #include "host/phoenix-host-safety.h"
@@ -56,6 +57,23 @@ class D3D12Bridge {
     Json pipeline_report_ = Json::object();
     uint64_t ui_tick_ = 0;
     DeferredTimeout deferred_;
+    CompletedPresentation presentation_;
+    bool held_last_frame_ = false;
+    uint64_t held_frames_ = 0, deferred_frames_ = 0, frames_with_guides_ = 0, frames_without_guides_ = 0;
+
+    bool hold_completed(reshade::api::resource back, bool coherent) {
+        auto& resources = *resources_;
+        begin();
+        if (!presentation_.record_hold(resources.list.Get(), resources.presentation.Get(),
+                reinterpret_cast<ID3D12Resource*>(uintptr_t(back.handle)), coherent)) {
+            checked(resources.list->Close(), "Cannot close unused presentation recording");
+            return false;
+        }
+        submit();
+        held_last_frame_ = true;
+        ++held_frames_; ++presented_;
+        return true;
+    }
 
     static void checked(HRESULT result, const char* message) {
         if (FAILED(result)) {
@@ -195,6 +213,10 @@ public:
     bool safe_to_fallback() const { return retired_; }
     uint64_t delivered() const { return completed_; }
     uint64_t presented() const { return presented_; }
+    bool held_last_frame() const { return held_last_frame_; }
+    bool protect_presentation(reshade::api::resource back) {
+        return retired_ && hold_completed(back, true);
+    }
     void reset_history() { reset_ = true; deferred_.reset(); }
     bool matches(const reshade::api::resource_desc& desc) const {
         return width_ == desc.texture.width && height_ == desc.texture.height &&
@@ -208,6 +230,9 @@ public:
         }
         auto result = ui_;
         result["pipeline_status"] = pipeline_report_;
+        result["frame_inputs"] = {{"with_engine_guides",frames_with_guides_}, {"without_engine_guides",frames_without_guides_},
+            {"deferred",deferred_frames_}, {"held_completed",held_frames_}};
+        if (in_process_api.guide_status) result["engine_guides"] = in_process_api.guide_status();
         return result;
     }
     bool action(phoenix_ui::Action action, unsigned argument) {
@@ -216,8 +241,9 @@ public:
         if (accepted) ui_tick_ = 0;
         return accepted;
     }
-    bool frame(reshade::api::resource back, const Settings& requested, bool apply) {
+    bool frame(reshade::api::resource back, const Settings& requested, bool apply, bool coherent = true) {
         auto& r = *resources_;
+        held_last_frame_ = false;
         const bool adaptive = requested.pipeline.monitoring != 0 && requested.pipeline.priority != 0;
         if (adaptive && (!adaptive_active_ || apply || requested.pipeline != adaptive_request_.pipeline ||
             requested.block_repeats != adaptive_request_.block_repeats ||
@@ -256,6 +282,7 @@ public:
         };
         if (!retired_) throw std::runtime_error("Previous in-process submission has not retired");
         if (!owner_ || apply) {
+            if (!owner_ || helper_settings_changed(last_tuning_, settings)) presentation_.invalidate();
             deferred_.reset(); ui_tick_ = 0;
             in_process_api.prepare(runtime_, in_process_settings(settings));
             last_tuning_ = settings;
@@ -294,9 +321,19 @@ public:
         // the helper's spatial history policy rather than accumulating stale
         // screen-space history when switching between backends or moving.
         bool have_guides = false;
+        struct GuideLease {
+            const bool& retired;
+            ID3D12Resource* motion = nullptr;
+            ~GuideLease() {
+                if (motion && retired && in_process_api.release_present_guides)
+                    in_process_api.release_present_guides(motion);
+            }
+        } borrowed_guides{retired_};
         if (settings.processing.enabled && settings.processing.hook == 3 &&
             settings.processing.reuse_guides != 0 && in_process_api.present_guides)
             have_guides = in_process_api.present_guides(r.list.Get(),r.queue.Get(),frame);
+        if (have_guides) borrowed_guides.motion=frame.motion;
+        const bool have_engine_guides = have_guides;
         if (settings.processing.enabled && settings.processing.hook == 3 &&
             settings.processing.reuse_guides == 2 && !have_guides) {
             checked(r.list->Close(), "Cannot discard Present without required guides");
@@ -324,6 +361,9 @@ public:
             }
             begin();
             frame.command_list = r.list.Get();
+            // The flow preparation retired the previous list. Establish an
+            // explicit binding epoch on this fresh list before feeder capture.
+            r.list->SetDescriptorHeaps(0, nullptr);
             if (motion.source == phoenix_pipeline::MotionSource::Nvidia) {
                 frame.motion = motion.motion; estimated = true; have_guides = true;
                 auto barrier = transition(frame.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -354,9 +394,10 @@ public:
         if (status == S_FALSE && result.status == PhoenixFeederStatusV1::Deferred) {
             checked(r.list->Close(), "Cannot discard deferred in-process recording");
             reset_ = true;
+            ++deferred_frames_;
             if (deferred_.expired(GetTickCount64()))
                 throw std::runtime_error("In-process evaluation remained deferred for ten seconds");
-            return false;
+            return hold_completed(back, coherent);
         }
         if (status != S_OK || (result.status != PhoenixFeederStatusV1::Recorded &&
                               result.status != PhoenixFeederStatusV1::Bypass)) {
@@ -364,7 +405,15 @@ public:
             throw std::runtime_error("In-process Phoenix DLSS5 evaluation refused: " +
                 local_json(in_process_api.progress).value("direct_game", Json::object()).value("status", std::string()));
         }
-        if (result.status == PhoenixFeederStatusV1::Bypass) { submit(); reset_history(); return false; }
+        if (result.status == PhoenixFeederStatusV1::Bypass) {
+            submit(); reset_history();
+            // Feature setup can submit work without producing an image. Hold
+            // completed output then, but honor an intentional Original/Off.
+            if (settings.uplift && settings.mode != phoenix_addon::phoenix::input)
+                return hold_completed(back, coherent);
+            presentation_.invalidate();
+            return false;
+        }
         // Retire inference before reading its completion proof. Conversion and
         // final writeback only follow a proven, successfully processed frame.
         submit();
@@ -398,6 +447,8 @@ public:
         r.screenshot_pair.submitted(r.list.Get());
         r.screenshot_pair.poll(r.fence->GetCompletedValue());
         ++presented_;
+        presentation_.completed();
+        if (have_engine_guides) ++frames_with_guides_; else ++frames_without_guides_;
         deferred_.reset();
         reset_ = false;
         if (monitored) {
