@@ -76,3 +76,7 @@ hardware and installed runtimes. [UI guide](overlay-ui.md).
 [Native RTX results](PERFORMANCE.md#native-rtx-the-main-event) ·
 [Experimental runners](PERFORMANCE.md#the-portability-lab) ·
 [Build instructions](DEVELOPMENT.md#build-from-source)
+
+## Release notice
+
+When a newer published Phoenix version is found, a small link appears at the top of the panel in both x86 and x64 addons. Click it to open GitHub releases. Checks run in the background, include beta releases, and retry quietly if GitHub is unavailable. No models, game names or local paths are sent.

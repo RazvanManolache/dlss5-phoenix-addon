@@ -15,6 +15,9 @@ from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
 VERSION = '1.0-beta'
+_notifier_version = re.search(r'current_version\[\] = "([^"\n]+)"', (ROOT/'src/native/support/release_updates.h').read_text(encoding='utf-8'))
+if not _notifier_version or _notifier_version.group(1) != VERSION:
+    raise RuntimeError('Release version and Phoenix update-notice identity differ')
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',

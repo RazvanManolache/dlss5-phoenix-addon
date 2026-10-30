@@ -135,6 +135,14 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
             io.AddMouseButtonEvent(0, true); frame();
             io.AddMouseButtonEvent(0, false); frame(); frame(); frame(); frame();
         };
+        unsigned update_opens = 0;
+        context.update_available = "v1.1-beta";
+        context.open_update = [&] { ++update_opens; };
+        frame(); frame();
+        click("Update available: v1.1-beta  -  Open GitHub");
+        require(update_opens == 1, "Update notice did not open the release callback");
+        require(!context.live_selection_changed, "Update notice changed renderer selection");
+        context.update_available.clear();
         frame(); frame();
         click("Save configuration");
         require(saves == unsigned(width == 360 ? 1 : width == 700 ? 2 : 3), "Save callback was not called exactly once");

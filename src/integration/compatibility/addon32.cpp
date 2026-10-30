@@ -38,6 +38,7 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE module, HMODULE) {
 }
 extern "C" __declspec(dllexport) void AddonUninit(HMODULE module, HMODULE) {
     detach(module);
+    if (!phoenix_process::shutting_down()) phoenix_updates::service().stop();
 }
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH)

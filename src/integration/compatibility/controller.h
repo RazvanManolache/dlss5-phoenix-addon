@@ -1,4 +1,5 @@
 #pragma once
+#include "../../native/support/release_updates.h"
 #include "../../native/support/model_tools.h"
 #include "../reshade/shared_panel.h"
 #include "../reshade/comparison_hud.h"
@@ -580,6 +581,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.timing_provenance = timing_provenance(value);
     ui.pipeline_status = info.value("pipeline_status", Json::object());
     ui.native_kernel_styles = info.value("native_kernel_styles", Json::object());
+    ui.update_available = phoenix_updates::service().poll();
+    ui.open_update = phoenix_updates::open_releases;
     const bool portable_services=portable_active(value)&&info.value("runtime",Json::object()).value("pipeline_frame_services",false);
     ui.portable_chain_available=portable_active(value)&&
         info.value("runtime",Json::object()).value("portable_pipeline_contract",0)>=1&&

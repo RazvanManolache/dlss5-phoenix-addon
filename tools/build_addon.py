@@ -87,6 +87,7 @@ def main():
         for source_path in ("hook.c", "buffer.c", "trampoline.c", "hde/hde64.c")
     )
     tests = [
+        ("release_update_tests", "release_update_tests.cpp"),
         ("session_tests", "tests.cpp"),
         ("feeder_api_tests", "feeder_api_tests.cpp"),
         ("memory_tests", "memory_tests.cpp"),

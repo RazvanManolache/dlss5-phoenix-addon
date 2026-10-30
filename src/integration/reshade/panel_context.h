@@ -72,6 +72,8 @@ struct Context {
     bool inference_process = false, telemetry_available = true;
     std::optional<PanelPage> requested_page;
     std::string status;
+    std::string update_available;
+    std::function<void()> open_update;
     bool screenshot_pair_available = false;
     std::string screenshot_pair_status;
     std::string active_route, active_device, route_notice;

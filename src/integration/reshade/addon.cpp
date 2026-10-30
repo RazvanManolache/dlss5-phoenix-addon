@@ -1,3 +1,4 @@
+#include "../../native/support/release_updates.h"
 // ReShade addon entry point: overlay, settings, game callbacks and runtime routing.
 // The native RTX and portable C++ routes share UI controls but keep separate execution/session ownership.
 
@@ -5766,6 +5767,8 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
     ui.native_kernel_styles = native_kernel_style_status();
+    ui.update_available = phoenix_updates::service().poll();
+    ui.open_update = phoenix_updates::open_releases;
     ui.appearance=value.bridge_inputs.value("appearance",Json::object());
     ui.portable_backend_selected=value.panel.execution_device!="native";
     if(value.direct_runner&&value.direct_runner->external()){
@@ -7141,8 +7144,10 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon, HMODULE provider)
     return addon_attach(addon, provider);
 }
 extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon, HMODULE provider) {
-    if (!provider || provider == reshade::internal::get_reshade_module_handle())
+    if (!provider || provider == reshade::internal::get_reshade_module_handle()) {
         addon_detach(addon);
+        if (!phoenix_process::shutting_down()) phoenix_updates::service().stop();
+    }
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {

@@ -17,6 +17,7 @@ from verify_source_provenance import verify_manifest
 ROOT = Path(__file__).resolve().parents[1]
 
 PANEL_SOURCE_INPUTS = (
+    'src/native/support/release_updates.h', 'src/native/support/release_version.h',
     'src/integration/reshade/addon.cpp', 'src/integration/reshade/shared_panel.h',
     'src/integration/reshade/panel_contract.h', 'src/integration/reshade/panel_context.h',
     'src/integration/reshade/panel_sections.h', 'src/integration/reshade/panel_chrome.h',

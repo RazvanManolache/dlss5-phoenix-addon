@@ -79,6 +79,14 @@ inline void draw_metrics(const Context& context) {
 }
 inline bool draw_header(Context& context, bool& advanced) {
     const float available = ImGui::GetContentRegionAvail().x;
+    if (!context.update_available.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_Text, rgb(mint));
+        const std::string label = "Update available: " + context.update_available + "  -  Open GitHub";
+        if (ImGui::SmallButton(label.c_str()) && context.open_update) context.open_update();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the Phoenix releases page. Nothing is downloaded or installed automatically.");
+        ImGui::PopStyleColor(2);
+    }
     heading("DLSS5 Phoenix",0xecf0f5,1.3f);
     if (available >= 420.f) ImGui::SameLine(std::max(150.f, available - 245.f));
     ImGui::PushStyleColor(ImGuiCol_Button,rgb(0x365b84));
