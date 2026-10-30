@@ -2,6 +2,7 @@
 
 **Native RTX is the main event. The portability side quest gets better too.**
 
+- **Quiet update notice:** a clickable label at the top of both addon dashboards opens GitHub when a newer published release is available. Beta tags are included; offline checks stay silent.
 - Original and Lightweight models, Phoenix DLSS5 / NVIDIA DLSS5 selection, same-frame comparisons and live image controls.
 - Matching x86/x64 ReShade addons, Automatic execution selection and the retained x64 graphics helper. Experimental same-process x86 routes keep their prerequisite checks and helper fallback.
 - Native instruction choices follow the actual GPU: compatible older instruction styles are selectable on newer cards, while Automatic prefers native kernels.

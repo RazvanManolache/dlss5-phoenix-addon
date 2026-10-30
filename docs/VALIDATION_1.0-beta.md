@@ -5,7 +5,7 @@ The authoritative per-file and test results are in the release's `VALIDATION.jso
 ## Fresh release checks
 
 - Rebuild matching x86/x64 addons and their graphics helper from the published source.
-- Both package cores passed 25 CPU suites and four software D3D12 suites, including shared-panel, capture and processing contracts. Final package checks also cover actual DLL load/unload and hook lifetime.
+- Both package cores passed 26 CPU suites and four software D3D12 suites, including shared-panel, capture and processing contracts. Final package checks also cover actual DLL load/unload and hook lifetime.
 - Recursively decompress and inspect embedded payloads. Bind every runtime/kernel byte to the frozen, independently inventoried package inputs; verify the nested x64 core and graphics helper against their build receipts.
 - Rebuild the portable host, CPU and Vulkan components for their packaged architectures, the x64 CUDA backend and the native library. Exercise both model families with bounded CPU fixtures; keep GPU execution evidence separate.
 - Build and smoke-check the optional Input companion without sending input macros.
@@ -23,3 +23,7 @@ These are the required gates for publication. Their completed results, counts an
 Repackaging or recompiling a host DLL does not turn these studies into fresh GPU checks of that new DLL. No new retail-game matrix, physical older-RTX inference, Metal device test, HIP device test or SYCL device test is claimed for this release procedure.
 
 [Native results](benchmarks/current/README.md) · [Instruction tuning](NATIVE_TUNING_RESOLUTIONS.md) · [Portable reuse](PORTABLE_REUSE_STUDY.md) · [Scaling profile](NATIVE_SCALING_PROFILE.md) · [Support matrix](SUPPORT.md)
+
+## Update-notice refresh
+
+The refreshed beta adds the shared top-of-panel release link. Fresh CPU checks cover version precedence, published/draft/error feeds, cancellation and worker retirement on x86/x64. Real ImGui checks click the notice at 360, 700 and 1100 pixels without changing renderer selection. The rebuilt addon packages retain the previously validated inference/runtime payloads by SHA-256; no new game, GPU inference or performance claim is made for this metadata/UI refresh.
