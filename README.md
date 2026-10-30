@@ -1,13 +1,16 @@
 # Phoenix DLSS5
 
 My attempt at an open-source runner for NVIDIA DLSS5 neural rendering,
-packaged as a ReShade addon. **Native RTX is the main event:** fast neural
-rendering, useful controls, and the freedom to look under the hood.
+packaged as a ReShade addon. Bring a compatible model, give a favourite game
+another look, and decide for yourself whether you like what it does.
 
-Tune the look, compare it with NVIDIA DLSS5, bring a compatible model, and see
-what actually changes. Better pixels shouldn't require blind trust. The
-alternate backends are our slightly obsessive portability side quest. Yes,
-we may have taken the side quest too far.
+I dislike how much of the software we add to our games is closed source. We
+rush for the best experience without being able to inspect what we're running.
+I'd rather let you look under the hood. Better pixels shouldn't require blind trust.
+
+I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
+it can do for the games we already love—and, eventually, looks less interested
+in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
 [Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
@@ -17,10 +20,12 @@ we may have taken the side quest too far.
 
 **Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** Both Original and Lightweight have comparable isolated inference latency; this is not end-to-end game FPS or portable-backend performance.
 
-| Model at 1080p | Phoenix DLSS5 GPU ms | NVIDIA DLSS5 GPU ms |
-| --- | ---: | ---: |
-| Original | 3.841 | 3.848 |
-| Lightweight FP8 | 2.250 | 2.248 |
+| Model at 1080p | Phoenix DLSS5 GPU ms | NVIDIA DLSS5 GPU ms | Phoenix DLSS5 VRAM MiB | NVIDIA DLSS5 VRAM MiB |
+| --- | ---: | ---: | ---: | ---: |
+| Original | 3.841 | 3.848 | 574.6 | 639.6 |
+| Lightweight FP8 | 2.250 | 2.248 | 540.8 | 574.9 |
+
+**RAM gets a seat at the table too.** Resident RAM (Phoenix DLSS5 / NVIDIA DLSS5): **171.3 / 333.6 MiB for Original**, **170.2 / 300.9 MiB for Lightweight**. VRAM is GPU-local residency; both are process snapshots including harness/driver overhead, not whole-game totals or peak requirements. [Memory details](docs/benchmarks/current/README.md#memory-at-1080p).
 
 Measured 2026-10-30; full graphs, one pass. Small margins vary between runs; higher-resolution differences, including Original at 4K, are covered in the full report.
 
