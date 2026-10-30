@@ -11,13 +11,16 @@ using namespace phoenix_cpp;
 using Json = nlohmann::json;
 int wmain(int argc, wchar_t** argv) {
     try {
-        demand(argc == 5 || argc == 6,
-               "Usage: matrix_benchmark RUNTIME BACKEND DEVICE NEW_REPORT [OPTIONS]");
+        demand(argc >= 5 && argc <= 7,
+               "Usage: matrix_benchmark RUNTIME BACKEND DEVICE NEW_REPORT [OPTIONS [MINIMUM_MEASURE_MS]]");
         demand(!std::filesystem::exists(argv[4]), "Fresh report required");
         const auto root = std::filesystem::absolute(argv[1]);
         const auto kind = std::filesystem::path(argv[2]).string();
         const auto device = std::filesystem::path(argv[3]).string();
-        const uint32_t options = argc == 6 ? uint32_t(std::stoul(argv[5])) : 0;
+        const uint32_t options = argc >= 6 ? uint32_t(std::stoul(argv[5])) : 0;
+        const double minimum_measure_ms = argc == 7 ? std::stod(argv[6]) : 0.;
+        demand(std::isfinite(minimum_measure_ms) && minimum_measure_ms >= 0 && minimum_measure_ms <= 2000,
+               "Matrix measurement interval must be in 0..2000 ms");
         struct Libraries {
             HMODULE backend = nullptr, opencl = nullptr;
             DLL_DIRECTORY_COOKIE directory = nullptr;
@@ -65,7 +68,8 @@ int wmain(int argc, wchar_t** argv) {
             {"passed", false},
             {"rows", Json::array()},
             {"scope",
-             "Synthetic resident matrix operators; two warmups and three timed samples; not frame time"}};
+             "Synthetic resident matrix operators; two warmups, at least three measured calls; not frame time"},
+            {"minimum_measure_ms", minimum_measure_ms}};
         struct Shape {
             unsigned rows, columns, reduction;
         };
@@ -101,7 +105,8 @@ int wmain(int argc, wchar_t** argv) {
             operation.left_row_stride = operation.right_row_stride = shape.reduction;
             operation.output_row_stride = shape.columns;
             std::vector<double> samples;
-            for (unsigned iteration = 0; iteration < 5; ++iteration) {
+            double measured_ms = 0.;
+            for (unsigned iteration = 0; iteration < 5 || measured_ms < minimum_measure_ms; ++iteration) {
                 std::vector<Event> events;
                 const auto started = std::chrono::steady_clock::now();
                 backend->execute({{operation, output.size(), 0, 0}}, events);
@@ -109,8 +114,10 @@ int wmain(int argc, wchar_t** argv) {
                 const double milliseconds = std::chrono::duration<double, std::milli>(
                                                 std::chrono::steady_clock::now() - started)
                                                 .count();
-                if (iteration >= 2)
+                if (iteration >= 2) {
                     samples.push_back(milliseconds);
+                    measured_ms += milliseconds;
+                }
             }
             backend->download(output_buffer, output.data(), output.size() * 2);
             const auto checksum = phoenix_model::weight_digest(
@@ -122,12 +129,12 @@ int wmain(int argc, wchar_t** argv) {
                  {"n", shape.columns},
                  {"k", shape.reduction},
                  {"samples_ms", samples},
-                 {"median_ms", sorted[1]},
+                 {"median_ms", sorted[sorted.size() / 2]},
                  {"owned_bytes", left_buffer.bytes + right_buffer.bytes + output_buffer.bytes},
                  {"output_sha256", checksum}});
             std::ofstream(argv[4]) << report.dump(2) << '\n';
             std::cout << shape.rows << 'x' << shape.columns << 'x' << shape.reduction << ": "
-                      << sorted[1] << " ms\n"
+                      << sorted[sorted.size() / 2] << " ms\n"
                       << std::flush;
             backend->release(output_buffer);
             backend->release(right_buffer);

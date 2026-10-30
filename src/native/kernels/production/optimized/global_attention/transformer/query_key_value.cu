@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/query_key_value.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -374,7 +375,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
                         int64_t(int32_t(matrix_fragment_19)) * int64_t(int32_t(0x10u)) +
                             combine_words(matrix_accumulator_2, matrix_accumulator_3));
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     split_address_words(matrix_fragment_4, matrix_fragment_5,
                         int64_t(int32_t(matrix_fragment_19)) * int64_t(int32_t(0x10u)) +
@@ -479,7 +480,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     uniform_address_word_13 = 0x400u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_1 = int32_t(index_word_155) >= int32_t(uniform_index_word_4);
 
@@ -650,7 +651,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
     condition_0 = wait_copy_barrier(shared_tile, matrix_fragment_5,
                                     async_tokens[(((matrix_fragment_5) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_0 = true;
 #endif
     if (!condition_0) {
@@ -659,7 +660,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
             condition_0 = wait_copy_barrier(shared_tile, matrix_fragment_5,
                                             async_tokens[(((matrix_fragment_5) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_0 = true;
 #endif
         } while (!condition_0);
@@ -1140,7 +1141,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
             }
             __syncwarp(__activemask());
 
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
         }
         uniform_address_word_9 = 0u;
 
@@ -1428,7 +1429,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
         condition_0 = wait_copy_barrier(shared_tile, uniform_address_word_19,
                                         async_tokens[(((uniform_address_word_19) >> 3) & 1)]);
 #else
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         condition_0 = true;
 #endif
         if (!condition_0) {
@@ -1438,7 +1439,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
                     wait_copy_barrier(shared_tile, uniform_address_word_19,
                                       async_tokens[(((uniform_address_word_19) >> 3) & 1)]);
 #else
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
                 condition_0 = true;
 #endif
             } while (!condition_0);
@@ -2249,7 +2250,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
         address_word_37 = address_word_37 << (0x5u & 31u);
 
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
 
         matrix_fragment_68 = uniform_index_word_5;
 
@@ -5538,7 +5539,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     matrix_fragment_4 = threadIdx.y;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_0 = combine_words(matrix_accumulator_2, matrix_accumulator_3) != 0ull;
 
@@ -5571,7 +5572,7 @@ __device__ __forceinline__ void run_global_attention_transformer_query_key_value
 
     matrix_fragment_5 = uint32_t(combine_words(matrix_fragment_5, 0u) << 0x7u >> 32) + index_word_0;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     if (condition_1) {
         return;

@@ -221,6 +221,15 @@ struct FrameState {
             controls.style / 128.f, controls.tone, controls.auto_mask ? 1.f : controls.structure,
             controls.auto_mask ? (controls.skin < 0 ? controls.structure : controls.skin) : -1.f,
             controls.auto_mask ? controls.structure : -1.f};
+        // Conditioning is uniform over a frame unless a spatial control map
+        // overrides tone/structure. Encode its five half values once, rather
+        // than repeating identical software conversions at every padded pixel.
+        auto uniform_conditioning = conditioning;
+        if (control_mask)
+            uniform_conditioning[3] = uniform_conditioning[4] = 0.f;
+        std::array<uint16_t, 5> conditioning_half{};
+        for (unsigned feature = 0; feature < 5; ++feature)
+            conditioning_half[feature] = uint16_t(math.half_bits(uniform_conditioning[feature]));
         rows.run(padded_height, [&](unsigned pixel_y) {
             for (unsigned pixel_x = 0; pixel_x < padded_width; ++pixel_x) {
                 size_t padded_pixel_index = size_t(pixel_y) * padded_width + pixel_x,
@@ -229,7 +238,7 @@ struct FrameState {
                 auto pixel_features = result.data() + padded_pixel_index * 16;
                 for (unsigned feature_index = 0; feature_index < 3; ++feature_index)
                     pixel_features[feature_index] = noise[padded_pixel_index * 3 + feature_index];
-                pixel_features[3] = uint16_t(math.half_bits(1));
+                pixel_features[3] = 0x3c00; // Exact binary16 encoding of the constant 1.
                 for (unsigned feature_index = 0; feature_index < 3; ++feature_index) {
                     auto centre = [&](float value) {
                         return centered_half_feature(math, value);
@@ -242,15 +251,13 @@ struct FrameState {
                                   centre(prior[source_pixel_index * 3 + feature_index])))
                             : pixel_features[4 + feature_index];
                 }
-                auto pixel_conditioning = conditioning;
+                std::copy(conditioning_half.begin(), conditioning_half.end(), pixel_features + 10);
                 if (control_mask) {
-                    pixel_conditioning[1] = controls.tone * control_mask[source_pixel_index * 4 + 1];
-                    pixel_conditioning[2] = controls.structure * control_mask[source_pixel_index * 4 + 2];
-                    pixel_conditioning[3] = pixel_conditioning[4] = 0.f;
+                    pixel_features[11] = uint16_t(math.half_bits(
+                        controls.tone * control_mask[source_pixel_index * 4 + 1]));
+                    pixel_features[12] = uint16_t(math.half_bits(
+                        controls.structure * control_mask[source_pixel_index * 4 + 2]));
                 }
-                for (unsigned feature_index = 0; feature_index < 5; ++feature_index)
-                    pixel_features[10 + feature_index] =
-                        uint16_t(math.half_bits(pixel_conditioning[feature_index]));
                 pixel_features[15] = 0;
             }
         });

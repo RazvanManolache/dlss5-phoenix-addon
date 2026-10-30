@@ -23,10 +23,8 @@ LABELS = {'original': 'Original', 'small-fp8': 'Lightweight FP8'}
 ROUTES = {'phoenix': 'Native RTX Phoenix DLSS5', 'nvidia': 'Native RTX NVIDIA DLSS5',
           'cuda': 'CUDA RTX 5080', 'vulkan_nvidia': 'Vulkan RTX 5080',
           'vulkan_amd': 'Vulkan Radeon iGPU', 'cpu32': 'CPU 32 threads', 'cpu1': 'CPU 1 thread'}
-NATIVE_PERFORMANCE_SUMMARY = (
-    '**Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** '
-    'Both Original and Lightweight have comparable isolated inference latency; '
-    'this is not end-to-end game FPS or portable-backend performance.')
+from readme_summary import PERFORMANCE_SUMMARY as NATIVE_PERFORMANCE_SUMMARY, update_front_page
+
 
 
 def read(path):
@@ -657,39 +655,8 @@ def update_memory_guide(get,display_date):
 
 
 def update_readme(get,context,display_date):
-    """Keep the front page readable; the full report owns diagnostic detail."""
-    path=ROOT/'README.md'
-    text=path.read_text(encoding='utf-8')
-    start='<!-- current-two-model-benchmark -->'
-    end='<!-- /current-two-model-benchmark -->'
-    if text.count(start)!=1 or text.count(end)!=1:
-        raise RuntimeError('README benchmark markers must each occur once')
-    lines=[start,'## Native RTX: the main event','',
-        NATIVE_PERFORMANCE_SUMMARY,'',
-        f'**Measured {display_date}:** pre-release development builds, RTX 5080, native x64, one pass. These benchmark identities are retained separately from the rebuilt 0.9 packages.','',
-        '![Original versus Lightweight within Phoenix DLSS5 and within NVIDIA DLSS5 at 1080p](docs/benchmarks/current/native-1080p.png)','',
-        '| Renderer / model at 1080p | GPU ms | Full call ms |',
-        '| --- | ---: | ---: |']
-    for route in ('phoenix','nvidia'):
-        for model in MODELS:
-            row=get(route,model)
-            lines.append(f"| {ROUTES[route]} / {LABELS[model]} | {row['gpu']['mean_process_median_ms']:.3f} | {row['wall']['mean_process_median_ms']:.3f} |")
-    original,light=[get('phoenix',model)['gpu']['mean_process_median_ms'] for model in MODELS]
-    reductions=[100*(1-get(route,'small-fp8')['memory']['device_local_bytes']/
-                        get(route,'original')['memory']['device_local_bytes'])
-                for route in ('phoenix','nvidia')]
-    lines += ['',
-        f'**A lighter model, not a longer coffee break.** Lightweight uses **{100*(1-light/original):.1f}% less GPU time** than Original within Phoenix DLSS5 at 1080p. It produces a different image: pick the look you prefer, not just the smallest number.','',
-        '**Same model, matching pixels.** Both Phoenix DLSS5 implementations match their corresponding NVIDIA DLSS5 preset byte for byte in the tested reset/history fixtures, from 320x180 through 8K. That checks implementation correctness, not which model makes a moving scene look better.','',
-        f'**Memory gets a vote too.** At 1080p, Lightweight reduces measured process GPU-local residency by **{reductions[0]:.1f}% within Phoenix DLSS5** and **{reductions[1]:.1f}% within NVIDIA DLSS5**. These are process measurements, not model-only sizes; memory use changes with resolution. [RAM, VRAM and startup details](docs/benchmarks/current/README.md#memory-at-1080p).','',
-        'Small timing margins vary between tests. Some higher-resolution cases have larger differences, including Original at 4K. GPU time sits inside the full call; upload/readback is excluded. [Exact measurements, process ranges and methodology](docs/benchmarks/current/README.md#performance-conclusions).','',
-        '**More knobs, fewer mysteries.** Both models support tone/structure/skin tuning, compatible external weights, block controls, repeats, passes and adaptive budgets where the selected route supports them. [Controls and limits](docs/PORTABLE_MODEL_CONTROLS.md) · [Appearance controls](docs/NEURAL_CONTROLS.md).','',
-        '**The portability side quest is still alive.** CUDA, Vulkan, CPU, HIP, SYCL and Metal have their own support and validation limits. They are not a promise of native RTX speed on every GPU. [Backend matrix](docs/SUPPORT.md) · [Portable timings](docs/benchmarks/current/README.md#portable-host-plane-runtime).','',
-        '[Full two-model report](docs/benchmarks/current/README.md) · [Machine-readable results](docs/benchmarks/current/measurements.json) · [Released/current comparison](docs/benchmarks/current/release-ab.md)',
-        end]
-    a=text.index(start)
-    b=text.index(end,a)+len(end)
-    path.write_text(text[:a]+'\n'.join(lines)+text[b:],encoding='utf-8')
+    """Only refresh the compact headline; full measurements belong in docs."""
+    update_front_page(ROOT, get, display_date, 'mean_process_median_ms')
 
 
 def render(rows, get):

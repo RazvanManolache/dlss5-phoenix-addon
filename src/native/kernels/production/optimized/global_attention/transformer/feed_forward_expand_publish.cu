@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/feed_forward_expand_publish.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 25624
 #include "../../../common/device_memory_scalar.cuh"
 #include "../../../common/token_dispatch.cuh"
@@ -288,7 +289,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
 #endif
     }
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     packed_half_7 = packed_half_6 * 0x1000u;
 
@@ -2009,7 +2010,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
     condition_0 =
         wait_copy_barrier(shared_tile, packed_half_9, async_tokens[(((packed_half_9) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_0 = true;
 #endif
     if (!condition_0) {
@@ -2018,7 +2019,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
             condition_0 = wait_copy_barrier(shared_tile, packed_half_9,
                                             async_tokens[(((packed_half_9) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_0 = true;
 #endif
         } while (!condition_0);
@@ -2628,7 +2629,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
             condition_0 = wait_copy_barrier(shared_tile, matrix_fragment_83,
                                             async_tokens[(((matrix_fragment_83) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_0 = true;
 #endif
             if (!condition_0) {
@@ -2638,7 +2639,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
                         wait_copy_barrier(shared_tile, matrix_fragment_83,
                                           async_tokens[(((matrix_fragment_83) >> 3) & 1)]);
 #else
-                    __syncthreads();
+                    phoenix_architecture::finish_compatibility_copies();
                     condition_0 = true;
 #endif
                 } while (!condition_0);
@@ -4708,7 +4709,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
     }
     __syncwarp(__activemask());
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     if (condition_0) {
         return;

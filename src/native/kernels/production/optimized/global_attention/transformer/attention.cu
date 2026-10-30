@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/attention.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/device_memory_scalar.cuh"
 #include "../../../common/attention_tail.cuh"
@@ -296,7 +297,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
     }
     index_word_7 = address_word_2 + 0x2u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_1 = (address_word_4 | address_word_9) != 0;
 
@@ -376,7 +377,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
 
     matrix_fragment_13 = matrix_fragment_13 * 0x4u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     matrix_fragment_15 = matrix_fragment_13 + 0x1u;
 
@@ -670,7 +671,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
 
             uniform_address_word_4 = 0x400u;
 
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
 
             uniform_address_word_4 = uniform_address_word_4 + 0x2000u;
 
@@ -879,7 +880,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
     condition_0 =
         wait_copy_barrier(shared_tile, index_word_7, async_tokens[(((index_word_7) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_0 = true;
 #endif
     if (!condition_0) {
@@ -888,7 +889,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
             condition_0 = wait_copy_barrier(shared_tile, index_word_7,
                                             async_tokens[(((index_word_7) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_0 = true;
 #endif
         } while (!condition_0);
@@ -2809,7 +2810,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
 
                 uniform_address_word_4 = 0x400u;
 
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
 
                 address_word_4 = uniform_address_word_4;
 
@@ -3037,7 +3038,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
                 condition_0 = wait_copy_barrier(shared_tile, index_word_7,
                                                 async_tokens[(((index_word_7) >> 3) & 1)]);
 #else
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
                 condition_0 = true;
 #endif
                 if (!condition_0) {
@@ -3046,7 +3047,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
                         condition_0 = wait_copy_barrier(shared_tile, index_word_7,
                                                         async_tokens[(((index_word_7) >> 3) & 1)]);
 #else
-                        __syncthreads();
+                        phoenix_architecture::finish_compatibility_copies();
                         condition_0 = true;
 #endif
                     } while (!condition_0);
@@ -4209,7 +4210,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
 
         index_word_3 = uint32_t(int32_t(address_word_2) >> 0x1fu);
 
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
 
         index_word_3 = uint32_t(combine_words(index_word_3, 0u) << 0x7u >> 32) + address_word_2;
 
@@ -4555,7 +4556,7 @@ __device__ __forceinline__ void run_global_attention_transformer_attention(
     index_word_6 = parameters[parameter_publication_low_12];
     index_word_7 = parameters[parameter_publication_high_13];
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_0 = combine_words(index_word_6, index_word_7) != 0ull;
 

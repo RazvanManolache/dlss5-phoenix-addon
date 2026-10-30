@@ -579,6 +579,7 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.processing_enabled = &value.enabled;
     ui.timing_provenance = timing_provenance(value);
     ui.pipeline_status = info.value("pipeline_status", Json::object());
+    ui.native_kernel_styles = info.value("native_kernel_styles", Json::object());
     const bool portable_services=portable_active(value)&&info.value("runtime",Json::object()).value("pipeline_frame_services",false);
     ui.portable_chain_available=portable_active(value)&&
         info.value("runtime",Json::object()).value("portable_pipeline_contract",0)>=1&&

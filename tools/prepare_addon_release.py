@@ -3,15 +3,18 @@ import argparse
 import ctypes
 import hashlib
 import json
+import posixpath
+import re
 from pathlib import Path, PurePosixPath
 import subprocess
 import tempfile
 import zipfile
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '0.19'
+VERSION = '1.0-beta'
 CURRENT = ROOT/'artifacts/current'
 CANDIDATE = CURRENT/'addon-portable-candidate'
 FORBIDDEN = {'.log', '.dmp', '.pdb', '.bmp', '.jpg', '.png', '.pt', '.pth',
@@ -109,10 +112,13 @@ def write_archive(path, files):
 
 def common_files():
     files = {name: (ROOT/name).read_bytes() for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY.md')}
+    files['README.md'] = (ROOT/'README.md').read_bytes()
     for path in (ROOT/'third_party').rglob('*'):
         if path.is_file() and (path.name.upper().startswith(('LICENSE', 'NOTICE', 'COPYING', 'MIT_LICENSE')) or path.name == 'ReShade-LICENSE.txt'):
             files['licenses/'+path.relative_to(ROOT/'third_party').as_posix()] = path.read_bytes()
     for name in (f'RELEASE_{VERSION}.md', f'VALIDATION_{VERSION}.md', 'RELEASE_0.10.md', 'VALIDATION_0.10.md', 'RELEASE_0.9.md', 'VALIDATION_0.9.md', 'NEURAL_CONTROLS.md', 'NATIVE_CORRECTNESS_0.82.md',
+                 'README.md', 'INSTALLATION.md', 'FEATURES.md', 'USER_GUIDE.md', 'COMPATIBILITY.md',
+                 'PERFORMANCE.md', 'DEVELOPMENT.md', 'PROJECT.md',
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
                  'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md',
@@ -123,6 +129,37 @@ def common_files():
         'Select your separately obtained compatible model in the Phoenix panel. New artistic inputs are experimental.\n'
         f'See docs/RELEASE_{VERSION}.md for installation and validation boundaries.\n'
         'No model weights, NVIDIA model DLLs or private configurations are included.\n').encode()
+    return package_document_links(files)
+
+
+def package_document_links(files):
+    """Keep included docs local; link missing source/images to this exact tag."""
+    available = set(files)
+    for name in list(files):
+        if not name.endswith('.md') or not (name == 'README.md' or name.startswith('docs/')):
+            continue
+        def target(value):
+            parsed = urlsplit(value)
+            if parsed.scheme or parsed.netloc or value.startswith(('#', '/')):
+                return value
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(name), parsed.path))
+            if path in available:
+                return value
+            host = ('https://raw.githubusercontent.com/RazvanManolache/dlss5-phoenix-addon/'
+                    if path.lower().endswith(('.png', '.jpg', '.svg', '.webp'))
+                    else 'https://github.com/RazvanManolache/dlss5-phoenix-addon/blob/')
+            return host + quote(VERSION) + '/' + quote(path) + (('?' + parsed.query) if parsed.query else '') + (('#' + parsed.fragment) if parsed.fragment else '')
+        def prose(text):
+            text = re.sub(r'(\]\()([^\s)]+)(\))', lambda m: m[1] + target(m[2]) + m[3], text)
+            return re.sub(r'((?:href|src)=["\'])([^"\']+)', lambda m: m[1] + target(m[2]), text)
+        try:
+            text = files[name].decode('utf-8')
+        except UnicodeDecodeError:
+            # A retained legacy guide uses the Windows Western encoding.
+            # Normalize the packaged copy without rewriting its source bytes.
+            text = files[name].decode('cp1252')
+        chunks = re.split(r'(^```[^\n]*\n.*?^```[^\n]*(?:\n|$))', text, flags=re.M | re.S)
+        files[name] = ''.join(chunk if index % 2 else prose(chunk) for index, chunk in enumerate(chunks)).encode('utf-8')
     return files
 
 

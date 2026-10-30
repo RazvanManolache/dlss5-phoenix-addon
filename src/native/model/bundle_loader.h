@@ -7,6 +7,7 @@
 #include "native_weight_reader.h"
 #include "resource_identity.h"
 #include "generated_plan.h"
+#include "kernel_style_catalog.h"
 #include "models/small_fp8/native_graph.h"
 #include "../../../third_party/nlohmann/json.hpp"
 #include <filesystem>
@@ -77,6 +78,7 @@ inline phoenix_launch_plan::Launch launch(const Json& source,
 }
 struct Bundle {
     fs::path folder;
+    std::string kernel_style;
     Json weights, kernels, small_plan, full_plan, resize_plan, hd_plan, manifest;
     Json graph;
     phoenix_generated::PlanCache generated_plans;
@@ -142,14 +144,16 @@ struct Bundle {
         return phoenix_model::WeightView::owned(load_weights());
     }
     Bundle(fs::path path, const std::function<std::string(const fs::path&)>& digest,
-           phoenix_model::WeightSource source = {}, bool stream_weights = false)
-        : folder(std::move(path)), weight_source(std::move(source)) {
+           phoenix_model::WeightSource source = {}, bool stream_weights = false,
+           std::string style = "auto", unsigned architecture = 0)
+        : folder(std::move(path)), kernel_style(std::move(style)), weight_source(std::move(source)) {
         weight_source.validate();
         phoenix_model::require_implemented(weight_source.model());
         if (fs::exists(folder / "native_manifest.json")) {
             require(weight_source.external(),
                     "Generated native bundle requires an external model source");
             manifest = json_file(folder / "native_manifest.json");
+            const auto& kernel_records = style_catalog(manifest, kernel_style, architecture);
             require(manifest.at("schema") == "phoenix-native-generated-build/1" &&
                         manifest.at("passed") == true &&
                         manifest.at("model_weights_included") == false &&
@@ -194,7 +198,7 @@ struct Bundle {
                 embedded_weights = std::move(model.bytes);
             }
             kernels = Json::object();
-            for (auto kernel_record : manifest.at("kernels")) {
+            for (auto kernel_record : kernel_records) {
                 const auto name = kernel_record.at("name").get<std::string>();
                 require(!kernels.contains(name), "Duplicate generated kernel");
                 const auto relative = fs::u8path(kernel_record.at("binary").get<std::string>());
@@ -212,6 +216,7 @@ struct Bundle {
             generated = true;
             return;
         }
+        require(kernel_style == "auto", "Legacy bundles do not contain selectable kernel styles");
         phoenix_model::require_graph_model(weight_source.model(), phoenix_model::models::original.architecture);
         manifest = json_file(folder / "validation.json");
         require(manifest.at("schema") == "native-fp8-plan-y37/1", "unsupported schema");

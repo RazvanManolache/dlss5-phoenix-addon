@@ -1,5 +1,6 @@
 #pragma once
 #include "device_selection.h"
+#include "kernel_style_device.h"
 #include <windows.h>
 #include <cstdio>
 #include <filesystem>
@@ -58,11 +59,15 @@ inline std::vector<ExecutionDevice> cuda_execution_devices() {
         unsigned char bytes[16];
     };
     using GetUuid = int(__stdcall*)(Uuid*, int);
+    using DeviceLuid = int(__stdcall*)(char*, unsigned*, int);
+    using Capability = int(__stdcall*)(int*, int*, int);
     auto init = reinterpret_cast<Init>(GetProcAddress(library, "cuInit"));
     auto count = reinterpret_cast<Count>(GetProcAddress(library, "cuDeviceGetCount"));
     auto device = reinterpret_cast<Device>(GetProcAddress(library, "cuDeviceGet"));
     auto name = reinterpret_cast<Name>(GetProcAddress(library, "cuDeviceGetName"));
     auto uuid = reinterpret_cast<GetUuid>(GetProcAddress(library, "cuDeviceGetUuid_v2"));
+    auto luid = reinterpret_cast<DeviceLuid>(GetProcAddress(library, "cuDeviceGetLuid"));
+    auto capability = reinterpret_cast<Capability>(GetProcAddress(library, "cuDeviceComputeCapability"));
     if (!uuid)
         uuid = reinterpret_cast<GetUuid>(GetProcAddress(library, "cuDeviceGetUuid"));
     int device_count = 0;
@@ -76,6 +81,12 @@ inline std::vector<ExecutionDevice> cuda_execution_devices() {
         if (device(&cuda_device, iteration_index) || name(label, 256, cuda_device) ||
             uuid(&uuid_bytes, cuda_device))
             continue;
+        // Reuse this existing discovery pass. The first native frame need not
+        // reload/reinitialize CUDA solely to identify its instruction options.
+        LUID adapter{}; unsigned node_mask = 0; int major = 0, minor = 0;
+        if (luid && capability && !luid(reinterpret_cast<char*>(&adapter), &node_mask, cuda_device) &&
+            node_mask && !capability(&major, &minor, cuda_device))
+            phoenix_kernel::remember_device_architecture(adapter, unsigned(major * 10 + minor));
         std::string device_id = "cuda:GPU-";
         for (unsigned uuid_index = 0; uuid_index < 16; ++uuid_index) {
             if (uuid_index == 4 || uuid_index == 6 || uuid_index == 8 || uuid_index == 10)

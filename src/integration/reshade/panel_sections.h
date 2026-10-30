@@ -408,6 +408,35 @@ inline bool draw_reference_reset(Context& addon_state) {
     }
     return changed;
 }
+inline bool draw_kernel_style(Context& addon_state) {
+    bool changed = false;
+    if (phoenix::uses_ours(addon_state.panel.mode) && addon_state.panel.execution_device == "native" &&
+        !addon_state.portable_backend_selected) {
+        const auto& metadata = addon_state.native_kernel_styles;
+        const auto available = metadata.value("available", Json::array());
+        const auto architecture = metadata.value("architecture", 0u);
+        if (ImGui::BeginCombo("Native RTX kernel style", phoenix_kernel::style_label(addon_state.panel.native_kernel_style))) {
+            for (const char* style : {"auto", "rtx40", "rtx30", "rtx20"}) {
+                const bool supported = std::string_view(style) == "auto" ||
+                    (phoenix_kernel::style_supported(style, architecture) &&
+                     std::find(available.begin(), available.end(), style) != available.end());
+                if (ImGui::Selectable(phoenix_kernel::style_label(style), addon_state.panel.native_kernel_style == style,
+                                      supported ? 0 : ImGuiSelectableFlags_Disabled) && addon_state.panel.native_kernel_style != style) {
+                    addon_state.panel.native_kernel_style = style;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(std::string_view(style) == "auto" ? "Prefer the processing GPU's native instruction path."
+                        : supported ? "Experimental instruction strategy; not an older-GPU performance simulation. Changes take effect after current GPU work completes."
+                                    : "Not included for the active processing GPU or execution route.");
+            }
+            ImGui::EndCombo();
+        }
+        if (metadata.contains("active"))
+            ImGui::TextWrapped("Loaded kernel style: %s", phoenix_kernel::style_label(metadata.at("active").get<std::string>()));
+    }
+    return changed;
+}
 inline bool draw_device_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
@@ -487,6 +516,7 @@ inline bool draw_device_controls(Context& addon_state) {
                 "rendering GPU. Reference execution may miss the age limit.");
         }
     }
+    changed = draw_kernel_style(addon_state) || changed;
     return changed;
 }
 inline bool draw_comparison_controls(Context& addon_state) {

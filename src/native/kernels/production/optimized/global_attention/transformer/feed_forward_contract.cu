@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/feed_forward_contract.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 17424
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -23,7 +24,7 @@ atomic_add_four_half_pairs(uint64_t address, uint32_t word_x, uint32_t word_y, u
             atomicAdd(error_counts + 1, 1u);
             return;
         }
-#if __CUDA_ARCH__ >= 900
+#if PHOENIX_STYLE_ARCH >= 900
     asm volatile("red.global.add.noftz.v4.f16x2 [%0],{%1,%2,%3,%4};" ::"l"(address), "r"(word_x),
                  "r"(word_y), "r"(word_z), "r"(word_w)
                  : "memory");
@@ -345,7 +346,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
                         int64_t(int32_t(matrix_accumulator_15)) * int64_t(int32_t(0x10u)) +
                             combine_words(matrix_accumulator_2, matrix_accumulator_3));
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     matrix_fragment_84 = address_word_4 + 0x20u;
 
@@ -467,7 +468,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
 
     uniform_index_word_13 = 0x400u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     matrix_accumulator_9 = !condition_1 ? matrix_accumulator_16 : 0u;
 
@@ -1025,7 +1026,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
     condition_1 =
         wait_copy_barrier(shared_tile, address_word_5, async_tokens[(((address_word_5) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_1 = true;
 #endif
     if (!condition_1) {
@@ -1034,7 +1035,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
             condition_1 = wait_copy_barrier(shared_tile, address_word_5,
                                             async_tokens[(((address_word_5) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
         } while (!condition_1);
@@ -2402,7 +2403,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
             }
             __syncwarp(__activemask());
 
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
         }
         matrix_fragment_52 =
             uint32_t(combine_words(index_word_137, 0u) << 0x5u >> 32) + address_word_138;
@@ -2985,7 +2986,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
         condition_1 = wait_copy_barrier(shared_tile, uniform_address_word_7,
                                         async_tokens[(((uniform_address_word_7) >> 3) & 1)]);
 #else
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         condition_1 = true;
 #endif
         if (!condition_1) {
@@ -2995,7 +2996,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
                     wait_copy_barrier(shared_tile, uniform_address_word_7,
                                       async_tokens[(((uniform_address_word_7) >> 3) & 1)]);
 #else
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
                 condition_1 = true;
 #endif
             } while (!condition_1);
@@ -3539,7 +3540,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
 
         __syncwarp(__activemask());
 
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         if (!condition_0) {
             {
                 // The first three split-projection blocks contribute to shared reduction
@@ -4648,7 +4649,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_co
     }
     packed_half_0 = threadIdx.z;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_0 = (index_word_137 | packed_half_0) != 0;
 

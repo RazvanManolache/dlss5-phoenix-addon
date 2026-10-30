@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/projection_wait.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -23,7 +24,7 @@ atomic_add_four_half_pairs(uint64_t address, uint32_t word_x, uint32_t word_y, u
             atomicAdd(error_counts + 1, 1u);
             return;
         }
-#if __CUDA_ARCH__ >= 900
+#if PHOENIX_STYLE_ARCH >= 900
     asm volatile("red.global.add.noftz.v4.f16x2 [%0],{%1,%2,%3,%4};" ::"l"(address), "r"(word_x),
                  "r"(word_y), "r"(word_z), "r"(word_w)
                  : "memory");
@@ -329,7 +330,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
 #endif
     }
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     load_four_words_cached<CheckBounds>(combine_words(address_word_2, address_word_3),
                                         matrix_fragment_20, matrix_fragment_21, matrix_fragment_22,
@@ -421,7 +422,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
 
     uniform_index_word_9 = 0x400u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     matrix_fragment_49 = matrix_fragment_48 * 0x1000u;
 
@@ -605,7 +606,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
     condition_1 =
         wait_copy_barrier(shared_tile, address_word_7, async_tokens[(((address_word_7) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_1 = true;
 #endif
     if (!condition_1) {
@@ -614,7 +615,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
             condition_1 = wait_copy_barrier(shared_tile, address_word_7,
                                             async_tokens[(((address_word_7) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
         } while (!condition_1);
@@ -1771,7 +1772,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
 
         matrix_fragment_13 = matrix_fragment_14 * 0x4u + matrix_fragment_49;
 
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
 
         matrix_fragment_9 = matrix_fragment_28 + 0x2000u;
 
@@ -1971,7 +1972,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
             shared_tile, matrix_fragment_29 + uniform_address_word_8,
             async_tokens[(((matrix_fragment_29 + uniform_address_word_8) >> 3) & 1)]);
 #else
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         condition_1 = true;
 #endif
         if (!condition_1) {
@@ -1981,7 +1982,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
                     shared_tile, matrix_fragment_29 + uniform_address_word_8,
                     async_tokens[(((matrix_fragment_29 + uniform_address_word_8) >> 3) & 1)]);
 #else
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
                 condition_1 = true;
 #endif
             } while (!condition_1);
@@ -2347,7 +2348,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
 
         __syncwarp(__activemask());
 
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         if (!condition_0) {
             address_word_4 = index_word_86 * 0x8u + index_word_91;
 
@@ -3724,7 +3725,7 @@ __device__ __forceinline__ void run_global_attention_transformer_projection_wait
     }
     address_word_5 = threadIdx.z;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_0 = (address_word_5 | thread_row_100) != 0;
 

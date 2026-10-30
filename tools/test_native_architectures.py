@@ -21,7 +21,7 @@ def cubin_architecture(data):
     return 'sm_' + str((int.from_bytes(data[48:52], 'little') >> 8) & 255)
 
 
-def check_images(bundle, baseline, extractor, work):
+def check_images(bundle, baseline, extractor, work, *, allow_sm120_changes=False):
     manifest = json.loads((bundle / 'native_manifest.json').read_text())
     reference = json.loads((baseline / 'native_manifest.json').read_text())
     expected_architectures = {'sm_75', 'sm_86', 'sm_89', 'sm_120'}
@@ -32,6 +32,7 @@ def check_images(bundle, baseline, extractor, work):
     if len(kernels) != 41 or len({row['name'] for row in kernels}) != 41:
         raise ValueError('Expected 41 unique kernel modules')
     total = {arch: 0 for arch in expected_architectures}
+    changed_sm120 = []
     for index, row in enumerate(kernels):
         binary = (bundle / row['binary']).resolve()
         if not binary.is_relative_to(bundle) or sha(binary) != row['binary_sha256']:
@@ -61,9 +62,26 @@ def check_images(bundle, baseline, extractor, work):
         base_path = (baseline / base['binary']).resolve()
         if not base_path.is_relative_to(baseline) or sha(base_path) != base['binary_sha256']:
             raise ValueError('Baseline kernel hash/path mismatch')
-        if sha(images['sm_120']) != sha(base_path):
-            raise ValueError('RTX 50-series code changed')
-    return dict(modules=41, device_images=164, sm120_byte_exact=True, image_bytes=total,
+        # A maintained baseline may itself be a multi-architecture module.
+        # Compare the real RTX 50 image, not the fatbin container (whose older
+        # images are precisely what this experiment is allowed to change).
+        base_image = base_path
+        if base_path.read_bytes()[:4] != b'\x7fELF':
+            extracted = folder / 'baseline'
+            extracted.mkdir()
+            subprocess.run([str(extractor), '--extract-elf', 'all', str(base_path)], cwd=extracted,
+                           check=True, capture_output=True, timeout=60)
+            candidates = [p for p in extracted.iterdir()
+                          if cubin_architecture(p.read_bytes()) == 'sm_120']
+            if len(candidates) != 1:
+                raise ValueError('Baseline must contain exactly one RTX 50 image')
+            base_image = candidates[0]
+        if sha(images['sm_120']) != sha(base_image):
+            if not allow_sm120_changes:
+                raise ValueError('RTX 50-series code changed')
+            changed_sm120.append(dict(kernel=row['name'],before_sha256=sha(base_image),after_sha256=sha(images['sm_120'])))
+    return dict(modules=41, device_images=164, sm120_byte_exact=not changed_sm120,
+                changed_sm120=changed_sm120, image_bytes=total,
                 fatbin_bytes=sum((bundle / row['binary']).stat().st_size for row in kernels))
 
 
@@ -74,6 +92,8 @@ def main():
     parser.add_argument('--cuda-bin', type=Path, default=Path('C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/bin'))
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--allow-sm120-changes',action='store_true',
+                        help='Record intentional RTX 50 image changes; still verify every target/hash/entry')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     report = dict(passed=False, gpu_used=False, games_launched=False, older_gpu_inference_validated=False)
@@ -83,7 +103,8 @@ def main():
         with tempfile.TemporaryDirectory(prefix='native-architectures-', dir=ROOT / 'build') as temporary:
             work = Path(temporary)
             report['images'] = check_images(args.bundle.resolve(), args.baseline.resolve(),
-                (args.cuda_bin / 'cuobjdump.exe').resolve(), work)
+                (args.cuda_bin / 'cuobjdump.exe').resolve(), work,
+                allow_sm120_changes=args.allow_sm120_changes)
             executable = work / 'conversions.exe'
             run([args.cuda_bin / 'nvcc.exe', '-allow-unsupported-compiler',
                  '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH', '-arch=sm_75', '-O2', '-std=c++17',

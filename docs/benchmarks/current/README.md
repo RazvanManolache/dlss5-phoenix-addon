@@ -1,94 +1,107 @@
-# Current two-model benchmark
+# Current native two-model benchmark
 
-Measured 20 October 2026 from the current unreleased, dirty checkout, using Windows x64 runtime/probes. RTX 5080 (driver 616.64), Ryzen 9 9950X3D, 16 cores / 32 threads, 96 GiB installed RAM, and integrated AMD Radeon Graphics (driver 32.0.21045.5002). Windows exposes about 93.6 GiB usable RAM after hardware reservation. CUDA provider built with CUDA 13.1 for sm_120. Baselines use both models in the authenticated 310.9.16 DLL; shared canonical exports are compared separately below. No games were launched; x86 frontend/transport builds are separate from these x64 timing measurements. Source hashes and binary identities are retained in the public JSON: a commit ID alone does not identify these uncommitted changes.
+Native measurements refreshed **2026-10-30** from the tuned development bundle. The portable/feature study retained below is dated **2026-10-20** and was not rerun. One RTX 5080, native x64, full trained graphs, one pass, fixed structured FP16 input and zero motion. Both engines use the same authenticated 310.9.16 model DLL. No games or installed addons were changed.
 
-[Machine-readable measurements](measurements.json) · [Support and platform matrix](../../SUPPORT.md)
+[Measurements JSON](measurements.json) · [Synthetic architecture study](../../NATIVE_TUNING_RESOLUTIONS.md)
 
 ## Native RTX and NVIDIA DLSS5
 
-GPU-resident RGBA16F input and RG16F zero motion; default full eight transformers, one pass. GPU timestamps cover recorded engine work, barriers and the matching output copy, not CPU command-recording time; upload/readback is excluded. Call time includes recording, submission and fence wait, excluding input upload/output readback. GPU time occurs inside that synchronous call: do not add the GPU and call columns. These are inference measurements, not game FPS.
+**Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** Both Original and Lightweight have comparable isolated inference latency; this is not end-to-end game FPS or portable-backend performance.
 
-![Native RTX 1080p](native-1080p.png)
+![Matched 1080p GPU time and process residency](native-1080p.png)
 
 | Input | Phoenix DLSS5 Original GPU ms | Phoenix DLSS5 Lightweight GPU ms | NVIDIA DLSS5 Original GPU ms | NVIDIA DLSS5 Lightweight GPU ms |
 | --- | ---: | ---: | ---: | ---: |
-| 320×180 | 1.848 | 1.017 | 2.047 | 1.039 |
-| 640×360 | 1.921 | 1.090 | 2.113 | 1.109 |
-| 640×480 | 1.973 | 1.121 | 2.159 | 1.138 |
-| 960×540 | 2.136 | 1.251 | 2.328 | 1.265 |
-| 1280×720 | 2.501 | 1.480 | 2.722 | 1.518 |
-| 1920×1080 | 3.874 | 2.282 | 3.825 | 2.223 |
-| 2560×1440 | 6.118 | 3.428 | 5.775 | 3.235 |
-| 3840×2160 | 13.706 | 7.637 | 12.548 | 7.421 |
-| 5760×3240 | 31.401 | 18.624 | 30.377 | 18.049 |
-| 7680×4320 | 57.510 | 34.561 | 56.032 | 35.550 |
+| 320×180 | 1.838 | 1.007 | 2.052 | 1.042 |
+| 640×360 | 1.907 | 1.075 | 2.116 | 1.109 |
+| 640×480 | 1.960 | 1.113 | 2.163 | 1.144 |
+| 960×540 | 2.114 | 1.233 | 2.329 | 1.265 |
+| 1280×720 | 2.475 | 1.450 | 2.725 | 1.519 |
+| 1920×1080 | 3.841 | 2.250 | 3.848 | 2.248 |
+| 2560×1080 | 4.893 | 2.797 | 4.727 | 2.726 |
+| 2560×1440 | 6.035 | 3.384 | 5.772 | 3.287 |
+| 3840×2160 | 13.881 | 7.614 | 13.247 | 7.383 |
+| 5760×3240 | 32.112 | 18.356 | 31.462 | 18.353 |
+| 6144×3456 | 35.346 | 21.137 | 34.553 | 21.221 |
+| 7680×4320 | 59.470 | 34.154 | 56.750 | 35.005 |
 
-Compare Original with Lightweight inside each renderer:
+![Native GPU time and paired relative differences across resolution](native-scaling.png)
 
-| Renderer | Lightweight GPU time reduction | Isolated throughput ratio | Process GPU-local reduction |
-| --- | ---: | ---: | ---: |
-| Phoenix DLSS5 | 41.1% | 1.70× | 5.9% |
-| NVIDIA DLSS5 | 41.9% | 1.72× | 10.1% |
-
-![Native resolution scaling](native-scaling.png)
-
-**NVIDIA parity:** both models match their corresponding vendor preset byte for byte in reset A, history and reset B at all 10 extents, in two fresh processes per renderer. This is a deterministic synthetic fixture with fixed seed, automatic mask and no depth. It does not establish moving-scene quality or equivalence between Original and Lightweight. The models produce different outputs.
+Points are positioned by actual pixel count on a logarithmic horizontal axis.
+The [resolution profiling investigation](../../NATIVE_SCALING_PROFILE.md) separates
+pixel growth from the padding/token step just below 1080p and attributes the extra
+GPU work to specific kernel families.
 
 ## Performance conclusions
 
-**Performance on par with NVIDIA DLSS5 at 1080p on the tested RTX 5080.** Both Original and Lightweight have comparable isolated inference latency; this is not end-to-end game FPS or portable-backend performance.
+Compare the same model and size. Positive extra GPU time below means Phoenix DLSS5 is slower; negative means faster. Percentages are medians of matched-pair changes, not ratios of the separate renderer medians. All three process medians, per-process sample counts and timing summaries remain in the local receipt. Per-frame sample arrays are not retained by this compact refresh.
 
-Compare the same model, extent and timing boundary first. Lightweight has fewer learned blocks and lower measured latency, but different output: it is not a free quality-preserving optimization. Exact Phoenix/NVIDIA parity is checked within each model, not between the two models.
+| Model | Input | Phoenix DLSS5 extra GPU time | Observed pair range |
+| --- | --- | ---: | ---: |
+| Original | 320x180 | -10.46% | -10.48% to -10.45% |
+| Lightweight FP8 | 320x180 | -3.43% | -3.45% to -3.37% |
+| Original | 640x360 | -9.84% | -9.95% to -9.79% |
+| Lightweight FP8 | 640x360 | -3.08% | -3.11% to -3.04% |
+| Original | 640x480 | -9.39% | -9.40% to -9.37% |
+| Lightweight FP8 | 640x480 | -2.73% | -2.76% to -2.68% |
+| Original | 960x540 | -9.25% | -9.28% to -9.18% |
+| Lightweight FP8 | 960x540 | -2.54% | -2.69% to -2.45% |
+| Original | 1280x720 | -9.18% | -9.58% to -9.08% |
+| Lightweight FP8 | 1280x720 | -4.52% | -4.60% to -4.19% |
+| Original | 1920x1080 | -0.18% | -0.40% to -0.08% |
+| Lightweight FP8 | 1920x1080 | +0.11% | -0.11% to +0.24% |
+| Original | 2560x1080 | +3.50% | +3.35% to +3.67% |
+| Lightweight FP8 | 2560x1080 | +2.47% | +2.45% to +2.80% |
+| Original | 2560x1440 | +4.68% | +4.50% to +4.86% |
+| Lightweight FP8 | 2560x1440 | +3.46% | +2.62% to +3.53% |
+| Original | 3840x2160 | +4.80% | +3.59% to +4.94% |
+| Lightweight FP8 | 3840x2160 | +2.07% | +2.00% to +4.08% |
+| Original | 5760x3240 | +2.66% | +2.06% to +3.14% |
+| Lightweight FP8 | 5760x3240 | -0.02% | -0.10% to +0.46% |
+| Original | 6144x3456 | +2.06% | +1.08% to +2.30% |
+| Lightweight FP8 | 6144x3456 | -0.22% | -0.69% to +1.92% |
+| Original | 7680x4320 | +4.84% | -0.91% to +4.91% |
+| Lightweight FP8 | 7680x4320 | -1.15% | -6.94% to +1.48% |
 
-| Model | Input | Phoenix GPU process range ms | NVIDIA GPU process range ms | Phoenix extra GPU time |
-| --- | --- | ---: | ---: | ---: |
-| Original | 1920x1080 | 3.864-3.885 | 3.823-3.827 | +1.28% |
-| Original | 3840x2160 | 13.607-13.805 | 12.537-12.560 | +9.23% |
-| Original | 7680x4320 | 57.408-57.612 | 56.027-56.038 | +2.64% |
-| Lightweight FP8 | 1920x1080 | 2.280-2.283 | 2.221-2.225 | +2.64% |
-| Lightweight FP8 | 3840x2160 | 7.564-7.709 | 7.230-7.612 | +2.91% |
-| Lightweight FP8 | 7680x4320 | 34.513-34.608 | 35.265-35.835 | -2.78% |
+Both models match their corresponding NVIDIA DLSS5 preset byte for byte in reset A, history and reset B at all 12 extents, across 144 fresh processes. This applies to the native-50/default path. The two trained models produce different images; this is implementation parity, not a moving-scene quality ranking.
 
-Positive extra time means Phoenix DLSS5 is slower in this matched inference harness; negative means faster. Ranges are two fresh-process medians, not confidence intervals. Never infer a tiny optimization win from a gap smaller than run variability. These points do not measure full game FPS, capture/IPC, composition, VR eyes or addon enable latency.
+## Instruction styles: synthetic context
 
-Resolution cost is not assumed linear. Padding, frame-sized workspace/history and the two large-input kernel variants matter; production switches those variants at 18,662,400 input pixels (5760x3240 area). The current study measures standard points on both sides; the separate register screen checks the exact threshold boundary.
+**I don't own RTX 20/30/40 hardware.** Their native kernels are built, but physical-card inference is pending. Every bar below is measured on RTX 5080 with the same structured 1080p fixture and sampling settings. Older strategies still compile for the real target GPU. They do not emulate older-card throughput, caches or bandwidth.
 
-Portable CUDA/Vulkan are functional alternate implementations, not the native RTX instruction path with a different API label. Their synchronous host-plane calls include preparation, transfers and resolve. A GPU-event interval alone is not the full-call cost, and subtracting the two does not isolate pure CPU work. The CPU/iGPU routes are useful correctness/portability baselines but are not practical 1080p real-time modes in this measured configuration. No cross-route pooled average obscures that distinction.
+![Synthetic native and older instruction strategies compared with NVIDIA DLSS5 at 1080p](instruction-styles-1080p.png)
 
-Model selection, 1-8 central-transformer depth, block repetitions and whole-network passes are independent controls. Approximate profiles trade output for work; repeat/pass costs below are measured at 320x180 only. The neural benchmark does not revalidate every addon UI, graphics API, transport, color/HDR mode or live moving scene.
+The 20/30 paths use FP16 decomposition and can round differently from native FP8. Exact NVIDIA parity above is for the default native path. The separate [before/after study](../../NATIVE_TUNING_RESOLUTIONS.md) checks each style against its own control over 720p–8K.
 
-## Current and historical timing context
+## Memory at 1080p
 
-The subsequent [same-DLL released/current comparison](release-ab.md) rebuilt both source versions and passed 40 cases. With 310.8, current Phoenix DLSS5 measured -1.32% / -1.05% / +1.46% GPU time at 720p / 1080p / 4K; the 1080p median-of-process-medians was essentially unchanged. This does not reproduce a general GitHub-version advantage. Small 4K differences remain unattributed, with variation also present in the NVIDIA DLSS5 control.
+| Engine / model | Device-local MiB | Nonlocal MiB | Private commitment MiB | Working set MiB |
+| --- | ---: | ---: | ---: | ---: |
+| Phoenix DLSS5 / Original | 574.6 | 49.6 | 756.1 | 171.3 |
+| Phoenix DLSS5 / Lightweight FP8 | 540.8 | 49.6 | 721.7 | 170.2 |
+| NVIDIA DLSS5 / Original | 639.6 | 50.1 | 848.6 | 333.6 |
+| NVIDIA DLSS5 / Lightweight FP8 | 574.9 | 50.1 | 783.0 | 300.9 |
 
-### Previous broad refresh versus this run
+DXGI residency includes the process, harness and driver. Private commitment is not resident RAM; working set is shown separately. These are snapshots after measurement and output validation, not cold-start peaks or vendor-internal buffer accounting.
 
-Matched 1080p cells only. Negative deltas mean less time. These separate runs are not clock-controlled paired experiments: do not assign small changes to a particular feature. The previous dataset hash and per-cell timings are retained in JSON. No average mixes unlike backends.
+## Memory scaling and host RAM
 
-| Route / model | GPU time change | Full-call time change |
-| --- | ---: | ---: |
-| CPU 32 threads / Original | Not applicable | +8.77% |
-| CPU 32 threads / Lightweight FP8 | Not applicable | -15.63% |
-| CUDA RTX 5080 / Original | +1.04% | +1.13% |
-| CUDA RTX 5080 / Lightweight FP8 | -0.43% | +2.58% |
-| Native RTX NVIDIA DLSS5 / Original | -0.08% | +1.98% |
-| Native RTX NVIDIA DLSS5 / Lightweight FP8 | -0.19% | +3.10% |
-| Native RTX Phoenix DLSS5 / Original | -0.13% | -0.14% |
-| Native RTX Phoenix DLSS5 / Lightweight FP8 | -0.33% | -1.69% |
-| Vulkan Radeon iGPU / Original | +4.95% | +4.96% |
-| Vulkan Radeon iGPU / Lightweight FP8 | +5.01% | +4.96% |
-| Vulkan RTX 5080 / Original | -3.60% | -3.63% |
-| Vulkan RTX 5080 / Lightweight FP8 | +1.67% | +1.61% |
+![Current native process residency and private commitment across resolution](native-current-memory.png)
 
-The current 1080p GPU gap is measured: Phoenix takes 1.28% more GPU time for Original (48.8 microseconds) and 2.64% more for Lightweight (58.7 microseconds). Process ranges are retained below; small gaps are not universal performance guarantees.
+## Sampling and reproduction
 
-An additional 48-case [GPU-gap investigation](gpu-gap.md) reproduced about 51-56 microseconds in uninstrumented 1080p controls and narrowed most of the difference to the dispatch region, not preparation or output transitions/copy. The gap reverses at 720p and grows differently by model at 4K: it is not a fixed 0.06 ms overhead. These narrower diagnostics retain their own data and do not replace this broader study.
+- Three fresh-process pairs per model/size, with renderer order reversed on alternate rounds. Three seconds of warmup and three seconds of measurement, at least 30 measured frames. GPU clocks remain dynamic.
+- Headline times are medians of process medians. Observed ranges are descriptive, not confidence intervals. GPU time includes recorded engine work, barriers and matching output copy. Call time includes recording/submission/fence wait; neither includes producer upload or output readback. Do not add GPU time to call time.
+- The current native bundle is used unchanged. Model, NGX core, probe and module hashes are retained in the JSON. Successful finite, reset-repeatable outputs and exact matching-renderer captures are required before publication.
+- Reproduce with `tools/benchmark_native_vendor.py`, then `tools/benchmark_style_vendor_context.py`, then `tools/report_native_vendor.py`. These scripts perform GPU work except the final report step, and use disposable build/input folders. Proprietary model DLLs and SDKs remain external.
 
-The earlier 310.9.16 two-model comparison already showed gaps of 1.85% / 3.44% (Original / Lightweight). It used a different input and one process per cell, so it is context rather than a controlled regression test.
+## Earlier portable and feature study (2026-10-20)
 
-Against the 14 October README, Original GPU time changed from 3.829 to 3.874 ms (+1.18%), while its record/submit/wait call changed from 4.416 to 4.323 ms (-2.11%). That older study used DLL 310.8, a different fixture, debug enabled and fixed 128-frame sampling; the current study uses DLL 310.9.16, debug disabled and timed sampling. The vendor DLL changed even though the Original weight resource is unchanged.
+Everything below retains that study’s measurements and build identities. Its native reference rows are historical feature baselines, separate from the freshly updated default native results above. The JSON keeps that complete snapshot under `historical_broad_refresh`; it does not label older portable or feature timings as newly measured.
 
-The default workload still has eight central transformers once and one pass: 154 Phoenix neural launches for Original, 78 for Lightweight. Repeat preparation returns immediately for the all-ones schedule, and CPU budget preparation precedes the GPU timestamp. Extra passes/repetitions are not enabled in these baseline numbers. Pixel-identical output does not require identical GPU machine code, barriers or memory scheduling. The exact current kernel-level cause has not been isolated; neither new controls nor unlocked clocks can be assigned the blame from these measurements alone.
+<!-- historical-broad-refresh -->
+
+
 
 ## Portable host-plane runtime
 

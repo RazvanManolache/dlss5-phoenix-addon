@@ -1,20 +1,24 @@
 // Optional offline attribution. Timestamped single launches disturb overlap;
 // use this only to locate expensive kernels, never for end-to-end speed claims.
 #pragma once
+#include <stdexcept>
 
 class KernelTiming {
-    static constexpr unsigned launch_count = 154;
+    const unsigned launch_count_;
     ComPtr<ID3D12QueryHeap> queries_;
     ComPtr<ID3D12Resource> readback_;
     uint64_t frequency_ = 0;
     unsigned recorded_ = 0;
 
   public:
-    KernelTiming(ID3D12Device* device, ID3D12CommandQueue* queue) {
+    KernelTiming(ID3D12Device* device, ID3D12CommandQueue* queue, unsigned launches = 154)
+        : launch_count_(launches) {
+        if (!launch_count_ || launch_count_ > 2048)
+            throw std::runtime_error("Invalid kernel timing launch count");
         phoenix_native::hr(queue->GetTimestampFrequency(&frequency_));
         D3D12_QUERY_HEAP_DESC description{};
         description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-        description.Count = launch_count * 2;
+        description.Count = launch_count_ * 2;
         phoenix_native::hr(device->CreateQueryHeap(&description, IID_PPV_ARGS(&queries_)));
         readback_ =
             phoenix_native::buffer(device, description.Count * sizeof(uint64_t),
@@ -27,7 +31,8 @@ class KernelTiming {
                           const NVAPI_CU_KERNEL_LAUNCH_PARAMS* launches, NvU32 count,
                           decltype(phoenix_native::Api::dispatch) forward) {
         for (unsigned index = 0; index < count; ++index) {
-            check(recorded_ < launch_count, "Kernel timing capacity");
+            if (recorded_ >= launch_count_)
+                throw std::runtime_error("Kernel timing capacity");
             const unsigned query = recorded_++ * 2;
             commands->EndQuery(queries_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query);
             const auto status = forward(commands, launches + index, 1);
@@ -38,17 +43,18 @@ class KernelTiming {
         return NVAPI_OK;
     }
     void resolve(ID3D12GraphicsCommandList* commands) {
-        check(recorded_ == launch_count, "Kernel timing launch count");
-        commands->ResolveQueryData(queries_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, launch_count * 2,
+        if (recorded_ != launch_count_)
+            throw std::runtime_error("Kernel timing launch count");
+        commands->ResolveQueryData(queries_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, launch_count_ * 2,
                                    readback_.Get(), 0);
     }
     // The caller has waited for the submission's completion fence.
     Json read() const {
         uint64_t* timestamps = nullptr;
-        D3D12_RANGE range{0, launch_count * 2 * sizeof(uint64_t)}, empty{};
+        D3D12_RANGE range{0, launch_count_ * 2 * sizeof(uint64_t)}, empty{};
         phoenix_native::hr(readback_->Map(0, &range, reinterpret_cast<void**>(&timestamps)));
         Json timings = Json::array();
-        for (unsigned index = 0; index < launch_count; ++index)
+        for (unsigned index = 0; index < launch_count_; ++index)
             timings.push_back(double(timestamps[index * 2 + 1] - timestamps[index * 2]) * 1000.0 /
                               double(frequency_));
         readback_->Unmap(0, &empty);

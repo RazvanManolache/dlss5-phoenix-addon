@@ -1,3 +1,4 @@
+#include "../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: decoder/input_upsampling.cu
 // Decoder input projection/upsampling stage, combining the coarse result with its matching encoder skip.
 // The launch ABI and skip/publication buffers are described by the native model launch contract.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 3088
 #include "../../common/async_memory.cuh"
 #include "../../common/cached_vector_access.cuh"
@@ -23,7 +24,7 @@ atomic_add_four_half_pairs(uint64_t address, uint32_t word_x, uint32_t word_y, u
             atomicAdd(error_counts + 1, 1u);
             return;
         }
-#if __CUDA_ARCH__ >= 900
+#if PHOENIX_STYLE_ARCH >= 900
     asm volatile("red.global.add.noftz.v4.f16x2 [%0],{%1,%2,%3,%4};" ::"l"(address), "r"(word_x),
                  "r"(word_y), "r"(word_z), "r"(word_w)
                  : "memory");
@@ -337,7 +338,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
         initialize_copy_barrier(shared_tile, uniform_address_word_6 + 0x8u);
 #endif
     }
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_1 = int32_t(address_word_58) < int32_t(packed_half_57) || !condition_2;
     address_word_3 = uint32_t(combine_words(address_word_3, 0u) << 0x2u >> 32) + address_word_56;
     packed_half_51 = uint32_t(int32_t(address_word_3) >> 0x2u);
@@ -496,7 +497,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
     condition_2 = wait_copy_barrier(shared_tile, uniform_index_word_4,
                                     async_tokens[(((uniform_index_word_4) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_2 = true;
 #endif
     if (!condition_2) {
@@ -505,7 +506,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
             condition_2 = wait_copy_barrier(shared_tile, uniform_index_word_4,
                                             async_tokens[(((uniform_index_word_4) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_2 = true;
 #endif
         } while (!condition_2);
@@ -848,7 +849,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
         condition_2 = wait_copy_barrier(shared_tile, uniform_index_word_7,
                                         async_tokens[(((uniform_index_word_7) >> 3) & 1)]);
 #else
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         condition_2 = true;
 #endif
         if (!condition_2) {
@@ -857,7 +858,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
                 condition_2 = wait_copy_barrier(shared_tile, uniform_index_word_7,
                                                 async_tokens[(((uniform_index_word_7) >> 3) & 1)]);
 #else
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
                 condition_2 = true;
 #endif
             } while (!condition_2);
@@ -1062,7 +1063,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
             }
         }
         __syncwarp(__activemask());
-        __syncthreads();
+        phoenix_architecture::finish_compatibility_copies();
         uniform_condition_0 = uint32_t(uniform_block_index_10) >= uint32_t(0x3u);
         if (!uniform_condition_0) {
             condition_0 = int32_t(packed_half_34) >= int32_t(packed_half_51);
@@ -4816,7 +4817,7 @@ __device__ __forceinline__ void run_decoder_input_upsampling(const uint32_t* par
     address_word_2 = threadIdx.z;
     address_word_3 = threadIdx.x;
     matrix_fragment_4 = threadIdx.y;
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_0 = (address_word_2 | address_word_3 | matrix_fragment_4) != 0;
     if (condition_0) {
         return;

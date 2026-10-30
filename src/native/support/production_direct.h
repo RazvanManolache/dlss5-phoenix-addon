@@ -803,6 +803,7 @@ class Runner {
     std::unique_ptr<NeuralExecutor> external_;
     std::unique_ptr<GuideAdapter> guides_;
     std::string execution_device_ = "native", worker_engine_ = "auto";
+    std::string native_kernel_style_ = "auto";
     int offload_age_frames_ = 4, offload_age_ms_ = 100, cpu_threads_ = 0;
     unsigned passes_ = 1;
     std::unique_ptr<phoenix_native::Network> network_;
@@ -968,6 +969,7 @@ class Runner {
                                    output_height ? output_height : height_, width_, height_);
         if (execution_settings) {
             model_selection_ = phoenix_model_tools::ModelSelectionState::read(*execution_settings);
+            native_kernel_style_ = execution_settings->native_kernel_style;
             additional_pipeline_=execution_settings->pipeline;
             additional_library_path_=execution_settings->model_library_directory;
             processing_ = execution_settings->processing;
@@ -1146,6 +1148,7 @@ class Runner {
     bool external() const {
         return bool(external_);
     }
+    bool native_network_loaded() const { return bool(network_); }
     Json execution_status() const {
         auto result = external_ ? external_->status() : Json{{"kind", "native"}};
         result["metered_exposure_scale"] = exposure_stability_.last;
@@ -1158,6 +1161,7 @@ class Runner {
         return !guides_ || guides_->matches(depth);
     }
     bool architecture_matches(const Settings& settings) const {
+        if (!bridge_only_ && !external_ && native_kernel_style_ != settings.native_kernel_style) return false;
         if (!bridge_only_ && model_selection_ != phoenix_model_tools::ModelSelectionState::read(settings))
             return false;
         if(additional_pipeline_.order!=settings.pipeline.order||additional_pipeline_.enabled!=settings.pipeline.enabled||

@@ -37,13 +37,14 @@ class ReadmeBenchmarkTests(unittest.TestCase):
         self.assertEqual(once.split(start)[0], before)
         block, actual_after = once.split(start)[1].split(end)
         self.assertEqual(actual_after, after)
-        self.assertLess(len(block.splitlines()), 50)
+        self.assertLess(len(block.splitlines()), 24)
         self.assertIn('## Native RTX: the main event', block)
         for route in ('phoenix', 'nvidia'):
             for model in ('original', 'small-fp8'):
                 row = lookup(route, model)
-                self.assertIn(f"{row['gpu']['mean_process_median_ms']:.3f} | "
-                              f"{row['wall']['mean_process_median_ms']:.3f}", block)
+                self.assertIn(f"{row['gpu']['mean_process_median_ms']:.3f}", block)
+        self.assertIn('[Performance guide](docs/PERFORMANCE.md)', block)
+        self.assertNotIn('Full call ms', block)
         self.assertIn('including Original at 4K', block)
         for detail in ('Private commit MiB', 'Tensors / packed records', 'GPU-gap follow-up'):
             self.assertNotIn(detail, block)

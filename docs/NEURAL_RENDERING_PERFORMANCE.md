@@ -1,6 +1,6 @@
 # Neural rendering performance evaluation
 
-The [current two-model benchmark](benchmarks/current/README.md) supersedes the older headline model/backend timings below with fresh native RTX/NVIDIA, CUDA, Vulkan NVIDIA/AMD and CPU data. This dated report retains its original advanced-adapter and pre-fix measurements and is not rewritten as a current run.
+The [current two-model benchmark](benchmarks/current/README.md) supersedes the older headline native timings below with updated Phoenix DLSS5 / NVIDIA DLSS5 measurements. Its portable CUDA, Vulkan and CPU studies retain their own dates. This report keeps its original advanced-adapter and pre-fix measurements rather than presenting them as a new run.
 
 > Correctness update (2026-10-18): the native graph packaging/layout failures at 1024x768 and 4K are fixed in the experimental candidate. See [repair evidence](../artifacts/current/native-correctness/REPORT.md). The timings below remain the recorded pre-fix measurements.
 

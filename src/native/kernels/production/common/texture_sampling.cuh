@@ -1,3 +1,4 @@
+#include "architecture_policy.cuh"
 // Native frame-boundary sampling and feature packing helpers.
 // Memory access and interpolation use the launch texture-coordinate convention.
 
@@ -74,7 +75,7 @@ image_mma_half(uint32_t& result_pair_0, uint32_t& result_pair_1, uint32_t activa
                uint32_t activation_fragment_3, uint32_t weight_fragment_0,
                uint32_t weight_fragment_1, uint32_t accumulator_input_0,
                uint32_t accumulator_input_1) {
-#if __CUDA_ARCH__ < 800
+#if PHOENIX_STYLE_ARCH < 800
     phoenix_architecture::half_matrix(result_pair_0, result_pair_1,
         activation_fragment_0, activation_fragment_1, activation_fragment_2, activation_fragment_3,
         weight_fragment_0, weight_fragment_1, accumulator_input_0, accumulator_input_1);

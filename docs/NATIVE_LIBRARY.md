@@ -22,7 +22,7 @@ fixtures. General parity remains unverified. See [Lightweight FP8](SMALL_FP8.md)
 
 Requirements: Windows x64, MSVC C++20, Windows SDK, CMake 3.22+, Python 3.10+
 for build tooling, and the external NGX SDK headers. See the links and pinned
-dependencies in [the build instructions](../README.md#build-from-source) and
+dependencies in [the build instructions](DEVELOPMENT.md#build-from-source) and
 [external dependencies](../third_party/EXTERNAL_DEPENDENCIES.md).
 
 ```powershell

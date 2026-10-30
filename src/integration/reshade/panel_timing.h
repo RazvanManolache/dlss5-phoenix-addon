@@ -122,6 +122,9 @@ inline void draw_timing(Context &addon_state) {
                                       row.at("height").get<unsigned>(),
                                       row.at("settings").dump(2).c_str());
                 const auto &context = row.at("settings");
+                if (row.at("execution_device") == "native" && phoenix::uses_ours(row.at("mode").get<int>()))
+                    ImGui::TextDisabled("%s", phoenix_kernel::style_label(
+                        row.value("native_kernel_style", context.value("NativeKernelStyle", std::string("auto")))));
                 ImGui::TextDisabled(
                     "%u x %u -> %u x %u",
                     context.value("InferenceWidth", row.at("width").get<unsigned>()),

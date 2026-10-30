@@ -65,6 +65,7 @@ struct Context {
     std::string nvidia_status;
     Json appearance = Json::object();
     Json pipeline_status = Json::object();
+    Json native_kernel_styles = Json::object();
     // GPU timings belong to the queue that measured them, which may be the
     // hidden companion rather than the game's rendering queue.
     std::string timing_provenance = "Game rendering GPU";

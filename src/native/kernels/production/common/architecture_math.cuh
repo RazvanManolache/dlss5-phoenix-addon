@@ -1,3 +1,4 @@
+#include "architecture_policy.cuh"
 #pragma once
 // Compile-time compatibility helpers. The sm_120 instruction paths remain in
 // their original helpers; no architecture branch is evaluated during a frame.
@@ -5,6 +6,7 @@
 // OpenNR (Carlos Lopez Jr., MIT); see third_party/opennr/LICENSE and THIRD_PARTY.md.
 #include <stdint.h>
 #include <cuda_fp16.h>
+#include "fp8_weight_values.cuh"
 
 namespace phoenix_architecture {
 __device__ __forceinline__ void copy_shared_word(uint32_t destination, uint64_t source) {
@@ -12,7 +14,7 @@ __device__ __forceinline__ void copy_shared_word(uint32_t destination, uint64_t 
     asm volatile("ld.global.ca.u32 %0,[%1];" : "=r"(word) : "l"(source) : "memory");
     asm volatile("st.shared.u32 [%0],%1;" :: "r"(destination), "r"(word) : "memory");
 }
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ < 890 || defined(PHOENIX_ARCHITECTURE_TEST)
+#if !defined(PHOENIX_STYLE_ARCH) || PHOENIX_STYLE_ARCH < 890 || defined(PHOENIX_ARCHITECTURE_TEST)
 // Integer conversions avoid expanding the general CUDA conversion routines into
 // every matrix fragment on devices without FP8 instructions. Round to nearest,
 // ties to even; preserve signed zero and saturate infinities to finite E4M3.
@@ -30,12 +32,24 @@ __host__ __device__ __forceinline__ uint8_t encode_fp8_value(uint16_t half) {
 }
 __host__ __device__ __forceinline__ uint16_t decode_fp8_value(uint8_t code) {
     const unsigned magnitude = code & 127, sign = (code & 128) << 8;
+#if defined(__CUDA_ARCH__)
+    // Normal E4M3 values need only an exponent-bias adjustment. The eight
+    // subnormal/zero half encodings have a zero low byte, so one register
+    // permutation supplies their high byte without divergent per-byte loops.
+    // Both constants are register immediates, not a divergent constant-memory
+    // lookup. NaNs retain the same canonical payload and sign as the reference.
+    const unsigned subnormal = __byte_perm(0x1e1c1800u, 0x23222120u, magnitude & 7u) << 8;
+    const unsigned normal = (magnitude << 7) + 0x2000u;
+    const unsigned finite = magnitude < 8 ? subnormal : normal;
+    return uint16_t(sign | (magnitude == 127 ? 0x7e00u : finite));
+#else
     if (magnitude == 127) return uint16_t(sign | 0x7e00);
     const unsigned exponent = magnitude >> 3, fraction = magnitude & 7;
     if (exponent) return uint16_t(sign | ((exponent + 8) << 10) | (fraction << 7));
     if (!fraction) return uint16_t(sign);
     const unsigned shift = fraction < 2 ? 2 : fraction < 4 ? 1 : 0;
     return uint16_t(sign | ((8 - shift) << 10) | ((fraction << (8 + shift)) & 0x3ff));
+#endif
 }
 __host__ __device__ __forceinline__ uint16_t encode_fp8_pair(uint32_t halves) {
     return uint16_t(encode_fp8_value(uint16_t(halves))) |
@@ -56,7 +70,7 @@ __host__ __device__ __forceinline__ void decode_fp8_fragment(uint32_t word, uint
 __device__ __forceinline__ void half_matrix(
     uint32_t& d0, uint32_t& d1, uint32_t a0, uint32_t a1, uint32_t a2,
     uint32_t a3, uint32_t b0, uint32_t b1, uint32_t c0, uint32_t c1) {
-#if __CUDA_ARCH__ < 800 || defined(PHOENIX_TEST_TURING_MMA)
+#if PHOENIX_STYLE_ARCH < 800 || defined(PHOENIX_TEST_TURING_MMA)
     asm("mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 {%0,%1},{%2,%3},{%6},{%8,%9};\n"
         "mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16 {%0,%1},{%4,%5},{%7},{%0,%1};"
         : "=&r"(d0), "=&r"(d1)
@@ -78,7 +92,7 @@ __device__ __forceinline__ void fp8_matrix(
     }
 #pragma unroll
     for (unsigned i = 0; i < 2; ++i) {
-        decode_fp8_fragment(b[i], right_low[i], right_high[i]);
+        decode_fp8_weight_fragment(b[i], right_low[i], right_high[i]);
     }
     half_matrix(d0, d1, low[0], low[1], high[0], high[1], right_low[0], right_high[0], c0, c1);
     half_matrix(d0, d1, low[2], low[3], high[2], high[3], right_low[1], right_high[1], d0, d1);

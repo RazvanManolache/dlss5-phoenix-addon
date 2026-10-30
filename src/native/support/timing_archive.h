@@ -127,6 +127,7 @@ class TimingArchive {
                  {"height", height},
                  {"network_passes", row.network_passes},
                  {"execution_device", settings.value("ExecutionDevice", std::string("native"))},
+                 {"native_kernel_style", settings.value("NativeKernelStyle", std::string("auto"))},
                  {"settings", settings},
                  {"route", row.route.json()},
                  {"phoenix", row.own.json()},

@@ -4,11 +4,22 @@ import json
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
-from prepare_addon_release import ROOT, input_package, safe_payload, sha
+from prepare_addon_release import ROOT, input_package, safe_payload, sha, package_document_links, VERSION
 from validate_addon_release import inspect_payload
 
 
 class PackageGuards(unittest.TestCase):
+    def test_package_documentation_keeps_local_docs_and_pins_missing_assets(self):
+        files = {'README.md': b'[Install](docs/INSTALLATION.md) [Source](src/example.cpp)\n',
+                 'docs/INSTALLATION.md': b'![UI](features/example.png)\n```md\n[Example](src/root.cpp)\n```\n',
+                 'docs/legacy.md': b'[License](../LICENSE) uses 2\xd73 pixels', 'LICENSE': b'License'}
+        package_document_links(files)
+        self.assertIn(b'(docs/INSTALLATION.md)', files['README.md'])
+        self.assertIn(('/blob/' + VERSION + '/src/example.cpp').encode(), files['README.md'])
+        self.assertIn(('raw.githubusercontent.com/RazvanManolache/dlss5-phoenix-addon/' + VERSION).encode(), files['docs/INSTALLATION.md'])
+        self.assertIn(b'[Example](src/root.cpp)', files['docs/INSTALLATION.md'])
+        self.assertIn('2×3', files['docs/legacy.md'].decode('utf-8'))
+
     def test_nested_core_identity_and_retained_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

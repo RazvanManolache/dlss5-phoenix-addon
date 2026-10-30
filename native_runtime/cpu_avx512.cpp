@@ -26,16 +26,23 @@ extern "C" void phoenix_cpu_avx512(const phoenix_cpp::Command& command, uint64_t
     const __m512i row_pairs =
         _mm512_mullo_epi32(_mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
                            _mm512_set1_epi32(operation.left_row_stride / 2));
+    // A gather reads two adjacent halves. Retain the pair for the next K,
+    // instead of issuing the same sixteen memory reads a second time.
+    // This is a register cache only: weights and tensor storage stay packed.
+    __m512i packed_pair = _mm512_setzero_si512();
     for (unsigned reduction_index = 0; reduction_index < operation.reduction_count;
          ++reduction_index) {
         __m512 left_values;
         if (paired_rows) {
             // Fetch one aligned pair of halves from each row, then select K.
             // The even row stride keeps the last pair inside its source row.
-            const __m512i indices =
-                _mm512_add_epi32(row_pairs, _mm512_set1_epi32(reduction_index / 2));
-            __m512i packed = _mm512_mask_i32gather_epi32(_mm512_setzero_si512(), row_mask, indices,
+            if ((reduction_index & 1u) == 0u) {
+                const __m512i indices =
+                    _mm512_add_epi32(row_pairs, _mm512_set1_epi32(reduction_index / 2));
+                packed_pair = _mm512_mask_i32gather_epi32(_mm512_setzero_si512(), row_mask, indices,
                                                          left_base, 4);
+            }
+            __m512i packed = packed_pair;
             if (reduction_index & 1u)
                 packed = _mm512_srli_epi32(packed, 16);
             left_values = _mm512_cvtph_ps(_mm512_cvtepi32_epi16(packed));

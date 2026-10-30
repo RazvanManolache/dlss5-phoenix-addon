@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: window_attention/channels_128/attention.cu
 // Fused shifted-window block: feed-forward projections, 32-channel attention heads and residual publication.
 // The channel folder fixes the specialization; its down/up/view variant controls spatial layout.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 9216
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"

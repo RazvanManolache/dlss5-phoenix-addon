@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 # Backend plugins exchange C++ objects with the runtime. Android must use one
 # shared C++ runtime rather than an independent static runtime in each DSO.
 set(ANDROID_STL c++_shared CACHE STRING "Android C++ runtime for backend plugins")
-project(PhoenixStandalone VERSION 0.9.0 LANGUAGES C CXX)
+project(PhoenixStandalone VERSION 1.0.0 LANGUAGES C CXX)
 if(MSVC)
     # Keep source_location diagnostics useful without exposing a builder's path.
     get_filename_component(PHOENIX_SOURCE_PARENT "${CMAKE_CURRENT_SOURCE_DIR}/../.." REALPATH)

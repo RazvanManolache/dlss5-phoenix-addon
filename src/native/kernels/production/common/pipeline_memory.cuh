@@ -2,6 +2,7 @@
 // Ordering, cache modes and async completion tokens are part of the producer/consumer contract.
 
 #include "packed_math.cuh"
+#include "compatibility_copy.cuh"
 struct MemoryRange {
     uint64_t base, size, writable;
 };
@@ -53,6 +54,17 @@ __device__ __forceinline__ void bulk_copy(uint32_t* shared_tile, uint32_t destin
                                           uint64_t source_address, uint32_t byte_count,
                                           uint32_t capacity, const MemoryRange* memory_ranges,
                                           uint32_t* error_counts) {
+#if PHOENIX_STYLE_ARCH < 900
+    if constexpr (!CheckBounds) {
+        // The scalar path remains the diagnostic reference and handles any
+        // unaligned/tail copy. Never round a request up or read beyond its end.
+        if (((source_address | destination_offset | byte_count) & 15u) == 0) {
+            phoenix_architecture::copy_compatibility_tile(
+                shared_tile, destination_offset, source_address, byte_count);
+            return;
+        }
+    }
+#endif
     for (uint32_t byte_offset = 0; byte_offset < byte_count; byte_offset += 4)
         shared_write<CheckBounds>(
             shared_tile, destination_offset + byte_offset,

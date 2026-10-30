@@ -1,0 +1,1189 @@
+{
+  "schema": "phoenix-resolution-tuning-summary/1",
+  "receipt_sha256": "0bd87d6b4777ced24b084988399dd23bf4954e4721c3b79ece8ee6787d5d954b",
+  "candidate_manifest_sha256": "46264f02353cc0f4a29274a8ec5d4e594d5d3da9633b4f63262da064842da136",
+  "gpu": "NVIDIA GeForce RTX 5080, 616.64, 3330 MiB, 35, 2737 MHz, 37.93 W, 0 %",
+  "extents": [
+    "1280x720",
+    "2560x1080",
+    "2560x1440",
+    "3840x2160",
+    "6144x3456",
+    "7680x4320"
+  ],
+  "rounds": 3,
+  "passed": true,
+  "input_fixture_sha256": {
+    "1280x720": "a86cf6e095076e6a1dc8450973a9108e677250b41fd10941e8941739a09d843c",
+    "2560x1080": "1b49ed88aa5c5cbe1711489e70288cd3fb9bb58842003c9bbafca7efd2cbc4c8",
+    "2560x1440": "5b10e82c76460e9fe1e68f749a3e26db379e09c55c19b5d7391b36bf157e7d7e",
+    "3840x2160": "5582d226dbb529d8f9e82ef8aef6e099f159f2354c9088ad853f6f87b167964f",
+    "6144x3456": "a6f811e10dfb2e1984f9dbee04beb7ccc8e45c1915951db64f45dc55f8ca668c",
+    "7680x4320": "9a4217949f0b258bd909e8b0bfeb884c904f92e92e41ca06cd16adc287c8b9c4"
+  },
+  "cells": [
+    {
+      "extent": "1280x720",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 2.515808,
+      "candidate_ms": 2.459776,
+      "reduction_percent": 2.138159986771626,
+      "paired_reductions_percent": [
+        2.0511838662326864,
+        2.138159986771626,
+        2.4282504664830284
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 401.55859375,
+        "device_nonlocal": 40.83203125,
+        "host_private_commit": 564.9375,
+        "host_working_set": 149.5625
+      },
+      "candidate_owned_device_allocation_mib": 108.4375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 1.498176,
+      "candidate_ms": 1.44544,
+      "reduction_percent": 3.6484032895439555,
+      "paired_reductions_percent": [
+        3.6484032895439555,
+        3.5200136699559903,
+        3.746937906060288
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 368.80859375,
+        "device_nonlocal": 40.83203125,
+        "host_private_commit": 530.1953125,
+        "host_working_set": 148.2890625
+      },
+      "candidate_owned_device_allocation_mib": 107.9375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 3.227744,
+      "candidate_ms": 3.05648,
+      "reduction_percent": 5.3020912868008025,
+      "paired_reductions_percent": [
+        5.204626775430898,
+        5.305997005958341,
+        5.3020912868008025
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 401.55859375,
+        "device_nonlocal": 40.83203125,
+        "host_private_commit": 563.83203125,
+        "host_working_set": 149.4140625
+      },
+      "candidate_owned_device_allocation_mib": 108.4375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 2.004384,
+      "candidate_ms": 1.891808,
+      "reduction_percent": 5.688603633809109,
+      "paired_reductions_percent": [
+        5.566997142264151,
+        5.7053081536302175,
+        5.688603633809109
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 368.80859375,
+        "device_nonlocal": 40.83203125,
+        "host_private_commit": 531.2265625,
+        "host_working_set": 148.703125
+      },
+      "candidate_owned_device_allocation_mib": 107.9375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 25.1712,
+      "candidate_ms": 21.740032,
+      "reduction_percent": 12.945969997457407,
+      "paired_reductions_percent": [
+        12.632810792042292,
+        14.067551747012619,
+        12.945969997457407
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 574.36328125,
+        "device_nonlocal": 54.83203125,
+        "host_private_commit": 790.06640625,
+        "host_working_set": 202.58203125
+      },
+      "candidate_owned_device_allocation_mib": 108.4375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 14.62944,
+      "candidate_ms": 13.092192,
+      "reduction_percent": 10.50790734300151,
+      "paired_reductions_percent": [
+        11.550327012463491,
+        10.50790734300151,
+        9.421140773875504
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 541.61328125,
+        "device_nonlocal": 54.83203125,
+        "host_private_commit": 757.27734375,
+        "host_working_set": 201.26171875
+      },
+      "candidate_owned_device_allocation_mib": 107.9375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 26.21376,
+      "candidate_ms": 23.647264,
+      "reduction_percent": 10.631607216973082,
+      "paired_reductions_percent": [
+        11.022738749657336,
+        9.563000692678415,
+        10.631607216973082
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 556.73828125,
+        "device_nonlocal": 54.83203125,
+        "host_private_commit": 776.19140625,
+        "host_working_set": 204.00390625
+      },
+      "candidate_owned_device_allocation_mib": 108.4375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "1280x720",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 15.307936,
+      "candidate_ms": 13.820192,
+      "reduction_percent": 9.793587240387868,
+      "paired_reductions_percent": [
+        9.793587240387868,
+        9.718775934260504,
+        9.832278884123824
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 523.98828125,
+        "device_nonlocal": 54.83203125,
+        "host_private_commit": 742.26953125,
+        "host_working_set": 203.06640625
+      },
+      "candidate_owned_device_allocation_mib": 107.9375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 4.883968,
+      "candidate_ms": 4.866912,
+      "reduction_percent": 0.2519007353664615,
+      "paired_reductions_percent": [
+        0.2519007353664615,
+        0.3936028082676124,
+        0.2437362406961019
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 670.99609375,
+        "device_nonlocal": 54.89453125,
+        "host_private_commit": 866.60546875,
+        "host_working_set": 184.4453125
+      },
+      "candidate_owned_device_allocation_mib": 306.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 2.791232,
+      "candidate_ms": 2.78736,
+      "reduction_percent": 0.13070546555223883,
+      "paired_reductions_percent": [
+        0.13070546555223883,
+        0.11120537454428758,
+        0.23270743058899646
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 638.62109375,
+        "device_nonlocal": 54.89453125,
+        "host_private_commit": 831.96484375,
+        "host_working_set": 183.3671875
+      },
+      "candidate_owned_device_allocation_mib": 306.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 5.773152,
+      "candidate_ms": 5.539264,
+      "reduction_percent": 4.0513050756328495,
+      "paired_reductions_percent": [
+        4.051184529320773,
+        4.071628762282453,
+        4.0513050756328495
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 670.99609375,
+        "device_nonlocal": 54.89453125,
+        "host_private_commit": 867.0,
+        "host_working_set": 184.6640625
+      },
+      "candidate_owned_device_allocation_mib": 306.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 3.51072,
+      "candidate_ms": 3.352096,
+      "reduction_percent": 4.5114426591081,
+      "paired_reductions_percent": [
+        4.518275453468235,
+        4.508775928880782,
+        4.5114426591081
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 638.62109375,
+        "device_nonlocal": 54.89453125,
+        "host_private_commit": 832.4921875,
+        "host_working_set": 183.70703125
+      },
+      "candidate_owned_device_allocation_mib": 306.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 53.66208,
+      "candidate_ms": 46.804256,
+      "reduction_percent": 11.962741660405275,
+      "paired_reductions_percent": [
+        16.443561285896855,
+        11.427024624378756,
+        11.962741660405275
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 843.80078125,
+        "device_nonlocal": 68.89453125,
+        "host_private_commit": 1092.015625,
+        "host_working_set": 237.9140625
+      },
+      "candidate_owned_device_allocation_mib": 306.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 29.401376,
+      "candidate_ms": 26.393152,
+      "reduction_percent": 10.091935833207256,
+      "paired_reductions_percent": [
+        14.653376740004342,
+        10.091935833207256,
+        10.05379633295056
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 811.42578125,
+        "device_nonlocal": 68.89453125,
+        "host_private_commit": 1058.609375,
+        "host_working_set": 237.28515625
+      },
+      "candidate_owned_device_allocation_mib": 306.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 52.647488,
+      "candidate_ms": 47.546048,
+      "reduction_percent": 9.603723915357797,
+      "paired_reductions_percent": [
+        9.603723915357797,
+        9.689807042645615,
+        9.376401295258251
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 826.17578125,
+        "device_nonlocal": 68.89453125,
+        "host_private_commit": 1074.65234375,
+        "host_working_set": 239.20703125
+      },
+      "candidate_owned_device_allocation_mib": 306.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1080",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 30.491648,
+      "candidate_ms": 27.904992,
+      "reduction_percent": 8.411241456889783,
+      "paired_reductions_percent": [
+        8.411241456889783,
+        9.073932151962083,
+        7.644742586560094
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 793.80078125,
+        "device_nonlocal": 68.89453125,
+        "host_private_commit": 1042.38671875,
+        "host_working_set": 238.2578125
+      },
+      "candidate_owned_device_allocation_mib": 306.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 6.030784,
+      "candidate_ms": 5.976128,
+      "reduction_percent": 0.8829366132164562,
+      "paired_reductions_percent": [
+        0.7983766871882625,
+        0.8829366132164562,
+        0.9793259309166635
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 787.93359375,
+        "device_nonlocal": 61.89453125,
+        "host_private_commit": 1001.57421875,
+        "host_working_set": 202.234375
+      },
+      "candidate_owned_device_allocation_mib": 386.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 3.385472,
+      "candidate_ms": 3.349248,
+      "reduction_percent": 1.0699837422964986,
+      "paired_reductions_percent": [
+        1.5359437165511247,
+        0.9279072850190251,
+        1.0699837422964986
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 754.80859375,
+        "device_nonlocal": 61.89453125,
+        "host_private_commit": 966.6875,
+        "host_working_set": 200.671875
+      },
+      "candidate_owned_device_allocation_mib": 385.5,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 6.989248,
+      "candidate_ms": 6.72256,
+      "reduction_percent": 3.7872819873955743,
+      "paired_reductions_percent": [
+        3.7872819873955743,
+        3.8170105806782484,
+        3.66917871565009
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 787.93359375,
+        "device_nonlocal": 61.89453125,
+        "host_private_commit": 1001.19921875,
+        "host_working_set": 202.2578125
+      },
+      "candidate_owned_device_allocation_mib": 386.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 4.197984,
+      "candidate_ms": 4.01808,
+      "reduction_percent": 4.285485604518735,
+      "paired_reductions_percent": [
+        4.31330112328725,
+        4.285485604518735,
+        4.2079981701040765
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 754.80859375,
+        "device_nonlocal": 61.89453125,
+        "host_private_commit": 965.296875,
+        "host_working_set": 200.93359375
+      },
+      "candidate_owned_device_allocation_mib": 385.5,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 62.675712,
+      "candidate_ms": 55.085376,
+      "reduction_percent": 11.97441581938181,
+      "paired_reductions_percent": [
+        11.633152570075723,
+        11.97441581938181,
+        12.313031242469163
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 960.73828125,
+        "device_nonlocal": 75.89453125,
+        "host_private_commit": 1226.046875,
+        "host_working_set": 255.3203125
+      },
+      "candidate_owned_device_allocation_mib": 386.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 35.001888,
+      "candidate_ms": 31.56288,
+      "reduction_percent": 9.808715912177025,
+      "paired_reductions_percent": [
+        9.808715912177025,
+        9.58512866505944,
+        10.167113618261926
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 927.61328125,
+        "device_nonlocal": 75.89453125,
+        "host_private_commit": 1192.82421875,
+        "host_working_set": 254.15625
+      },
+      "candidate_owned_device_allocation_mib": 385.5,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 65.356832,
+      "candidate_ms": 58.1752,
+      "reduction_percent": 9.801748040663904,
+      "paired_reductions_percent": [
+        9.73259798192786,
+        11.629013692344204,
+        9.801748040663904
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 943.11328125,
+        "device_nonlocal": 75.89453125,
+        "host_private_commit": 1211.921875,
+        "host_working_set": 256.890625
+      },
+      "candidate_owned_device_allocation_mib": 386.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "2560x1440",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 37.177696,
+      "candidate_ms": 33.800288,
+      "reduction_percent": 8.450725163637307,
+      "paired_reductions_percent": [
+        9.867744575257763,
+        8.349350104966158,
+        8.450725163637307
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 909.98828125,
+        "device_nonlocal": 75.89453125,
+        "host_private_commit": 1178.8671875,
+        "host_working_set": 256.5859375
+      },
+      "candidate_owned_device_allocation_mib": 385.5,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 13.501696,
+      "candidate_ms": 13.13184,
+      "reduction_percent": 1.013475888183546,
+      "paired_reductions_percent": [
+        0.9450530867627371,
+        2.7393299330691567,
+        1.013475888183546
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1429.87109375,
+        "device_nonlocal": 97.08203125,
+        "host_private_commit": 1732.67578125,
+        "host_working_set": 290.0234375
+      },
+      "candidate_owned_device_allocation_mib": 854.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 7.527808,
+      "candidate_ms": 7.415968,
+      "reduction_percent": 1.4856914522793363,
+      "paired_reductions_percent": [
+        2.6659887898217605,
+        1.4856914522793363,
+        1.3534845525757122
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1395.62109375,
+        "device_nonlocal": 97.08203125,
+        "host_private_commit": 1694.82421875,
+        "host_working_set": 288.02734375
+      },
+      "candidate_owned_device_allocation_mib": 853.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 15.152896,
+      "candidate_ms": 14.677184,
+      "reduction_percent": 3.0585480192673153,
+      "paired_reductions_percent": [
+        3.0585480192673153,
+        3.3910249242019908,
+        3.037623963102498
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1429.87109375,
+        "device_nonlocal": 97.08203125,
+        "host_private_commit": 1731.546875,
+        "host_working_set": 290.1953125
+      },
+      "candidate_owned_device_allocation_mib": 854.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 9.150848,
+      "candidate_ms": 8.731584,
+      "reduction_percent": 4.575014780117348,
+      "paired_reductions_percent": [
+        4.575014780117348,
+        4.581695598047308,
+        4.5448029676350306
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1395.62109375,
+        "device_nonlocal": 97.08203125,
+        "host_private_commit": 1696.4296875,
+        "host_working_set": 289.20703125
+      },
+      "candidate_owned_device_allocation_mib": 853.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 134.358304,
+      "candidate_ms": 120.34496,
+      "reduction_percent": 11.33674649887656,
+      "paired_reductions_percent": [
+        11.33674649887656,
+        10.199914182295055,
+        11.87923300966942
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1602.67578125,
+        "device_nonlocal": 111.08203125,
+        "host_private_commit": 1960.6171875,
+        "host_working_set": 344.203125
+      },
+      "candidate_owned_device_allocation_mib": 854.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 79.186848,
+      "candidate_ms": 71.274272,
+      "reduction_percent": 9.992285587626881,
+      "paired_reductions_percent": [
+        7.466689041233366,
+        9.992285587626881,
+        11.660558585024772
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1568.42578125,
+        "device_nonlocal": 111.08203125,
+        "host_private_commit": 1924.3125,
+        "host_working_set": 342.1640625
+      },
+      "candidate_owned_device_allocation_mib": 853.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 140.573248,
+      "candidate_ms": 127.398496,
+      "reduction_percent": 9.320601313843168,
+      "paired_reductions_percent": [
+        9.30979411115488,
+        9.852018724161427,
+        9.320601313843168
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1585.05078125,
+        "device_nonlocal": 111.08203125,
+        "host_private_commit": 1944.45703125,
+        "host_working_set": 344.61328125
+      },
+      "candidate_owned_device_allocation_mib": 854.375,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "3840x2160",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 81.814816,
+      "candidate_ms": 74.798848,
+      "reduction_percent": 9.025612182517161,
+      "paired_reductions_percent": [
+        9.025612182517161,
+        7.348114231295155,
+        10.13569622744802
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 1550.80078125,
+        "device_nonlocal": 111.08203125,
+        "host_private_commit": 1908.33203125,
+        "host_working_set": 343.3203125
+      },
+      "candidate_owned_device_allocation_mib": 853.1875,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 35.246976,
+      "candidate_ms": 34.340928,
+      "reduction_percent": 2.9714679404241773,
+      "paired_reductions_percent": [
+        3.012343527002148,
+        -1.5975241241672489,
+        2.9714679404241773
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3212.24609375,
+        "device_nonlocal": 195.76953125,
+        "host_private_commit": 3765.84375,
+        "host_working_set": 536.98828125
+      },
+      "candidate_owned_device_allocation_mib": 2144.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 20.203168,
+      "candidate_ms": 19.907968,
+      "reduction_percent": 1.4611569829048654,
+      "paired_reductions_percent": [
+        3.3103244791949815,
+        1.4611569829048654,
+        1.4383781925452865
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3177.99609375,
+        "device_nonlocal": 195.76953125,
+        "host_private_commit": 3729.60546875,
+        "host_working_set": 536.17578125
+      },
+      "candidate_owned_device_allocation_mib": 2143.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 40.3488,
+      "candidate_ms": 39.930688,
+      "reduction_percent": 1.0362439527321632,
+      "paired_reductions_percent": [
+        3.185199573626496,
+        1.0362439527321632,
+        -0.3228888384715578
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3212.24609375,
+        "device_nonlocal": 195.76953125,
+        "host_private_commit": 3765.2734375,
+        "host_working_set": 536.84765625
+      },
+      "candidate_owned_device_allocation_mib": 2144.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 24.636224,
+      "candidate_ms": 23.945664,
+      "reduction_percent": 4.6168114074624285,
+      "paired_reductions_percent": [
+        4.6168114074624285,
+        2.2679572189999053,
+        4.770059208146615
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3177.99609375,
+        "device_nonlocal": 195.76953125,
+        "host_private_commit": 3729.4296875,
+        "host_working_set": 535.6875
+      },
+      "candidate_owned_device_allocation_mib": 2143.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 373.715744,
+      "candidate_ms": 332.113056,
+      "reduction_percent": 11.652517863312916,
+      "paired_reductions_percent": [
+        9.975965280415434,
+        11.692197800475856,
+        11.652517863312916
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3385.05078125,
+        "device_nonlocal": 209.76953125,
+        "host_private_commit": 3992.7109375,
+        "host_working_set": 590.23828125
+      },
+      "candidate_owned_device_allocation_mib": 2144.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 204.698688,
+      "candidate_ms": 184.884256,
+      "reduction_percent": 8.603997951131525,
+      "paired_reductions_percent": [
+        6.133096466158106,
+        8.603997951131525,
+        11.238666241367456
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3350.80078125,
+        "device_nonlocal": 209.76953125,
+        "host_private_commit": 3958.5390625,
+        "host_working_set": 589.7109375
+      },
+      "candidate_owned_device_allocation_mib": 2143.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 362.217312,
+      "candidate_ms": 328.65392,
+      "reduction_percent": 9.266092726125684,
+      "paired_reductions_percent": [
+        9.763862148332937,
+        9.266092726125684,
+        7.531738000157551
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3367.42578125,
+        "device_nonlocal": 209.76953125,
+        "host_private_commit": 3976.9296875,
+        "host_working_set": 592.25390625
+      },
+      "candidate_owned_device_allocation_mib": 2144.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "6144x3456",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 225.66176,
+      "candidate_ms": 204.653728,
+      "reduction_percent": 8.677087646954929,
+      "paired_reductions_percent": [
+        8.677087646954929,
+        10.385752552847228,
+        6.2725060962750545
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 3333.17578125,
+        "device_nonlocal": 209.76953125,
+        "host_private_commit": 3941.95703125,
+        "host_working_set": 591.0390625
+      },
+      "candidate_owned_device_allocation_mib": 2143.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "auto",
+      "model": "original",
+      "passed": true,
+      "control_ms": 58.087616,
+      "candidate_ms": 57.958816,
+      "reduction_percent": -0.5874594240365294,
+      "paired_reductions_percent": [
+        1.8540268548807415,
+        -0.5874594240365294,
+        -1.603353482047165
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 4940.43359375,
+        "device_nonlocal": 286.89453125,
+        "host_private_commit": 5725.72265625,
+        "host_working_set": 764.6640625
+      },
+      "candidate_owned_device_allocation_mib": 3410.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "auto",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 34.637216,
+      "candidate_ms": 34.505696,
+      "reduction_percent": 0.09394830249130903,
+      "paired_reductions_percent": [
+        -0.05650503890366476,
+        0.09394830249130903,
+        2.36000491494468
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 4900.18359375,
+        "device_nonlocal": 286.89453125,
+        "host_private_commit": 5682.05078125,
+        "host_working_set": 762.2578125
+      },
+      "candidate_owned_device_allocation_mib": 3402.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx40",
+      "model": "original",
+      "passed": true,
+      "control_ms": 67.619008,
+      "candidate_ms": 64.14672,
+      "reduction_percent": 4.313422426989877,
+      "paired_reductions_percent": [
+        5.150883017982155,
+        4.313422426989877,
+        4.19508806840847
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 4940.43359375,
+        "device_nonlocal": 286.89453125,
+        "host_private_commit": 5726.171875,
+        "host_working_set": 764.75390625
+      },
+      "candidate_owned_device_allocation_mib": 3410.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx40",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 42.469312,
+      "candidate_ms": 41.094528,
+      "reduction_percent": 3.076028168292433,
+      "paired_reductions_percent": [
+        2.053424267824555,
+        3.076028168292433,
+        4.361963231513033
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 4900.18359375,
+        "device_nonlocal": 286.89453125,
+        "host_private_commit": 5684.47265625,
+        "host_working_set": 763.74609375
+      },
+      "candidate_owned_device_allocation_mib": 3402.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx30",
+      "model": "original",
+      "passed": true,
+      "control_ms": 571.818336,
+      "candidate_ms": 507.903104,
+      "reduction_percent": 10.897787521541957,
+      "paired_reductions_percent": [
+        11.251226473437193,
+        10.897787521541957,
+        10.896213217114969
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 5113.23828125,
+        "device_nonlocal": 300.89453125,
+        "host_private_commit": 5953.5625,
+        "host_working_set": 817.9921875
+      },
+      "candidate_owned_device_allocation_mib": 3410.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx30",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 343.590016,
+      "candidate_ms": 314.732864,
+      "reduction_percent": 8.96123301338032,
+      "paired_reductions_percent": [
+        8.96123301338032,
+        7.568709071927215,
+        10.899157209504018
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 5072.98828125,
+        "device_nonlocal": 300.89453125,
+        "host_private_commit": 5911.25390625,
+        "host_working_set": 817.67578125
+      },
+      "candidate_owned_device_allocation_mib": 3402.5625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx20",
+      "model": "original",
+      "passed": true,
+      "control_ms": 596.349184,
+      "candidate_ms": 531.842048,
+      "reduction_percent": 11.011926497633539,
+      "paired_reductions_percent": [
+        8.279526430402251,
+        11.027724320655741,
+        11.011926497633539
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 5095.61328125,
+        "device_nonlocal": 300.89453125,
+        "host_private_commit": 5937.140625,
+        "host_working_set": 820.125
+      },
+      "candidate_owned_device_allocation_mib": 3410.0625,
+      "reset_output_differs_from_input": true
+    },
+    {
+      "extent": "7680x4320",
+      "style": "rtx20",
+      "model": "small-fp8",
+      "passed": true,
+      "control_ms": 359.59872,
+      "candidate_ms": 328.824064,
+      "reduction_percent": 8.558054934122117,
+      "paired_reductions_percent": [
+        11.169813912365568,
+        8.37034904432301,
+        8.558054934122117
+      ],
+      "exact": true,
+      "candidate_process_memory_mib": {
+        "device_local": 5055.36328125,
+        "device_nonlocal": 300.89453125,
+        "host_private_commit": 5895.5078125,
+        "host_working_set": 818.07421875
+      },
+      "candidate_owned_device_allocation_mib": 3402.5625,
+      "reset_output_differs_from_input": true
+    }
+  ],
+  "harness_revisions": [
+    {
+      "probe_sha256": "f485b6642b42b50cc7f964380343e19ec9c033b285a4f0fc085b14b48cfe240b",
+      "source_sha256": "0132be3be707dfc77a03b4a5d259a0c289634f19a7071f7143fc96c6fa92bf20",
+      "runner_sha256": "8aebd8f0d1cc34ccd3bb10e68a3b20e729c24ba546e5cfca0ecc943bd348dec5",
+      "retained_cases": 222,
+      "interrupted_cases_restarted": 0,
+      "reason": "Avoid a temporary error-message allocation per FP16 output component; GPU recording unchanged"
+    }
+  ],
+  "probe_sha256": [
+    "10e9b2562941bebaeb53410af8b2c5f6dcd27f6a7147945adb2c0b2beb0e4fe7",
+    "f485b6642b42b50cc7f964380343e19ec9c033b285a4f0fc085b14b48cfe240b"
+  ],
+  "native_8k_confirmation": [
+    {
+      "model": "original",
+      "exact": true,
+      "paired_changes_percent": [
+        -0.8639748259804958,
+        -1.0768585532337949,
+        -0.30058618469258613,
+        -2.3879093198992396,
+        -1.4760885034798998
+      ],
+      "paired_median_change_percent": -1.0768585532337949,
+      "control_ms": 57.883168,
+      "candidate_ms": 57.35296,
+      "paired_memory_delta_bytes": {
+        "device_local_bytes": 0,
+        "device_nonlocal_bytes": 0,
+        "host_private_bytes": 466944,
+        "host_working_set_bytes": 344064,
+        "host_peak_working_set_bytes": 344064
+      }
+    },
+    {
+      "model": "small-fp8",
+      "exact": true,
+      "paired_changes_percent": [
+        -1.4049723813202575,
+        -2.1409376431510974,
+        -0.3283017158410284,
+        -1.4006926664884012,
+        -1.9640320937530098
+      ],
+      "paired_median_change_percent": -1.4049723813202575,
+      "control_ms": 34.544736,
+      "candidate_ms": 34.059392,
+      "paired_memory_delta_bytes": {
+        "device_local_bytes": 0,
+        "device_nonlocal_bytes": 0,
+        "host_private_bytes": 3125248,
+        "host_working_set_bytes": 1916928,
+        "host_peak_working_set_bytes": 1916928
+      }
+    }
+  ],
+  "scope": "Synthetic full-model GPU timing; single RTX 5080; reconstructed control; no game tests"
+}

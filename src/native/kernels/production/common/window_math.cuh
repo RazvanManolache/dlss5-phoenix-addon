@@ -1,3 +1,4 @@
+#include "architecture_policy.cuh"
 // Half conversion, pair packing and warp-matrix permutation primitives.
 // Integer return values carry floating-point bits; reinterpretation is intentional, not numeric conversion.
 
@@ -12,7 +13,7 @@ __device__ __forceinline__ uint32_t half_to_float_bits(uint32_t half_bits) {
 __device__ __forceinline__ uint32_t pack_half(uint32_t upper_float_bits,
                                               uint32_t lower_float_bits) {
     uint32_t half_pair;
-#if __CUDA_ARCH__ < 800
+#if PHOENIX_STYLE_ARCH < 800
     asm("{ .reg .b16 lo,hi; cvt.rn.f16.f32 hi,%1; cvt.rn.f16.f32 lo,%2; mov.b32 %0,{lo,hi}; }"
         : "=r"(half_pair)
         : "f"(__uint_as_float(upper_float_bits)), "f"(__uint_as_float(lower_float_bits)));

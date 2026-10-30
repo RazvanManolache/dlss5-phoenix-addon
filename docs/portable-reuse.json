@@ -1,0 +1,2273 @@
+{
+  "schema": "phoenix-portable-reuse/1",
+  "date": "2026-10-30",
+  "hardware": {
+    "cpu": "Ryzen 9 9950X3D, 32 worker threads for whole-model CPU runs",
+    "nvidia": "RTX 5080, driver 616.64",
+    "amd": "integrated AMD Radeon Graphics"
+  },
+  "scope": "Phoenix DLSS5 portable backends; not the native RTX instruction kernels or NVIDIA DLSS5",
+  "decisions": {
+    "cpu_operand_reuse": "retained",
+    "host_conditioning_reuse": "retained",
+    "vulkan_coalesced_word_loads": "retained for scalar fallback",
+    "cuda_weight_decoder": "discarded: no robust improvement; prototype remains test-only"
+  },
+  "model_dll_sha256": "2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f",
+  "exact_cpu_layout_cases": 240,
+  "exact_packed_input_cases": 12,
+  "cpu_operators": [
+    {
+      "rows_per_vector": 8.0,
+      "k": 32.0,
+      "control_ms": 0.22458,
+      "candidate_ms": 0.150388,
+      "speedup": 1.49334
+    },
+    {
+      "rows_per_vector": 8.0,
+      "k": 128.0,
+      "control_ms": 0.664785,
+      "candidate_ms": 0.369826,
+      "speedup": 1.79756
+    },
+    {
+      "rows_per_vector": 8.0,
+      "k": 512.0,
+      "control_ms": 2.36038,
+      "candidate_ms": 1.22518,
+      "speedup": 1.92655
+    },
+    {
+      "rows_per_vector": 8.0,
+      "k": 1024.0,
+      "control_ms": 4.62884,
+      "candidate_ms": 2.38225,
+      "speedup": 1.94306
+    },
+    {
+      "rows_per_vector": 16.0,
+      "k": 32.0,
+      "control_ms": 0.14748,
+      "candidate_ms": 0.136875,
+      "speedup": 1.07748
+    },
+    {
+      "rows_per_vector": 16.0,
+      "k": 128.0,
+      "control_ms": 0.670733,
+      "candidate_ms": 0.49213,
+      "speedup": 1.36292
+    },
+    {
+      "rows_per_vector": 16.0,
+      "k": 512.0,
+      "control_ms": 1.94016,
+      "candidate_ms": 1.52732,
+      "speedup": 1.27031
+    },
+    {
+      "rows_per_vector": 16.0,
+      "k": 1024.0,
+      "control_ms": 3.65646,
+      "candidate_ms": 2.94406,
+      "speedup": 1.24198
+    }
+  ],
+  "packed_input_preparation": [
+    {
+      "extent": [
+        37,
+        29
+      ],
+      "spatial_mask": false,
+      "auto_mask": false,
+      "sha256": "8e5ddb8e121b5ccc4575f5e7ef11594bf280018782aca322533120be2733e463",
+      "control_ms": 0.1467,
+      "candidate_ms": 0.0991
+    },
+    {
+      "extent": [
+        37,
+        29
+      ],
+      "spatial_mask": false,
+      "auto_mask": true,
+      "sha256": "776cb697ddf8ac57d08919863ff06d5d795529b68ddca15b5180e637eaa2dea5",
+      "control_ms": 0.1217,
+      "candidate_ms": 0.1141
+    },
+    {
+      "extent": [
+        37,
+        29
+      ],
+      "spatial_mask": true,
+      "auto_mask": false,
+      "sha256": "6557c91779f4502d27440bde243a8ed6fb0266e52b4fa7478ca10bb1842c584d",
+      "control_ms": 0.1207,
+      "candidate_ms": 0.1305
+    },
+    {
+      "extent": [
+        37,
+        29
+      ],
+      "spatial_mask": true,
+      "auto_mask": true,
+      "sha256": "6557c91779f4502d27440bde243a8ed6fb0266e52b4fa7478ca10bb1842c584d",
+      "control_ms": 0.1206,
+      "candidate_ms": 0.1297
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "spatial_mask": false,
+      "auto_mask": false,
+      "sha256": "a8fc57ad09dc967bd439129cd71cd488c7f9c5eff82465068fe59a775d76850c",
+      "control_ms": 17.8795,
+      "candidate_ms": 15.3813
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "spatial_mask": false,
+      "auto_mask": true,
+      "sha256": "138788b9b435462b191d99692832cbc4d34df7703866e29e1e35d35e09910a8b",
+      "control_ms": 17.0988,
+      "candidate_ms": 15.2835
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "spatial_mask": true,
+      "auto_mask": false,
+      "sha256": "af3d18bd16201017fda3e5f4d06c6408e5b32c2db9f0155c9eb76cfe772abe1f",
+      "control_ms": 17.4502,
+      "candidate_ms": 16.8283
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "spatial_mask": true,
+      "auto_mask": true,
+      "sha256": "af3d18bd16201017fda3e5f4d06c6408e5b32c2db9f0155c9eb76cfe772abe1f",
+      "control_ms": 16.8961,
+      "candidate_ms": 16.6182
+    },
+    {
+      "extent": [
+        2560,
+        1080
+      ],
+      "spatial_mask": false,
+      "auto_mask": false,
+      "sha256": "f10779c6e8797286c91f3c2d059edd0a60bbacf5d83be4834d1d05e1e3a45107",
+      "control_ms": 23.3708,
+      "candidate_ms": 20.7324
+    },
+    {
+      "extent": [
+        2560,
+        1080
+      ],
+      "spatial_mask": false,
+      "auto_mask": true,
+      "sha256": "5080f392dae8668bf9a8abd61d0466c4702374b554e0152713c8d7447a32a5bd",
+      "control_ms": 22.9534,
+      "candidate_ms": 20.7094
+    },
+    {
+      "extent": [
+        2560,
+        1080
+      ],
+      "spatial_mask": true,
+      "auto_mask": false,
+      "sha256": "aa6fa01326f6189d03c63060564b6de440f590fe3e3412effe81c024200ec6a1",
+      "control_ms": 23.0587,
+      "candidate_ms": 22.8606
+    },
+    {
+      "extent": [
+        2560,
+        1080
+      ],
+      "spatial_mask": true,
+      "auto_mask": true,
+      "sha256": "aa6fa01326f6189d03c63060564b6de440f590fe3e3412effe81c024200ec6a1",
+      "control_ms": 23.4857,
+      "candidate_ms": 22.7457
+    }
+  ],
+  "full_model": [
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 475404968
+      },
+      "route": "cuda",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 76.0355999955209,
+        "gpu_ms": 51.31711984612048,
+        "prepare_ms": 1.1204370370370371
+      },
+      "candidate": {
+        "wall_ms": 75.88460000988562,
+        "gpu_ms": 51.28665601182729,
+        "prepare_ms": 0.904088
+      },
+      "wall_reduction_percent": 0.19859116735342353
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 438847864
+      },
+      "route": "cuda",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 57.01249999401625,
+        "gpu_ms": 29.093343852087855,
+        "prepare_ms": 1.1681
+      },
+      "candidate": {
+        "wall_ms": 54.37789999996312,
+        "gpu_ms": 29.092271830886602,
+        "prepare_ms": 0.8693473684210528
+      },
+      "wall_reduction_percent": 4.621091855873094
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 336412672,
+        "backend_allocation_bytes": 487938728
+      },
+      "route": "vulkan_nvidia",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 99.64264999871375,
+        "gpu_ms": 73.435344,
+        "prepare_ms": 1.1220599999999998
+      },
+      "candidate": {
+        "wall_ms": 100.67224999511382,
+        "gpu_ms": 73.661664,
+        "prepare_ms": 0.877355
+      },
+      "wall_reduction_percent": -1.0332924670443333
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 336412672,
+        "backend_allocation_bytes": 451381624
+      },
+      "route": "vulkan_nvidia",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 69.13149998581503,
+        "gpu_ms": 42.248031999999995,
+        "prepare_ms": 1.114107142857143
+      },
+      "candidate": {
+        "wall_ms": 70.4251999995904,
+        "gpu_ms": 42.264192,
+        "prepare_ms": 0.8920666666666668
+      },
+      "wall_reduction_percent": -1.8713611219788762
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 189340328
+      },
+      "route": "cpu32",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 687.7806999982568,
+        "gpu_ms": null,
+        "prepare_ms": 1.0096999999999998
+      },
+      "candidate": {
+        "wall_ms": 626.6891999985091,
+        "gpu_ms": null,
+        "prepare_ms": 0.9323666666666667
+      },
+      "wall_reduction_percent": 8.88240975646779
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 152783224
+      },
+      "route": "cpu32",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 332.54329999908805,
+        "gpu_ms": null,
+        "prepare_ms": 0.9502666666666667
+      },
+      "candidate": {
+        "wall_ms": 313.2909000123618,
+        "gpu_ms": null,
+        "prepare_ms": 0.9077666666666667
+      },
+      "wall_reduction_percent": 5.789441551454811
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 189340328
+      },
+      "route": "vulkan_amd",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 616.06380000012,
+        "gpu_ms": 610.30865,
+        "prepare_ms": 0.03376666666666667
+      },
+      "candidate": {
+        "wall_ms": 612.491299994872,
+        "gpu_ms": 606.9001499999999,
+        "prepare_ms": 0.02466666666666667
+      },
+      "wall_reduction_percent": 0.5798912393890521
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 152783224
+      },
+      "route": "vulkan_amd",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 355.3780999936862,
+        "gpu_ms": 351.2494,
+        "prepare_ms": 0.027700000000000002
+      },
+      "candidate": {
+        "wall_ms": 355.2094000042416,
+        "gpu_ms": 351.05508,
+        "prepare_ms": 0.034333333333333334
+      },
+      "wall_reduction_percent": 0.04747056429408314
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 1,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 475404968
+      },
+      "route": "cpu32",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 8299.469899997348,
+        "gpu_ms": null,
+        "prepare_ms": 19.02723333333333
+      },
+      "candidate": {
+        "wall_ms": 8338.682300003711,
+        "gpu_ms": null,
+        "prepare_ms": 15.173866666666667
+      },
+      "wall_reduction_percent": -0.47246872967603437
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 1,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 438847864
+      },
+      "route": "cpu32",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 5388.877599994885,
+        "gpu_ms": null,
+        "prepare_ms": 16.619033333333334
+      },
+      "candidate": {
+        "wall_ms": 5094.852299997001,
+        "gpu_ms": null,
+        "prepare_ms": 14.392266666666666
+      },
+      "wall_reduction_percent": 5.456151017387423
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 1,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 475404968
+      },
+      "route": "vulkan_amd",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 10321.836000002804,
+        "gpu_ms": 10257.025759999999,
+        "prepare_ms": 1.0589666666666666
+      },
+      "candidate": {
+        "wall_ms": 10108.650699999998,
+        "gpu_ms": 10042.499319999997,
+        "prepare_ms": 0.9363666666666667
+      },
+      "wall_reduction_percent": 2.065381585240722
+    },
+    {
+      "extent": [
+        1920,
+        1080
+      ],
+      "paired_processes": 1,
+      "scalar_matrices": false,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 323878912,
+        "backend_allocation_bytes": 438847864
+      },
+      "route": "vulkan_amd",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 6032.829399991897,
+        "gpu_ms": 5980.268029999999,
+        "prepare_ms": 1.0823
+      },
+      "candidate": {
+        "wall_ms": 6219.2595999949845,
+        "gpu_ms": 6161.61016,
+        "prepare_ms": 0.9697333333333334
+      },
+      "wall_reduction_percent": -3.0902614286314467
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": true,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 151526056,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 189340328
+      },
+      "route": "vulkan_amd",
+      "model": "original",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 821.8151999899419,
+        "gpu_ms": 816.0509199999998,
+        "prepare_ms": 0.03886666666666667
+      },
+      "candidate": {
+        "wall_ms": 784.8278999881586,
+        "gpu_ms": 778.35096,
+        "prepare_ms": 0.03233333333333333
+      },
+      "wall_reduction_percent": 4.500683365583402
+    },
+    {
+      "extent": [
+        320,
+        180
+      ],
+      "paired_processes": 3,
+      "scalar_matrices": true,
+      "graph_owned_memory_unchanged": true,
+      "graph_owned_bytes": {
+        "resident_weight_bytes": 114968952,
+        "resident_scratch_bytes": 37814272,
+        "backend_allocation_bytes": 152783224
+      },
+      "route": "vulkan_amd",
+      "model": "small-fp8",
+      "temporal_hashes_exact": true,
+      "control": {
+        "wall_ms": 463.90919999976177,
+        "gpu_ms": 459.90452,
+        "prepare_ms": 0.0346
+      },
+      "candidate": {
+        "wall_ms": 443.650199988042,
+        "gpu_ms": 439.49267,
+        "prepare_ms": 0.028333333333333332
+      },
+      "wall_reduction_percent": 4.367018375951625
+    }
+  ],
+  "unavailable": [
+    "Metal GPU execution/Apple compiler",
+    "HIP SDK/device execution",
+    "SYCL SDK/device execution"
+  ],
+  "source_sha256": {
+    "native_runtime/cpu_avx2.cpp": "36e037641c5db7998736ed0f96d85de746d7e08d2e8df55fa9a8824627da058a",
+    "native_runtime/cpu_avx512.cpp": "7999995e7169d8289b6c11063d502410f3b134170b0491f4a4ce51d9beb2716d",
+    "native_runtime/cpu_left_tile.h": "cbbcd9a975b5f8e4d0702241bdd3f05ee65b5c9e338d0c8b267a1eb1c47a5a96",
+    "native_runtime/frame.h": "f2a6dedec55f71053d1671fe85a31d3642a7c59ed387e1ff3e8bfbbaefa13a78",
+    "native_runtime/cuda_narrow_math.cuh": "24f1c6d0519962e61407ed46298335f80732c9773bf7a8d42a6a1f88ce58a7ce",
+    "native_runtime/backend_gpu.cpp": "eae0c46763e5c503e1852a68e0c6498fbf7f48d9dcd971db3f209bd6c613a304",
+    "src/backends/vulkan/gemm_portable_tiled.comp": "4fc36e6c4fee570a883520104c02e5b71d32f21e8d1a4e2e9a30f24a4f1889de"
+  },
+  "resident_matrices": {
+    "passed": true,
+    "scope": "resident matrices, not whole-frame time",
+    "pairs": 3,
+    "summary": [
+      {
+        "route": "cuda_half",
+        "shape": [
+          8192,
+          128,
+          32
+        ],
+        "exact": true,
+        "control_ms": 0.0203,
+        "candidate_ms": 0.0203,
+        "speedup": 1.0
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          8192,
+          32,
+          128
+        ],
+        "exact": true,
+        "control_ms": 0.0217,
+        "candidate_ms": 0.0217,
+        "speedup": 1.0
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          32768,
+          512,
+          128
+        ],
+        "exact": true,
+        "control_ms": 0.1816,
+        "candidate_ms": 0.1811,
+        "speedup": 1.0027609055770292
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          130560,
+          512,
+          128
+        ],
+        "exact": true,
+        "control_ms": 0.738,
+        "candidate_ms": 0.7316,
+        "speedup": 1.0087479496992893
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          32640,
+          1024,
+          256
+        ],
+        "exact": true,
+        "control_ms": 0.6637,
+        "candidate_ms": 0.6581,
+        "speedup": 1.0085093450843337
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          32640,
+          256,
+          1024
+        ],
+        "exact": true,
+        "control_ms": 0.6588,
+        "candidate_ms": 0.6586,
+        "speedup": 1.000303674460978
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          2048,
+          1024,
+          256
+        ],
+        "exact": true,
+        "control_ms": 0.0605,
+        "candidate_ms": 0.0604,
+        "speedup": 1.0016556291390728
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          640,
+          1536,
+          512
+        ],
+        "exact": true,
+        "control_ms": 0.0521,
+        "candidate_ms": 0.0521,
+        "speedup": 1.0
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          640,
+          4096,
+          1024
+        ],
+        "exact": true,
+        "control_ms": 0.1957,
+        "candidate_ms": 0.1937,
+        "speedup": 1.0103252452245741
+      },
+      {
+        "route": "cuda_half",
+        "shape": [
+          640,
+          1024,
+          4096
+        ],
+        "exact": true,
+        "control_ms": 0.2207,
+        "candidate_ms": 0.215,
+        "speedup": 1.0265116279069768
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          8192,
+          128,
+          32
+        ],
+        "exact": true,
+        "control_ms": 0.877,
+        "candidate_ms": 0.8784,
+        "speedup": 0.9984061930783242
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          8192,
+          32,
+          128
+        ],
+        "exact": true,
+        "control_ms": 0.757,
+        "candidate_ms": 0.7568,
+        "speedup": 1.0002642706131077
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          32768,
+          512,
+          128
+        ],
+        "exact": true,
+        "control_ms": 47.7592,
+        "candidate_ms": 41.9633,
+        "speedup": 1.138118308140685
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          130560,
+          512,
+          128
+        ],
+        "exact": true,
+        "control_ms": 193.4941,
+        "candidate_ms": 167.36,
+        "speedup": 1.1561549952198853
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          32640,
+          1024,
+          256
+        ],
+        "exact": true,
+        "control_ms": 167.6487,
+        "candidate_ms": 145.6651,
+        "speedup": 1.150918785625383
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          32640,
+          256,
+          1024
+        ],
+        "exact": true,
+        "control_ms": 205.6264,
+        "candidate_ms": 206.4604,
+        "speedup": 0.9959604844318813
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          2048,
+          1024,
+          256
+        ],
+        "exact": true,
+        "control_ms": 10.0506,
+        "candidate_ms": 8.7244,
+        "speedup": 1.1520104534409243
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          640,
+          1536,
+          512
+        ],
+        "exact": true,
+        "control_ms": 9.3206,
+        "candidate_ms": 8.0571,
+        "speedup": 1.1568182100259399
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          640,
+          4096,
+          1024
+        ],
+        "exact": true,
+        "control_ms": 48.7608,
+        "candidate_ms": 41.8391,
+        "speedup": 1.165436158999596
+      },
+      {
+        "route": "amd_scalar",
+        "shape": [
+          640,
+          1024,
+          4096
+        ],
+        "exact": true,
+        "control_ms": 75.6979,
+        "candidate_ms": 75.828,
+        "speedup": 0.9982842749380176
+      }
+    ],
+    "minimum_measure_ms": 80,
+    "processes": [
+      {
+        "route": "cuda_half",
+        "variant": "control",
+        "pair": 0,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0203,
+            "measured_calls": 2355,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0216,
+            "measured_calls": 2195,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1816,
+            "measured_calls": 363,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.7339,
+            "measured_calls": 91,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6613,
+            "measured_calls": 100,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.676,
+            "measured_calls": 102,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0605,
+            "measured_calls": 1051,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0521,
+            "measured_calls": 1278,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1957,
+            "measured_calls": 334,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.2203,
+            "measured_calls": 300,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "cuda_half",
+        "variant": "candidate",
+        "pair": 0,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0203,
+            "measured_calls": 2328,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0217,
+            "measured_calls": 2192,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1807,
+            "measured_calls": 367,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.7333,
+            "measured_calls": 90,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6581,
+            "measured_calls": 102,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.6586,
+            "measured_calls": 102,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0604,
+            "measured_calls": 1095,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0521,
+            "measured_calls": 1278,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1937,
+            "measured_calls": 338,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.215,
+            "measured_calls": 303,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "cuda_half",
+        "variant": "candidate",
+        "pair": 1,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0201,
+            "measured_calls": 2375,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0216,
+            "measured_calls": 2255,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1811,
+            "measured_calls": 352,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.7281,
+            "measured_calls": 92,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6559,
+            "measured_calls": 100,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.6589,
+            "measured_calls": 99,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0604,
+            "measured_calls": 1085,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0521,
+            "measured_calls": 1272,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1937,
+            "measured_calls": 345,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.2158,
+            "measured_calls": 311,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "cuda_half",
+        "variant": "control",
+        "pair": 1,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0207,
+            "measured_calls": 2243,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0217,
+            "measured_calls": 2160,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1819,
+            "measured_calls": 364,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.7394,
+            "measured_calls": 89,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6637,
+            "measured_calls": 102,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.6552,
+            "measured_calls": 102,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0605,
+            "measured_calls": 1081,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0521,
+            "measured_calls": 1293,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1956,
+            "measured_calls": 333,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.2207,
+            "measured_calls": 301,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "cuda_half",
+        "variant": "control",
+        "pair": 2,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0201,
+            "measured_calls": 2394,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0218,
+            "measured_calls": 2256,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1815,
+            "measured_calls": 361,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.738,
+            "measured_calls": 91,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6664,
+            "measured_calls": 101,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.6588,
+            "measured_calls": 101,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0605,
+            "measured_calls": 1085,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0521,
+            "measured_calls": 1242,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1958,
+            "measured_calls": 342,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.2209,
+            "measured_calls": 306,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "cuda_half",
+        "variant": "candidate",
+        "pair": 2,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.0203,
+            "measured_calls": 2346,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.0223,
+            "measured_calls": 2130,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 0.1813,
+            "measured_calls": 363,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 0.7316,
+            "measured_calls": 91,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 0.6614,
+            "measured_calls": 101,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 0.6529,
+            "measured_calls": 103,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 0.0604,
+            "measured_calls": 1109,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 0.0522,
+            "measured_calls": 1275,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 0.1946,
+            "measured_calls": 335,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 0.215,
+            "measured_calls": 306,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "control",
+        "pair": 0,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.8781,
+            "measured_calls": 92,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.7555,
+            "measured_calls": 106,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 47.6476,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 193.0324,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 167.6487,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 207.1477,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 10.0506,
+            "measured_calls": 8,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 9.3206,
+            "measured_calls": 9,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 48.7608,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 75.458,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "candidate",
+        "pair": 0,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.88,
+            "measured_calls": 91,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.7568,
+            "measured_calls": 106,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 41.9633,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 168.1488,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 145.4011,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 208.273,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 8.7244,
+            "measured_calls": 10,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 8.0571,
+            "measured_calls": 10,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 41.8317,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 75.6784,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "candidate",
+        "pair": 1,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.8784,
+            "measured_calls": 91,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.7573,
+            "measured_calls": 106,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 41.7124,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 166.1026,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 146.2099,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 205.6551,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 8.7255,
+            "measured_calls": 10,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 8.0667,
+            "measured_calls": 10,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 41.8892,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 76.9413,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "control",
+        "pair": 1,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.8768,
+            "measured_calls": 91,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.7623,
+            "measured_calls": 105,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 47.7899,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 193.8095,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 167.7623,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 205.6264,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 10.0676,
+            "measured_calls": 8,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 9.3466,
+            "measured_calls": 9,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 48.9592,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 75.9797,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "control",
+        "pair": 2,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.877,
+            "measured_calls": 92,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.757,
+            "measured_calls": 106,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 47.7592,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 193.4941,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 167.2904,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 203.553,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 10.0212,
+            "measured_calls": 8,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 9.3204,
+            "measured_calls": 9,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 48.5105,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 75.6979,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      },
+      {
+        "route": "amd_scalar",
+        "variant": "candidate",
+        "pair": 2,
+        "rows": [
+          {
+            "shape": [
+              8192,
+              128,
+              32
+            ],
+            "median_ms": 0.8731,
+            "measured_calls": 92,
+            "output_sha256": "c21cbd69d364965317c987c133e8210cbe32998c71d5c8e6815ceb27f1b19f21",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              8192,
+              32,
+              128
+            ],
+            "median_ms": 0.7547,
+            "measured_calls": 107,
+            "output_sha256": "2300d32cfbcf6a2291aa4df7f61ff8abed3f7ad1a4d63f02a2c6bf288ebbe436",
+            "owned_bytes": 2625536
+          },
+          {
+            "shape": [
+              32768,
+              512,
+              128
+            ],
+            "median_ms": 42.1719,
+            "measured_calls": 3,
+            "output_sha256": "9fbeb3815aef84f981f524f51b3ac4aa186a0e1f3aacbebac78c2eb8edfdeed8",
+            "owned_bytes": 42008576
+          },
+          {
+            "shape": [
+              130560,
+              512,
+              128
+            ],
+            "median_ms": 167.36,
+            "measured_calls": 3,
+            "output_sha256": "ace8abad24ff4d8cc2600f4262d76383fd1a662f6e4d4e1e995ea88bce0df252",
+            "owned_bytes": 167182336
+          },
+          {
+            "shape": [
+              32640,
+              1024,
+              256
+            ],
+            "median_ms": 145.6651,
+            "measured_calls": 3,
+            "output_sha256": "1e4b7f8830c49e1499eb8ec32b27f1fd3eb57836432998a667cca0bb3ef56b7c",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              32640,
+              256,
+              1024
+            ],
+            "median_ms": 206.4604,
+            "measured_calls": 3,
+            "output_sha256": "e988fd2a2798da48943e91ef32ca63ba1a773327d2d27f1c98deb2951a9916ef",
+            "owned_bytes": 83820544
+          },
+          {
+            "shape": [
+              2048,
+              1024,
+              256
+            ],
+            "median_ms": 8.7119,
+            "measured_calls": 10,
+            "output_sha256": "39963e40bbbd2ecb50b34af3e89d082627a68019987f49895e0ca764beea1eb4",
+            "owned_bytes": 5505024
+          },
+          {
+            "shape": [
+              640,
+              1536,
+              512
+            ],
+            "median_ms": 8.033,
+            "measured_calls": 10,
+            "output_sha256": "e10538c8a4b1acc76bda57b62d8cdfcf40accc479d1e2a79e9bb2ff4cc2f7e20",
+            "owned_bytes": 3407872
+          },
+          {
+            "shape": [
+              640,
+              4096,
+              1024
+            ],
+            "median_ms": 41.8391,
+            "measured_calls": 3,
+            "output_sha256": "f8db9f0c769a919dc39410d55cd2fb10b82a036b509c19ae6eb66eef6e35aecb",
+            "owned_bytes": 10747904
+          },
+          {
+            "shape": [
+              640,
+              1024,
+              4096
+            ],
+            "median_ms": 75.828,
+            "measured_calls": 3,
+            "output_sha256": "add7d0f90cbdb955c6912e7213a884689e3a1033b7005d2829a26febd1feed83",
+            "owned_bytes": 10747904
+          }
+        ]
+      }
+    ]
+  }
+}

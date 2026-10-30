@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/split_heads_512/final_head_wait.cu
 // 512-channel split-head stage. Separate projection/feed-forward modules use the same persistent feature layout.
 // The filename identifies which stage is executed; wait/view variants preserve producer-consumer synchronization.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 13336
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -350,7 +351,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
 #endif
     }
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     index_word_9 = index_word_9 * matrix_accumulator_14 + matrix_accumulator_14;
 
@@ -505,7 +506,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
 
     index_word_9 = uint32_t(uint32_t(packed_half_6) >> 0x1u);
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     condition_0 = false;
 
@@ -934,7 +935,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
     condition_1 = wait_copy_barrier(shared_tile, matrix_accumulator_15,
                                     async_tokens[(((matrix_accumulator_15) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_1 = true;
 #endif
     if (!condition_1) {
@@ -943,7 +944,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
             condition_1 = wait_copy_barrier(shared_tile, matrix_accumulator_15,
                                             async_tokens[(((matrix_accumulator_15) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
         } while (!condition_1);
@@ -1329,7 +1330,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
             condition_1 = wait_copy_barrier(shared_tile, matrix_fragment_67,
                                             async_tokens[(((matrix_fragment_67) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
             if (!condition_1) {
@@ -1339,7 +1340,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
                         wait_copy_barrier(shared_tile, matrix_fragment_67,
                                           async_tokens[(((matrix_fragment_67) >> 3) & 1)]);
 #else
-                    __syncthreads();
+                    phoenix_architecture::finish_compatibility_copies();
                     condition_1 = true;
 #endif
                 } while (!condition_1);
@@ -1406,7 +1407,7 @@ __device__ __forceinline__ void run_global_attention_split_heads_512_final_head_
                 }
                 __syncwarp(__activemask());
 
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
             }
             condition_1 = int32_t(index_word_95) >= int32_t(uniform_index_word_8);
 

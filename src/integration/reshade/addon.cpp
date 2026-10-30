@@ -32,6 +32,7 @@
 #include "../../native/support/present_guides.h"
 #include "../../native/support/offload.h"
 #include "../../native/support/device_catalog.h"
+#include "../../native/support/kernel_style_device.h"
 #include "../../native/support/model_status.h"
 #include "../../native/support/model_tools.h"
 #include "../../native/support/model_selection_state.h"
@@ -313,6 +314,7 @@ struct State {
     unsigned abandonment_threshold = 120;
     Json device_identity = Json::object();
     std::unique_ptr<phoenix_bundle::Bundle> bundle;
+    unsigned native_style_architecture = 0;
     std::vector<phoenix_kernel::Binary> candidates;
     phoenix_model::WeightSource weight_source;
     phoenix_model::WeightSource configured_weight_source;
@@ -3337,6 +3339,16 @@ bool resolve_automatic(void* context, ID3D12GraphicsCommandList* cmd,
 void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* feature,
                        const NVSDK_NGX_Parameter* params) {
     auto& addon_state = state();
+    std::unique_ptr<phoenix_bundle::Bundle> style_bundle;
+    std::vector<phoenix_kernel::Binary> style_kernels;
+    // Keep the current engine-owned generation until the replacement has
+    // created its driver modules and resources, not merely passed file hashes.
+    struct StyleRollback {
+        phoenix::Settings& panel;
+        std::string previous;
+        bool pending = false, committed = false;
+        ~StyleRollback() { if (pending && !committed) panel.native_kernel_style = previous; }
+    } style_rollback{addon_state.panel, addon_state.bundle ? addon_state.bundle->kernel_style : "auto"};
     check(params, "phoenix null parameters");
     auto* queue = resolve_queue(cmd);
     auto* color = parameter_resource(params, "DLSSNR.Color", true);
@@ -3361,7 +3373,28 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
         retire();
         addon_state.cold_restart = true;
     }
-    if (addon_state.endpoint.session)
+    if (!addon_state.endpoint.session || (addon_state.bundle &&
+        addon_state.bundle->kernel_style != addon_state.panel.native_kernel_style)) {
+        ComPtr<ID3D12Device> style_device;
+        check(SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&style_device))), "Kernel-style device unavailable");
+        addon_state.native_style_architecture = phoenix_kernel::device_architecture(style_device.Get());
+    }
+    if (addon_state.bundle &&
+        addon_state.bundle->kernel_style != addon_state.panel.native_kernel_style) {
+        check(!addon_state.endpoint.session || !addon_state.endpoint.session->command(), "Kernel style change awaits the current recording");
+        try {
+            style_bundle = std::make_unique<phoenix_bundle::Bundle>(addon_state.bundle_path,
+                [](const auto& file) { return sha_file(file.c_str()); }, addon_state.weight_source, true,
+                addon_state.panel.native_kernel_style, addon_state.native_style_architecture);
+            style_kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(*style_bundle));
+            style_rollback.pending = true;
+        } catch (const std::exception& error) {
+            addon_state.panel.native_kernel_style = addon_state.bundle->kernel_style;
+            addon_state.model_switch_error = std::string("Kernel style refused; kept loaded style: ") + error.what();
+            throw;
+        }
+    }
+    if (addon_state.endpoint.session && !style_bundle)
         return;
     // Resolve controls, states and bindings before allocating GPU resources.
     // Claim-time proof is validation-only (nothing reads proof back), so
@@ -3386,18 +3419,23 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     resolve_controls(controls, unsigned(desc.Width), desc.Height, motion != nullptr, false, 0);
     collect();
     check(addon_state.retired.size() < 8, "phoenix retired generation limit");
+    if (!style_bundle && addon_state.bundle && addon_state.bundle->kernel_style != "auto")
+        phoenix_bundle::style_catalog(addon_state.bundle->manifest, addon_state.bundle->kernel_style,
+                                      addon_state.native_style_architecture);
     if (!addon_state.bundle) {
         addon_state.bundle = std::make_unique<phoenix_bundle::Bundle>(
             addon_state.bundle_path, [](const auto& file) { return sha_file(file.c_str()); },
-            addon_state.weight_source, true);
+            addon_state.weight_source, true, addon_state.panel.native_kernel_style, addon_state.native_style_architecture);
         check(addon_state.bundle->weights.at("unknown_gap_bytes") == 0,
               "phoenix owned game requires proven complete weights");
         addon_state.candidates =
             phoenix_kernel::load_catalog(phoenix_native::catalog(*addon_state.bundle));
     }
-    const Json* selected = &addon_state.bundle->select_frame(
+    auto* selected_bundle = style_bundle ? style_bundle.get() : addon_state.bundle.get();
+    const auto& selected_kernels = style_bundle ? style_kernels : addon_state.candidates;
+    const Json* selected = &selected_bundle->select_frame(
         unsigned(desc.Width), desc.Height, [&](const Json& frame) {
-            phoenix_native::preflight(frame, addon_state.candidates);
+            phoenix_native::preflight(frame, selected_kernels);
         });
     progress("plan_selected");
     // Choose the allocation device by evidence: its objects must come back
@@ -3461,11 +3499,11 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     // is empty on a rebuilt session; the engine side is untouched (its reset
     // still comes only from its own parameters). Both Session record gates
     // admit the first frame on this basis, exactly as at feature birth.
-    const auto packed_weights = addon_state.bundle->load_weight_view();
+    const auto packed_weights = selected_bundle->load_weight_view();
     auto session = std::make_shared<Session>(
-        device.Get(), queue, *selected, packed_weights, addon_state.candidates, desc.Format,
+        device.Get(), queue, *selected, packed_weights, selected_kernels, desc.Format,
         motion ? motion->GetDesc().Format : DXGI_FORMAT_R32G32_FLOAT,
-        addon_state.fresh_claim || addon_state.cold_restart, allocation_generation,
+        addon_state.fresh_claim || addon_state.cold_restart || bool(style_bundle), allocation_generation,
         addon_state.hdr_bridge, addon_state.hdr_control_override);
     addon_state.fresh_claim = false;
     addon_state.cold_restart = false;
@@ -3506,6 +3544,15 @@ void prepare_automatic(ID3D12GraphicsCommandList* cmd, const NVSDK_NGX_Handle* f
     record_event("session_constructed", std::move(geometry));
     progress("session_constructed");
     install_native(queue);
+    if (style_bundle) {
+        retire();
+        addon_state.bundle = std::move(style_bundle);
+        addon_state.candidates = std::move(style_kernels);
+        addon_state.model_switch_error.clear();
+        addon_state.live.reset_requested = true;
+        addon_state.timing_settings_dirty = true;
+    }
+    style_rollback.committed = true;
     addon_state.endpoint = {std::move(session), feature,
                             static_cast<ResolveFrame>(resolve_automatic), nullptr};
     ++addon_state.generations;
@@ -3819,6 +3866,8 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.active_nvidia_dll_folder};
         const bool model_changed = own_route &&
             phoenix_model_tools::ModelSelectionState::read(addon_state.panel) != active_selection;
+        const bool kernel_style_changed = native_network && addon_state.bundle &&
+            addon_state.bundle->kernel_style != addon_state.panel.native_kernel_style;
         const bool replace_runner = !addon_state.direct_runner || model_changed ||
             !addon_state.direct_runner->matches(queue, color_description, motion_description) ||
             !addon_state.direct_runner->architecture_matches(addon_state.panel) ||
@@ -3840,12 +3889,20 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             try {
                 if (own_route && (model_changed || !addon_state.bundle))
                     selected_source = phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source);
-                if (native_network && (model_changed || !addon_state.bundle)) {
-                    candidate_bundle = std::make_unique<phoenix_bundle::Bundle>(
-                        addon_state.bundle_path,
-                        [](const auto& path) { return sha_file(path.c_str()); }, selected_source, true);
-                    check(candidate_bundle->weights.at("unknown_gap_bytes") == 0, "Direct weights incomplete");
-                    candidate_kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(*candidate_bundle));
+                if (native_network) {
+                    ComPtr<ID3D12Device> style_device;
+                    check(SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&style_device))), "Kernel-style device unavailable");
+                    const auto architecture = phoenix_kernel::device_architecture(style_device.Get());
+                    const bool device_changed = architecture != addon_state.native_style_architecture;
+                    addon_state.native_style_architecture = architecture;
+                    if (model_changed || kernel_style_changed || device_changed || !addon_state.bundle) {
+                        candidate_bundle = std::make_unique<phoenix_bundle::Bundle>(
+                            addon_state.bundle_path,
+                            [](const auto& path) { return sha_file(path.c_str()); }, selected_source, true,
+                            addon_state.panel.native_kernel_style, architecture);
+                        check(candidate_bundle->weights.at("unknown_gap_bytes") == 0, "Direct weights incomplete");
+                        candidate_kernels = phoenix_kernel::load_catalog(phoenix_native::catalog(*candidate_bundle));
+                    }
                 }
                 auto* selected_bundle = candidate_bundle ? candidate_bundle.get() : addon_state.bundle.get();
                 const auto& selected_kernels = candidate_bundle ? candidate_kernels : addon_state.candidates;
@@ -3917,6 +3974,10 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 }
                 addon_state.model_switch_error.clear();
             } catch (const std::exception& failure) {
+                if (kernel_style_changed && addon_state.direct_runner && addon_state.bundle) {
+                    addon_state.panel.native_kernel_style = addon_state.bundle->kernel_style;
+                    addon_state.model_switch_error = std::string("Kernel style refused; kept loaded style: ") + failure.what();
+                }
                 if (model_changed && addon_state.direct_runner) {
                     // Keep the working executor and its authenticated bundle.
                     // Reject this request once; do not rehash/reload a bad DLL
@@ -5347,6 +5408,17 @@ void bridge_write(const std::filesystem::path& path, const Json& value) {
                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0,
           "Bridge atomic publication failed");
 }
+Json native_kernel_style_status() {
+    const auto& value = state();
+    const auto available = value.bundle
+        ? phoenix_bundle::available_kernel_styles(value.bundle->manifest, value.native_style_architecture)
+        : Json::array();
+    Json result{{"architecture", value.native_style_architecture}, {"available", available}};
+    if (value.bundle && (value.endpoint.session ||
+        (value.direct_runner && value.direct_runner->native_network_loaded())))
+        result["active"] = value.bundle->kernel_style;
+    return result;
+}
 Json bridge_snapshot() {
     auto& addon_state = state();
     Json devices = Json::array();
@@ -5356,6 +5428,7 @@ Json bridge_snapshot() {
         {"tick_ms", GetTickCount64()},
         {"settings", panel_json(addon_state.panel)},
         {"execution_devices", devices},
+        {"native_kernel_styles", native_kernel_style_status()},
         {"presentation_scope", "DLSS output texture; final game display is not independently verified"},
         {"nvapi", phoenix_native::Api::lifetime_report()},
         {"model_source",
@@ -5692,6 +5765,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.host_controls_stage = value.direct_feeder;
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
+    ui.native_kernel_styles = native_kernel_style_status();
     ui.appearance=value.bridge_inputs.value("appearance",Json::object());
     ui.portable_backend_selected=value.panel.execution_device!="native";
     if(value.direct_runner&&value.direct_runner->external()){

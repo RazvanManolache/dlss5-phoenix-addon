@@ -22,6 +22,17 @@ def require_architecture_coverage(manifest):
 def require_native_packaging(manifest, experimental=False):
     if not manifest.get("passed"):
         raise ValueError("Native kernel compilation must pass before packaging")
+    if manifest.get('kernel_style', 'auto') != 'auto':
+        raise ValueError('Standalone style kernels cannot replace the native default; use build_kernel_styles.py')
+    for style, variant in manifest.get('kernel_styles', {}).items():
+        minimum = {'rtx20': 75, 'rtx30': 86, 'rtx40': 89}.get(style)
+        targets = variant.get('architectures', [])
+        if (not minimum or not targets or len(set(targets)) != len(targets) or
+                any(target not in ('sm_86', 'sm_89', 'sm_120') or int(target[3:]) <= minimum for target in targets) or
+                len(variant.get('kernels', [])) != 41):
+            raise ValueError('Invalid native kernel-style catalogue')
+        if not experimental and variant.get('validation_pending', True):
+            raise ValueError('Kernel-style device inference validation is pending')
     if experimental:
         if (manifest.get("selection_status") not in ("compiled", "validated") or
                 manifest.get("model_weights_included") is not False):
@@ -132,8 +143,13 @@ def prepare(runtime, native, output, nr_forwarder=None, *, experimental_native=F
     files["runtime/validation_manifest.json"] = (runtime / "validation_manifest.json").read_bytes()
     files.update(native_graph_files(native, native_manifest))
     files["native/native_manifest.json"] = (native / "native_manifest.json").read_bytes()
-    for kernel in native_manifest["kernels"]:
+    selected_kernels = list(native_manifest["kernels"])
+    for variant in native_manifest.get('kernel_styles', {}).values():
+        selected_kernels.extend(variant['kernels'])
+    for kernel in selected_kernels:
         relative = Path(kernel["binary"])
+        if relative.is_absolute() or '..' in relative.parts:
+            raise ValueError("Native kernel must use a relative bundle path")
         path = (native / relative).resolve()
         if not path.is_relative_to(native):
             raise ValueError("Native kernel escapes bundle")

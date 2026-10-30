@@ -12,7 +12,7 @@
 
 ![Setup: model sources, devices and execution routes](https://raw.githubusercontent.com/RazvanManolache/dlss5-phoenix-addon/0.15/docs/features/overlay-setup.png)
 
-These are renders of the actual shared C++ ImGui panel in a CPU fixture, with synthetic status. They are not game captures or performance measurements. More views are in the [README gallery](../README.md#a-quick-look).
+These are renders of the actual shared C++ ImGui panel in a CPU fixture, with synthetic status. They are not game captures or performance measurements. More views are in the [README gallery](USER_GUIDE.md#a-quick-look).
 
 ## Downloads and installation
 

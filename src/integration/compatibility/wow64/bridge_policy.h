@@ -4,6 +4,8 @@
 namespace phoenix_compat {
 struct NativeOptions { std::filesystem::path root; bool driver_host=false; };
 inline const char* native_settings_unavailable_reason(const Settings& settings, bool driver_host) {
+    if (settings.native_kernel_style != "auto" && phoenix_addon::phoenix::uses_ours(settings.mode))
+        return "Selectable kernel styles require the D3D12 addon or x64 graphics helper; use Automatic style for the experimental x86 native bridges.";
     if (settings.execution_device != "native")
         return "Native x86 mechanisms require the Native RTX executor; use portable or helper processing for another executor.";
     if (settings.resolution_mode != 0 || settings.host_unjitter || settings.automatic_budget)

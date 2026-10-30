@@ -1,6 +1,7 @@
 #define PHX_DEVICE __forceinline
 #include "backend.h"
 #include "cpu_math_avx.h"
+#include "cpu_left_tile.h"
 // An AVX2 vector contains eight rows of one output column. Eight accumulators
 // form an 8x8 output tile, reusing each right-hand weight across those rows.
 // Keep the ascending reduction/FMA order: changing it changes model rounding.
@@ -20,18 +21,28 @@ extern "C" void phoenix_cpu_avx2(const phoenix_cpp::Command& command, uint64_t i
     for (auto& sum : column_sums)
         sum = _mm256_setzero_ps();
     const auto& decode = fp8_table();
+    const unsigned live_rows = std::min(8u, operation.row_count - first_row);
+    const auto* left_base = static_cast<const uint16_t*>(operation.left_input) +
+                           batch_index * operation.left_batch_stride +
+                           uint64_t(first_row) * operation.left_row_stride;
+    __m256 left_columns[8];
     for (unsigned reduction_index = 0; reduction_index < operation.reduction_count;
          ++reduction_index) {
-        alignas(16) uint16_t left_half_values[8]{};
-        for (unsigned row_in_tile = 0;
-             row_in_tile < 8 && first_row + row_in_tile < operation.row_count; ++row_in_tile)
-            left_half_values[row_in_tile] = static_cast<const uint16_t*>(
-                operation
-                    .left_input)[batch_index * operation.left_batch_stride +
-                                 uint64_t(first_row + row_in_tile) * operation.left_row_stride +
-                                 reduction_index];
-        auto left_values =
-            _mm256_cvtph_ps(_mm_load_si128(reinterpret_cast<const __m128i*>(left_half_values)));
+        __m256 left_values;
+        const unsigned tile_begin = reduction_index & ~7u;
+        if (operation.reduction_count - tile_begin >= 8u) {
+            if ((reduction_index & 7u) == 0u)
+                phoenix_cpp::load_left_tile8(left_base + reduction_index, operation.left_row_stride,
+                                             live_rows, left_columns);
+            left_values = left_columns[reduction_index & 7u];
+        } else {
+            alignas(16) uint16_t left_half_values[8]{};
+            for (unsigned row = 0; row < live_rows; ++row)
+                left_half_values[row] =
+                    left_base[uint64_t(row) * operation.left_row_stride + reduction_index];
+            left_values =
+                _mm256_cvtph_ps(_mm_load_si128(reinterpret_cast<const __m128i*>(left_half_values)));
+        }
         for (unsigned column_in_tile = 0;
              column_in_tile < 8 && first_column + column_in_tile < operation.column_count;
              ++column_in_tile) {

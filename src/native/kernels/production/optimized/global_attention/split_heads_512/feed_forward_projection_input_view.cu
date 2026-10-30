@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/split_heads_512/feed_forward_projection_input_view.cu
 // 512-channel split-head stage. Separate projection/feed-forward modules use the same persistent feature layout.
 // The filename identifies which stage is executed; wait/view variants preserve producer-consumer synchronization.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 13336
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -410,7 +411,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
 #endif
     }
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     uniform_index_word_4 = min(int32_t(0u), int32_t(uniform_index_word_17));
 
@@ -622,7 +623,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
 
     index_word_0 = uint32_t(uint32_t(matrix_accumulator_38) >> 0x1u);
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     matrix_accumulator_2 = matrix_accumulator_36 * 0x2u + matrix_accumulator_9;
 
@@ -1437,7 +1438,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
     condition_4 = wait_copy_barrier(shared_tile, matrix_accumulator_9,
                                     async_tokens[(((matrix_accumulator_9) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_4 = true;
 #endif
 
@@ -1472,7 +1473,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
             condition_0 = wait_copy_barrier(shared_tile, matrix_accumulator_9,
                                             async_tokens[(((matrix_accumulator_9) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_0 = true;
 #endif
         } while (!condition_0);
@@ -4018,7 +4019,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
             condition_1 = wait_copy_barrier(shared_tile, matrix_fragment_75,
                                             async_tokens[(((matrix_fragment_75) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
             if (!condition_1) {
@@ -4028,7 +4029,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
                         wait_copy_barrier(shared_tile, matrix_fragment_75,
                                           async_tokens[(((matrix_fragment_75) >> 3) & 1)]);
 #else
-                    __syncthreads();
+                    phoenix_architecture::finish_compatibility_copies();
                     condition_1 = true;
 #endif
                 } while (!condition_1);
@@ -4130,7 +4131,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
                 }
                 __syncwarp(__activemask());
 
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
             }
             matrix_fragment_80 = blockIdx.y;
 
@@ -4892,7 +4893,7 @@ run_global_attention_split_heads_512_feed_forward_projection_input_view(
     }
     __syncwarp(__activemask());
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     if (condition_3) {
         return;

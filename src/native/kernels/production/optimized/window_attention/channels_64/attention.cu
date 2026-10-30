@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: window_attention/channels_64/attention.cu
 // Fused shifted-window block: feed-forward projections, 32-channel attention heads and residual publication.
 // The channel folder fixes the specialization; its down/up/view variant controls spatial layout.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 5120
 #include "../../../common/device_memory_vector.cuh"
 // Low/high parameter pairs form 64-bit addresses; integer slots carry geometry.
@@ -8897,6 +8898,16 @@ __device__ __forceinline__ void run_window_attention_channels_64_attention(
     return;
 }
 extern "C" __global__
-__maxnreg__(128) void phoenix_window_attention_channels_64_attention(KernelArguments parameters) {
+// The pre-Ada weight lookup adds live addresses. Keeping the former 128-register
+// ceiling spills this stage to ~2 KiB of local memory per thread on sm_120.
+// 160 is the smallest measured budget that removes the process scratch-memory
+// jump while retaining six resident blocks there; larger budgets did not give
+// a dependable whole-model benefit. Native FP8 paths retain their original cap.
+#if PHOENIX_STYLE_ARCH < 890
+__maxnreg__(160)
+#else
+__maxnreg__(128)
+#endif
+void phoenix_window_attention_channels_64_attention(KernelArguments parameters) {
     run_window_attention_channels_64_attention<false>(parameters.words, nullptr, nullptr);
 }

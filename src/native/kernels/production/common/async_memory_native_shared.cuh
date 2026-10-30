@@ -1,3 +1,4 @@
+#include "architecture_policy.cuh"
 // Specialized native memory-access helper for the selected kernel variant.
 // Vector width, address space and half/FP8 packing distinguish this helper from its siblings.
 // Do not merge variants solely because their function signatures match.
@@ -120,7 +121,7 @@ __device__ __forceinline__ uint32_t select_half_operand(uint32_t value) {
 }
 
 __device__ __forceinline__ uint32_t pack_fp8_pair(uint32_t operand_a, uint32_t operand_c) {
-#if __CUDA_ARCH__ < 890
+#if PHOENIX_STYLE_ARCH < 890
     return uint32_t(phoenix_architecture::encode_fp8_pair(operand_a)) | (operand_c << 16);
 #else
     uint32_t result;

@@ -2,6 +2,7 @@
 // for Phoenix's production recorder and NVIDIA NGX feature 18 presets 1 and 2.
 #include "../../src/native/support/dispatch.h"
 #include "../../src/native/runtime/texture_binding.h"
+#include "../../src/native/support/kernel_style_device.h"
 #include "../../native_runtime/network_schedule.h"
 #include <nvsdk_ngx.h>
 #include <MinHook.h>
@@ -11,9 +12,13 @@
 #include <psapi.h>
 
 using Json = nlohmann::json;
+#include "kernel_timing.h"
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 static void require(bool good, const std::string& message) { if (!good) throw std::runtime_error(message); }
+// Literal checks (especially every FP16 readback component) must not construct
+// and allocate a temporary std::string on their successful path.
+static void require(bool good, const char* message) { if (!good) throw std::runtime_error(message); }
 static double ms(Clock::time_point t) { return std::chrono::duration<double,std::milli>(Clock::now()-t).count(); }
 static std::string digest(const fs::path& path) {
     const auto bytes=read(path); return phoenix_model::weight_digest(bytes.data(),bytes.size());
@@ -181,6 +186,8 @@ int main(int argc,char** argv){
         phoenix_cpp::NetworkSchedule schedule;schedule.prepare(config,source.model_id,true);
         require(!vendor || (schedule.passes==1 && schedule.depth==8 && schedule.repeats==std::array<unsigned,8>{1,1,1,1,1,1,1,1}),"Vendor comparison requires its full trained schedule");
         const bool profile_gpu=config.value("profile_gpu_stages",false);
+        const bool profile_kernels=config.value("profile_individual_kernels",false);
+        report["phoenix_plan_geometry"]=phoenix_generated::Geometry(w,h).values;
         const bool deep_gpu=config.value("deep_profile_gpu_stages",false);
         require(!deep_gpu || profile_gpu,"Deep diagnostics require stage profiling");
         require(!profile_gpu || schedule.passes==1,"Stage diagnostic requires one pass");
@@ -203,7 +210,15 @@ int main(int argc,char** argv){
         std::vector<std::unique_ptr<phoenix_native::Network>> refinement;
         std::unique_ptr<Nvidia> nvidia;auto started=Clock::now();
         if(vendor){const unsigned preset=source.model_id=="original"?1:2;report["render_preset"]=preset;nvidia=std::make_unique<Nvidia>(gpu,config,w,h,preset);}
-        else{bundle=std::make_unique<phoenix_bundle::Bundle>(fs::u8path(config.at("bundle_path").get<std::string>()),digest,source);auto weights=bundle->load_weights();
+        else{
+            // Exercise the same style catalogue and physical-device check as the
+            // addon. Never relabel the native binaries as a fallback strategy.
+            const auto style=config.value("native_kernel_style",std::string("auto"));
+            const auto architecture=phoenix_kernel::device_architecture(gpu.device.Get());
+            bundle=std::make_unique<phoenix_bundle::Bundle>(fs::u8path(config.at("bundle_path").get<std::string>()),digest,source,false,style,architecture);
+            report["native_kernel_style"]=bundle->kernel_style;
+            report["physical_cuda_architecture"]=architecture;
+            auto weights=bundle->load_weights();
             auto kernels=phoenix_kernel::load_catalog(phoenix_native::catalog(*bundle));const auto& plan=bundle->select_frame(w,h,[&](const Json& frame){phoenix_native::preflight(frame,kernels);});
             if (config.value("report_kernel_selection", false)) {
                 // Use the production selector and generated plan, not filename
@@ -232,6 +247,26 @@ int main(int argc,char** argv){
             for(unsigned pass=1;pass<schedule.passes;++pass)refinement.push_back(std::make_unique<phoenix_native::Network>(gpu.device.Get(),dispatch->api(),plan,weights,kernels,color.resource.Get(),motion.resource.Get(),accounting,true,network.get()));
             report["neural_launches"]=network->program_steps();report["model_resource"]=bundle->model_resource.name;}
         report["create_ms"]=ms(started);
+        std::unique_ptr<KernelTiming> individual;
+        if(profile_kernels){
+            require(!vendor && network && schedule.passes==1,"Individual profiling requires one native pass");
+            individual=std::make_unique<KernelTiming>(gpu.device.Get(),gpu.queue.Get(),network->program_steps());
+            kernel_timer=individual.get();untimed_dispatch=dispatch->api().dispatch;
+            dispatch->api().dispatch=timed_kernel_dispatch;
+            report["individual_kernel_scope"]="Diagnostic single-launch timestamps; perturbs overlap. Not an end-to-end performance measurement.";
+            report["individual_kernel_names"]=Json::array();
+            report["individual_kernel_launches"]=Json::array();
+            const auto& plan=bundle->select_frame(w,h,[](const Json&){});
+            for(const auto& launch:plan.at("launches")) {
+                const auto name=launch.at("name").get<std::string>();
+                if(name!="cc_cb_clear" && name!="cg2r_copy_kernel") {
+                    report["individual_kernel_names"].push_back(name);
+                    report["individual_kernel_launches"].push_back({{"index",launch.at("index")},
+                        {"name",name},{"grid",launch.at("grid")},{"block",launch.at("block")}});
+                }
+            }
+            require(report["individual_kernel_names"].size()==network->program_steps(),"Individual kernel-name count");
+        }
         if(deep_gpu){
             diagnostic_heap=gpu.queries.Get();diagnostic_command=gpu.command.Get();
             if(network){require(!network->group_ends().empty(),"No native dispatch groups");
@@ -240,6 +275,7 @@ int main(int argc,char** argv){
                 phoenix_native::group_marker=&diagnostic_group;}
         }
         auto frame=[&](bool reset){auto tick=Clock::now();schedule.prepare(config,source.model_id,true);gpu.begin();
+            if(individual)individual->begin_frame();
             if(original_color){barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);gpu.command->CopyResource(color.resource.Get(),original_color.Get());barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
             gpu.command->EndQuery(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);ID3D12Resource* result=nullptr;
             if(vendor){nvidia->record(gpu,color,motion,output,reset,w,h);result=output.resource.Get();if(deep_gpu)gpu.mark(5);if(profile_gpu)gpu.mark(2);barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);}
@@ -252,7 +288,8 @@ int main(int argc,char** argv){
             if(profile_gpu)gpu.mark(3);
             gpu.command->CopyResource(shared.Get(),result);if(profile_gpu)gpu.mark(4);
             barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_COPY_SOURCE,vendor?D3D12_RESOURCE_STATE_UNORDERED_ACCESS:D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            gpu.command->EndQuery(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);gpu.command->ResolveQueryData(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,gpu.query_count,gpu.stamps.Get(),0);gpu.submit();
+            gpu.command->EndQuery(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);gpu.command->ResolveQueryData(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,gpu.query_count,gpu.stamps.Get(),0);
+            if(individual)individual->resolve(gpu.command.Get());gpu.submit();
             if(network)network->commit(gpu.command.Get());for(auto& net:refinement)net->commit(gpu.command.Get());
             const auto pair=std::pair{ms(tick),gpu.timing()};schedule.complete({{UINT32_MAX,0,pair.second,true,UINT32_MAX}});return pair;};
         auto capture=[&](const std::string& name){gpu.begin();barrier(gpu.command.Get(),shared.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -269,10 +306,20 @@ int main(int argc,char** argv){
         if(profile_gpu)report["gpu_timestamp_calibration"]=gpu.calibrate_timestamps();
         const unsigned segment_count=deep_gpu?6:4;
         std::vector<double> walls,gpus;std::array<std::vector<double>,6> segments;
-        started=Clock::now();while((walls.size()<30||ms(started)<measure*1000)&&ms(started)<15000){
+        std::vector<std::vector<double>> kernel_samples(individual?network->program_steps():0);
+        const auto minimum_frames=config.value("minimum_measured_frames",30u);
+        require(minimum_frames>=1 && minimum_frames<=10000,"Invalid minimum measured frames");
+        // High-resolution compatibility paths can need more than 15 seconds
+        // to collect 30 frames. Keep the historical cap by default, but allow
+        // explicit benchmark jobs to request a larger, bounded sampling window.
+        const auto maximum_measure_seconds=config.value("maximum_measure_seconds",15.);
+        require(std::isfinite(maximum_measure_seconds) && maximum_measure_seconds>=measure && maximum_measure_seconds<=120.,"Invalid measurement time limit");
+        started=Clock::now();while((walls.size()<minimum_frames||ms(started)<measure*1000)&&ms(started)<maximum_measure_seconds*1000){
             const auto pair=frame(false);walls.push_back(pair.first);gpus.push_back(pair.second);
+            if(individual){const auto values=individual->read();for(unsigned i=0;i<kernel_samples.size();++i)kernel_samples[i].push_back(values.at(i));}
             if(profile_gpu)for(unsigned i=0;i<segment_count;++i)segments[i].push_back(gpu.last_segments[i]);}
         report["wall"]=stats(walls);report["gpu"]=stats(gpus);report["wall_samples_ms"]=walls;report["gpu_samples_ms"]=gpus;
+        if(individual){report["individual_kernels"]=Json::array();for(const auto& samples:kernel_samples)report["individual_kernels"].push_back(stats(samples));}
         if(profile_gpu){
             const std::vector<const char*> names=deep_gpu?std::vector<const char*>{"engine_prepare","dispatch_region","engine_output_transition","to_copy_transition","output_copy","restore_transition"}:
                 std::vector<const char*>{"engine","to_copy_transition","output_copy","restore_transition"};

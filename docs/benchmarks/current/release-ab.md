@@ -1,4 +1,9 @@
-# Released versus current: the same 310.8 DLL
+# Historical released/development comparison: the same 310.8 DLL
+
+This is the retained 20 October comparison, including the development build from
+that study. The [current native Phoenix DLSS5 / NVIDIA DLSS5 report](README.md)
+contains the newer kernel measurements. This controlled release comparison has
+not been relabeled as a fresh run.
 
 Measured 20 October 2026 on RTX 5080, driver 616.64. All 40 isolated native inference cases passed. [Machine-readable results, individual process medians and fingerprints](release-ab.json).
 

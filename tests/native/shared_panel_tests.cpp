@@ -39,7 +39,7 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target"})
+    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target", "Native RTX kernel style"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
@@ -386,6 +386,17 @@ int run_tests() {
             require_widget(widget_rect("Enable neural rendering").Min.y < widget_rect(backend).Min.y,
                            "Enable checkbox must precede Backend");
             if (!compact) {
+                interaction.native_kernel_styles = {{"architecture", 120},
+                    {"available", {"rtx20", "rtx30", "rtx40"}}, {"active", "auto"}};
+                for (const char* style : {"rtx20", "rtx30", "rtx40", "auto"}) {
+                    const auto result = select("Native RTX kernel style", phoenix_kernel::style_label(style));
+                    require_widget(result.changed && !result.processing && !result.tuning &&
+                                       settings.native_kernel_style == style,
+                                   "Kernel style did not update the resource setting immediately");
+                }
+                require_widget(!select("Native RTX kernel style", phoenix_kernel::style_label("auto")).changed,
+                               "Reselecting the current style must not reset the executor");
+                interaction.native_kernel_styles = nlohmann::json::object();
                 require_widget(count_widget("NVIDIA DLL search folder") == 1,
                                "Phoenix DLSS5 hides the shared DLL folder setting");
                 widget_rect("Browse...##nvidia_library");

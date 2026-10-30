@@ -73,6 +73,35 @@ void main() {
             activation_tile[element] = row < pc.m && reduction < pc.k
                 ? float(pc.a.v[left_batch + row * left_stride + reduction]) : 0.0;
         }
+        // Four neighboring packed bytes share one word load. Only use this
+        // path when source rows and tile origins preserve word alignment;
+        // arbitrary strides/tails retain the original scalar address path.
+        bool packed_words = (flags & 0x2000000u) != 0u &&
+                            (right_stride & 3u) == 0u && (right_batch & 3u) == 0u &&
+                            (pc.k & 3u) == 0u && (pc.n & 3u) == 0u;
+#ifdef COALESCED_WEIGHTS
+        if (packed_words) {
+            for (uint first_element = thread_index * 4u;
+                 first_element < TILE_REDUCTION * TILE_COLUMNS; first_element += TILE_THREADS * 4u) {
+                uint tile_reduction = transposed ? first_element % TILE_REDUCTION : first_element / TILE_COLUMNS;
+                uint tile_column = transposed ? first_element / TILE_REDUCTION : first_element % TILE_COLUMNS;
+                uint reduction = first_reduction + tile_reduction;
+                uint column = first_column + tile_column;
+                uint word = 0u;
+                if (reduction < pc.k && column < pc.n) {
+                    uint offset = right_batch + (transposed
+                        ? column * right_stride + reduction : reduction * right_stride + column);
+                    word = WeightWords(uint64_t(pc.b)).v[offset >> 2u];
+                }
+                for (uint lane = 0u; lane < 4u; ++lane) {
+                    uint local_reduction = tile_reduction + (transposed ? lane : 0u);
+                    uint local_column = tile_column + (transposed ? 0u : lane);
+                    weight_tile[local_reduction * weight_stride + local_column] =
+                        decoded_weight_byte((word >> (lane * 8u)) & 255u);
+                }
+            }
+        } else
+#endif
         for (uint element = thread_index; element < TILE_REDUCTION * TILE_COLUMNS; element += TILE_THREADS) {
 #ifdef COALESCED_WEIGHTS
             uint tile_reduction = transposed ? element % TILE_REDUCTION : element / TILE_COLUMNS;

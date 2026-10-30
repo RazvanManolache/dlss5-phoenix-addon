@@ -103,6 +103,7 @@ def main():
         ("model_status_tests", "model_status_tests.cpp"),
         ("model_tools_tests", "model_tools_tests.cpp"),
         ("module_capability_tests", "module_capability_tests.cpp"),
+        ("kernel_style_tests", "kernel_style_tests.cpp"),
         ("nr_forwarder_tests", "nr_forwarder_tests.cpp"),
         ("compatibility_policy_tests", "compatibility_policy_tests.cpp"),
         ("graphics_transport_tests", "graphics_transport_tests.cpp"),

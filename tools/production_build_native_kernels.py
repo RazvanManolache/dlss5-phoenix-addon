@@ -155,11 +155,18 @@ def main():
                         default=["sm_75", "sm_86", "sm_89", "sm_120"])
     parser.add_argument("--preserve-sm120", type=Path,
                         help="Reuse authenticated sm_120 cubins from an existing bundle unchanged")
+    parser.add_argument("--kernel-style", choices=("auto", "rtx20", "rtx30", "rtx40"), default="auto",
+                        help="Compile a lower-capability instruction strategy for the real target GPU")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_]+", args.name) or not 1 <= args.jobs <= 8:
         parser.error("Use a simple build name and between 1 and 8 compiler jobs")
     if len(set(args.architectures)) != len(args.architectures):
         parser.error("GPU architectures must be unique")
+    style_arch = {"rtx20": 75, "rtx30": 86, "rtx40": 89}.get(args.kernel_style)
+    if style_arch and any(int(arch[3:]) <= style_arch for arch in args.architectures):
+        parser.error("Compatibility styles must target strictly newer GPU architectures")
+    if style_arch and args.preserve_sm120:
+        parser.error("Cannot substitute native sm120 images for a compatibility style")
     if args.compile_timeout < 60:
         parser.error("Compiler timeout must be at least 60 seconds")
     try:
@@ -199,6 +206,7 @@ def main():
     if args.resume:
         previous = json.loads((out / "native_manifest.json").read_text(encoding="utf-8"))
         if (previous.get("source_hashes") != source_hashes or
+                previous.get("kernel_style", "auto") != args.kernel_style or
                 previous.get("architectures") != args.architectures or
                 previous.get("native_graph_sha256") != digest(ROOT / GRAPH) or
                 digest(out / "native_graph.json") != digest(ROOT / GRAPH)):
@@ -223,8 +231,8 @@ def main():
         if architecture == "sm_120" and preserved:
             shutil.copyfile(preserved[row["name"]], binary)
             return row, architecture, binary
-        # These flags reproduce the selected production build. There are no
-        # alternative profiles or register-limit switches in this entry point.
+        # Keep the selected production assembler/register recipe. Style flags
+        # lower instruction capabilities without changing the physical target.
         options = row.get("ptx_options")
         optimization = row.get("assembler_optimization", 3)
         generated_ptx = folder / "kernel.ptx"
@@ -240,6 +248,7 @@ def main():
             "550",
             "-ptx" if options else "-cubin",
             "-arch=" + architecture,
+            *(["-DPHOENIX_KERNEL_STYLE=" + str(style_arch * 10)] if style_arch else []),
             "-O3",
             "-std=c++17",
             *(["--split-compile=2"] if architecture != "sm_120" else []),
@@ -311,6 +320,7 @@ def main():
         "selection_status": "compiled",
         "validation_pending": True,
         "architectures": args.architectures,
+        "kernel_style": args.kernel_style,
         "architecture_validation": {arch: "pending_device_inference" for arch in args.architectures},
         "source_hashes": source_hashes,
         "catalogue_sha256": digest(ROOT / CATALOGUE),

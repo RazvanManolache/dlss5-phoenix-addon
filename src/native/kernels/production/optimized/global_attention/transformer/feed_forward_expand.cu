@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/transformer/feed_forward_expand.cu
 // Coarsest 1024-channel global-transformer stage. Attention spans the full latent token set.
 // Projection and feed-forward modules retain their explicit publication and synchronization boundaries.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 25624
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -282,7 +283,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
 #endif
     }
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     load_four_words_cached<CheckBounds>(combine_words(packed_half_6, packed_half_7),
                                         matrix_fragment_48, matrix_fragment_49, matrix_fragment_50,
@@ -406,7 +407,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
 
     uniform_index_word_11 = 0x400u;
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     address_word_19 = !condition_2 ? packed_half_11 : 0u;
 
@@ -1496,7 +1497,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
 
     matrix_accumulator_14 = permute_signed(0u, matrix_accumulator_14, 0x7610u);
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     if (!condition_2) {
         address_word_19 = packed_half_4 + packed_half_125;
@@ -2065,7 +2066,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
     condition_1 =
         wait_copy_barrier(shared_tile, packed_half_11, async_tokens[(((packed_half_11) >> 3) & 1)]);
 #else
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
     condition_1 = true;
 #endif
     if (!condition_1) {
@@ -2074,7 +2075,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
             condition_1 = wait_copy_barrier(shared_tile, packed_half_11,
                                             async_tokens[(((packed_half_11) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
         } while (!condition_1);
@@ -2694,7 +2695,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
             condition_1 = wait_copy_barrier(shared_tile, matrix_fragment_83,
                                             async_tokens[(((matrix_fragment_83) >> 3) & 1)]);
 #else
-            __syncthreads();
+            phoenix_architecture::finish_compatibility_copies();
             condition_1 = true;
 #endif
             if (!condition_1) {
@@ -2704,7 +2705,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
                         wait_copy_barrier(shared_tile, matrix_fragment_83,
                                           async_tokens[(((matrix_fragment_83) >> 3) & 1)]);
 #else
-                    __syncthreads();
+                    phoenix_architecture::finish_compatibility_copies();
                     condition_1 = true;
 #endif
                 } while (!condition_1);
@@ -2759,7 +2760,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
                 }
                 __syncwarp(__activemask());
 
-                __syncthreads();
+                phoenix_architecture::finish_compatibility_copies();
             }
             matrix_fragment_81 = packed_half_125 * 0x400u + matrix_fragment_82;
 
@@ -4805,7 +4806,7 @@ __device__ __forceinline__ void run_global_attention_transformer_feed_forward_ex
     }
     __syncwarp(__activemask());
 
-    __syncthreads();
+    phoenix_architecture::finish_compatibility_copies();
 
     if (condition_0) {
         return;

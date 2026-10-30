@@ -1,3 +1,4 @@
+#include "../../../common/architecture_policy.cuh"
 // DLSS5 Phoenix optimized kernel: global_attention/split_heads_512/feed_forward_input_view_tile_sync.cu
 // 512-channel split-head stage. Separate projection/feed-forward modules use the same persistent feature layout.
 // The filename identifies which stage is executed; wait/view variants preserve producer-consumer synchronization.
@@ -7,7 +8,7 @@
 
 #define DLSS5_SAMPLING_HELPERS_ONLY
 #include "../../../common/texture_sampling.cuh"
-#define DLSS5_ENABLE_ASYNC_COPIES (__CUDA_ARCH__ >= 900)
+#define DLSS5_ENABLE_ASYNC_COPIES (PHOENIX_STYLE_ARCH >= 900)
 #define DLSS5_TILE_SHARED_BYTES 9232
 #include "../../../common/async_memory.cuh"
 #include "../../../common/cached_vector_access.cuh"
@@ -525,7 +526,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -668,7 +669,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -813,7 +814,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -956,7 +957,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -1089,7 +1090,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -1231,7 +1232,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -1365,7 +1366,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -1491,7 +1492,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                 if (valid) {
                     uint32_t shared_words =
                         uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                     asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                  "l"(global_address)
                                  : "memory");
@@ -1503,7 +1504,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
         }
     }
     uniform_index_word_7 = 0u;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
     asm volatile("cp.async.commit_group;" ::: "memory");
 #endif
 
@@ -1542,7 +1543,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
     matrix_fragment_21 = uint32_t(uint32_t(matrix_fragment_22) >> 0x2u);
 
     uniform_index_word_5 = (uniform_index_word_7 << 0x18u) + uniform_index_word_5;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
     asm volatile("cp.async.wait_group 0;" ::: "memory");
 #endif
 
@@ -1916,7 +1917,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2021,7 +2022,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2130,7 +2131,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2238,7 +2239,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2342,7 +2343,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2449,7 +2450,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2561,7 +2562,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2664,7 +2665,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
                     if (valid) {
                         uint32_t shared_words =
                             uint32_t(__cvta_generic_to_shared(shared_tile)) + operand_a;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
                         asm volatile("cp.async.ca.shared.global [%0],[%1],4;" ::"r"(shared_words),
                                      "l"(global_address)
                                      : "memory");
@@ -2678,7 +2679,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
         matrix_accumulator_147 = threadIdx.x & 31u;
 
         matrix_fragment_23 = matrix_fragment_80 + uniform_index_word_7;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
         asm volatile("cp.async.commit_group;" ::: "memory");
 #endif
 
@@ -2847,7 +2848,7 @@ run_global_attention_split_heads_512_feed_forward_input_view_tile_sync(
             matrix_fragment_74, matrix_fragment_75, shared_bytes, memory_ranges, error_counts);
 
         condition_0 = (matrix_accumulator_134 & 0x1u) != 0;
-#if __CUDA_ARCH__ >= 800
+#if PHOENIX_STYLE_ARCH >= 800
         asm volatile("cp.async.wait_group 0;" ::: "memory");
 #endif
 

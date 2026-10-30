@@ -63,8 +63,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ref', required=True, help='Audited publication commit/ref')
     parser.add_argument('--title', help='Public release title')
+    parser.add_argument('--prerelease', action='store_true', help='Publish as a GitHub prerelease; beta/alpha/rc/preview versions imply this automatically')
     parser.add_argument('--publish', action='store_true', help='Push the ref/tag and publish a new release')
     args = parser.parse_args()
+    prerelease = args.prerelease or bool(re.search(r'(?i)(?:alpha|beta|preview|rc)', VERSION))
     output = CURRENT/f'release-{VERSION}'
     receipt = json.loads((output/'VALIDATION.json').read_text())
     commit = git('rev-parse', args.ref+'^{commit}', capture=True).decode().strip()
@@ -105,7 +107,7 @@ def main():
                   lambda match: ']('+urllib.parse.urljoin(base, match[1])+')', body)
     release = json.loads(request(API+'/releases', token, 'POST', dict(tag_name=VERSION,
         target_commitish=commit, name=args.title or 'Phoenix DLSS5 '+VERSION,
-        body=body, draft=True, prerelease=False)))
+        body=body, draft=True, prerelease=prerelease)))
     for name in [line.split('  ', 1)[1] for line in (output/'SHA256SUMS.txt').read_text().splitlines()]+['SHA256SUMS.txt']:
         upload = release['upload_url'].split('{', 1)[0]+'?name='+urllib.parse.quote(name)
         asset = json.loads(request(upload, token, 'POST', raw=(output/name).read_bytes(),
@@ -114,7 +116,7 @@ def main():
             raise ValueError('Asset upload incomplete: '+name)
         print('Uploaded '+name, flush=True)
     release = json.loads(request(API+'/releases/'+str(release['id']), token, 'PATCH',
-                                 dict(draft=False, make_latest='true')))
+                                 dict(draft=False, make_latest='false' if prerelease else 'true')))
     public = json.loads(request(API+'/releases/tags/'+VERSION, token))
     verified = []
     for asset in public['assets']:
@@ -123,7 +125,9 @@ def main():
             raise ValueError('Public download mismatch: '+asset['name'])
         verified.append(asset['name'])
         print('Verified public download '+asset['name'], flush=True)
-    proof = dict(published=True, version=VERSION, commit=commit, url=release['html_url'],
+    if public.get('prerelease') != prerelease or public.get('draft'):
+        raise ValueError('Published release visibility/channel differs from the requested channel')
+    proof = dict(published=True, version=VERSION, commit=commit, url=release['html_url'], prerelease=prerelease,
                  public_assets_sha256_verified=verified)
     (output/'PUBLISHED.json').write_text(json.dumps(proof, indent=2)+'\n')
     print(json.dumps(proof, indent=2))

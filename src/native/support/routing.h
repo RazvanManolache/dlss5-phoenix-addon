@@ -2,6 +2,7 @@
 #include "live_controls.h"
 #include "budget.h"
 #include "device_selection.h"
+#include "kernel_style.h"
 #include "resolution.h"
 #include "processing.h"
 #include "../../pipeline/options.h"
@@ -43,6 +44,7 @@ template <class T> inline T host_strength(bool specified, T value, T reference_d
 struct Settings {
     int mode = ours;
     std::string execution_device = "native";
+    std::string native_kernel_style = "auto";
     std::string worker_engine = "auto";
     int offload_age_frames = 4, offload_age_ms = 100;
     int cpu_threads = 0;
@@ -121,7 +123,7 @@ struct Settings {
         for (int repeat_count : block_repeats)
             if (repeat_count < 0 || repeat_count > 4)
                 return false;
-        return pipeline.valid() && processing.valid() && nvidia_model >= -1 && nvidia_model <= 2 && upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
+        return pipeline.valid() && processing.valid() && phoenix_kernel::valid_style(native_kernel_style) && nvidia_model >= -1 && nvidia_model <= 2 && upscaler >= 0 && upscaler <= 2 && mode >= input && mode <= ours &&
                controls.valid() && resolution_mode >= 0 && resolution_mode <= 1 &&
                resolution_quality >= 0 && resolution_quality <= 2 && resolution_aspect >= 0 &&
                resolution_aspect <= 5 && resolution_ratio_width >= 1 &&
@@ -229,6 +231,7 @@ template <class Visitor> void visit_settings(Settings& settings, Visitor visit) 
     visit("NvidiaDllFolder", settings.nvidia_dll_folder);
     visit("ModelLibraryDirectory", settings.model_library_directory);
     visit("ExecutionDevice", settings.execution_device);
+    visit("NativeKernelStyle", settings.native_kernel_style);
     visit("WorkerEngine", settings.worker_engine);
     visit("OffloadAgeFrames", settings.offload_age_frames);
     visit("OffloadAgeMs", settings.offload_age_ms);
