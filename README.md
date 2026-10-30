@@ -27,6 +27,30 @@ Measured 2026-10-30; full graphs, one pass. Small margins vary between runs; hig
 [Performance guide](docs/PERFORMANCE.md) · [Measurements and methodology](docs/benchmarks/current/README.md) · [1080p scaling investigation](docs/NATIVE_SCALING_PROFILE.md)
 <!-- /current-two-model-benchmark -->
 
+## See it in games
+
+From DOOM II to Gotham: give familiar worlds another look. These are matching input/output captures from reviewed gameplay replays; click an image for the full-resolution view.
+
+**Batman: Arkham Knight**
+
+| Original input | Phoenix DLSS5 |
+| --- | --- |
+| ![Batman: Arkham Knight: original input](docs/games/batman_arkham_knight-input.webp) | ![Batman: Arkham Knight: Phoenix DLSS5 output](docs/games/batman_arkham_knight-phoenix-dlss5.webp) |
+
+**Hitman: Absolution**
+
+| Original input | Phoenix DLSS5 |
+| --- | --- |
+| ![Hitman: Absolution: original input](docs/games/hitman_absolution_x86-input.webp) | ![Hitman: Absolution: Phoenix DLSS5 output](docs/games/hitman_absolution_x86-phoenix-dlss5.webp) |
+
+**DOOM II**
+
+| Original input | Phoenix DLSS5 |
+| --- | --- |
+| ![DOOM II: original input](docs/games/doom2_dos-input.webp) | ![DOOM II: Phoenix DLSS5 output](docs/games/doom2_dos-phoenix-dlss5.webp) |
+
+[Seven-game comparison gallery, routes and capture details](docs/GAME_GALLERY.md). These earlier captures illustrate the effect; they are not fresh 1.0 Beta game tests.
+
 ## Features
 
 - **Pick the look:** Phoenix DLSS5, NVIDIA DLSS5, split views and difference views.
@@ -45,10 +69,6 @@ are experimental. My NVIDIA hardware testing is on an RTX 5080. Portable CUDA,
 Vulkan, HIP, CPU, SYCL and Metal routes have separate limits and performance.
 [Compatibility and tested hardware](docs/COMPATIBILITY.md).
 
-<img src="docs/features/overlay-play.png" alt="Phoenix DLSS5 Play tab with comparison and look controls" width="720">
-
-*UI fixture with synthetic status; not a gameplay capture or benchmark.*
-
 ## Get started
 
 1. [Choose and install the package](docs/INSTALLATION.md) with full-addon-support ReShade.
@@ -60,6 +80,7 @@ Vulkan, HIP, CPU, SYCL and Metal routes have separate limits and performance.
 | What you need | Guide |
 | --- | --- |
 | Installation, package choice and updates | [Installation](docs/INSTALLATION.md) |
+| Game screenshots and processing routes | [Gameplay comparison gallery](docs/GAME_GALLERY.md) |
 | Features, controls and overlay screenshots | [Feature catalog](docs/FEATURES.md) · [User guide](docs/USER_GUIDE.md) |
 | x86, GPU generations, graphics APIs and execution routes | [Compatibility](docs/COMPATIBILITY.md) · [Support matrix](docs/SUPPORT.md) |
 | Performance, memory, scaling and historical studies | [Performance guide](docs/PERFORMANCE.md) |

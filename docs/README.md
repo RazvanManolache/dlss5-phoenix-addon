@@ -7,6 +7,7 @@
 | Goal | Start here | Details |
 | --- | --- | --- |
 | Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.0-beta.md) |
+| See it in actual games | [Seven-game comparison gallery](GAME_GALLERY.md) | [Capture method](PAIRED_SCREENSHOTS.md), [compatibility](COMPATIBILITY.md) |
 | Change the image or overlay | [User guide](USER_GUIDE.md) | [All features](FEATURES.md), [appearance controls](NEURAL_CONTROLS.md), [overlay reference](overlay-ui.md) |
 | Pick a model | [Model support](MULTI_MODEL.md) | [Shared model library](SHARED_MODELS.md), [Lightweight FP8](SMALL_FP8.md) |
 | Understand x86 or older GPUs | [Compatibility](COMPATIBILITY.md) | [Execution mechanisms](EXECUTION_MECHANISMS.md), [graphics APIs](GRAPHICS_COMPATIBILITY.md), [native architectures](NATIVE_ARCHITECTURES.md) |

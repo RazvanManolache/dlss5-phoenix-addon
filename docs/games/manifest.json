@@ -1,0 +1,196 @@
+{
+  "schema": "phoenix-public-game-gallery/1",
+  "scope": "Existing reviewed same-frame coverage captures; not fresh 1.0 beta game validation",
+  "conversion": "Full resolution lossless RGB WebP, metadata stripped; no color changes, cropping or resizing",
+  "games": [
+    {
+      "id": "batman_arkham_knight",
+      "title": "Batman: Arkham Knight",
+      "scene": "Diner prologue: faces, booths and lighting.",
+      "api": "Direct3D 11",
+      "execution": "external x64 helper",
+      "capture_route": "D3D11 shared completed pair",
+      "model": "original",
+      "frame": 13127,
+      "width": 2377,
+      "height": 1003,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "batman_arkham_knight-input.webp",
+          "source_sha256": "48259d361e0baba30878920ecedf02a5da5007e1558d708e9c909b74da2784b5",
+          "sha256": "b742e31eaa3df1a56a89e087025edf7271bd72dc99858c2be3d067ffe8851a21",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "batman_arkham_knight-phoenix-dlss5.webp",
+          "source_sha256": "b5aa86a27385ccd498e9537fd4c81ad109045713b4f8866745eec62fc87892cc",
+          "sha256": "018a81c4811b8135a9d48245f4584da2edee67157ab9afe198a67e5925955f82",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "cyberpunk_2077",
+      "title": "Cyberpunk 2077",
+      "scene": "Practice Makes Perfect training room.",
+      "api": "Direct3D 12",
+      "execution": "in-process",
+      "capture_route": "in-process D3D12",
+      "model": "original",
+      "frame": 5552,
+      "width": 2560,
+      "height": 1080,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "cyberpunk_2077-input.webp",
+          "source_sha256": "8f9e8742265a87d241d457894173182229f3d31928be4fc335c1d3754b617738",
+          "sha256": "2907686e0eeedff6d1e67e18aa5c4e52841c5766281917453843f78a331df072",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "cyberpunk_2077-phoenix-dlss5.webp",
+          "source_sha256": "178ca2c8deaf022eb5507f65574b3b2d2730e9a05d23ac815221db38244c5eb5",
+          "sha256": "6b97758021690b8bedb421893f6422523845501e7ada637ca81052d3faeefb36",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "red_dead_redemption_2",
+      "title": "Red Dead Redemption 2",
+      "scene": "Arthur beside the Horseshoe Overlook campfire.",
+      "api": "Vulkan",
+      "execution": "external x64 helper",
+      "capture_route": "fenced helper/readback",
+      "model": "original",
+      "frame": 21509,
+      "width": 2560,
+      "height": 1080,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "red_dead_redemption_2-input.webp",
+          "source_sha256": "026a9be6f22d476a9c19a4467e705348fcf9b5d5588988be850ca5a3d4162cf3",
+          "sha256": "c13a59c34ae7b98aca7194392fbc20da518032fab90e50b7281cdf2c35bb15f1",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "red_dead_redemption_2-phoenix-dlss5.webp",
+          "source_sha256": "67fd1f37518a172bb9324a7359a20de613ab110875192c6787b57664fd929417",
+          "sha256": "a08efb0cf1de5c0250488befe613f55a7433f89975711d2cda6e762f3de924e8",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "cod4_modern_warfare_dx9_x86",
+      "title": "Call of Duty 4: Modern Warfare",
+      "scene": "Training armory with Gaz, equipment and gun racks.",
+      "api": "Direct3D 11",
+      "execution": "external x64 helper",
+      "capture_route": "D3D11 shared completed pair",
+      "model": "original",
+      "frame": 38044,
+      "width": 2560,
+      "height": 1080,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "cod4_modern_warfare_dx9_x86-input.webp",
+          "source_sha256": "55ddc0137ae71851a3ef34da0ffce1a50071760bb6ebd83d6d1d36da41903d31",
+          "sha256": "6884caee4bd43bf90571df9903285ec0fe59321d060db512fdd9f65a1fb0dfa5",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "cod4_modern_warfare_dx9_x86-phoenix-dlss5.webp",
+          "source_sha256": "cc366ec65c05e9f7a5ba90bf997c3812cf8f583d241a15873032e386ead05898",
+          "sha256": "2ba46ec779d490b97e0be6ccee76bd6ca78b7dade6f35ae67ebbb2d3d9a60d2f",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "hitman_absolution_x86",
+      "title": "Hitman: Absolution",
+      "scene": "Agent 47 facing the camera in the coastal prologue, with rocks and foliage behind him.",
+      "api": "Direct3D 11",
+      "execution": "external x64 helper",
+      "capture_route": "D3D11 shared completed pair",
+      "model": "original",
+      "frame": 7434,
+      "width": 3840,
+      "height": 2160,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "hitman_absolution_x86-input.webp",
+          "source_sha256": "d7947a23a3c608c9659b26e2d11a6c2c00231d0c1b378239b59390180db040d1",
+          "sha256": "60a2a0dc0a51c144e6ac557a0fb7f3ea029403eb78d1be8dfc9bded62c2159b6",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "hitman_absolution_x86-phoenix-dlss5.webp",
+          "source_sha256": "58c047e76cbb1f57b2572f9de62b06dc73affe37dbfe8a9e9d1b857a3a73461f",
+          "sha256": "0c5a5bd26b5c6a0ba6e0e553655b81068e5ef7091e1834dcb09391df3cd0be6c",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "quake_iii_arena_gl_x86",
+      "title": "Quake III Arena",
+      "scene": "Playable q3dm1 courtyard.",
+      "api": "OpenGL",
+      "execution": "external x64 helper",
+      "capture_route": "fenced helper/readback",
+      "model": "small-fp8",
+      "frame": 3907,
+      "width": 2560,
+      "height": 1080,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "quake_iii_arena_gl_x86-input.webp",
+          "source_sha256": "5cf57c28c27410a9ca03c42659b61ff8b61c3a676205fa5cc0213be34fbcb464",
+          "sha256": "5b2468e853ac7cdc17b35434b0bc8d3ac72d1ebc6fbeb58f24f9f352b1e7c39a",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "quake_iii_arena_gl_x86-phoenix-dlss5.webp",
+          "source_sha256": "0fdf9429f24fa266fa8e306444f5e4d18651b41d95289456329e26a6e96b8b33",
+          "sha256": "c98584308f7822e569db16039e47a03db81043eb4f962b1c3fd656b4197f1617",
+          "lossless_rgb": true
+        }
+      }
+    },
+    {
+      "id": "doom2_dos",
+      "title": "DOOM II",
+      "scene": "Playable corridor with pistol, enemies and HUD.",
+      "api": "Direct3D 11",
+      "execution": "external x64 helper",
+      "capture_route": "D3D11 shared completed pair",
+      "model": "original",
+      "frame": 466,
+      "width": 1600,
+      "height": 1024,
+      "same_frame": true,
+      "images": {
+        "input": {
+          "file": "doom2_dos-input.webp",
+          "source_sha256": "eb3d97f925bb0faeded389e7e63f411b9996e18265906963292b8b03198a96f8",
+          "sha256": "233a2dff55eaec065e77704de81f2172617a5c61c184ae02ff8c08f40b39402b",
+          "lossless_rgb": true
+        },
+        "phoenix-dlss5": {
+          "file": "doom2_dos-phoenix-dlss5.webp",
+          "source_sha256": "0c43b821900e47670995caebe57d4bc0734fdc76151ec8ccc57ac30466f0ba1f",
+          "sha256": "5267a1298d1d088d52d81bde02fcf0383e3f387916ead727efa120e137405939",
+          "lossless_rgb": true
+        }
+      }
+    }
+  ]
+}
