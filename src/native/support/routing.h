@@ -169,6 +169,12 @@ inline bool normalize_direct_comparison(Settings& settings) {
     settings.comparison = 1; // Direct feeds expose pairs, not the legacy three-way view.
     return true;
 }
+// Prefer the processed B side; if it is Input, return to the processed A side.
+// Keep the saved wipe settings so entering Comparison again restores the pair.
+inline int comparison_exit_mode(const Settings& settings) {
+    const int source = settings.source_b != 0 ? settings.source_b : settings.source_a;
+    return source == 2 ? ours : source == 1 ? nvidia : input;
+}
 // Presentation choices apply independently of pending model/quality edits.
 inline bool copy_live_selection(Settings& target, const Settings& source) {
     auto fields = [](auto& value) {
@@ -205,6 +211,16 @@ template <class Visitor> void visit_live_tuning(Settings& settings, Visitor visi
     visit("HostJitter", settings.host_jitter);
     visit("HostWhiteNits", settings.host_white_nits);
     visit("HostUnjitter", settings.host_unjitter);
+    visit("ForceReset", settings.force_reset);
+    visit("ResetAfterSwitch", settings.reset_after_switch);
+    visit("ResetEvery", settings.reset_every);
+    // Layout/diagnostic composition is evaluated per frame. Editing these
+    // controls needs neither new model resources nor a cold helper process.
+    // Source/renderer changes remain resource selections: they may introduce
+    // NVIDIA evaluation that the running session has not initialized.
+    visit("Divider", settings.divider);
+    visit("Comparison", settings.comparison);
+    visit("DifferenceGain", settings.difference_gain);
 }
 inline bool copy_live_tuning(Settings& target, const Settings& source) {
     auto fields = [](auto& s) {
@@ -214,7 +230,9 @@ inline bool copy_live_tuning(Settings& target, const Settings& source) {
                         s.controls.appearance,s.controls.intensity,s.controls.style,
                         s.native_options, s.intensity, s.style, s.ui_correction,
                         s.host_exposure, s.host_exposure_scale, s.host_globaltone,
-                        s.host_jitter, s.host_white_nits, s.host_unjitter);
+                        s.host_jitter, s.host_white_nits, s.host_unjitter,
+                        s.force_reset,s.reset_after_switch,s.reset_every,
+                        s.divider,s.comparison,s.difference_gain);
     };
     const bool changed = fields(target) != fields(source);
     fields(target) = fields(source);
@@ -244,15 +262,12 @@ template <class Visitor> void visit_settings(Settings& settings, Visitor visit) 
     visit("ResolutionRatioHeight", settings.resolution_ratio_height);
     visit("Backend", settings.mode);
     visit_live_tuning(settings, visit);
-    visit("Divider", settings.divider);
     visit("NeuralUplift", settings.uplift);
     visit("HostBridge", settings.host_bridge);
     visit("HostHdr", settings.host_hdr);
     visit("NRAutoExposure", settings.nr_auto_exposure);
     visit("NrFeature", settings.nr_feature);
     visit("ScreenshotRequest", settings.screenshot_request);
-    visit("ResetAfterSwitch", settings.reset_after_switch);
-    visit("ResetEvery", settings.reset_every);
     visit("Experimental", settings.experimental);
     visit("TransformerBlocks", settings.transformer_blocks);
     visit("AutomaticBudget", settings.automatic_budget);
@@ -265,13 +280,10 @@ template <class Visitor> void visit_settings(Settings& settings, Visitor visit) 
                                "Block5Repeats", "Block6Repeats", "Block7Repeats", "Block8Repeats"};
     for (unsigned iteration_index = 0; iteration_index < 8; ++iteration_index)
         visit(repeat_names[iteration_index], settings.block_repeats[iteration_index]);
-    visit("Comparison", settings.comparison);
     visit("SourceA", settings.source_a);
     visit("SourceB", settings.source_b);
-    visit("DifferenceGain", settings.difference_gain);
     visit("ComparisonLabels", settings.comparison_labels);
     visit("ComparisonLines", settings.comparison_lines);
-    visit("ForceReset", settings.force_reset);
     visit("ExternalReload", settings.external_reload);
     visit("LogLevel", settings.log_level);
     visit("CaptureBurst", settings.capture_burst);

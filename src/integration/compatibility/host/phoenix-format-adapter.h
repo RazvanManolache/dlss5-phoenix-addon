@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../native/support/shader_compiler.h"
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -32,6 +33,26 @@ cbuffer Size : register(b0) { uint width, height, pitch, bgra; }
     target.Store(p.y*pitch+p.x*4, b.x | (b.y<<8) | (b.z<<16) | (b.w<<24));
 })";
 
+// Explicit prequantization preserves the CPU bridge's round-to-nearest half
+// input. A typed R16F UAV store alone can truncate, changing a half's last bit.
+inline constexpr char kPhoenixExactUnpackShader[] = R"(
+Texture2D<float4> source : register(t0);
+RWTexture2D<float4> target : register(u0);
+cbuffer Size : register(b0) { uint width, height, pitch, bgra; }
+[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {
+    if (p.x < width && p.y < height) {
+        float4 value = source.Load(int3(p.xy,0));
+        // This opt-in shader receives UNORM8 only: zero or normal positive
+        // half values. Discard 13 float mantissa bits with nearest-even
+        // rounding, then adjust the float/half exponent-bias difference.
+        uint4 bits = asuint(value);
+        uint4 rounded = bits + 4095u + ((bits >> 13) & 1u);
+        uint4 half_bits = (rounded >> 13) - (112u << 10);
+        half_bits = value == 0 ? 0 : half_bits;
+        target[p.xy] = f16tof32(half_bits);
+    }
+})";
+
 // All resources enter/leave COMMON. The caller submits and waits before reuse.
 class PhoenixFormatAdapter {
     template<class T> using Ptr = Microsoft::WRL::ComPtr<T>;
@@ -41,6 +62,7 @@ class PhoenixFormatAdapter {
     Ptr<ID3D12Resource> color_, output_, bytes_;
     UINT width_ = 0, height_ = 0, pitch_ = 0, increment_ = 0;
     DXGI_FORMAT format_ = DXGI_FORMAT_UNKNOWN;
+    bool exact_half_input_ = false;
 
     static D3D12_RESOURCE_BARRIER Barrier(ID3D12Resource* resource,
                                          D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
@@ -51,7 +73,7 @@ class PhoenixFormatAdapter {
     }
     HRESULT Pipeline(ID3D12Device* device, const char* source, Ptr<ID3D12PipelineState>& pipeline) {
         Ptr<ID3DBlob> code, errors;
-        HRESULT hr = D3DCompile(source, strlen(source), "phoenix-format-adapter", nullptr, nullptr,
+        HRESULT hr = phoenix_shader::compile(source, strlen(source), "phoenix-format-adapter", nullptr, nullptr,
                                "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
         if (FAILED(hr)) return hr;
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
@@ -77,7 +99,7 @@ class PhoenixFormatAdapter {
         if (FAILED(hr)) return hr;
         hr = device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&root_));
         if (FAILED(hr)) return hr;
-        hr = Pipeline(device, kPhoenixUnpackShader, unpack_);
+        hr = Pipeline(device, exact_half_input_ ? kPhoenixExactUnpackShader : kPhoenixUnpackShader, unpack_);
         if (SUCCEEDED(hr)) hr = Pipeline(device, kPhoenixPackShader, pack_);
         if (FAILED(hr)) { root_.Reset(); return hr; }
         D3D12_DESCRIPTOR_HEAP_DESC heap{};
@@ -128,10 +150,12 @@ class PhoenixFormatAdapter {
         list->Dispatch((width_ + 7) / 8, (height_ + 7) / 8, 1);
     }
 public:
+    explicit PhoenixFormatAdapter(bool exact_half_input = false) : exact_half_input_(exact_half_input) {}
     ID3D12Resource* Color() const { return color_.Get(); }
     ID3D12Resource* Output() const { return output_.Get(); }
     HRESULT Ensure(ID3D12Device* device, UINT width, UINT height, DXGI_FORMAT format,
                    bool allow_rgb10 = false) {
+        if (exact_half_input_ && format != DXGI_FORMAT_R8G8B8A8_UNORM) return E_INVALIDARG;
         if (!width || !height || width > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
             height > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
             (!PhoenixByteFormat(format) && format != DXGI_FORMAT_R16G16B16A16_FLOAT && !(allow_rgb10 && format == DXGI_FORMAT_R10G10B10A2_UNORM))) return E_INVALIDARG;

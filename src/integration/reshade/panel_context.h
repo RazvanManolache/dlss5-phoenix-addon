@@ -58,9 +58,13 @@ struct Context {
     bool portable_chain_available = false;
     bool portable_backend_selected = false;
     bool native_chain_available = true, frame_services_available = false;
+    bool motion_services_available = false;
+    std::string motion_status;
     bool portable_gpu_budget = false;
     bool fixed_native_blocks = false;
     bool* processing_enabled = nullptr;
+    bool* coherent_frames = nullptr;
+    bool presentation_changed = false;
     bool processing_changed = false, live_selection_changed = false, live_tuning_changed = false;
     std::string nvidia_status;
     Json appearance = Json::object();

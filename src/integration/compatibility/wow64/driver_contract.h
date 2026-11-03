@@ -7,7 +7,11 @@
 // field crosses the architecture boundary; driver addresses stay 64-bit values.
 namespace phoenix_driver_probe {
 constexpr uint32_t version=2, kernel_count=41, launch_count=154;
-enum Operation : int32_t { initialize=1, frame=2, shutdown=3 };
+enum Operation : int32_t { initialize=1, frame=2, shutdown=3, check_compatibility=4 };
+struct CompatibilityEvidence {
+    uint32_t abi=1,bytes=sizeof(CompatibilityEvidence),cuda_version=0,device_count=0;
+    uint32_t cuda_initialized=0,adapter_matched=0,d3d12_copy_verified=0,nvapi_entries=0;
+};
 struct Kernel {
     uint64_t bytes, size, entry;
 };
@@ -53,7 +57,7 @@ inline bool valid_launch(const Launch& value) {
     return threads<=1024;
 }
 inline bool valid_initialize(const Channel& value) {
-    return value.abi==version && value.struct_bytes==sizeof(Channel) && value.frame_flags<=3 && !value.reserved &&
+    return value.abi==version && value.struct_bytes==sizeof(Channel) && value.operation==initialize && value.frame_flags<=3 && !value.reserved &&
         (value.caller_bits==32 || value.caller_bits==64) && value.width && value.height &&
         value.width<=8192 && value.height<=8192 && value.request_event && value.response_event &&
         valid_host_range(value.weights,value.weight_bytes,value.caller_bits) && value.weight_bytes<=512ull*1024*1024 &&
@@ -61,5 +65,10 @@ inline bool valid_initialize(const Channel& value) {
         value.clear_words && uint64_t(value.clear_words)*4<value.workspace_bytes &&
         valid_host_range(value.color,value.plane_bytes,value.caller_bits) && valid_host_range(value.output,value.plane_bytes,value.caller_bits) &&
         value.plane_bytes==uint64_t(value.width)*value.height*8 && valid_host_range(value.cuda_library,2,value.caller_bits);
+}
+inline bool valid_compatibility_check(const Channel& value) {
+    return value.abi==version&&value.struct_bytes==sizeof(Channel)&&value.caller_bits==32&&
+        value.operation==check_compatibility&&value.request_event&&value.response_event&&
+        valid_host_range(value.cuda_library,2,32)&&valid_host_range(value.output,sizeof(CompatibilityEvidence),32)&&!value.reserved;
 }
 }

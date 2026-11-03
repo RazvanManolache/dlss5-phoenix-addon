@@ -34,6 +34,7 @@
 #include "phoenix-host-pixels.h"
 #include "phoenix-format-adapter.h"
 #include "phoenix-host-safety.h"
+#include "phoenix-helper-motion.h"
 #include "retired_transfer_buffer.h"
 #include <reshade.hpp>
 #include <algorithm>
@@ -56,6 +57,10 @@ static PhoenixFeederEvaluateProc g_feeder_evaluate = nullptr;
 static PhoenixFeederEvaluateLockedProc g_feeder_evaluate_locked = nullptr;
 static uint64_t g_capture_sequence = 0;
 static bool g_reference_cpu = false;
+static bool g_native_motion_services = false;
+static PhoenixHelperMotion g_helper_motion;
+static uint64_t g_transport_capture = 0, g_transport_sequence = 0;
+static FeedGuideState g_frame_guides{};
 static std::vector<ID3D12CommandQueue *> g_observed_queues;
 static std::vector<ID3D12GraphicsCommandList *> g_observed_lists;
 static void Log(const char *fmt, ...);
@@ -75,6 +80,22 @@ static bool ConfigurePhoenixHost()
         GetPrivateProfileStringW(L"Phoenix", L"ExecutionDevice", L"native", selected_device, 256,
                                  (directory / L"ReShade.ini").c_str());
         g_reference_cpu = std::wcscmp(selected_device, L"cpu") == 0;
+        phoenix_pipeline::Options motion;
+        const auto ini = directory / L"ReShade.ini";
+        phoenix_compat::visit_helper_motion(motion,[&](const char* key,auto& value){
+            wchar_t text[128]{};const std::wstring name(key,key+std::strlen(key));
+            if(!GetPrivateProfileStringW(L"Phoenix",name.c_str(),L"",text,128,ini.c_str()))return;
+            using T=std::decay_t<decltype(value)>;
+            if constexpr(std::is_same_v<T,bool>){
+                if(!_wcsicmp(text,L"true")||!_wcsicmp(text,L"on")||!_wcsicmp(text,L"yes"))value=true;
+                else if(!_wcsicmp(text,L"false")||!_wcsicmp(text,L"off")||!_wcsicmp(text,L"no"))value=false;
+                else value=std::stoi(text)!=0;
+            }
+            else if constexpr(std::is_integral_v<T>)value=std::stoi(text);
+            else value=std::stof(text);
+        });
+        g_native_motion_services=std::wcscmp(selected_device,L"native")==0;
+        g_helper_motion.configure(motion,g_native_motion_services);
         g_frame_iterations = GetPrivateProfileIntW(L"DLSS5_HOST", L"FrameIterations", 0, (directory / L"ReShade.ini").c_str());
         (void)PhoenixHostIterations(1, g_frame_iterations);
         if (!std::filesystem::is_regular_file(directory / L"Phoenix.addon64"))
@@ -736,12 +757,29 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     const bool nr_changed = g_last_nr_enabled[stream_id] != 1;
     g_last_nr_enabled[stream_id] = 1;
     nlohmann::json before, after;
-    const bool summary_before_available = ReadPhoenixOutputSummary(before);
+    bool summary_before_available = ReadPhoenixOutputSummary(before);
     std::string last_deferred_status;
     // Retries poll the same captured input. Repeating its history reset would
     // invalidate the portable executor's pending readback on every retry.
     bool reset_pending = reset || nr_changed;
     const auto capture_token = ++g_capture_sequence;
+    PhoenixHelperMotion::Frame motion{mv,true,false};
+    try {
+        // OFA is a driver API: give it the actual observed device/queue, not
+        // ReShade's COM proxies. Feeder recording below still uses the wrapper
+        // so Phoenix observes the fresh resource/binding epoch.
+        auto* motion_queue=NativeHostQueue(h.queue);
+        Microsoft::WRL::ComPtr<ID3D12Device> motion_device;
+        if(!motion_queue||FAILED(motion_queue->GetDevice(IID_PPV_ARGS(&motion_device))))
+            throw std::runtime_error("Native motion device/queue unavailable");
+        motion=g_helper_motion.prepare(stream_id,g_transport_capture?g_transport_capture:capture_token,
+            color,mv,reset_pending,motion_device.Get(),motion_queue,h.fence,g_frame_guides);
+        reset_pending=motion.reset;
+    } catch(const std::exception& error){
+        Log("[host] motion preparation failed: %s",error.what());
+        g_queue_retirement_unproven=true;
+        HostTerminal("Motion preparation failed; unretired resources will not be released");return false;
+    }
     const auto wait_ms = g_reference_cpu ? 55000u : 15000u;
     const auto deadline = GetTickCount64() + wait_ms;
     do {
@@ -751,12 +789,12 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         frame.command_list = NativeHostList(h.list);
         frame.queue = NativeHostQueue(h.queue);
         frame.output = output;
-        frame.motion = mv;
+        frame.motion = motion.motion;
         frame.depth = depth;
         frame.reset = reset_pending ? 1u : 0u;
         frame.stream_id = stream_id;
-        frame.motion_scale_x = mvsx;
-        frame.motion_scale_y = mvsy;
+        frame.motion_scale_x = motion.estimated?1.f:g_frame_guides.engine_motion?g_frame_guides.scale_x:mvsx;
+        frame.motion_scale_y = motion.estimated?1.f:g_frame_guides.engine_motion?g_frame_guides.scale_y:mvsy;
         frame.depth_inverted = h.depth_inverted ? 1u : 0u;
         PhoenixFeederResultV1 result;
         if (!PhoenixFeederContractV1(frame, result)) {
@@ -766,7 +804,8 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         }
         // Fresh states must be observable on the exact recording epoch.
         D3D12_RESOURCE_BARRIER observed[3] = {};
-        ID3D12Resource *resources[]{output, mv, depth};
+        g_helper_motion.record_state(h.list,motion,true);
+        ID3D12Resource *resources[]{output, frame.motion, depth};
         const UINT count = depth ? 3u : 2u;
         for (UINT i = 0; i < count; ++i) {
             observed[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -783,6 +822,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         h.list->SetDescriptorHeaps(0, nullptr);
         DWORD ecode = 0;
         const HRESULT hr = SafeEvaluatePhoenix(&frame, &result, &ecode, capture_token);
+        g_helper_motion.record_state(h.list,motion,false);
         if (ecode || !ValidFeederReply(hr, frame, result)) {
             AbortCommands();
             Log("[host] direct feeder failed: HRESULT=0x%08X exception=0x%08X", hr, ecode);
@@ -823,13 +863,25 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             HostTerminal("Recorded Phoenix DLSS5 output lacks a baseline completion summary");
             return false;
         }
-        if (!WaitFenceValue(h.fence, EndCommands(), 15000)) {
+        const auto submitted=EndCommands();
+        g_helper_motion.consumed(stream_id,submitted);
+        if (!WaitFenceValue(h.fence, submitted, 15000)) {
             HostTerminal("Direct feeder submission did not retire");
             return false;
         }
         reset_pending = false; // A deferred/unsubmitted attempt does not consume it.
         LogFeederModules("evaluate");
-        if (result.status == PhoenixFeederStatusV1::Bypass) {
+        const auto output_policy = PhoenixHelperOutputPolicy(result.status, nr_enabled != 0, g_phoenix_enabled);
+        if (output_policy == PhoenixHelperOutput::Retry) {
+            // Initialization has retired, so do not issue its reset again. Keep
+            // this capture token and leave the shared completion fence unsignaled
+            // until a real processed image passes the completion proof below.
+            if (!summary_before_available) summary_before_available = ReadPhoenixOutputSummary(before);
+            Log("[host] initialization-only frame retired; retrying without publishing input");
+            PumpPresent(); Sleep(8);
+            continue;
+        }
+        if (output_policy == PhoenixHelperOutput::Input) {
             g_last_evaluate_bypass = true;
             g_last_nr_enabled[stream_id] = 0;
             return CopyTextureCommon(color, output);
@@ -838,7 +890,14 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             HostTerminal("Phoenix DLSS5 processing stopped before completion proof");
             return false;
         }
-        if (PhoenixOutputAdvanced(before, after)) return true;
+        if (PhoenixOutputAdvanced(before, after)) {
+            if(motion.estimated&&g_helper_motion.options().motion_view){
+                if(!BeginCommands())return false;
+                g_helper_motion.visualize(stream_id,h.list,output);
+                if(!WaitFenceValue(h.fence,EndCommands(),15000))return false;
+            }
+            return true;
+        }
         PumpPresent(); Sleep(8);
     } while (GetTickCount64() < deadline);
     Log("[host] Last processing progress: %s", after.dump().c_str());
@@ -1580,6 +1639,7 @@ static int Serve(DWORD game_pid)
     RgbaImage cpu_out{};
     bool transport_only = false;
     float mvsx = 1.0f, mvsy = 1.0f;
+    FeedGuideState pending_guides{};
 
 
     for (;;)
@@ -1628,6 +1688,8 @@ static int Serve(DWORD game_pid)
                     }
                 }
             }
+            try {auto snapshot=nlohmann::json::parse(text);snapshot["helper_motion"]=g_helper_motion.snapshot();text=snapshot.dump();}
+            catch(const std::exception&){text=nlohmann::json{{"helper_motion",g_helper_motion.snapshot()}}.dump();}
             FeedUiReply reply{uint32_t(text.size())};
             if (!WriteFull(pipe, &reply, sizeof(reply)) || !WriteFull(pipe, text.data(), text.size())) break;
         }
@@ -1639,7 +1701,15 @@ static int Serve(DWORD game_pid)
             using Apply = BOOL (WINAPI *)(const char*, uint32_t);
             auto module = GetModuleHandleW(L"Phoenix.addon64");
             auto apply = module ? reinterpret_cast<Apply>(GetProcAddress(module, "CnrPHOENIXFeederLiveSettings")) : nullptr;
-            const uint32_t accepted = apply && apply(text.data(), patch.bytes) ? 1u : 0u;
+            uint32_t accepted=0;
+            try {
+                auto core=nlohmann::json::parse(text);auto options=g_helper_motion.options();
+                phoenix_compat::split_helper_motion_patch(options,core);
+                const auto remaining=core.dump();
+                if(core.empty()||(apply&&apply(remaining.data(),uint32_t(remaining.size())))){
+                    g_helper_motion.configure(options,g_native_motion_services);accepted=1;
+                }
+            }catch(const std::exception& error){Log("[host] live motion controls rejected: %s",error.what());}
             if (!WriteFull(pipe, &accepted, sizeof(accepted))) break;
         }
         else if (tag == 'A') {
@@ -1649,10 +1719,19 @@ static int Serve(DWORD game_pid)
             auto module = GetModuleHandleW(L"Phoenix.addon64");
             auto apply = module ? reinterpret_cast<Apply>(GetProcAddress(module, "CnrPHOENIXFeederUiAction")) : nullptr;
             uint32_t accepted = apply && phoenix_ui::valid_action(command.action) && apply(command.action, command.value) ? 1u : 0u;
+            if(accepted&&command.action==uint32_t(phoenix_ui::Action::ResetHistory))g_helper_motion.request_reset();
             if (!WriteFull(pipe, &accepted, sizeof(accepted))) break;
+        }
+        else if (tag == 'G')
+        {
+            if (hello.version < 12 || !ReadFull(pipe,&pending_guides,sizeof(pending_guides)) ||
+                !feed_guides_valid(pending_guides) || (pending_guides.engine_motion && h.cpu_bridge)) {
+                HostTerminal("Invalid engine motion declaration"); break;
+            }
         }
         else if (tag == 'B')
         {
+            pending_guides={};g_frame_guides={};
             FeedBuild b = {};
             if (!ReadFull(pipe, &b, sizeof(b))) break;
             Log("[host] build: input %ux%u -> output %ux%u color=%u output=%u hdr=%d inverted=%d mask=%d cpu=%d game_vr_split=%d",
@@ -1838,6 +1917,8 @@ static int Serve(DWORD game_pid)
         {
             FeedFrameMsg fm = {};
             if (!ReadFull(pipe, &fm, sizeof(fm))) break;
+            g_transport_capture=++g_transport_sequence;
+            g_frame_guides=feed_take_guides(pending_guides);
             if (!h.feeder_ready) { HostTerminal("Frame arrived without an accepted build"); break; }
             if (h.game_side_vr_split && fm.eye_index > 1u) { HostTerminal("Invalid feeder eye index"); break; }
             if (h.cpu_bridge)
@@ -2000,6 +2081,7 @@ static int Serve(DWORD game_pid)
         ExitProcess(1);
     }
     DisconnectNamedPipe(pipe);
+    g_helper_motion.clear(); // Consumer fence retired above; provider teardown is now safe.
     CloseHandle(pipe);
     if (hout != nullptr) CloseHandle(hout);
     if (hin != nullptr) CloseHandle(hin);

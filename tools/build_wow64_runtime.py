@@ -8,7 +8,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
-import winreg
+from build_compatibility import pe_exports
 
 ROOT=Path(__file__).resolve().parents[1]
 CURRENT=ROOT/'artifacts/current'
@@ -47,14 +47,6 @@ def main():
     windows=Path(os.environ['SystemRoot'])
     ntdll=windows/'System32/ntdll.dll'
     if digest(ntdll)!=baseline['system_image_sha256']: raise ValueError('Windows changed; refresh the standalone bootstrap probe first')
-    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,r'SYSTEM\CurrentControlSet\Services\nvlddmkm') as key:
-        image=winreg.QueryValueEx(key,'ImagePath')[0]
-    if image.lower().startswith('\\systemroot\\'): image=str(windows)+'\\'+image[len('\\SystemRoot\\'):]
-    if image.startswith('\\??\\'): image=image[4:]
-    driver=Path(image).parent.resolve()
-    if not driver.is_relative_to((windows/'System32/DriverStore/FileRepository').resolve()):
-        raise ValueError('Active NVIDIA driver is not in the expected Windows driver store')
-    if not (driver/'nvcuda64.dll').is_file(): raise ValueError('Verified native driver is unavailable')
     symbols=baseline['symbols']
     if not symbols.get('initializer_rva') or not symbols.get('allocator_rva') or len(symbols.get('appcompat_offsets',[]))!=4: raise ValueError('Missing verified native bootstrap symbols')
     sdk=CURRENT/'sdk/windows-x64'
@@ -64,6 +56,11 @@ def main():
     if args.native_library is None:
         sdk_hashes=json.loads((sdk/'FILES_SHA256.json').read_text())
         if digest(native)!=sdk_hashes['bin/phoenix_native.dll']: raise ValueError('Native SDK binary changed')
+    import pefile
+    with pefile.PE(str(native)) as pe:
+        exports={item.name.decode('ascii') for item in pe.DIRECTORY_ENTRY_EXPORT.symbols if item.name}
+    required={'phoenix_native_motion_contract','phoenix_native_set_pipeline','phoenix_native_set_frame_info'}
+    if not required.issubset(exports):raise ValueError('Build the matching native motion SDK before packaging frame services')
     vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
     studio=subprocess.check_output([str(vswhere),'-latest','-products','*','-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip()
     destination=(args.output or CURRENT/'addon-portable-candidate/PhoenixRuntime/wow64').resolve()
@@ -85,14 +82,17 @@ def main():
                     'if errorlevel 1 exit /b %errorlevel%',command,'exit /b %errorlevel%']))
                 result=subprocess.run(['cmd','/d','/c',str(recipe)],cwd=build,capture_output=True,text=True,timeout=300)
                 if result.returncode: raise RuntimeError((result.stdout+result.stderr)[-18000:])
-            common=f'/nologo /std:c++20 /O2 /EHsc /MT /bigobj /DNOMINMAX /I"{args.ngx_sdk.resolve()}"'
-            libs='kernel32.lib d3d12.lib dxgi.lib user32.lib gdi32.lib advapi32.lib bcrypt.lib'
-            compile(64,f'cl /nologo /std:c++20 /O2 /Oi /GS- /GR- /LD "{source}/bootstrap64.cpp" /link /NODEFAULTLIB /ENTRY:DllMain /OUT:phoenix_bootstrap64.dll kernel32.lib')
+            public_paths=f'/experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /pathmap:{extension}=WOW64EXT_SOURCE'
+            common=f'{public_paths} /nologo /std:c++20 /O2 /EHsc /MT /bigobj /DNOMINMAX /I"{args.ngx_sdk.resolve()}"'
+            libs='kernel32.lib d3d12.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib advapi32.lib bcrypt.lib'
+            compile(64,f'cl {public_paths} /nologo /std:c++20 /O2 /Oi /GS- /GR- /LD "{source}/bootstrap64.cpp" /link /NODEFAULTLIB /ENTRY:DllMain /OUT:phoenix_bootstrap64.dll kernel32.lib')
             compile(64,f'cl {common} /LD "{source}/driver64.cpp" /Fe:phoenix_driver64.dll /link {libs}')
             compile(64,f'cl {common} /LD "{source}/model64.cpp" "{ROOT}/src/integration/reshade/nr_forwarder.cpp" /Fe:phoenix-nvngx.dll /link {libs}')
-            compile(32,f'cl /nologo /O2 /Oi /GS- /GR- /LD /DWOW64EXT_EXPORTS /DUNICODE /D_UNICODE /DWIN32 "{extension}/src/wow64ext.cpp" /link /NODEFAULTLIB /ENTRY:DllMain /OUT:wow64ext.dll kernel32.lib')
+            compile(32,f'cl {public_paths} /nologo /O2 /Oi /GS- /GR- /LD /DWOW64EXT_EXPORTS /DUNICODE /D_UNICODE /DWIN32 "{extension}/src/wow64ext.cpp" /link /NODEFAULTLIB /ENTRY:DllMain /OUT:wow64ext.dll kernel32.lib')
+            compile(32,f'cl {common} "{source}/driver_probe32.cpp" /Fe:phoenix_driver_probe32.exe /link {libs} cabinet.lib shell32.lib ole32.lib uuid.lib windowscodecs.lib /LARGEADDRESSAWARE /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup')
             payload=build/'package';payload.mkdir()
             for name in ('phoenix_bootstrap64.dll','phoenix_driver64.dll','phoenix-nvngx.dll','wow64ext.dll'): shutil.copy2(build/name,payload/name)
+            shutil.copy2(build/'phoenix_driver_probe32.exe',payload/'phoenix_driver_probe32.exe')
             shutil.copy2(native,payload/'phoenix_native.dll')
             shutil.copytree(bundle,payload/'native')
             licenses=payload/'licenses';licenses.mkdir()
@@ -101,13 +101,21 @@ def main():
             (licenses/'WOW64Ext.txt').write_text('WOW64Ext by rewolf, LGPL-3.0. Dynamic unmodified dependency.\nSource: https://github.com/rwfpl/rewolf-wow64ext\nRevision: '+WOW64EXT_COMMIT+'\n',encoding='utf-8')
             profile=dict(schema='phoenix-wow64-bootstrap/3',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
                 initializer_rva=symbols['initializer_rva'],allocator_rva=symbols['allocator_rva'],appcompat_offsets=symbols['appcompat_offsets'],
-                driver_directory=driver.name,cuda_sha256=digest(driver/'nvcuda64.dll'),supported_models=args.supported_models,
-                files={p.name:digest(p) for p in payload.glob('*.dll')})
+                dynamic_driver_validation=1,supported_models=args.supported_models,
+                library_frame_services=1,model_channel_bytes=48384,library_rgba8_transport=1,library_deferred_host_buffers=1,
+                library_batched_output=int({"phoenix_native_postprocess_contract","phoenix_native_frame_d3d12_postprocess"}.issubset(pe_exports(native))),
+                library_compact_frame_status=int("phoenix_native_frame_status" in pe_exports(native)),
+                library_direct_byte_upload=1,
+                library_appearance_controls=int(
+                    {"phoenix_native_frame_host_appearance","phoenix_native_frame_d3d12_v2"}.issubset(
+                        pe_exports(native))),
+                files={p.name:digest(p) for p in payload.iterdir() if p.suffix in ('.dll','.exe')})
             (payload/'bootstrap.json').write_text(json.dumps(profile,indent=2)+'\n',encoding='utf-8')
             (payload/'README.txt').write_text('Experimental native x86 addon transports, opt-in only.\n'
                 'Select x64 library inside x86 or x86 Phoenix + native driver in Advanced transport.\n'
-                'bootstrap.json is bound to the locally verified Windows image and native driver.\n'
-                'A mismatch is rejected; default helper fallback stays enabled. No NVIDIA/model DLLs are bundled.\n'
+                'bootstrap.json is bound to the locally verified Windows image; CUDA is discovered from the installed NVIDIA driver.\n'
+                'An isolated model-free x86 probe validates the driver; content-bound results are cached per driver/package/Windows image.\n'
+                'A failed compatibility check is rejected; default helper fallback stays enabled. No NVIDIA/model DLLs are bundled.\n'
                 'Source: src/integration/compatibility/wow64; configuration: docs/EXECUTION_MECHANISMS.md.\n',encoding='utf-8')
             for path in payload.rglob('*'):
                 if path.is_file() and (path.name.lower().startswith('nvngx') or path.suffix.lower() in ('.log','.bmp','.png')):

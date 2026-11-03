@@ -15,6 +15,20 @@ static Json status(PhoenixNativeSession* session) {
     expect(phoenix_native_status(session, text.data(), text.size()) == text.size(), "status value");
     return Json::parse(text.c_str());
 }
+struct PostprocessReadback {
+    Texture* texture;
+    unsigned calls=0;
+    static int __cdecl record(void* opaque,ID3D12GraphicsCommandList* list) noexcept {
+        auto& self=*static_cast<PostprocessReadback*>(opaque);++self.calls;
+        auto& output=*self.texture;
+        barrier(list,output.resource.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION from{output.resource.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,0},
+            to{output.transfer.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,output.footprint};
+        list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+        barrier(list,output.resource.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        return 0;
+    }
+};
 int main() {
     try {
         ComPtr<ID3D12Debug> debug;
@@ -81,14 +95,53 @@ int main() {
                    "aliased textures rejected before recording");
             const auto report = status(session);
             expect(report.at("frames") == 3, "successful spatial frame count");
+            std::string compact(phoenix_native_frame_status(session,nullptr,0),'\0');
+            expect(!compact.empty(),"compact status size");
+            expect(phoenix_native_frame_status(session,compact.data(),compact.size())==compact.size(),"compact status value");
+            const auto compact_report=Json::parse(compact.c_str());
+            expect(!compact_report.contains("owned_memory")&&!compact_report.contains("tuning"),"compact status excludes expensive diagnostics");
+            for(const char* key:{"frames","motion_provider","motion","pipeline","gpu_processing_ms","effective_intensity","effective_style","failed"})
+                expect(compact_report.at(key)==report.at(key),"compact and full per-frame status agree");
+            expect(compact.size()<report.dump().size(),"compact status actually smaller");
             char guard[2] = {'x', 'y'};
             expect(phoenix_native_status(session, guard, 1) > 1 && guard[0] == 'x' &&
                        guard[1] == 'y',
                    "short status buffer untouched");
+            expect(phoenix_native_frame_status(session,guard,1)>1&&guard[0]=='x'&&guard[1]=='y',"short compact status buffer untouched");
             expect(!phoenix_native_create(config.dump().c_str(), nullptr, queue.Get()),
                    "unpaired device/queue rejected");
             expect(report.at("backend") == "spatial_d3d12" && !report.at("failed").get<bool>(),
                    "honest path status");
+            // Seed a known color on the borrowed queue. The SDK's own final
+            // fence must cover the callback's readback without another submit.
+            auto output_texture=texture(device.Get(),width,height,16,true);
+            ComPtr<ID3D12CommandAllocator> allocator;ComPtr<ID3D12GraphicsCommandList> commands;
+            check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)));
+            check(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&commands)));
+            void* data=nullptr;D3D12_RANGE empty{};
+            check(color_texture.transfer->Map(0,&empty,&data));
+            for(unsigned y=0;y<height;++y){auto* row=reinterpret_cast<uint16_t*>(static_cast<char*>(data)+color_texture.footprint.Offset+size_t(y)*color_texture.footprint.Footprint.RowPitch);
+                std::fill(row,row+size_t(width)*4,uint16_t(0x3800));}
+            color_texture.transfer->Unmap(0,nullptr);
+            D3D12_TEXTURE_COPY_LOCATION from{color_texture.transfer.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,color_texture.footprint},
+                to{color_texture.resource.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,0};
+            commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);check(commands->Close());
+            ID3D12CommandList* lists[]={commands.Get()};queue->ExecuteCommandLists(1,lists);
+            PhoenixNativeFrameV2 frame{};frame.struct_bytes=sizeof(frame);frame.version=2;frame.intensity=1;
+            phoenix_native_default_controls(&frame.controls);
+            frame.color={color_texture.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,0};
+            frame.output={output_texture.resource.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,0};
+            PostprocessReadback readback{&output_texture};
+            expect(phoenix_native_postprocess_contract(session)==1,"direct postprocess contract");
+            expect(phoenix_native_frame_d3d12_postprocess(session,&frame,0,PostprocessReadback::record,&readback)==0,
+                "combined inference/readback submission");
+            expect(readback.calls==1,"postprocess called exactly once");
+            D3D12_RANGE readable{0,size_t(output_texture.bytes)};
+            check(output_texture.transfer->Map(0,&readable,&data));
+            bool correct=true;
+            for(unsigned y=0;y<height;++y){auto* row=reinterpret_cast<uint16_t*>(static_cast<char*>(data)+output_texture.footprint.Offset+size_t(y)*output_texture.footprint.Footprint.RowPitch);
+                correct&=std::all_of(row,row+size_t(width)*4,[](uint16_t value){return value==0x3800;});}
+            output_texture.transfer->Unmap(0,&empty);expect(correct,"callback readback complete when SDK returns");
             ComPtr<ID3D12InfoQueue> messages;
             check(device.As(&messages));
             for (UINT64 index = 0; index < messages->GetNumStoredMessages(); ++index) {

@@ -9,6 +9,7 @@
 #include "model_contract.h"
 #include "umd_bridge.h"
 #include "client32.h"
+#include "rgba8_gpu_transport.h"
 #include <chrono>
 #include <source_location>
 using Json=nlohmann::json;
@@ -57,7 +58,7 @@ static std::string low_address_space_context() {
         }
         cursor = end;
     }
-    return "; before model load, free low address bytes=" + std::to_string(free_bytes) +
+    return "; free low address bytes=" + std::to_string(free_bytes) +
         ", largest low region=" + std::to_string(largest);
 }
 static void hr(HRESULT result,std::source_location where=std::source_location::current()) {
@@ -70,6 +71,8 @@ struct Device {
     ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter1> adapter; ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue; ComPtr<ID3D12CommandAllocator> allocator;
     ComPtr<ID3D12GraphicsCommandList> list; ComPtr<ID3D12Fence> fence; uint64_t serial=0;
+    HANDLE completion_event=nullptr;
+    ~Device(){if(completion_event)CloseHandle(completion_event);}
     void create() {
         hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
         for(unsigned i=0;;++i) {
@@ -113,15 +116,26 @@ struct Device {
         hr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)));
         hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&list)));
         hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)));
+        completion_event=CreateEventW(nullptr,FALSE,FALSE,nullptr);require(completion_event!=nullptr,"Native model fence event");
     }
-    void submit() {
+    void enqueue() {
         hr(list->Close()); ID3D12CommandList* lists[]{list.Get()}; queue->ExecuteCommandLists(1,lists);
-        hr(queue->Signal(fence.Get(),++serial)); auto event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
-        require(event!=nullptr,"Native model fence event"); auto result=fence->SetEventOnCompletion(serial,event);
-        auto waited=SUCCEEDED(result)?WaitForSingleObject(event,10000):WAIT_FAILED; CloseHandle(event);
-        hr(result); require(waited==WAIT_OBJECT_0,"Native model fence timeout"); hr(device->GetDeviceRemovedReason());
+        hr(queue->Signal(fence.Get(),++serial));
+    }
+    void finish() {
+        const auto completed=fence->GetCompletedValue();
+        if(completed==UINT64_MAX) {
+            hr(device->GetDeviceRemovedReason());
+            throw std::runtime_error("Native model fence reported device removal without a failing HRESULT");
+        }
+        if(completed<serial) {
+            hr(fence->SetEventOnCompletion(serial,completion_event));
+            require(WaitForSingleObject(completion_event,10000)==WAIT_OBJECT_0,"Native model fence timeout");
+        }
+        hr(device->GetDeviceRemovedReason());
         hr(allocator->Reset()); hr(list->Reset(allocator.Get(),nullptr));
     }
+    void submit() {enqueue();finish();}
     void barrier(ID3D12Resource* value,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after) {
         D3D12_RESOURCE_BARRIER b{}; b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         b.Transition={value,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after}; list->ResourceBarrier(1,&b);
@@ -153,6 +167,16 @@ class Models {
     bool nvidia_initialized_=false;
     phoenix_wow64::ModelChannel* packet_=nullptr;
     unsigned nvidia_imports_=0;
+    Json active_pipeline_=nullptr;
+    std::vector<char> status_buffer_;
+    std::unique_ptr<phoenix_wow64::Rgba8GpuTransport> rgba8_;
+    decltype(&phoenix_native_postprocess_contract) postprocess_contract_=nullptr;
+    decltype(&phoenix_native_frame_d3d12_postprocess) postprocess_=nullptr;
+    decltype(&phoenix_native_frame_status) frame_status_=nullptr;
+    static int __cdecl pack_output(void* context,ID3D12GraphicsCommandList* list) noexcept {
+        try {static_cast<phoenix_wow64::Rgba8GpuTransport*>(context)->record_output(list);return 0;}
+        catch(...) {return -1;}
+    }
     inline static std::string loaded_nvidia_sha_;
     void initialize_phoenix() {
         if(phoenix_) return;
@@ -162,9 +186,16 @@ class Models {
         // The standalone library is loaded directly, just like the NGX core.
         // Adapt its native imports before it caches loader/allocator entry points.
         wow64_umd_probe::patch(native_);
+        if(phoenix_wow64::model_channel_has_frame_services(packet_->bytes))
+            require(symbol<decltype(&phoenix_native_motion_contract)>(native_,"phoenix_native_motion_contract")()>=1,
+                    "Update the native SDK for verified motion telemetry");
         auto create=symbol<decltype(&phoenix_native_create)>(native_,"phoenix_native_create");
         const auto text=config_.dump();
         phoenix_=create(text.c_str(),gpu_.device.Get(),gpu_.queue.Get());
+        postprocess_contract_=reinterpret_cast<decltype(postprocess_contract_)>(GetProcAddress(native_,"phoenix_native_postprocess_contract"));
+        postprocess_=reinterpret_cast<decltype(postprocess_)>(GetProcAddress(native_,"phoenix_native_frame_d3d12_postprocess"));
+        frame_status_=reinterpret_cast<decltype(frame_status_)>(GetProcAddress(native_,"phoenix_native_frame_status"));
+        active_pipeline_=config_.value("pipeline",Json::object());
         if (!phoenix_) {
             std::string detail=symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error")();
             if (detail.find("allocation")!=std::string::npos) {
@@ -261,6 +292,14 @@ class Models {
   public:
     Models(const Json& config,unsigned width,unsigned height,phoenix_wow64::ModelChannel& packet)
         :config_(config),width_(width),height_(height),packet_(&packet) {gpu_.create();gpu_.submit();}
+    void prepare_initial_backend() {
+        // Readiness must include model/weight allocations, not just a D3D12
+        // device. Otherwise the x86 caller checks headroom before the largest
+        // startup allocation and can exhaust the game on its very first frame.
+        if(config_.value("initial_backend",3u)==1)
+            initialize_nvidia(reinterpret_cast<const wchar_t*>(packet_->base.cuda_library),*packet_);
+        else initialize_phoenix();
+    }
     ~Models() {
         if(phoenix_) {
             const auto destroy=reinterpret_cast<decltype(&phoenix_native_destroy)>(GetProcAddress(native_,"phoenix_native_destroy"));
@@ -284,19 +323,135 @@ class Models {
         }
     }
     void frame(phoenix_wow64::ModelChannel& packet) {
+        using Clock=std::chrono::steady_clock;
+        const bool previous_detailed=active_pipeline_.is_object()&&active_pipeline_.value("PipelineMonitoring",0)==2;
+        const auto entered=previous_detailed?Clock::now():Clock::time_point{};
         auto& c=packet.base; const auto controls=Json::parse(reinterpret_cast<const char*>(packet.parameters_json));
+        require(phoenix_wow64::valid_model_frame_buffers(packet),"Invalid native model frame buffers/transport");
         if(packet.backend==3) {
             initialize_phoenix(); PhoenixNativeControls options{};
             symbol<decltype(&phoenix_native_default_controls)>(native_,"phoenix_native_default_controls")(&options);
-            options.reset=1; options.local_tone=controls.at("tone"); options.local_structure=controls.at("structure");
-            options.skin_structure=controls.at("skin"); options.auto_mask=controls.at("auto_mask").get<bool>();
+            const bool frame_services=phoenix_wow64::model_channel_has_frame_services(packet.bytes);
             auto error=symbol<decltype(&phoenix_native_error)>(native_,"phoenix_native_error");
-            require(symbol<decltype(&phoenix_native_frame_host)>(native_,"phoenix_native_frame_host")(phoenix_,
-                reinterpret_cast<const void*>(c.color),size_t(c.plane_bytes),width_*8,nullptr,0,0,
-                reinterpret_cast<void*>(c.output),size_t(c.plane_bytes),width_*8,&options)==0,error());
-            const auto status=symbol<decltype(&phoenix_native_status)>(native_,"phoenix_native_status");
-            std::vector<char> text(status(phoenix_,nullptr,0)); status(phoenix_,text.data(),text.size());
-            c.gpu_ms=Json::parse(text.data()).at("gpu_processing_ms");
+            if(frame_services) {
+                const auto& pipeline=controls.at("pipeline");
+                if(pipeline!=active_pipeline_) {
+                    require(symbol<decltype(&phoenix_native_set_pipeline)>(native_,"phoenix_native_set_pipeline")
+                        (phoenix_,pipeline.dump().c_str())==0,error());
+                    active_pipeline_=pipeline;
+                }
+                PhoenixNativeFrameInfo info{sizeof(info),1,0,controls.at("sequence").get<uint64_t>(),
+                    controls.at("timestamp_ns").get<int64_t>(),0,0};
+                require(symbol<decltype(&phoenix_native_set_frame_info)>(native_,"phoenix_native_set_frame_info")
+                    (phoenix_,&info)==0,error());
+            }
+            options.reset=frame_services?controls.at("reset").get<bool>():true;
+            options.motion_scale_x=controls.value("motion_x",1.f);
+            options.motion_scale_y=controls.value("motion_y",1.f);
+            options.local_tone=controls.at("tone"); options.local_structure=controls.at("structure");
+            options.skin_structure=controls.at("skin"); options.auto_mask=controls.at("auto_mask").get<bool>();
+            const bool profiling=frame_services&&controls.at("pipeline").value("PipelineMonitoring",0)==2;
+            bool batched_output=false;
+            const auto started=profiling?Clock::now():Clock::time_point{};
+            auto uploaded=started,evaluation_done=started,downloaded=started;
+            double native_api_ms=0,input_fence_retire_ms=0;
+            if(frame_services&&packet.pixel_transport==phoenix_wow64::rgba8_gpu_transport_version) {
+                if(!rgba8_)rgba8_=std::make_unique<phoenix_wow64::Rgba8GpuTransport>(gpu_.device.Get(),width_,height_);
+                rgba8_->record_input(gpu_.list.Get(),reinterpret_cast<const void*>(c.color));
+                // Both owners use gpu_.queue. Ordering supplies the upload
+                // dependency; do not reset this allocator until evaluation has
+                // retired. No CPU upload wait is needed before the native call.
+                gpu_.enqueue();
+                if(profiling)uploaded=Clock::now();
+                PhoenixNativeFrameV2 appearance{}; appearance.struct_bytes=sizeof(appearance); appearance.version=2;
+                appearance.controls=options; appearance.intensity=controls.value("intensity",1.f);
+                appearance.style=controls.value("style",0u);
+                appearance.color={rgba8_->color(),D3D12_RESOURCE_STATE_COMMON,0};
+                appearance.output={rgba8_->output(),D3D12_RESOURCE_STATE_COMMON,0};
+                const bool needs_appearance=appearance.intensity!=1.f || appearance.style!=0;
+                const bool batched=postprocess_&&postprocess_contract_&&postprocess_contract_(phoenix_)==1;
+                batched_output=batched;
+                const auto api_started=profiling?Clock::now():Clock::time_point{};
+                const int evaluated=batched
+                    ? postprocess_(phoenix_,&appearance,uint32_t(needs_appearance),pack_output,rgba8_.get())
+                    : needs_appearance
+                    ? symbol<decltype(&phoenix_native_frame_d3d12_v2)>(native_,"phoenix_native_frame_d3d12_v2")(phoenix_,&appearance)
+                    : symbol<decltype(&phoenix_native_frame_d3d12)>(native_,"phoenix_native_frame_d3d12")(phoenix_,
+                        rgba8_->color(),D3D12_RESOURCE_STATE_COMMON,nullptr,D3D12_RESOURCE_STATE_COMMON,
+                        rgba8_->output(),D3D12_RESOURCE_STATE_COMMON,&options);
+                // Retire even a rejected evaluation before any transport
+                // resource can be destroyed by exception unwinding.
+                const auto api_finished=profiling?Clock::now():Clock::time_point{};
+                gpu_.finish();require(evaluated==0,error());
+                if(profiling)evaluation_done=Clock::now();
+                if(profiling) {
+                    native_api_ms=std::chrono::duration<double,std::milli>(api_finished-api_started).count();
+                    input_fence_retire_ms=std::chrono::duration<double,std::milli>(evaluation_done-api_finished).count();
+                }
+                if(!batched){rgba8_->record_output(gpu_.list.Get());gpu_.submit();}
+                rgba8_->read_output(reinterpret_cast<void*>(c.output));
+                if(profiling)downloaded=Clock::now();
+            } else {
+                const bool appearance=controls.value("intensity",1.f)!=1.f || controls.value("style",0u)!=0;
+                const auto evaluated=appearance
+                    ? symbol<decltype(&phoenix_native_frame_host_appearance)>(native_,"phoenix_native_frame_host_appearance")(phoenix_,
+                        reinterpret_cast<const void*>(c.color),size_t(c.plane_bytes),width_*8,nullptr,0,0,
+                        reinterpret_cast<void*>(c.output),size_t(c.plane_bytes),width_*8,&options,
+                        controls.value("intensity",1.f),controls.value("style",0u))
+                    : symbol<decltype(&phoenix_native_frame_host)>(native_,"phoenix_native_frame_host")(phoenix_,
+                        reinterpret_cast<const void*>(c.color),size_t(c.plane_bytes),width_*8,nullptr,0,0,
+                        reinterpret_cast<void*>(c.output),size_t(c.plane_bytes),width_*8,&options);
+                require(evaluated==0,error());
+            }
+            const auto status=frame_status_?frame_status_:symbol<decltype(&phoenix_native_status)>(native_,"phoenix_native_status");
+            const auto status_started=profiling?Clock::now():Clock::time_point{};
+            // The SDK builds its JSON on every query, including size queries.
+            // Use a bounded reusable buffer and retry only when it actually
+            // grows, instead of constructing/serializing every snapshot twice.
+            if(status_buffer_.empty())status_buffer_.resize(65536);
+            const auto bytes=status(phoenix_,status_buffer_.data(),status_buffer_.size());
+            require(bytes>0&&bytes<=1024*1024,"Invalid native SDK telemetry size");
+            if(bytes>status_buffer_.size()) {
+                status_buffer_.resize(bytes);
+                require(status(phoenix_,status_buffer_.data(),status_buffer_.size())==bytes,"Native SDK telemetry changed extent");
+            }
+            const auto status_generated=profiling?Clock::now():Clock::time_point{};
+            auto result=Json::parse(status_buffer_.data());c.gpu_ms=result.at("gpu_processing_ms");
+            const auto status_parsed=profiling?Clock::now():Clock::time_point{};
+            if(frame_services) {
+                Json report={{"pipeline_frame_services",true},{"inference_pid",GetCurrentProcessId()},
+                    {"motion_provider",result.at("motion_provider")},{"motion",result.at("motion")},
+                    {"frames",result.at("frames")},{"pipeline",result.at("pipeline")},
+                    {"gpu_processing_ms",result.at("gpu_processing_ms")},
+                    {"effective_intensity",result.at("effective_intensity")},
+                    {"effective_style",result.at("effective_style")}};
+                report["pixel_transport"]=packet.pixel_transport?"rgba8_gpu":"rgba16f_cpu";
+                report["batched_output_submission"]=batched_output;
+                report["compact_frame_status"]=frame_status_!=nullptr;
+                report["motion_completion"]=result.value("motion_completion","legacy");
+                report["motion_cpu_waits"]=result.value("motion_cpu_waits",Json());
+                if(profiling) {
+                    const auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
+                    report["sdk_stages_ms"]=result.value("frame_stages_ms",Json());
+                    report["motion_stages_ms"]=result.value("motion_stages_ms",Json());
+                    report["sdk_complete_call_ms"]=result.at("complete_call_ms");
+                    report["gpu_sampled_last_frame"]=result.at("gpu_sampled_last_frame");
+                    report["native_worker_stages_ms"]={
+                        {"controls_and_validation",previous_detailed?ms(entered,started):0},
+                        {"sdk_frame_call",native_api_ms},{"input_fence_retire",input_fence_retire_ms},
+                        {"sdk_status_generate",ms(status_started,status_generated)},
+                        {"sdk_status_parse",ms(status_generated,status_parsed)},
+                        {"report_build",ms(status_parsed,Clock::now())}};
+                }
+                if(profiling&&packet.pixel_transport) {
+                    const auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
+                    report["transfer_stages_ms"]={{"upload_enqueue",ms(started,uploaded)},
+                        {"evaluate_and_wait",ms(uploaded,evaluation_done)},{"pack_readback",ms(evaluation_done,downloaded)}};
+                }
+                const auto text=report.dump();
+                require(text.size()+1<=packet.status_capacity,"Native motion telemetry exceeds caller capacity");
+                memcpy(reinterpret_cast<void*>(packet.status_json),text.c_str(),text.size()+1);
+            }
         } else {
             require(packet.backend==1,"Unknown native model backend"); initialize_nvidia(reinterpret_cast<const wchar_t*>(c.cuda_library),packet);
             void* data=nullptr; D3D12_RANGE empty{}; hr(upload_->Map(0,&empty,&data));
@@ -335,10 +490,15 @@ class Models {
 };
 extern "C" __declspec(dllexport) int PhoenixModelServe64(phoenix_wow64::ModelChannel* packet) {
     if(!packet) return 2; auto& c=packet->base; bool passed=false;
+    const char* stage="native bootstrap";
     try {
-        require(packet->bytes==sizeof(*packet),"Native model packet size mismatch; update the matching addon and runtime together");
+        require(phoenix_wow64::valid_model_channel_bytes(packet->bytes),"Native model packet size mismatch; update the matching addon and runtime together");
+        if(phoenix_wow64::model_channel_has_frame_services(packet->bytes))
+            require(packet->status_capacity>=1024&&packet->status_capacity<=1024*1024&&
+                phoenix_driver_probe::valid_host_range(packet->status_json,packet->status_capacity,32),
+                "Invalid caller-owned motion telemetry buffer");
         require(c.abi==phoenix_driver_probe::version&&c.struct_bytes==sizeof(c)&&c.caller_bits==32&&c.width&&c.height&&c.width<=8192&&c.height<=8192,"Invalid native model packet");
-        require(packet->config_json&&c.color&&c.output&&c.plane_bytes==uint64_t(c.width)*c.height*8,"Invalid native model buffers");
+        require(packet->config_json&&phoenix_wow64::valid_model_bootstrap_buffers(*packet),"Invalid native model bootstrap buffers");
         c.driver_pid=GetCurrentProcessId(); c.driver_bits=64;
         const DWORD offsets[]{c.appcompat_offsets[0],c.appcompat_offsets[1],c.appcompat_offsets[2],c.appcompat_offsets[3]};
         require(wow64_umd_probe::gdi&&wow64_umd_probe::install_native_compat_view(c.ntdll_timestamp,offsets),"Native model compatibility view unavailable");
@@ -350,17 +510,27 @@ extern "C" __declspec(dllexport) int PhoenixModelServe64(phoenix_wow64::ModelCha
         wow64_umd_probe::owner=GetCurrentThreadId();wow64_umd_probe::patch(cuda);
         require(symbol<int(*)(unsigned)>(cuda,"cuInit")(0)==0,"Native CUDA initialization failed");
         {
+            stage="create native D3D12 device";
             Models models(Json::parse(reinterpret_cast<const char*>(packet->config_json)),c.width,c.height,*packet);
+            stage="initialize native model before readiness";
+            models.prepare_initial_backend();
             SetEvent(reinterpret_cast<HANDLE>(c.response_event));
             for(;;) {
                 require(WaitForSingleObject(reinterpret_cast<HANDLE>(c.request_event),INFINITE)==WAIT_OBJECT_0,"Native model wait failed");
                 if(c.operation==phoenix_driver_probe::shutdown) break;
-                require(c.operation==phoenix_driver_probe::frame,"Unknown native model request"); models.frame(*packet);
+                require(c.operation==phoenix_driver_probe::frame,"Unknown native model request"); stage="evaluate native frame"; models.frame(*packet);
                 SetEvent(reinterpret_cast<HANDLE>(c.response_event));
             }
         }
         passed=true;
-    } catch(const std::exception& error) {c.status=-1;strncpy_s(c.error,error.what(),_TRUNCATE);}
+    } catch(const std::exception& error) {c.status=-1;
+        // Diagnostics must not throw another allocation failure while already
+        // unwinding an exhausted process. Always retain the bounded base error.
+        _snprintf_s(c.error,_TRUNCATE,"%s: %s",stage,error.what());
+        try {
+            const auto message=std::string(c.error)+host_allocation_context()+low_address_space_context();
+            strncpy_s(c.error,message.c_str(),_TRUNCATE);
+        } catch (...) {}}
     wow64_umd_probe::restore();wow64_umd_probe::restore_gdi_export();wow64_umd_probe::restore_display_exports();
     c.native_compat_restored=wow64_umd_probe::restore_native_compat_view();
     if(!c.native_compat_restored||c.cleanup_failures) {c.status=-1;passed=false;}

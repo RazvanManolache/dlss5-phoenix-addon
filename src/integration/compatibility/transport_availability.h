@@ -2,6 +2,8 @@
 #include "../../native/support/model_tools.h"
 #include "../../native/model/bundle_loader.h"
 #include "process_address_space.h"
+#include "wow64/model_contract.h"
+#include "wow64/driver_compatibility.h"
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -26,6 +28,8 @@ struct TransportRuntimes {
     std::string driver_reason;
     std::vector<std::string> native_models{"original"};
     ProcessAddressSpace address_space;
+    bool library_frame_services = false, library_appearance = false;
+    nlohmann::json native_driver_validation = nlohmann::json::object();
 };
 
 inline bool transport_dll_matches(const std::filesystem::path& path, unsigned bits) {
@@ -50,8 +54,11 @@ inline bool valid_transport_file_name(const std::string& name) {
         name.find_first_of("/\\:*?\"<>|") == std::string::npos;
 }
 
-inline void inspect_native_transport(const std::filesystem::path& root,
-                                     const std::filesystem::path& native_system) {
+// Package inspection is separate from installed-driver qualification. The former
+// is deterministic file/PE validation and can be exercised without a real driver;
+// successful package inspection alone never enables an execution route.
+inline nlohmann::json inspect_native_transport_package(const std::filesystem::path& root,
+                                                       const std::filesystem::path& native_system) {
     using phoenix_bundle::require;
     const auto profile = phoenix_bundle::json_file(root / "bootstrap.json");
     require(profile.at("schema") == "phoenix-wow64-bootstrap/3", "Native bootstrap package needs a matching TLS-coordinated addon/runtime update.");
@@ -70,11 +77,15 @@ inline void inspect_native_transport(const std::filesystem::path& root,
     require(std::filesystem::is_regular_file(root / "native/native_manifest.json"), "Native kernel bundle is missing.");
     require(phoenix_embedded::file_digest(native_system / "ntdll.dll") == profile.at("ntdll_sha256").get<std::string>(),
             "Native runtime profile does not match this Windows build.");
-    const auto driver = profile.at("driver_directory").get<std::string>();
-    require(valid_transport_file_name(driver), "Invalid native driver directory.");
-    require(phoenix_embedded::file_digest(native_system / "DriverStore/FileRepository" /
-                std::filesystem::u8path(driver) / "nvcuda64.dll") == profile.at("cuda_sha256").get<std::string>(),
-            "Native runtime profile does not match this NVIDIA driver.");
+    return profile;
+}
+
+inline phoenix_wow64::NativeDriverIdentity inspect_native_transport(const std::filesystem::path& root,
+                                     const std::filesystem::path& native_system) {
+    // Windows private offsets stay profile-bound; CUDA is discovered from the
+    // installed driver and qualified by an isolated, content-keyed probe.
+    return phoenix_wow64::compatible_native_driver(root,
+        inspect_native_transport_package(root, native_system));
 }
 
 inline void inspect_driver_transport_graph(const std::filesystem::path& root) {
@@ -106,10 +117,15 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
         try {
             wchar_t windows[MAX_PATH]{};
             phoenix_bundle::require(GetWindowsDirectoryW(windows, MAX_PATH) != 0, "Windows path unavailable.");
-            inspect_native_transport(native_root, std::filesystem::path(windows) / "Sysnative");
+            const auto driver=inspect_native_transport(native_root, std::filesystem::path(windows) / "Sysnative");
+            result.native_driver_validation={{"contract",1},{"cuda_sha256",driver.sha256},{"cached",driver.validation_cached},
+                {"scope","Isolated x86/native CUDA + D3D12 startup/copy; no model or game qualification"}};
             result.native = true; result.native_reason.clear();
-            result.native_models = phoenix_bundle::json_file(native_root / "bootstrap.json")
-                .value("supported_models", std::vector<std::string>{"original"});
+            const auto profile=phoenix_bundle::json_file(native_root/"bootstrap.json");
+            result.native_models = profile.value("supported_models", std::vector<std::string>{"original"});
+            result.library_frame_services=phoenix_wow64::declared_library_frame_services(
+                profile.value("library_frame_services",0u),profile.value("model_channel_bytes",0u));
+            result.library_appearance=result.library_frame_services && profile.value("library_appearance_controls",0u)==1;
             try {
                 inspect_driver_transport_graph(native_root);
                 result.driver_graph = in_process_address_space_safe(bits, result.address_space, 160ull * 1024 * 1024);

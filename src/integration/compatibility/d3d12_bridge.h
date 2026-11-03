@@ -1,5 +1,6 @@
 #pragma once
 #include "inprocess_api.h"
+#include "../reshade/panel_contract.h"
 #include "../../pipeline/paired_screenshot.h"
 #include "session_policy.h"
 #include "completed_presentation.h"
@@ -13,11 +14,14 @@
 #endif
 
 namespace phoenix_compat {
+namespace fs = std::filesystem;
 // This route borrows the game's DIRECT queue. It owns its command list and all
 // conversion/model inputs; no CPU pixel transport or fake SR feature is used.
 class D3D12Bridge {
     template<class T> using Com = Microsoft::WRL::ComPtr<T>;
     struct Resources {
+        // Destroy last, or retain with a failed generation that cannot retire.
+        InProcessApiLease api_lease = lease_in_process_api();
         // Share the failed-generation lifetime: a timeout cannot free readbacks
         // that an unretired GPU submission may still reference.
         phoenix_pipeline::screenshots::D3D12Pair screenshot_pair;
@@ -42,9 +46,11 @@ class D3D12Bridge {
             if (event) CloseHandle(event);
         }
     };
+    std::unique_lock<std::mutex> executor_lease_{in_process_executor_mutex, std::try_to_lock};
     std::unique_ptr<Resources> resources_ = std::make_unique<Resources>();
     Settings last_tuning_;
     reshade::api::effect_runtime* runtime_;
+    bool borrowed_game_queue_ = true;
     unsigned width_, height_;
     DXGI_FORMAT format_;
     uint64_t signal_ = 0, completed_ = 0, presented_ = 0;
@@ -55,6 +61,10 @@ class D3D12Bridge {
     Settings adaptive_, adaptive_request_;
     bool adaptive_active_ = false, reconfigure_pipeline_ = false;
     Json pipeline_report_ = Json::object();
+    int motion_source_ = int(phoenix_pipeline::MotionSource::Zero);
+    bool motion_valid_ = false, motion_reset_ = true;
+    std::array<unsigned,2> motion_extent_{};
+    std::string motion_status_ = "Waiting for captured input";
     uint64_t ui_tick_ = 0;
     DeferredTimeout deferred_;
     CompletedPresentation presentation_;
@@ -149,10 +159,19 @@ public:
         if (format == F::r16g16b16a16_float) return DXGI_FORMAT_R16G16B16A16_FLOAT;
         throw std::runtime_error("No in-process SDR conversion for this backbuffer format");
     }
-    D3D12Bridge(reshade::api::effect_runtime* runtime, const reshade::api::resource_desc& desc)
+    D3D12Bridge(reshade::api::effect_runtime* runtime, const reshade::api::resource_desc& desc,
+                ID3D12Device* compute_device = nullptr, ID3D12CommandQueue* compute_queue = nullptr)
         : runtime_(runtime), width_(desc.texture.width), height_(desc.texture.height),
           format_(typed_format(desc.texture.format)) {
+        if (in_process_gpu_uncertain || !executor_lease_.owns_lock())
+            throw std::runtime_error("Another same-process native session is still active or retiring");
         auto& r = *resources_;
+        borrowed_game_queue_ = !compute_device && !compute_queue;
+        if (!borrowed_game_queue_) {
+            if (!compute_device || !compute_queue)
+                throw std::runtime_error("An owned compute route needs both device and queue");
+            r.device = compute_device; r.queue = compute_queue;
+        } else {
         auto* api = runtime->get_device();
         checked(reinterpret_cast<IUnknown*>(api->get_native())->QueryInterface(IID_PPV_ARGS(&r.device)),
                 "No native DX12 device");
@@ -160,6 +179,7 @@ public:
         if (!queue) throw std::runtime_error("No presentation queue");
         checked(reinterpret_cast<IUnknown*>(queue->get_native())->QueryInterface(IID_PPV_ARGS(&r.queue)),
                 "No native DX12 queue");
+        }
         if (r.queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
             throw std::runtime_error("In-process processing needs a DIRECT queue");
         checked(r.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&r.allocator)),
@@ -200,7 +220,7 @@ public:
         r.device->CopyDescriptorsSimple(1, r.clear_gpu->GetCPUDescriptorHandleForHeapStart(),
             r.clear_cpu->GetCPUDescriptorHandleForHeapStart(), descriptors.Type);
     }
-    ~D3D12Bridge() {
+    virtual ~D3D12Bridge() {
         if (!retired_ && SUCCEEDED(resources_->device->GetDeviceRemovedReason())) {
             // A timeout is not proof the GPU stopped. Pin this failed generation
             // until process exit instead of freeing resources still in flight.
@@ -210,11 +230,13 @@ public:
         if (owner_ && in_process_api.release) in_process_api.release(runtime_);
     }
     D3D12Bridge(const D3D12Bridge&) = delete;
-    bool safe_to_fallback() const { return retired_; }
+    virtual bool safe_to_fallback() const { return retired_; }
+    virtual const char* execution_kind() const { return "in_process"; }
+    virtual const char* execution_description() const { return "In-process GPU (same-device D3D12)"; }
     uint64_t delivered() const { return completed_; }
     uint64_t presented() const { return presented_; }
     bool held_last_frame() const { return held_last_frame_; }
-    bool protect_presentation(reshade::api::resource back) {
+    virtual bool protect_presentation(reshade::api::resource back) {
         return retired_ && hold_completed(back, true);
     }
     void reset_history() { reset_ = true; deferred_.reset(); }
@@ -222,7 +244,7 @@ public:
         return width_ == desc.texture.width && height_ == desc.texture.height &&
                format_ == typed_format(desc.texture.format);
     }
-    Json ui_snapshot() {
+    virtual Json ui_snapshot() {
         const auto now = GetTickCount64();
         if (!ui_tick_ || now - ui_tick_ >= 1000) {
             ui_ = local_json(in_process_api.ui);
@@ -230,6 +252,8 @@ public:
         }
         auto result = ui_;
         result["pipeline_status"] = pipeline_report_;
+        result["motion"] = {{"source",motion_source_},{"valid",motion_valid_},{"reset",motion_reset_},
+            {"analysis_width",motion_extent_[0]},{"analysis_height",motion_extent_[1]},{"status",motion_status_}};
         result["frame_inputs"] = {{"with_engine_guides",frames_with_guides_}, {"without_engine_guides",frames_without_guides_},
             {"deferred",deferred_frames_}, {"held_completed",held_frames_}};
         if (in_process_api.guide_status) result["engine_guides"] = in_process_api.guide_status();
@@ -241,7 +265,7 @@ public:
         if (accepted) ui_tick_ = 0;
         return accepted;
     }
-    bool frame(reshade::api::resource back, const Settings& requested, bool apply, bool coherent = true) {
+    virtual bool frame(reshade::api::resource back, const Settings& requested, bool apply, bool coherent = true) {
         auto& r = *resources_;
         held_last_frame_ = false;
         const bool adaptive = requested.pipeline.monitoring != 0 && requested.pipeline.priority != 0;
@@ -293,7 +317,8 @@ public:
         }
         // ReShade can have pending work on its immediate list. Submit that first;
         // this list then executes on the exact same queue, before final Present.
-        runtime_->get_command_queue()->flush_immediate_command_list();
+        if (borrowed_game_queue_)
+            runtime_->get_command_queue()->flush_immediate_command_list();
         if (!primed_) {
             begin(); submit(); // Establish observed list -> queue identity.
             primed_ = true;
@@ -339,8 +364,20 @@ public:
             checked(r.list->Close(), "Cannot discard Present without required guides");
             reset_history(); return false;
         }
+        // Borrowed depth may still be useful, but an explicit source choice
+        // must not silently keep using its accompanying engine motion texture.
+        if (!settings.pipeline.motion_enabled &&
+            settings.pipeline.motion_source != int(phoenix_pipeline::MotionSource::Automatic) &&
+            settings.pipeline.motion_source != int(phoenix_pipeline::MotionSource::Engine)) {
+            frame.motion=r.motion.Get();frame.motion_scale_x=frame.motion_scale_y=1.f;
+            have_guides=false;
+        }
         stamp(1);
         frame.reset = backbuffer_requires_reset(have_guides, reset_) ? 1u : 0u;
+        motion_source_=int(have_guides?phoenix_pipeline::MotionSource::Engine:phoenix_pipeline::MotionSource::Zero);
+        motion_valid_=have_guides;motion_reset_=bool(frame.reset);
+        motion_status_=have_guides?"Engine vectors":"No motion supplied; spatial history reset";
+        motion_extent_=phoenix_pipeline::flow_extent(width_,height_,unsigned(settings.pipeline.flow_height));
 #if defined(_WIN64)
         bool estimated = false;
         if (settings.pipeline.motion_enabled || settings.pipeline.scene_detection) {
@@ -353,7 +390,7 @@ public:
             phoenix_pipeline::D3D12Motion::Result motion;
             try {
                 motion = r.estimated_motion->prepare(r.adapter.Color(), D3D12_RESOURCE_STATE_COMMON,
-                    have_guides ? frame.motion : nullptr, settings.pipeline, reset_,
+                    have_engine_guides ? borrowed_guides.motion : nullptr, settings.pipeline, reset_,
                     int64_t(GetTickCount64()) * 1000000);
             } catch (...) {
                 in_process_gpu_uncertain = true;
@@ -366,18 +403,30 @@ public:
             r.list->SetDescriptorHeaps(0, nullptr);
             if (motion.source == phoenix_pipeline::MotionSource::Nvidia) {
                 frame.motion = motion.motion; estimated = true; have_guides = true;
+                frame.motion_scale_x=frame.motion_scale_y=1.f;
                 auto barrier = transition(frame.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                     D3D12_RESOURCE_STATE_COMMON);
                 r.list->ResourceBarrier(1, &barrier);
+            } else if(motion.source==phoenix_pipeline::MotionSource::Engine && motion.motion) {
+                frame.motion=motion.motion;have_guides=true;
+            } else {
+                frame.motion=r.motion.Get();have_guides=false;
+                frame.motion_scale_x=frame.motion_scale_y=1.f;
             }
-            // Fresh observed COMMON barriers belong to this new recording.
-            for (auto* resource : {frame.output, frame.motion}) {
+            // Motion preparation submitted and reset the previous recording.
+            // Re-establish every borrowed input, including optional engine
+            // depth, in this epoch. Its retired guide copy is still COMMON;
+            // the lease above prevents reuse until this evaluation retires.
+            for (auto* resource : {frame.output, frame.motion, frame.depth}) {
+                if (!resource) continue;
                 auto barrier = transition(resource, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
                 r.list->ResourceBarrier(1, &barrier);
                 std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
                 r.list->ResourceBarrier(1, &barrier);
             }
             frame.reset = (motion.reset || backbuffer_requires_reset(have_guides, reset_)) ? 1u : 0u;
+            motion_source_=int(motion.source);motion_valid_=have_guides;motion_reset_=bool(frame.reset);
+            motion_status_=r.estimated_motion->status();
         }
 #endif
         stamp(2);

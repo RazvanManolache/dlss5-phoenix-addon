@@ -9,6 +9,91 @@ Choose a renderer and compatible model, start with Automatic execution, and comp
 *Native UI fixture renders, with synthetic status and no personal game captures.
 Dashes mean no measurement. [All controls and screenshots](USER_GUIDE.md#a-quick-look).*
 
+## Playback stability and leaving comparison
+
+On helper/capture routes, **Image → Playback stability → Hold completed frames**
+keeps each original/processed pair together and holds the last completed result
+while processing catches up. Before the first result, the loading gate hides raw
+input. Leave it on to prevent original/processed alternation; camera movement
+includes processing delay. Turning it off enables experimental live-image edits.
+
+For DX11 shared-GPU helpers, a transient ReShade runtime reset can retain the
+helper and completed frame when the game device, window, settings and canvas
+still match. Releasing the old backbuffer views lets DXGI resize safely without
+reloading the model. Device destruction, incompatible settings/layouts and
+helper failures still require fresh resources. The operating system's fullscreen
+mode transition can itself blink; keeping the model warm avoids the additional
+model-loading blackout. Diagnostics expose `runtime_resumes` for this handoff.
+
+**Exit comparison** returns to the processed comparison source in both the full
+and compact panels. The saved pair and divider remain available for next time.
+
+### Motion and temporal stability
+
+Open **Image → Motion and scene changes**. Compatible local bridges, the Native
+RTX helper and matching x86 in-process library runtimes expose these controls.
+With the latter installed, Automatic can keep Phoenix DLSS5 motion processing
+inside the x86 game. Older x86 packages and spatial-only driver/portable routes
+still need the helper for these controls. They do not turn estimated motion into
+engine depth or other game buffers.
+
+- **Motion source:** Automatic prefers explicitly supplied engine vectors and
+  otherwise estimates missing motion. Estimation is enabled by default. Engine vectors
+  requires a real, history-aligned producer; an allocated zero texture does not
+  qualify. NVIDIA Optical Flow forces estimation; Zero motion ignores vectors.
+- **Estimate motion when engine vectors are unavailable:** enables NVIDIA Optical
+  Flow on supported hardware. An unavailable provider falls back to spatial
+  processing with a history reset. Color-only capture routes normally use this
+  option because they do not receive engine vectors. An explicitly saved Off
+  choice is preserved when updating an installation.
+- **Motion analysis height:** 64–2160 pixels, with aspect ratio preserved and no
+  enlargement beyond the captured input. At 1920×1080, a height of 180 analyzes
+  320×180; 360 analyzes 640×360. This changes flow work, not neural output size.
+- **Consistency tolerance** and **cost threshold:** reject unreliable estimated
+  vectors before temporal history is reused. Direction/magnitude and confidence
+  views visualize estimated flow; they do not fabricate confidence for engine data.
+- **Detect scene changes and reset history:** analyzes a small 64×36 thumbnail.
+  Ordinary exposure shifts and small pans are discounted. Geometry/source changes,
+  long gaps and explicit resets also invalidate history.
+
+The status reports the active source, configured estimation size and whether
+history is available. Missing, priming or invalid flow resets history; it does
+not intentionally switch to the original game image. **History policy → Force
+reset every frame** overrides temporal reuse, so leave it off when evaluating
+motion stability. Motion settings apply when you release the control, without
+restarting the helper or reloading the neural model. Artistic sliders remain live
+while dragging. Hold completed frames addresses presentation alternation; motion
+and history controls address temporal stability within the processed image.
+The **Output** selector also switches directly to Input, Phoenix DLSS5 or NVIDIA
+DLSS5. Motion/history controls remain disabled on routes without motion services.
+Color-only capture can use a supported estimator; it does not provide engine
+guides. This is independent of completed-frame protection.
+
+## Automatic execution and the helper
+
+**Setup → Advanced transport → Automatic** prefers an eligible same-process
+route. An x64 DX11 game creates a DX12 compute device on its own adapter and
+exchanges textures entirely on the GPU. DX12 uses the game device/queue directly.
+Other supported x64 capture APIs (DX9/10, OpenGL and Vulkan) use a native worker
+inside the game with fenced CPU pixel capture/return; removing the helper does
+not remove that transfer cost.
+
+For x86, Automatic still tries the matching native library/driver bridge and
+portable runtime before the helper. Native x86 requires its optional bridge
+package and a matching Windows bootstrap profile; the standard download alone
+cannot supply that route. The installed NVIDIA driver is discovered automatically
+and checked once in an isolated, model-free startup/copy probe. Its result is
+cached per driver, Windows image and bridge package. A changed driver is checked
+again; a failed check keeps the real error and allows helper fallback. NVIDIA
+DLSS5 in an x86 game still needs the x64 helper.
+Inspect **Active execution**, process IDs and fallback reasons rather than
+inferring where processing runs from the game API. Explicit **External x64
+helper** remains available; unsafe, unretired GPU work stops processing.
+
+The added x64 DX11 interop and staging paths have software-only transfer and
+synthetic-evaluator regression coverage. That is not a new retail-game or
+hardware-inference validation claim.
+
 ## Appearance Controls
 
 - Experimental Phoenix intensity and Default/Natural/Cinematic styles.

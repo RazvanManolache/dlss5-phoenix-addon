@@ -14,7 +14,7 @@ template<class Action> static void refuses(Action action) {
     try { action(); } catch (const std::exception&) { failed = true; }
     require(failed);
 }
-int main() {
+int main() try {
     using namespace phoenix_kernel;
     const LUID first{0x1234, 7}, second{0x1234, 8};
     remember_device_architecture(first, 120); remember_device_architecture(second, 89);
@@ -22,6 +22,7 @@ int main() {
     require(device_architecture_cache().values.at(adapter_identity(first)) == 120);
     require(device_architecture_cache().values.at(adapter_identity(second)) == 89);
     phoenix_compat::Settings settings;
+    settings.pipeline.motion_enabled=false; // Isolate kernel-style eligibility from optional x86 flow support.
     require(settings.valid() && settings.native_kernel_style == "auto");
     const auto automatic = settings;
     settings.native_kernel_style = "rtx20";
@@ -71,4 +72,6 @@ int main() {
     rows = good; manifest["kernel_styles"]["rtx20"]["architectures"] = {"sm_86"};
     refuses([&] { phoenix_bundle::style_catalog(manifest, "rtx20", 120); });
     std::cout << Json{{"passed", true}, {"cpu_only", true}, {"checks", checks}}.dump() << '\n';
+} catch(const std::exception& failure) {
+    std::cerr<<failure.what()<<'\n';return 1;
 }

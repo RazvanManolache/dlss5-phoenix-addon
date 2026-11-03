@@ -6,6 +6,17 @@
 namespace phoenix_compat::pixels {
 using phoenix_addon::phoenix::Processing;
 using RGB = std::array<float, 3>;
+// At matching extents the filter domain has no effect. For an sRGB canvas,
+// sRGB neural signal and unit exposure, pre/post processing are identities.
+// Preserve the controls contract while avoiding millions of scalar pow calls
+// in x86 transports. HDR, exposure changes and actual resizing use the full path.
+inline bool identity_transfer(unsigned width, unsigned height, const Processing& p) {
+    const auto extent = phoenix_addon::phoenix::processing_resolution(width, height, p, false);
+    // PQ's bounded domain also clips out-of-range values. Preserve that
+    // behavior even at equal extents rather than treating it as an identity.
+    return width && height && p.domain != 1 && extent.image_width == width && extent.image_height == height &&
+        p.input_encoding(true) == 2 && p.signal == 0 && p.effective_exposure() == 1.f;
+}
 inline float srgb(float v, bool inverse) {
     const float a = std::abs(v);
     return std::copysign(
@@ -83,6 +94,8 @@ inline std::vector<float> resample(const std::vector<float>& source, unsigned sw
                                    unsigned dw, unsigned dh, int filter, bool down) {
     if (!sw || !sh || !dw || !dh || source.size() != size_t(sw) * sh * 3)
         throw std::runtime_error("Invalid processing image");
+    if (sw == dw && sh == dh)
+        return source;
     std::vector<float> result(size_t(dw) * dh * 3);
     for (unsigned y = 0; y < dh; ++y)
         for (unsigned x = 0; x < dw; ++x) {
@@ -133,15 +146,25 @@ template <class F> inline void map(std::vector<float>& image, F f) {
 struct Frame {
     Processing options;
     unsigned width, height, working_width, working_height;
+    bool identity = false;
     std::vector<float> original, baseline, encoded;
     Frame(const std::vector<float>& source, unsigned w, unsigned h, Processing p,
           bool native = false)
         : options(p), width(w), height(h), original(source) {
+        if (!w || !h || source.size() != size_t(w) * h * 3)
+            throw std::runtime_error("Invalid processing image");
         const auto g = phoenix_addon::phoenix::processing_resolution(w, h, p, native);
         // The portable canvas contains the same aspect ratio; use exact scaled
         // image dimensions and no opaque letterbox pixels in its inference.
         working_width = g.image_width;
         working_height = g.image_height;
+        identity = working_width == w && working_height == h && identity_transfer(w, h, p);
+        if (identity) {
+            // No residual baseline is needed: decoding/subtracting/readding
+            // the same unchanged input cancels before encoding the result.
+            encoded = source;
+            return;
+        }
         auto linear = source;
         map(linear, [&](RGB v) {
             return domain(transfer(v, p.input_encoding(true), p.diffuse_white(), true), p, false);
@@ -156,8 +179,9 @@ struct Frame {
         });
     }
     std::vector<float> finish(std::vector<float> result,bool reconstructed=false) const {
-        if (result.size() != (reconstructed?size_t(width)*height*3:baseline.size()))
+        if (result.size() != (reconstructed || identity ? size_t(width)*height*3 : baseline.size()))
             throw std::runtime_error("Processing output extent mismatch");
+        if (identity) return result;
         const auto& p = options;
         map(result, [&](RGB v) {
             v = signal(v, p, true);

@@ -1,4 +1,5 @@
 #pragma once
+#include "shader_compiler.h"
 #include "routing.h"
 #include "../../pipeline/comparison_view.h"
 #include <d3d12.h>
@@ -49,7 +50,7 @@ inline void comparison_hr(HRESULT value) {
 }
 inline Microsoft::WRL::ComPtr<ID3DBlob> compile_comparison() {
     Microsoft::WRL::ComPtr<ID3DBlob> shader, errors;
-    const auto status = D3DCompile(comparison_shader, sizeof(comparison_shader) - 1,
+    const auto status = phoenix_shader::compile(comparison_shader, sizeof(comparison_shader) - 1,
                                    "phoenix_comparison", nullptr, nullptr, "main", "cs_5_1",
                                    D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_WARNINGS_ARE_ERRORS,
                                    0, &shader, &errors);

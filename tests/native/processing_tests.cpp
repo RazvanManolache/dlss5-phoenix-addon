@@ -96,6 +96,23 @@ int main() {
         std::vector<float> image(35 * 23 * 3);
         for (size_t i = 0; i < image.size(); ++i)
             image[i] = .01f + float((i * 37) % 101) / 105.f;
+        for (int domain : {0,2}) for (int reconstruction = 0; reconstruction < 2; ++reconstruction) {
+            Processing options; options.enabled = true; options.domain = domain; options.reconstruction = reconstruction;
+            expect(pixels::identity_transfer(35,23,options), "Unit-scale sRGB transfer is an identity regardless of filter domain");
+            pixels::Frame frame(image,35,23,options);
+            auto enhanced=image;for(auto& value:enhanced)value+=.1f;
+            expect(frame.identity && frame.encoded==image, "Identity preprocessing preserves network input exactly");
+            expect(frame.finish(enhanced)==enhanced, "Identity postprocessing preserves the changed neural output, not the input");
+            options.exposure=.5f;expect(!pixels::identity_transfer(35,23,options), "Exposure changes cannot bypass processing");
+            options.exposure=1;options.signal=1;expect(!pixels::identity_transfer(35,23,options), "PQ signal cannot use the sRGB identity shortcut");
+            options.signal=0;options.encoding=3;expect(!pixels::identity_transfer(35,23,options), "HDR encoding cannot use the sRGB identity shortcut");
+            options.encoding=0;options.scale=51;expect(!pixels::identity_transfer(35,23,options), "Actual resizing retains the processing pipeline");
+        }
+        expect(!pixels::identity_transfer(0,0,Processing{}), "Empty geometry is not an identity frame");
+        Processing pq_domain; pq_domain.domain=1;
+        expect(!pixels::identity_transfer(35,23,pq_domain), "PQ filter-domain clipping must not be optimized away");
+        for (int filter=0;filter<3;++filter)
+            expect(pixels::resample(image,35,23,35,23,filter,false)==image,"Equal-size resampling is pixel-exact");
         for (int domain = 0; domain < 3; ++domain)
             for (int signal = 0; signal < 3; ++signal)
                 for (int up = 0; up < 3; ++up) {

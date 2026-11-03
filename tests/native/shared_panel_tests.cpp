@@ -39,7 +39,7 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target", "Native RTX kernel style"})
+    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target", "Native RTX kernel style", "Motion source", "Motion diagnostic view", "Pipeline monitoring"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
@@ -322,7 +322,9 @@ int run_tests() {
             settings.transformer_blocks = 5;
             settings.model_dll = "pending-model.dll";
             bool enabled = true;
+            bool coherent_frames = true;
             interaction.processing_enabled = frontend_master ? &enabled : nullptr;
+            interaction.coherent_frames = frontend_master ? &coherent_frames : nullptr;
             interaction.direct_nr_ready = true;
             interaction.comparison_views = true;
             interaction.direct_game = true;
@@ -548,6 +550,11 @@ int run_tests() {
                                "Pair wipe did not restore conditional controls");
                 pending_unchanged();
             }
+            expect_selection(click("Exit comparison"), "Exit comparison must report live selection");
+            require_widget(settings.mode == phoenix_ui::phoenix::ours && settings.comparison == 1,
+                           "Comparison exit must restore processed output and retain the saved wipe");
+            pending_unchanged();
+            expect_selection(select(backend, "Comparison"), "Comparison must reopen after exit");
             expect_selection(select(backend, "NVIDIA DLSS5 DLL"), "NVIDIA DLSS5 Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::nvidia,
                            "Comparison -> NVIDIA DLSS5 selection failed");
@@ -556,6 +563,14 @@ int run_tests() {
                                "NVIDIA DLSS5 hides the shared DLL folder setting");
             ++backend_selections;
             pending_unchanged();
+            if (!compact && frontend_master) {
+                require_widget(!widget_disabled("Hold completed frames"), "Playback stability must remain editable on the helper route");
+                auto toggle = click("Hold completed frames");
+                require_widget(toggle.changed && interaction.presentation_changed && !coherent_frames && !toggle.selection && !toggle.tuning,
+                               "Presentation control must update without changing renderer or neural controls");
+                click("Hold completed frames");
+                require_widget(coherent_frames, "Completed-frame protection could not be restored");
+            }
             expect_selection(select(backend, "Input"), "Input Backend must report live selection");
             require_widget(settings.mode == phoenix_ui::phoenix::input,
                            "NVIDIA DLSS5 -> Input selection failed");
@@ -752,6 +767,32 @@ int run_tests() {
             require_widget(std::array<unsigned, 3>{persisted, applied, actions} == callbacks_before,
                            "Shared controls dispatched a persistence/runtime callback");
             if (!compact) {
+                settings = {};
+                settings.mode = phoenix_ui::phoenix::ours;
+                interaction.motion_services_available=true;
+                settings.pipeline.motion_enabled=false;
+                interaction.frame_services_available=false;
+                interaction.temporal_history=true;
+                frame();frame();
+                require_widget(!widget_disabled("Estimate motion when engine vectors are unavailable")&&
+                                   !widget_disabled("Motion source"),
+                               "Native RTX helper did not expose real motion services");
+                require_widget(widget_disabled("Motion analysis height")&&widget_disabled("Pipeline monitoring"),
+                               "Disabled estimation or unsupported helper latency controls became active");
+                require_widget(click("Estimate motion when engine vectors are unavailable").changed&&
+                                   settings.pipeline.motion_enabled,
+                               "Helper motion checkbox did not edit settings");
+                frame();
+                require_widget(!widget_disabled("Motion analysis height"),"Enabled helper estimation kept resolution disabled");
+                select("Motion source","Zero motion");frame();
+                require_widget(widget_disabled("Motion analysis height"),"Zero motion still exposed estimation work");
+                click("History policy");frame();
+                require_widget(!widget_disabled("Force reset every frame"),"Helper history policy remained disabled");
+                const auto history=click("Force reset every frame");
+                require_widget(history.changed&&history.tuning&&settings.force_reset,
+                               "Helper history edits were not classified as live tuning");
+                interaction.motion_services_available=false;
+                interaction.temporal_history=false;
                 settings = {};
                 settings.mode = phoenix_ui::phoenix::ours;
                 settings.experimental = true;

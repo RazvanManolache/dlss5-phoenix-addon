@@ -11,7 +11,7 @@ inline bool pipeline_group(Context& context, PipelineSection section) {
             context.panel.execution_device == "native" && context.panel.mode != phoenix::nvidia,
         context.portable_chain_available,
         context.frame_services_available && context.final_frame_source && context.panel.mode != phoenix::nvidia,
-        section);
+        section,context.motion_services_available);
 }
 // All exercises the real task renderers in CPU tests; it is not a fifth tab.
 inline bool draw_sections(Context& context, PanelPage page, bool advanced = false) {
@@ -81,8 +81,10 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             bool edited = false;
             ImGui::SeparatorText("Resolution and reconstruction");
             edited |= draw_resolution_controls(context);
-            if (all || ImGui::CollapsingHeader("Motion and scene changes"))
+            if (all || ImGui::CollapsingHeader("Motion and scene changes")) {
                 edited |= pipeline_group(context,PipelineSection::Motion);
+                if(!context.motion_status.empty())ImGui::TextWrapped("%s",context.motion_status.c_str());
+            }
             if (all || ImGui::CollapsingHeader("Processing chain"))
                 edited |= pipeline_group(context,PipelineSection::Chain);
             edited |= draw_advanced_appearance(context);
@@ -94,6 +96,11 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             if (all || ImGui::CollapsingHeader("Temporal history and resets")) edited |= draw_history_controls(context);
             return edited;
         });
+        if (context.coherent_frames)
+            changed |= section_card(all,"playback_card","Playback stability",
+                "Keep the game from alternating between raw input and processed output.",blue,[&] {
+                    return draw_playback_stability(context);
+                });
     }
     if (page == PanelPage::Performance || all) {
         changed |= section_card(all,"quality_card","Quality & execution budget",
@@ -204,6 +211,7 @@ inline bool draw_compact(Context& context) {
     auto before = context.panel;
     bool changed = draw_master_switch(context);
     changed |= draw_output_selection(context);
+    changed |= draw_comparison_exit(context);
     changed |= draw_model_choice(context);
     changed |= draw_appearance_controls(context);
     if (!context.status.empty()) ImGui::TextWrapped("%s", context.status.c_str());

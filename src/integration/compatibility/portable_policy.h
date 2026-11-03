@@ -1,5 +1,6 @@
 #pragma once
 #include "session_policy.h"
+#include "cpu_color_transfer.h"
 #include "../../pipeline/recipe.h"
 #include "../../pipeline/comparison_view.h"
 #include <filesystem>
@@ -38,6 +39,14 @@ inline bool portable_frame_pipeline_requested(const Settings& settings){
     return settings.controls.appearance||p.motion_enabled||p.scene_detection||p.monitoring||p.priority||
         (p.chain_enabled&&(p.scaler!=0||!phoenix_pipeline::default_chain(p,1,1,1,1)||
             (settings.processing.enabled&&settings.processing.scale!=100)));
+}
+inline const char* portable_frame_services_unavailable(const Settings& settings,unsigned bits){
+    // PipelineClient::supported currently exposes the shared frame SDK only
+    // to x64 callers. Qualify this before loading a legacy portable model, not
+    // after its first frame fails and Automatic has to cold-start a helper.
+    return bits!=64&&portable_frame_pipeline_requested(settings)
+        ? "The x86 portable runtime cannot provide the requested motion/scene/frame services; select the helper or disable those optional services."
+        : "";
 }
 inline SettingsJson portable_metadata(const Settings& settings, bool reset, bool frame_pipeline=false) {
     if(settings.controls.appearance&&!frame_pipeline)
@@ -88,6 +97,16 @@ inline std::vector<uint8_t> portable_compose(const std::vector<uint8_t>& input,
     std::vector<uint8_t> result(input.size());
     const unsigned height=unsigned(input.size()/(size_t(width)*4));
     const auto view=phoenix_pipeline::comparison_view_bits(settings.pipeline);
+    if (settings.mode == phoenix_addon::phoenix::ours && view == 0) {
+        // The usual enhanced-only view needs neither pixel-coordinate remaps
+        // nor construction of every comparison source on each pixel.
+        for (size_t pixel = 0; pixel < input.size() / 4; ++pixel) {
+            for (unsigned channel = 0; channel < 3; ++channel)
+                result[pixel * 4 + channel] = cpu_color::unorm8(output[pixel * 3 + channel]);
+            result[pixel * 4 + 3] = input[pixel * 4 + 3];
+        }
+        return result;
+    }
     auto saturate = [](float value) { return std::clamp(value, 0.f, 1.f); };
     for (size_t pixel = 0; pixel < input.size() / 4; ++pixel) {
         const auto point=phoenix_pipeline::comparison_point(unsigned(pixel%width),unsigned(pixel/width),width,height,view);
@@ -95,7 +114,7 @@ inline std::vector<uint8_t> portable_compose(const std::vector<uint8_t>& input,
         std::array<float, 3> a{}, b{}, display{}, difference{};
         for (unsigned channel = 0; channel < 3; ++channel) {
             const float enhanced = output[sampled * 3 + channel];
-            if (!std::isfinite(enhanced)) throw std::runtime_error("Nonfinite portable output");
+            if (!cpu_color::finite(enhanced)) throw std::runtime_error("Nonfinite portable output");
             const float normal = input[sampled * 4 + channel] / 255.f;
             auto source=[&](int index) {return index==0?normal:index==1&&nvidia?nvidia->at(sampled*3+channel):enhanced;};
             a[channel] = source(settings.source_a);
@@ -118,7 +137,7 @@ inline std::vector<uint8_t> portable_compose(const std::vector<uint8_t>& input,
             if (mode == 5) display.fill(std::abs(difference[0]*.2126f + difference[1]*.7152f + difference[2]*.0722f));
         }
         for (unsigned channel = 0; channel < 3; ++channel)
-            result[pixel * 4 + channel] = uint8_t(std::lround(saturate(display[channel]) * 255));
+            result[pixel * 4 + channel] = cpu_color::unorm8(display[channel]);
         result[pixel * 4 + 3] = input[sampled * 4 + 3];
     }
     return result;

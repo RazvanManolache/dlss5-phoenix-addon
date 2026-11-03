@@ -45,21 +45,23 @@ int main() {
     }
     write(native / "native/native_manifest.json", "{}");
     auto save = [&] { write(native / "bootstrap.json", profile.dump()); };
-    save(); inspect_native_transport(native, system); verify(true);
+    save(); inspect_native_transport_package(native, system); verify(true);
     profile["schema"]="phoenix-wow64-bootstrap/2";save();
-    rejected([&] { inspect_native_transport(native, system); });
+    rejected([&] { inspect_native_transport_package(native, system); });
     profile["schema"]="phoenix-wow64-bootstrap/3";save();
     write(native / "phoenix_native.dll", "Tampered member");
-    rejected([&] { inspect_native_transport(native, system); });
+    rejected([&] { inspect_native_transport_package(native, system); });
     dll(native / "phoenix_native.dll", 64);
     write(system / "ntdll.dll", "Different Windows build");
-    rejected([&] { inspect_native_transport(native, system); });
+    rejected([&] { inspect_native_transport_package(native, system); });
     write(system / "ntdll.dll", "Synthetic Windows profile");
     write(system / "DriverStore/FileRepository/synthetic-driver/nvcuda64.dll", "Changed driver");
-    rejected([&] { inspect_native_transport(native, system); });
+    // A legacy fixed CUDA path no longer participates in package identity.
+    // Installed-driver discovery/cache/probe contracts are tested separately.
+    inspect_native_transport_package(native, system); verify(true);
     write(system / "DriverStore/FileRepository/synthetic-driver/nvcuda64.dll", "Synthetic driver profile");
     profile["files"]["../escape.dll"] = std::string(64, '0'); save();
-    rejected([&] { inspect_native_transport(native, system); });
+    rejected([&] { inspect_native_transport_package(native, system); });
     profile["files"].erase("../escape.dll"); save();
     const auto layout = phoenix_model::native_layout("phoenix-network37/1");
     nlohmann::json graph{{"schema", "phoenix-native-graph/1"}, {"layers", nlohmann::json::array()},
@@ -75,7 +77,7 @@ int main() {
     write(native / "native/native_manifest.json", graph_manifest.dump());
     rejected([&] { inspect_driver_transport_graph(native); });
     dll(native / "wow64ext.dll", 64); profile["files"]["wow64ext.dll"] = phoenix_embedded::file_digest(native / "wow64ext.dll"); save();
-    rejected([&] { inspect_native_transport(native, system); });
+    rejected([&] { inspect_native_transport_package(native, system); });
     dll(portable / "phoenix_runtime_cpp.dll", 64); dll(portable / "phoenix_cpu_cpp.dll", 64);
     write(portable / "phoenix_native_cpp.json", R"({"validated_devices":["cpu"]})");
     verify(inspect_transport_runtimes({}, portable, "cpu", 64).portable);

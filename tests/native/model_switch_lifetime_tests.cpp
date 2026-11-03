@@ -133,6 +133,20 @@ int main() try {
     after["direct_game"]["status"] = before["direct_game"]["status"];
     after["terminal"] = true;
     demand(!PhoenixOutputAdvanced(before, after));
+    // Initialization can return Bypass after submitting setup work. It must
+    // never complete an enabled frame, even after retries or history resets.
+    using Output = PhoenixHelperOutput;
+    for (bool requested : {false, true}) for (bool enabled : {false, true}) {
+        demand(PhoenixHelperOutputPolicy(PhoenixFeederStatusV1::Deferred, requested, enabled) == Output::Retry);
+        demand(PhoenixHelperOutputPolicy(PhoenixFeederStatusV1::Recorded, requested, enabled) == Output::RequireCompletion);
+        demand(PhoenixHelperOutputPolicy(PhoenixFeederStatusV1::Bypass, requested, enabled) ==
+            (requested && enabled ? Output::Retry : Output::Input));
+    }
+    unsigned published = 0;
+    for (auto status : {PhoenixFeederStatusV1::Bypass, PhoenixFeederStatusV1::Deferred,
+                        PhoenixFeederStatusV1::Bypass, PhoenixFeederStatusV1::Recorded})
+        published += PhoenixHelperOutputPolicy(status, true, true) == Output::RequireCompletion;
+    demand(published == 1);
     std::cout << nlohmann::json({{"passed", true}, {"checks", checks},
         {"successful_switches", retired}, {"live_executors", Runner::alive},
         {"gpu_used", false}}).dump() << '\n';

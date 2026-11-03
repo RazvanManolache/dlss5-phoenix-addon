@@ -62,6 +62,8 @@ def main():
                 ("legacy_loader", ROOT / "tests/native/dll_loader_tests.cpp"),
                 ("resource_identity", ROOT / "tests/portable_cpp/model_resource_identity_tests.cpp"),
                 ("picker_selection", ROOT / "tests/native/model_picker_selection_tests.cpp"),
+                ("cpu_color_transfer", ROOT / "tests/native/cpu_color_transfer_tests.cpp"),
+                ("wow64_pixel_contract", ROOT / "tests/native/wow64_pixel_contract_tests.cpp"),
             ]:
                 executable = work / f"{name}.exe"
                 run(common + [source, f"/Fe:{executable}", f"/Fo:{work / (name + '.obj')}", "bcrypt.lib",

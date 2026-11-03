@@ -12,7 +12,7 @@ I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
 it can do for the games we already love—and, eventually, looks less interested
 in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta) ·
+[Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta2) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
 <!-- current-two-model-benchmark -->
@@ -62,6 +62,10 @@ From DOOM II to Gotham: give familiar worlds another look. These are matching in
 - **Two model sizes:** Original and Lightweight FP8, plus compatible external model sources and a shared model library.
 - **Tune live:** tone, structure, skin, masks, intensity and appearance styles.
 - **32-bit and 64-bit games:** automatic execution choices with an x64 helper when needed.
+- **Stay in the game process when possible:** local D3D11/D3D12 bridges and experimental x86 library routes retain checked helper fallback.
+- **Steadier delivery:** bounded DX9 capture overlap, matching input/output frame pairing and continuity checks through focus and viewport changes.
+- **Motion you can control:** prefer engine vectors or estimate missing motion, with analysis-resolution and history controls on supported routes.
+- **Keep up with driver changes:** experimental x86 bridges discover and validate the installed NVIDIA driver, with results cached per driver and runtime package.
 - **Broad capture integration:** D3D9/10/11/12, OpenGL and Vulkan, with route-specific requirements.
 - **Build a processing chain:** scaling, color, optional multiscale fusion and motion estimation where supported.
 - **Keep comparisons honest:** matching original/modified screenshots, timing history and execution diagnostics.

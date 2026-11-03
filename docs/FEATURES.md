@@ -12,6 +12,12 @@ late-loaded input hooks and temporary renderer probes get dedicated handling.
 
 ## Features
 
+- **Experimental x86 in-process motion:** matching in-process library
+  runtimes support missing-vector estimation, scene detection, temporal history
+  and live analysis-size controls for Original and Lightweight FP8. Automatic
+  keeps the helper fallback for unsupported packages or settings. Standalone
+  motion probes do not qualify whole games: low-address allocation pressure and
+  same-process stability still limit this route.
 - **Choose the instruction path:** Automatic prefers the GPU's native kernels;
   style-enabled experimental bundles also offer RTX 20/30/40 fallbacks on newer
   cards. Same models, real-target binaries, no older-GPU performance simulation.
@@ -28,6 +34,10 @@ late-loaded input hooks and temporary renderer probes get dedicated handling.
   [The 720p–8K sweep](NATIVE_TUNING_RESOLUTIONS.md) checks those gains across
   six more frame sizes, including 2560×1080 ultrawide, with the small native-path
   differences and mixed pairs left visible.
+- **Lower worker overhead:** queue-ordered motion, compact per-frame telemetry
+  and direct GPU byte-to-half input conversion reduce staging/submission work
+  without reducing model quality. Older SDKs and incompatible transports retain
+  their fallback paths. [Measurements and lifetime contracts](FRAME_DELIVERY_OPTIMIZATION.md).
 - **Keep the pixels moving:** native D3D9 readback uses system-memory surfaces;
   SDR RGB10A2 capture supports D3D10/11/12. HDR capture remains guarded.
 - **Survive the warm-up act:** temporary renderer probes can give way to the
@@ -62,8 +72,14 @@ late-loaded input hooks and temporary renderer probes get dedicated handling.
   The pinned OpenNR FP16 compatibility DLL is also recognized.
 - **Your paths count:** configurable model/runtime locations, checked DLL
   architecture, package hashes and driver profiles.
+- **Driver updates without a frozen CUDA path:** experimental x86 native bridges
+  discover the installed NVIDIA driver and cache an isolated compatibility check
+  per driver/Windows/runtime package. Windows bootstrap checks remain required.
 - **Automatic route selection:** eligible internal routes first, helper fallback
   when needed, and explanations for unavailable choices. In-process is not a speed guarantee.
+  Native x64 paths cover DX12 directly, DX11 shared GPU textures and fenced
+  CPU capture/return on DX9/10/OpenGL/Vulkan; x86 retains its qualified native
+  library, driver and portable routes. [Mechanisms and limits](EXECUTION_MECHANISMS.md).
 - **Compare the same frame:** input, enhanced, split and difference views, plus
   diagnostics for processing time and execution location.
 - **Broad graphics capture:** D3D9/10/11/12, OpenGL and Vulkan integration, with
@@ -75,7 +91,10 @@ late-loaded input hooks and temporary renderer probes get dedicated handling.
   extra neural work; each active neural stage owns its own temporal history.
 - **Motion when the game has none:** optional NVIDIA Optical Flow, engine-vector
   priority, confidence rejection and scene-cut history resets on eligible routes.
+  Native RTX helpers expose source selection, 64–2160-pixel analysis height,
+  rejection thresholds and estimated-flow diagnostics without reloading the model.
   Estimated motion is not engine-provided motion or invented depth.
+  [Motion and temporal controls](USER_GUIDE.md#motion-and-temporal-stability).
 - **Scale deliberately:** NVIDIA Image Scaling and an optional experimental tiny
   2x network, with separate processing/output sizes on the shared D3D12 pipeline.
   The tiny scaler is not the Lightweight DLSS5 model and needs external weights.

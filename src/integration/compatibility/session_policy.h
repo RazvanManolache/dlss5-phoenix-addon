@@ -7,6 +7,11 @@
 namespace phoenix_compat {
 using Settings = phoenix_addon::phoenix::Settings;
 using SettingsJson = nlohmann::json;
+inline void append_status_notice(std::string& status, std::string_view notice) {
+    // Presentation may revisit the same pending frame hundreds of times.
+    // Keep the status/log bounded instead of appending its loading suffix again.
+    if (status.find(notice) == std::string::npos) status.append(notice);
+}
 inline bool needs_nvidia_dll(const Settings& settings) {
     return settings.mode == phoenix_addon::phoenix::nvidia ||
            (settings.mode == phoenix_addon::phoenix::split &&
@@ -72,6 +77,12 @@ inline bool helper_settings_changed(const Settings& previous, const Settings& de
         before.erase(key); after.erase(key);
     });
     return before != after;
+}
+inline bool live_edit_retries_failed_route(const Settings& previous,const Settings& desired,bool explicit_retry) {
+    // Presentation/strength/motion edits do not change a queue's implementation
+    // or an executor's capabilities. Only a renderer change or explicit retry
+    // reopens routes already rejected by this session.
+    return explicit_retry||previous.mode!=desired.mode;
 }
 inline bool hud_only_change(const Settings& previous, const Settings& desired) {
     auto before = settings_json(previous), after = settings_json(desired);

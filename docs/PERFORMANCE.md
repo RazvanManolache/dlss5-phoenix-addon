@@ -128,7 +128,7 @@ execution tests below. Its VRAM figures were not remeasured in that transport st
 
 [Historical regular performance and regression checks](REGULAR_PERFORMANCE_REGRESSION_2026-10-14.md) ·
 [Bridge fixes and transport benchmarks](BRIDGE_FIXES_2026-10-14.md) ·
-[Download ReShade addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta) ·
+[Download ReShade addon](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta2) ·
 [SDK build and integration guide](LIBRARY.md) ·
 [Historical benchmark methodology and data](benchmarks/2026-10-13/README.md) ·
 [Output comparisons](benchmarks/2026-10-13/README.md#actual-output-images) ·

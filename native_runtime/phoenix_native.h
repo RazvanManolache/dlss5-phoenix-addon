@@ -56,6 +56,15 @@ PHOENIX_NATIVE_API int phoenix_native_frame_host(PhoenixNativeSession* session, 
                                                  size_t motion_stride, void* output,
                                                  size_t output_bytes, size_t output_stride,
                                                  const PhoenixNativeControls* controls);
+// Additive RGBA16F host entry: same plane/stride/ownership contract as v1,
+// with intensity/style applied by the native appearance stage. Old callers
+// and the original PhoenixNativeControls byte layout remain unchanged.
+PHOENIX_NATIVE_API int phoenix_native_frame_host_appearance(PhoenixNativeSession* session,
+    const void* color, size_t color_bytes, size_t color_stride,
+    const void* motion, size_t motion_bytes, size_t motion_stride,
+    void* output, size_t output_bytes, size_t output_stride,
+    const PhoenixNativeControls* controls, float intensity, uint32_t style);
+
 typedef struct PhoenixNativeTextureV2 {
     ID3D12Resource* resource;
     D3D12_RESOURCE_STATES state;
@@ -72,6 +81,16 @@ typedef struct PhoenixNativeFrameV2 {
 // must agree. Mask/distortion/UI=RGBA32F, UIAlpha=R32F, backbuffer=RGBA16F.
 // UI is premultiplied. UI and UIAlpha are alternatives. All states restored.
 PHOENIX_NATIVE_API int phoenix_native_frame_d3d12_v2(PhoenixNativeSession*, const PhoenixNativeFrameV2*);
+// Optional same-submission output conversion. Contract is 1 only for the
+// direct native executor; graph/portable executors retain their existing path.
+// The callback records commands after output states are restored, before the
+// final submission/fence. It must not submit, wait, re-enter the SDK or throw.
+// Success means the callback's commands have also completed. GPU model timing
+// excludes these commands. Existing entry points and structures are unchanged.
+typedef int (__cdecl *PhoenixNativePostprocess)(void*, ID3D12GraphicsCommandList*);
+PHOENIX_NATIVE_API unsigned phoenix_native_postprocess_contract(PhoenixNativeSession*);
+PHOENIX_NATIVE_API int phoenix_native_frame_d3d12_postprocess(PhoenixNativeSession*,
+    const PhoenixNativeFrameV2*, uint32_t appearance, PhoenixNativePostprocess, void*);
 // Float32 bounded host alternative, sharing the portable V3 plane contract.
 // Native network uses its own temporal/noise implementation. One network pass.
 // Depth/validity planes are currently refused by this standalone native adapter.
@@ -88,6 +107,8 @@ PHOENIX_NATIVE_API int phoenix_native_reconfigure(PhoenixNativeSession** session
 // Additive shared pipeline controls. Calls are serialized on the session thread;
 // reconfiguration waits for owned work before replacing provider resources.
 PHOENIX_NATIVE_API int phoenix_native_set_pipeline(PhoenixNativeSession*, const char* options_json);
+// 1: status includes per-frame motion validity/source/reset and analysis extent.
+PHOENIX_NATIVE_API unsigned phoenix_native_motion_contract(void);
 // Additive native tuning: intensity/style/conditioning, independent whole-network
 // passes, central-block repetition counts, processing scale and temporal reuse.
 // Invalid settings leave the active tuning unchanged. Display-only changes do
@@ -106,6 +127,10 @@ PHOENIX_NATIVE_API int phoenix_native_set_frame_info(PhoenixNativeSession*, cons
 // complete call time and owned allocation ledger. Size includes terminating NUL.
 PHOENIX_NATIVE_API size_t phoenix_native_status(PhoenixNativeSession* session, char* destination,
                                                 size_t capacity);
+// Lightweight per-frame telemetry. Same bounded-buffer convention as status,
+// without allocation inventories or full tuning/graph diagnostics. The full
+// status API remains available on demand. Additive; older SDKs need no change.
+PHOENIX_NATIVE_API size_t phoenix_native_frame_status(PhoenixNativeSession*,char*,size_t);
 PHOENIX_NATIVE_API const char* phoenix_native_error(void);
 #ifdef __cplusplus
 }

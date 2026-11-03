@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '1.0-beta'
+VERSION = '1.0-beta2'
 _notifier_version = re.search(r'current_version\[\] = "([^"\n]+)"', (ROOT/'src/native/support/release_updates.h').read_text(encoding='utf-8'))
 if not _notifier_version or _notifier_version.group(1) != VERSION:
     raise RuntimeError('Release version and Phoenix update-notice identity differ')
@@ -124,7 +124,7 @@ def common_files():
                  'PERFORMANCE.md', 'DEVELOPMENT.md', 'PROJECT.md',
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
-                 'EXECUTION_MECHANISMS.md', 'PORTABLE_MODEL_CONTROLS.md',
+                 'EXECUTION_MECHANISMS.md', 'FRAME_DELIVERY_OPTIMIZATION.md', 'PORTABLE_MODEL_CONTROLS.md',
                  'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'PAIRED_SCREENSHOTS.md', 'PHOENIX_INPUT.md', 'UPSTREAM_CREDITS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
@@ -215,12 +215,18 @@ def main():
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--runtime-x86', type=Path, required=True)
+    parser.add_argument('--runtime-wow64', type=Path,
+                        help='Model-free optional x86 native bridge, with a matching build receipt')
+    parser.add_argument('--wow64-validation', type=Path,
+                        help='Build receipt binding every optional native-bridge file')
     parser.add_argument('--validation', type=Path, required=True)
     parser.add_argument('--experimental-candidate', type=Path)
     parser.add_argument('--experimental-validation', type=Path)
     parser.add_argument('--input-candidate', type=Path, required=True,
                         help='Separately built and smoke-tested optional input companion')
     args = parser.parse_args()
+    if bool(args.runtime_wow64) != bool(args.wow64_validation):
+        parser.error('Supply both optional native-bridge files and their build receipt')
     if bool(args.experimental_candidate) != bool(args.experimental_validation):
         parser.error('Supply both the experimental candidate and its validation receipt')
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode:
@@ -286,6 +292,27 @@ def main():
         for architecture,folder in (('win-x64',args.runtime),('win-x86',args.runtime_x86)):
             for path in folder.rglob('*'):
                 if path.is_file():files['PhoenixRuntime/'+architecture+'/'+path.relative_to(folder).as_posix()]=path.read_bytes()
+        if args.runtime_wow64:
+            bridge = args.runtime_wow64.resolve()
+            bridge_receipt = json.loads(args.wow64_validation.read_text())
+            if not bridge_receipt.get('passed') or bridge_receipt.get('gpu_used') is not False:
+                raise ValueError('Optional native-bridge build receipt is incomplete')
+            actual = {}
+            for path in bridge.rglob('*'):
+                if path.is_symlink() or path.is_junction():
+                    raise ValueError('Optional native bridge contains a redirect')
+                if path.is_file():
+                    relative = path.relative_to(bridge).as_posix()
+                    raw = path.read_bytes()
+                    actual[relative] = sha(raw)
+                    files['PhoenixRuntime/wow64/'+relative] = raw
+            if actual != bridge_receipt.get('files'):
+                raise ValueError('Optional native-bridge files differ from their build receipt')
+            required = {'bootstrap.json', 'phoenix_driver_probe32.exe',
+                        'phoenix_driver64.dll', 'phoenix_bootstrap64.dll',
+                        'phoenix_native.dll', 'phoenix-nvngx.dll', 'wow64ext.dll'}
+            if not required.issubset(actual):
+                raise ValueError('Optional native-bridge package is incomplete')
         name=f'DLSS5-Phoenix-{VERSION}-Portable-Runtimes.zip'
         assets[name]=write_archive(staging/name,files)
         name=f'DLSS5-Phoenix-{VERSION}-Source.zip';prefix=f'DLSS5-Phoenix-{VERSION}/'

@@ -1,4 +1,5 @@
 #pragma once
+#include "../native/support/shader_compiler.h"
 #include "../native/network/production_network.h"
 #include "../../third_party/nis/NIS_Config.h"
 #include "../../third_party/nis/shader_source.h"
@@ -40,7 +41,7 @@ public:
             {"NIS_USE_HALF_PRECISION", "0"}, {"NIS_BLOCK_WIDTH", "32"}, {"NIS_BLOCK_HEIGHT", "24"},
             {"NIS_THREAD_GROUP_SIZE", "128"}, {"NIS_VIEWPORT_SUPPORT", "1"}, {nullptr, nullptr}};
         ComPtr<ID3DBlob> shader;
-        const auto compiled = D3DCompile(phoenix_nis_shader, sizeof(phoenix_nis_shader) - 1,
+        const auto compiled = phoenix_shader::compile(phoenix_nis_shader, sizeof(phoenix_nis_shader) - 1,
             "Phoenix NVIDIA Image Scaling", defines, nullptr, "main", "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader, &errors);
         if (FAILED(compiled)) throw std::runtime_error(errors

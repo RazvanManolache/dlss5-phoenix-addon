@@ -1,6 +1,7 @@
 // Compose a completed input/output pair. The optional live-frame edit is less
 // latent, but can move a newer game image underneath an older model mask.
 #pragma once
+#include "../../native/support/shader_compiler.h"
 #include "host_client.h"
 #include <d3d9.h>
 #include <d3dcompiler.h>
@@ -8,6 +9,7 @@ namespace phoenix_compat {
 class D3D9Compositor {
     Ptr<IDirect3DDevice9> device_;
     Ptr<IDirect3DTexture9> current_, captured_, matched_input_;
+    std::array<Ptr<IDirect3DTexture9>,2> capture_slots_;
     Ptr<IDirect3DPixelShader9> shader_;
     Ptr<IDirect3DStateBlock9> state_;
     unsigned width_, height_, target_count_;
@@ -27,6 +29,13 @@ class D3D9Compositor {
         for (auto* texture : {std::addressof(captured_), std::addressof(matched_input_)})
             hr(device_->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET, format,
                                       D3DPOOL_DEFAULT, texture->GetAddressOf(), nullptr));
+        // Optional extra snapshot overlaps capture with inference. Allocation
+        // failure retains the original single-snapshot path.
+        device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
+                               D3DPOOL_DEFAULT,&capture_slots_[0],nullptr);
+        if(capture_slots_[0])
+            device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
+                                   D3DPOOL_DEFAULT,&capture_slots_[1],nullptr);
         const char* source = R"(
 sampler2D current_image : register(s0);
 sampler2D model_input : register(s1);
@@ -43,17 +52,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
     return result;
 })";
         Ptr<ID3DBlob> code, errors;
-        hr(D3DCompile(source, std::strlen(source), "phoenix_d3d9_current_frame", nullptr, nullptr,
+        hr(phoenix_shader::compile(source, std::strlen(source), "phoenix_d3d9_current_frame", nullptr, nullptr,
                       "main", "ps_3_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors));
         hr(device_->CreatePixelShader(static_cast<const DWORD*>(code->GetBufferPointer()),
                                       &shader_));
         hr(device_->CreateStateBlock(D3DSBT_ALL, &state_));
     }
-    void capture(IDirect3DSurface9* back) {
-        auto destination = surface(captured_.Get());
+    void capture(IDirect3DSurface9* back,unsigned slot=0) {
+        auto destination = surface(capture_slots_.at(slot)?capture_slots_[slot].Get():captured_.Get());
         hr(device_->StretchRect(back, nullptr, destination.Get(), nullptr, D3DTEXF_NONE));
     }
-    void readback_completed_capture(IDirect3DSurface9* staging) {
+    void readback_completed_capture(IDirect3DSurface9* staging,unsigned slot=0) {
         // The caller first retires the event query issued after capture().
         // D3D9 readback is synchronous, but now reads an already completed
         // snapshot rather than draining the freshly rendered game backbuffer.
@@ -64,8 +73,13 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         require(description.Pool == D3DPOOL_SYSTEMMEM && description.Width == width_ &&
                     description.Height == height_ && description.MultiSampleType == D3DMULTISAMPLE_NONE,
                 "D3D9 readback requires matching single-sample system-memory storage");
-        auto source = surface(captured_.Get());
+        auto source = surface(capture_slots_.at(slot)?capture_slots_[slot].Get():captured_.Get());
         hr(device_->GetRenderTargetData(source.Get(), staging));
+    }
+    bool prefetch_available() const {return bool(capture_slots_[0]);}
+    unsigned capture_capacity()const{return capture_slots_[1]?2:1;}
+    void promote_submitted_capture(unsigned slot=0) {
+        if(capture_slots_.at(slot))captured_.Swap(capture_slots_[slot]);
     }
     void match_completed_input() {
         auto source = surface(captured_.Get()), destination = surface(matched_input_.Get());

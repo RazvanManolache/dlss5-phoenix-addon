@@ -4,6 +4,7 @@
 #include "../native/support/compute_pass.h"
 #include <memory>
 #include <optional>
+#include <chrono>
 
 namespace phoenix_pipeline {
 // Runs only on a producer-ordered DIRECT queue, outside another open recording.
@@ -20,29 +21,59 @@ class D3D12Motion {
     ComPtr<ID3D12CommandAllocator> allocator_;
     ComPtr<ID3D12GraphicsCommandList> command_;
     ComPtr<ID3D12Resource> thumbnail_, readback_, history_motion_;
+    ComPtr<ID3D12Resource> zero_motion_;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint_{};
     std::unique_ptr<phoenix_addon::phoenix::direct::Pass> thumbnail_pass_;
     std::unique_ptr<phoenix_addon::phoenix::direct::Pass> history_gate_;
+    std::unique_ptr<phoenix_addon::phoenix::direct::Pass> zero_pass_;
     NvofMotionProvider provider_;
     NvofMotionProvider::Submission submission_{};
     Discontinuity discontinuity_;
     uint64_t sequence_ = 0, fence_value_ = 0;
+    // Producer hand-offs also increment fence_value_. Only the last submitted
+    // conversion list owns this allocator; waiting for the producer's newer
+    // signal here would reintroduce the very CPU stall ordered mode removes.
+    uint64_t allocator_fence_value_=0;
     uint64_t preparation_value_ = 0;
     unsigned width_ = 0, height_ = 0, flow_height_ = 0;
     bool attempted_ = false;
+    MotionSource previous_source_ = MotionSource::Zero;
     std::string status_ = "Disabled";
+    struct Timing {
+        double routing=0,provider_submit=0,post_submit_sync=0,conversion_record=0,conversion_submit=0,conversion_wait=0;
+    } timing_;
+    bool detailed_=false;
+    bool gpu_ordered_=false;
+    uint64_t cpu_waits_=0;
     static void check(HRESULT h) { phoenix_native::hr(h); }
-    void begin() { check(allocator_->Reset()); check(command_->Reset(allocator_.Get(), nullptr)); }
-    void finish() {
+    void wait_for_conversion() {
+        const auto completed=fence_->GetCompletedValue();
+        if(completed==UINT64_MAX)throw std::runtime_error("Motion graphics device removed");
+        if(completed>=allocator_fence_value_)return;
+        ++cpu_waits_;
+        const HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
+        if(!event)throw std::runtime_error("Motion completion event unavailable");
+        const HRESULT armed=fence_->SetEventOnCompletion(allocator_fence_value_,event);
+        const DWORD waited=SUCCEEDED(armed)?WaitForSingleObject(event,10000):WAIT_FAILED;
+        CloseHandle(event);
+        if(waited!=WAIT_OBJECT_0)throw std::runtime_error("Motion queue did not retire");
+    }
+    void begin() {
+        // Ordered consumers normally retire this before the next frame. Keep
+        // allocator reuse safe if a caller performs another preparation early.
+        if(gpu_ordered_)wait_for_conversion();
+        check(allocator_->Reset());check(command_->Reset(allocator_.Get(),nullptr));
+    }
+    void finish(bool wait_cpu=true) {
+        const auto started=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         check(command_->Close()); ID3D12CommandList* lists[]{command_.Get()};
         queue_->ExecuteCommandLists(1, lists); check(queue_->Signal(fence_.Get(), ++fence_value_));
-        if (fence_->GetCompletedValue() < fence_value_) {
-            const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-            if (!event) throw std::runtime_error("Motion completion event unavailable");
-            const HRESULT armed = fence_->SetEventOnCompletion(fence_value_, event);
-            const DWORD waited = SUCCEEDED(armed) ? WaitForSingleObject(event, 10000) : WAIT_FAILED;
-            CloseHandle(event);
-            if (waited != WAIT_OBJECT_0) throw std::runtime_error("Motion queue did not retire");
+        allocator_fence_value_=fence_value_;
+        const auto submitted=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+        if(wait_cpu)wait_for_conversion();
+        if(detailed_){
+            timing_.conversion_submit=std::chrono::duration<double,std::milli>(submitted-started).count();
+            timing_.conversion_wait=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-submitted).count();
         }
     }
     std::vector<uint8_t> thumbnail(ID3D12Resource* source, D3D12_RESOURCE_STATES state) {
@@ -93,8 +124,10 @@ public:
         bool reset = false;
         MotionSource source = MotionSource::Zero;
     };
-    D3D12Motion(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Fence* consumer)
-        : device_(device), queue_(queue), consumer_(consumer) {
+    // gpu_ordered is reserved for owners that retain all resources until a
+    // later consumer fence on this SAME direct queue has retired, even on error.
+    D3D12Motion(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Fence* consumer,bool gpu_ordered=false)
+        : device_(device), queue_(queue), consumer_(consumer),gpu_ordered_(gpu_ordered) {
         check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
         check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator_)));
         check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator_.Get(), nullptr, IID_PPV_ARGS(&command_)));
@@ -104,6 +137,8 @@ public:
                    ID3D12Resource* engine_motion, const Options& p, bool reset,
                    int64_t timestamp_ns = 0, uint64_t stream = 0,
                    std::optional<uint64_t> source_sequence = std::nullopt) {
+        detailed_=p.monitoring==int(Monitoring::Detailed);timing_={};
+        const auto started=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         if (!p.valid()) throw std::invalid_argument("Invalid motion settings");
         const auto desc = color->GetDesc();
         const bool geometry_changed = width_ != desc.Width || height_ != desc.Height;
@@ -111,7 +146,7 @@ public:
             // This API is called only after the preceding consumer has retired.
             provider_.Shutdown(); attempted_ = false; reset = true;
             width_ = unsigned(desc.Width); height_ = desc.Height; flow_height_ = unsigned(p.flow_height);
-            if(geometry_changed)history_motion_.Reset();
+            if(geometry_changed){history_motion_.Reset();zero_motion_.Reset();}
         }
         const auto gray = p.scene_detection ? thumbnail(color, state) : std::vector<uint8_t>{};
         ++sequence_;
@@ -133,21 +168,27 @@ public:
                 extent[0], extent[1], desc.Format, nullptr);
         }
         const auto choice = choose_motion(p, engine_motion != nullptr, provider_.IsReady());
+        if(choice.source!=previous_source_){reset=true;provider_.ResetHistory();}
+        previous_source_=choice.source;
         status_ = choice.reason;
-        if (choice.source == MotionSource::Engine) return {engine_motion, nullptr, reset, choice.source};
-        if (choice.source != MotionSource::Nvidia) return {nullptr, nullptr, reset, MotionSource::Zero};
+        if(wants_hardware&&!provider_.IsReady())status_=provider_.Status();
+        if (choice.source == MotionSource::Engine) {submission_={};return {engine_motion, nullptr, reset, choice.source};}
+        if (choice.source != MotionSource::Nvidia) {submission_={};return {nullptr, nullptr, reset, MotionSource::Zero};}
         // Provider preparation command lists are COMPUTE lists. Establish both
         // ownership directions explicitly; even a priming frame must finish
         // copying the source before its producer can overwrite it.
         check(queue_->Signal(fence_.Get(), ++fence_value_));
         check(compute_queue_->Wait(fence_.Get(), fence_value_));
+        const auto submit_started=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         const bool submitted = provider_.Submit(color, state, sequence_, reset, submission_);
+        const auto submit_finished=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         check(compute_queue_->Signal(preparation_fence_.Get(), ++preparation_value_));
         check(queue_->Wait(preparation_fence_.Get(), preparation_value_));
         if (!submitted || !submission_.valid) {
             status_ = provider_.Status(); return {nullptr, nullptr, true, MotionSource::Zero};
         }
         check(queue_->Wait(provider_.CompletionFence(), submission_.completion_value));
+        const auto conversion_started=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         begin();
         if (!provider_.RecordConversion(command_.Get(), submission_, p.flow_consistency, p.normalized_flow_cost()))
             throw std::runtime_error("Optical flow conversion failed");
@@ -172,14 +213,49 @@ cbuffer C:register(b0){uint W,H;uint unused[7];};
         phoenix_native::transition(command_.Get(),history_motion_.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         history_gate_->record(command_.Get(),{submission_.motion,submission_.history_mask,nullptr},history_motion_.Get(),constants);
         phoenix_native::transition(command_.Get(),history_motion_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        finish();
+        if(detailed_){
+            timing_.routing=std::chrono::duration<double,std::milli>(submit_started-started).count();
+            timing_.provider_submit=std::chrono::duration<double,std::milli>(submit_finished-submit_started).count();
+            timing_.post_submit_sync=std::chrono::duration<double,std::milli>(conversion_started-submit_finished).count();
+            timing_.conversion_record=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-conversion_started).count();
+        }
+        finish(!gpu_ordered_);
         return {history_motion_.Get(), submission_.history_mask, reset, MotionSource::Nvidia};
     }
     void consumed(uint64_t fence) { if (submission_.valid) provider_.MarkNeuralUse(submission_, fence); }
+    // A dedicated immutable zero surface avoids trusting stale shared vectors
+    // when a producer stops supplying guides or the user explicitly selects zero.
+    ID3D12Resource* zero_motion() {
+        if(!zero_motion_){
+            if(!width_||!height_)throw std::logic_error("Prepare motion geometry before requesting zero vectors");
+            if(!zero_pass_){
+                static constexpr char shader[]=R"hlsl(
+RWTexture2D<float2> Output:register(u0);
+cbuffer C:register(b0){uint W,H;uint unused[7];};
+[numthreads(16,16,1)]void main(uint3 p:SV_DispatchThreadID){if(p.x<W&&p.y<H)Output[p.xy]=0;}
+)hlsl";
+                zero_pass_=std::make_unique<phoenix_addon::phoenix::direct::Pass>(device_.Get(),shader);
+            }
+            zero_motion_=phoenix_native::image(device_.Get(),width_,height_,DXGI_FORMAT_R16G16_FLOAT,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            begin();phoenix_addon::phoenix::direct::Constants c{};c.width=width_;c.height=height_;
+            zero_pass_->record(command_.Get(),{nullptr,nullptr,nullptr},zero_motion_.Get(),c);
+            phoenix_native::transition(command_.Get(),zero_motion_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COMMON);
+            finish();
+        }
+        return zero_motion_.Get();
+    }
     bool visualize(ID3D12GraphicsCommandList* command, ID3D12Resource* output, unsigned mode) {
         return submission_.valid && provider_.RecordVisualization(command, submission_, output, mode, 1.f);
     }
     const std::string& status() const noexcept { return status_; }
     ID3D12Resource* raw_motion()const noexcept{return submission_.motion;}
+    bool gpu_ordered()const noexcept{return gpu_ordered_;}
+    uint64_t cpu_waits()const noexcept{return cpu_waits_;}
+    phoenix_bundle::Json timings()const {
+        if(!detailed_)return nullptr;
+        return {{"routing",timing_.routing},{"provider_submit",timing_.provider_submit},
+            {"post_submit_sync",timing_.post_submit_sync},{"conversion_record",timing_.conversion_record},
+            {"conversion_submit",timing_.conversion_submit},{"conversion_wait",timing_.conversion_wait}};
+    }
 };
 } // namespace phoenix_pipeline

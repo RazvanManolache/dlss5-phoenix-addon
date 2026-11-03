@@ -1,14 +1,20 @@
 #include "../../src/integration/compatibility/backbuffer_route.h"
 #include "../../src/integration/compatibility/session_policy.h"
 #include "../../src/integration/compatibility/wow64/bridge_policy.h"
+#include "../../src/integration/compatibility/wow64/model_contract.h"
 #include <iostream>
+#include <source_location>
 
 int main() try {
     using namespace phoenix_compat;
     using A = reshade::api::device_api;
     using F = reshade::api::format;
     unsigned checks = 0;
-    auto verify = [&](bool value) { ++checks; if (!value) throw std::runtime_error("Backbuffer route contract failed at check " + std::to_string(checks)); };
+    auto verify = [&](bool value, std::source_location location = std::source_location::current()) {
+        ++checks;
+        if (!value) throw std::runtime_error("Backbuffer route contract failed at line " +
+            std::to_string(location.line()) + " (check " + std::to_string(checks) + ")");
+    };
     using C=reshade::api::color_space;
     for(auto format:{F::r8g8b8a8_unorm,F::b8g8r8a8_unorm,F::b8g8r8x8_unorm})
         verify(sdr_backbuffer(C::unknown,format));
@@ -33,6 +39,19 @@ int main() try {
     }
     verify(execution_preference("auto") == automatic);
     verify(execution_preference("bogus") == ExecutionPreference::Invalid);
+    // DX11 x64 uses a local DX12 device on the same adapter. Invalid interop
+    // layouts still fall back; explicitly choosing the helper remains strict.
+    for (bool nvidia : {false, true}) {
+        auto dx11 = base; dx11.api = A::d3d11; dx11.nvidia_required = nvidia;
+        verify(choose_backbuffer_route(dx11, automatic).route == BackbufferRoute::InProcess);
+        verify(choose_backbuffer_route(dx11, ExecutionPreference::Helper).route == BackbufferRoute::Helper);
+        dx11.local_api = false;
+        verify(choose_backbuffer_route(dx11, automatic).route == BackbufferRoute::Helper);
+        dx11.local_api = true; dx11.samples = 4;
+        verify(choose_backbuffer_route(dx11, automatic).route == BackbufferRoute::Helper);
+        dx11.samples = 1; dx11.sdr = false;
+        verify(choose_backbuffer_route(dx11, ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
+    }
     for (auto api : {A::d3d10, A::d3d11, A::d3d12}) {
         auto software = base;
         software.api = api;
@@ -54,9 +73,29 @@ int main() try {
                BackbufferRoute::Unsupported);
         caps.bits = 64;
         verify(choose_backbuffer_route(caps, automatic).route ==
-               (api == A::d3d12 ? BackbufferRoute::InProcess : BackbufferRoute::Helper));
+               (api == A::d3d12 || api == A::d3d11 ? BackbufferRoute::InProcess : BackbufferRoute::InProcessStaging));
     }
     auto unvalidated32 = base;
+    // Every existing x86 capture API must prefer a qualified installed native
+    // route, then portable, before the helper. Availability already includes
+    // model/profile/TLS/address-space checks; never bypass those guards here.
+    for (auto api : {A::d3d9,A::d3d10,A::d3d11,A::d3d12,A::opengl,A::vulkan}) {
+        auto caps = base; caps.api = api; caps.bits = 32;
+        caps.native_tls_coordinated = true;
+        verify(choose_backbuffer_route(caps,automatic).route == BackbufferRoute::NativeLibrary);
+        caps.native_library_available = false;
+        verify(choose_backbuffer_route(caps,automatic).route == BackbufferRoute::NativeDriver);
+        caps.native_driver_available = false; caps.portable_available = true;
+        verify(choose_backbuffer_route(caps,automatic).route == BackbufferRoute::Portable);
+        caps.portable_available = false; caps.native_library_reason = "profile mismatch";
+        const auto fallback = choose_backbuffer_route(caps,automatic);
+        verify(fallback.route == BackbufferRoute::Helper && fallback.reason.find("profile mismatch") != std::string::npos);
+        caps.bits = 64; caps.native_library_reason.clear();
+        const auto native = choose_backbuffer_route(caps,automatic);
+        verify(native.route == (api == A::d3d11 || api == A::d3d12 ? BackbufferRoute::InProcess : BackbufferRoute::InProcessStaging));
+        caps.local_api = false;
+        verify(choose_backbuffer_route(caps,automatic).route == BackbufferRoute::Helper);
+    }
     unvalidated32.bits = 32; unvalidated32.native_library_available = unvalidated32.native_driver_available = false;
     verify(choose_backbuffer_route(unvalidated32,automatic).route == BackbufferRoute::Helper);
     verify(choose_backbuffer_route(unvalidated32,ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
@@ -236,9 +275,35 @@ int main() try {
         verify(refused.route==BackbufferRoute::Unsupported && refused.reason.find("x64 helper")!=std::string::npos);
         vendor.bits=64;
         verify(choose_backbuffer_route(vendor,automatic).route==
-            (api==A::d3d12?BackbufferRoute::InProcess:BackbufferRoute::Helper));
+            (api==A::d3d12||api==A::d3d11?BackbufferRoute::InProcess:BackbufferRoute::InProcessStaging));
     }
     Settings native; native.mode = phoenix_addon::phoenix::ours;
+    verify(native.pipeline.motion_enabled); // Missing-motion estimation is now the product default.
+    verify(*native_settings_unavailable_reason(native, false)); // Legacy x86 route cannot supply OFA.
+    verify(!phoenix_wow64::declared_library_frame_services(0,0));
+    verify(!phoenix_wow64::declared_library_frame_services(1,phoenix_wow64::model_channel_legacy_bytes));
+    verify(!phoenix_wow64::declared_library_frame_services(2,sizeof(phoenix_wow64::ModelChannel)));
+    verify(phoenix_wow64::declared_library_frame_services(1,sizeof(phoenix_wow64::ModelChannel)));
+    verify(!*native_settings_unavailable_reason(native,false,true));
+    verify(*native_settings_unavailable_reason(native,true,true)); // Driver path still spatial.
+    native.pipeline.scene_detection=true;native.pipeline.monitoring=1;
+    verify(!*native_settings_unavailable_reason(native,false,true));
+    native.refinement_passes=2;verify(*native_settings_unavailable_reason(native,false,true));
+    native.refinement_passes=1;native.pipeline.scene_detection=false;native.pipeline.monitoring=0;
+    native.pipeline.priority=1;verify(*native_settings_unavailable_reason(native,false,true));
+    native.pipeline.priority=0;native.controls.appearance=true;
+    verify(*native_settings_unavailable_reason(native,false,true)); // Old packages still refuse it.
+    verify(!*native_settings_unavailable_reason(native,false,true,true));
+    verify(*native_settings_unavailable_reason(native,true,true,true));
+    native.controls.appearance=false;
+    native.native_options=true;native.intensity=.5f;
+    verify(*native_settings_unavailable_reason(native,false,true));
+    verify(!*native_settings_unavailable_reason(native,false,true,true));
+    native.style=2;verify(!*native_settings_unavailable_reason(native,false,true,true));
+    native.ui_correction=1;verify(*native_settings_unavailable_reason(native,false,true,true));
+    native.ui_correction=0;native.style=0;native.intensity=1.f;
+    native.native_options=false;
+    native.pipeline.motion_enabled=false; // Explicit spatial-only legacy-route fixture.
     verify(!*native_settings_unavailable_reason(native, false));
     verify(!*native_settings_unavailable_reason(native, true));
     native.model_id = "small-fp8";
@@ -256,10 +321,10 @@ int main() try {
     verify(*native_settings_unavailable_reason(native, false));
     native.automatic_budget=false;
     for(bool driver:{false,true}){
-        native.pipeline.chain_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
-        native.pipeline.motion_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
-        native.pipeline.scene_detection=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
-        native.pipeline.monitoring=1;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};
+        native.pipeline.chain_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};native.pipeline.motion_enabled=false;
+        native.pipeline.motion_enabled=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};native.pipeline.motion_enabled=false;
+        native.pipeline.scene_detection=true;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};native.pipeline.motion_enabled=false;
+        native.pipeline.monitoring=1;verify(*native_settings_unavailable_reason(native,driver));native.pipeline={};native.pipeline.motion_enabled=false;
         verify(!*native_settings_unavailable_reason(native,driver));
     }
     std::cout << "{\"passed\":true,\"cpu_only\":true,\"checks\":" << checks << "}\n";

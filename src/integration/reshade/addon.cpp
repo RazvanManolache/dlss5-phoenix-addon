@@ -261,6 +261,9 @@ struct State {
     std::optional<uint64_t> claimed_feature;
     host_memory::Vector<std::shared_ptr<Session>, host_memory::Tag::retired> retired;
     host_memory::Vector<reshade::api::command_queue*, host_memory::Tag::queues> queues;
+    // Exact identities owned by private staging sessions, not borrowed engine
+    // queues. Their owners keep COM references and balance lifetime callbacks.
+    std::map<ID3D12CommandQueue*,unsigned> local_queues;
     host_memory::Map<ID3D12GraphicsCommandList*, std::shared_ptr<Session>,
                      host_memory::Tag::submitted>
         submitted_lists;
@@ -3205,6 +3208,7 @@ ID3D12GraphicsCommandList* resolve_native_list(ID3D12GraphicsCommandList* suppli
     return candidate;
 }
 bool registered_queue(ID3D12CommandQueue* queue) {
+    if (state().local_queues.contains(queue)) return true;
     for (auto* known : state().queues)
         if (reinterpret_cast<ID3D12CommandQueue*>(known->get_native()) == queue)
             return true;
@@ -3218,9 +3222,10 @@ ID3D12CommandQueue* resolve_queue(ID3D12GraphicsCommandList* cmd) {
     check(addon_state.original_execute != nullptr,
           "phoenix submission observation was not installed before the claimed frame");
     const auto found = addon_state.ownership.find(cmd);
-    check(found != addon_state.ownership.end() && found->second.submissions > 0 &&
-              !found->second.ambiguous,
-          "phoenix Evaluate list has no single observed submission queue yet");
+    check(found != addon_state.ownership.end(),
+          "phoenix Evaluate list has no observed submission queue (missing list identity)");
+    check(found->second.submissions > 0 && !found->second.ambiguous,
+          "phoenix Evaluate list submission ownership is empty or ambiguous");
     auto* queue = found->second.queue;
     check(queue && registered_queue(queue),
           "phoenix submitting queue was never registered or was destroyed");
@@ -4598,6 +4603,7 @@ void command_close(ID3D12GraphicsCommandList* cmd, bool success) {
 }
 void destroy_present_runtime(reshade::api::effect_runtime* runtime) {
     auto& value=state();std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    if(value.guide_runtime==runtime)value.guide_runtime=nullptr;
     if(value.present_runtime==runtime) {
         value.present_bridge.reset();value.present_runtime=nullptr;
         value.live.reset_requested=true;
@@ -4681,10 +4687,15 @@ void init_queue(reshade::api::command_queue* queue) {
     std::lock_guard<std::recursive_mutex> lock(addon_state.mutex);
     addon_state.queues.push_back(queue);
     try {
+        auto* native = reinterpret_cast<ID3D12CommandQueue*>(queue->get_native());
+        // NR records DIRECT lists. Optical-flow/video/encode queues may use a
+        // different system implementation; their creation must not poison the
+        // graphics session or replace its observed submission trampoline.
+        if (native->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            return;
         configure();
         if (!addon_state.automatic)
             return;
-        auto* native = reinterpret_cast<ID3D12CommandQueue*>(queue->get_native());
         install_submission_observer(native);
         if (!addon_state.adapter) {
             ComPtr<ID3D12Device> queue_device;
@@ -6319,6 +6330,35 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXUnregister() {
 // It is separate from the deliberately small per-frame completion snapshot.
 namespace {
 reshade::api::effect_runtime* backbuffer_owner = nullptr;
+ID3D12CommandQueue* native_backbuffer_queue(ID3D12CommandQueue* supplied) {
+    auto& value=state();
+    std::lock_guard<std::recursive_mutex> lock(value.mutex);
+    check(supplied!=nullptr,"No private DX12 queue to resolve");
+    // Some frontends do not install D3D12 hooks and therefore emit no queue
+    // events for our private device. New ReShade proxies expose a native COM
+    // interface explicitly; an already-native system queue needs no unwrap.
+    // Unknown wrappers still require the exact observed-identity match below.
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> unwrapped;
+    if (SUCCEEDED(supplied->QueryInterface(phoenix_compat::reshade_unwrapped_object,
+            reinterpret_cast<void**>(unwrapped.GetAddressOf()))) && unwrapped)
+        return unwrapped.Get(); // supplied retains its original queue reference
+    if (phoenix_compat::is_unwrapped_system_d3d12_queue(supplied)) return supplied;
+    // Private data is forwarded by ReShade without relying on its proxy layout.
+    // Match exactly one live init_queue identity, as the standalone helper does.
+    static const GUID cookie_id={0x78e515d4,0x4d67,0x4617,{0xad,0xa5,0x6e,0xda,0x72,0x38,0x51,0x02}};
+    static uint64_t sequence=0;
+    const auto cookie=++sequence;
+    check(SUCCEEDED(supplied->SetPrivateData(cookie_id,sizeof(cookie),&cookie)),"Cannot identify private DX12 queue");
+    ID3D12CommandQueue* found=nullptr;unsigned matches=0;
+    for(auto* queue:value.queues){
+        auto* native=reinterpret_cast<ID3D12CommandQueue*>(queue->get_native());
+        uint64_t candidate=0;UINT bytes=sizeof(candidate);
+        if(SUCCEEDED(native->GetPrivateData(cookie_id,&bytes,&candidate))&&bytes==sizeof(candidate)&&candidate==cookie){found=native;++matches;}
+    }
+    supplied->SetPrivateData(cookie_id,0,nullptr);
+    check(matches==1,"Private DX12 queue has no unique native identity");
+    return found;
+}
 void observe_backbuffer_input(reshade::api::effect_runtime* runtime,
     ID3D12GraphicsCommandList* list, ID3D12CommandQueue* queue) {
     auto& value = state();
@@ -6415,6 +6455,11 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederLiveSettings(const 
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXInProcessBackbufferVersion() {
     return CNR_PHOENIX_DIAGNOSTIC ? 0u : 1u;
+}
+// Installers inspect this export without loading/invoking a game addon. Older
+// packages have only the DX12 marker and must not advertise the new routes.
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXInProcessGraphicsV2() {
+    return CNR_PHOENIX_DIAGNOSTIC ? 0u : 2u;
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXNativeTlsV3() {
     return CNR_PHOENIX_DIAGNOSTIC ? 0u : 3u;
@@ -6987,6 +7032,10 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
     if (provider && addon_registered.load() &&
         provider != reshade::internal::get_reshade_module_handle())
         addon_detach(module);
+    // Do not replace the ReShade provider/cache while an old private worker
+    // still owns callbacks. A later attach may retry after its retirement.
+    if (!addon_registered.load() && !phoenix_compat::can_publish_in_process_api())
+        return false;
     bool expected = false;
     if (!addon_registered.compare_exchange_strong(expected, true))
         return true;
@@ -7030,10 +7079,26 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
                                                          PHOENIX_BUILD_TAG) " attached");
     state().self = module;
 #if !CNR_PHOENIX_DIAGNOSTIC
-    phoenix_compat::in_process_api = {prepare_backbuffer_input, release_backbuffer_input, observe_backbuffer_input,
+    phoenix_compat::InProcessApi callbacks{prepare_backbuffer_input, release_backbuffer_input, observe_backbuffer_input,
         forget_backbuffer_commands, CnrPHOENIXFeederEvaluate, CnrPHOENIXFeederProgressJson, CnrPHOENIXFeederUiJson,
         CnrPHOENIXFeederUiAction, update_live_tuning};
-    phoenix_compat::in_process_api.present_guides = [](ID3D12GraphicsCommandList* cmd,
+    callbacks.native_queue = native_backbuffer_queue;
+    callbacks.local_queue_lifetime = [](ID3D12CommandQueue* queue,bool created) {
+        auto& value=state();
+        std::lock_guard<std::recursive_mutex> lock(value.mutex);
+        if (created) {
+            check(queue!=nullptr,"No owned private queue to register");
+            ++value.local_queues[queue];
+        } else {
+            const auto found=value.local_queues.find(queue);
+            if (found==value.local_queues.end() || --found->second) return;
+            value.local_queues.erase(found);
+            for(auto entry=value.ownership.begin();entry!=value.ownership.end();)
+                entry=entry->second.queue==queue?value.ownership.erase(entry):std::next(entry);
+            value.states.destroyed_queue(uint64_t(queue));
+        }
+    };
+    callbacks.present_guides = [](ID3D12GraphicsCommandList* cmd,
         ID3D12CommandQueue* queue, PhoenixFeederFrameV1& frame) {
         auto& value=state();
         std::lock_guard<std::recursive_mutex> lock(value.mutex);
@@ -7042,12 +7107,12 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
             panel.execution_device!="native" || panel.upscaler!=0 || panel.pipeline.chain_enabled;
         return value.present_guides && value.present_guides->acquire(cmd,queue,value.present_serial,frame,require_depth,true);
     };
-    phoenix_compat::in_process_api.release_present_guides=[](ID3D12Resource* motion) {
+    callbacks.release_present_guides=[](ID3D12Resource* motion) {
         auto& value=state();
         std::lock_guard<std::recursive_mutex> lock(value.mutex);
         if(value.present_guides)value.present_guides->release(motion);
     };
-    phoenix_compat::in_process_api.guide_status = [] {
+    callbacks.guide_status = [] {
         auto& value = state();
         std::lock_guard<std::recursive_mutex> lock(value.mutex);
         Json result=value.present_guides ? value.present_guides->status() : Json{{"captured",0},{"acquired",0},{"missed",0}};
@@ -7056,6 +7121,12 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
         result["status"]=value.guide_reason;
         return result;
     };
+    if (!phoenix_compat::publish_in_process_api(std::move(callbacks))) {
+        reshade::unregister_addon(module);
+        addon_module = nullptr;
+        addon_registered.store(false);
+        return false;
+    }
 #endif
     phoenix_compat::attach(module);
     phoenix::direct::phoenix_crumb = phoenix_crumb;
@@ -7076,6 +7147,7 @@ bool addon_attach(HMODULE module, HMODULE provider = nullptr) {
     phoenix_native::record_progress = progress;
     observation::observer().reset_callback = command_reset;
     observation::observer().close_callback = command_close;
+    observation::observer().final_release_callback = forget_backbuffer_commands;
     // This host feeds destruction through destroy_resource below, so the
     // committed registry may keep a resource even when its own Release
     // cannot be hooked. The ASI host has no such event and stays strict.
@@ -7111,7 +7183,9 @@ void addon_detach(HMODULE module) {
     if (!addon_registered.compare_exchange_strong(expected, false))
         return;
     phoenix_compat::detach();
-    phoenix_compat::in_process_api = {};
+    // Synchronous frontend construction/teardown uses the session lock above;
+    // detached workers retain their own leases after those sessions close.
+    phoenix_compat::retire_in_process_api();
     menu_helper::detach();
     // An active sidecar is pinned; process teardown releases the driver.
     reshade::unregister_overlay("Phoenix DLSS5", draw_phoenix_overlay);

@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <d3d12sdklayers.h>
 #include <wrl/client.h>
+#include <limits>
+#include "../../src/native/runtime/texture_binding.h"
 using Json = nlohmann::json;
 static void expect(bool success, const char* what) {
     if (!success) throw std::runtime_error(std::string(what) + ": " + phoenix_native_error());
@@ -75,6 +77,18 @@ int main(int argc, char** argv) {
         expect(report.at("complete_call_ms")==0,"Disabled monitoring must not time host transfers");
         if (hardware) expect(report.at("motion_provider") == "NVIDIA Optical Flow", "Hardware motion actually active");
         if (nis) expect(report.at("additional_scaler") == "NVIDIA Image Scaling", "NIS actually active");
+        if(gpu) {
+            // Fail AFTER asynchronous motion has been queued, before the model
+            // list is submitted. Destruction must still drain its resources.
+            ComPtr<ID3D12Device> device;expect(phoenix_native_device(session,&device,nullptr)==0,"Motion failure device");
+            auto input=texture(device.Get(),width,height,16,false),target=texture(device.Get(),width,height,16,true);
+            PhoenixNativeControls invalid{};phoenix_native_default_controls(&invalid);
+            invalid.local_tone=std::numeric_limits<float>::quiet_NaN();
+            expect(phoenix_native_frame_d3d12(session,input.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr,D3D12_RESOURCE_STATE_COMMON,target.resource.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,&invalid)==-1,
+                "Reject invalid controls after motion preparation");
+            expect(status(session).at("failed").get<bool>(),"Queued-motion failure poisons the session until drain");
+        }
         expect(phoenix_native_destroy(session) == 0, "Retire pipeline session");
         std::cout << Json{{"passed",true},{"gpu_used",hardware},{"frames",4},
             {"exact_bypass",!nis&&!chain_motion},{"motion_diagnostic_displayed",chain_motion},{"nis",nis},{"monitoring_off",true},{"status",report}}.dump() << '\n';

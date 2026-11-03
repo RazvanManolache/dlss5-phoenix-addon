@@ -10,8 +10,31 @@ int main() {
     auto verify = [&](bool condition) { ++checks; if (!condition) throw std::runtime_error("Policy assertion failed"); };
     namespace control = phoenix_addon::phoenix::control_bridge;
     try {
+        std::string status = "Native worker";
+        for (unsigned frame = 0; frame < 10000; ++frame)
+            phoenix_compat::append_status_notice(status, " Waiting for processed output.");
+        verify(status == "Native worker Waiting for processed output.");
         constexpr uint64_t mib = 1024 * 1024;
         using phoenix_compat::in_process_address_space_safe;
+        using phoenix_compat::caller_address_limit;
+        verify(caller_address_limit(false,4096*mib)==2048*mib);
+        verify(caller_address_limit(true,4096*mib)==4096*mib);
+        verify(caller_address_limit(true,3072*mib)==3072*mib);
+        {
+            phoenix_compat::ProcessAddressSpace space{};
+            phoenix_compat::count_free_address_region(space,1792*mib,2304*mib,2048*mib);
+            // The old 4 GiB walk reported 2304 MiB free for this non-LAA game.
+            verify(space.free_bytes==256*mib && space.largest_free_region==256*mib);
+            phoenix_compat::count_free_address_region(space,2048*mib,2048*mib,2048*mib);
+            verify(space.free_bytes==256*mib);
+            space.queried=true;
+            verify(!in_process_address_space_safe(32,space));
+        }
+        if constexpr(sizeof(void*)==4) {
+            const auto actual=phoenix_compat::process_address_space();
+            verify(actual.queried && actual.address_limit>0 && actual.address_limit<=4096*mib);
+            verify(actual.free_bytes<=actual.address_limit && actual.largest_free_region<=actual.free_bytes);
+        }
         verify(in_process_address_space_safe(64, {}));
         verify(!in_process_address_space_safe(32, {}));
         verify(in_process_address_space_safe(32, {512*mib,64*mib,true}));
@@ -21,6 +44,18 @@ int main() {
         verify(in_process_address_space_safe(32, {1173*mib,105*mib,true}));
         verify(!in_process_address_space_safe(32, {1173*mib,105*mib,true},160*mib));
         const std::string first_gpu = "vulkan:" + std::string(32, '1');
+        {
+            phoenix_compat::Settings before,edited;
+            edited=before;edited.controls.tone=.4f;
+            verify(!phoenix_compat::live_edit_retries_failed_route(before,edited,false));
+            edited.pipeline.motion_enabled=true;edited.pipeline.flow_height=360;
+            verify(!phoenix_compat::live_edit_retries_failed_route(before,edited,false));
+            edited.divider=.3f;edited.comparison=1;
+            verify(!phoenix_compat::live_edit_retries_failed_route(before,edited,false));
+            verify(phoenix_compat::live_edit_retries_failed_route(before,edited,true));
+            edited.mode=(before.mode+1)%4;
+            verify(phoenix_compat::live_edit_retries_failed_route(before,edited,false));
+        }
         const std::string validated_gpu = "vulkan:" + std::string(32, '2');
         const nlohmann::json discovered = {{{"id",first_gpu}},{{"id",validated_gpu}}};
         verify(phoenix_compat::automatic_portable_device(discovered,{validated_gpu},false)==validated_gpu);
@@ -31,6 +66,13 @@ int main() {
         catch(const std::exception&) { unqualified_rejected = true; }
         verify(unqualified_rejected);
         phoenix_compat::Settings settings;
+        verify(*phoenix_compat::portable_frame_services_unavailable(settings,32));
+        verify(!*phoenix_compat::portable_frame_services_unavailable(settings,64));
+        settings.pipeline.motion_enabled=false;
+        verify(!*phoenix_compat::portable_frame_services_unavailable(settings,32));
+        settings.pipeline.scene_detection=true;
+        verify(*phoenix_compat::portable_frame_services_unavailable(settings,32));
+        settings.pipeline.scene_detection=false;
         settings.budget_mode = 1;
         verify(phoenix_compat::normalize_capabilities(settings));
         verify(settings.budget_mode == 0);
@@ -47,6 +89,21 @@ int main() {
         changed.offload_age_frames += 1;
         verify(phoenix_compat::helper_settings_changed(settings, changed));
         verify(!phoenix_compat::helper_settings_changed(settings, settings));
+        {
+            auto view = settings;
+            view.comparison = 1; view.divider = .35f; view.difference_gain = 4;
+            verify(!phoenix_compat::helper_settings_changed(settings, view));
+            auto running = settings;
+            verify(phoenix_addon::phoenix::copy_live_tuning(running, view));
+            verify(running.comparison == 1 && running.divider == .35f && running.difference_gain == 4);
+            const auto live = phoenix_compat::live_tuning_json(view);
+            verify(live.size() <= 32 && live.at("Comparison") == 1 && live.at("DifferenceGain") == 4);
+            phoenix_compat::apply_live_tuning_patch(running, live);
+            verify(!phoenix_compat::helper_settings_changed(settings, running));
+            view.mode = phoenix_addon::phoenix::split;
+            view.source_a = 1; // May need NVIDIA feature creation; not a layout edit.
+            verify(phoenix_compat::helper_settings_changed(settings, view));
+        }
         auto tuned = settings;
         tuned.controls.enabled = tuned.controls.advanced = tuned.controls.auto_mask = true;
         tuned.controls.tone = .4f; tuned.controls.structure = 1.8f; tuned.controls.skin = .3f;
@@ -72,7 +129,10 @@ int main() {
                              nlohmann::json{{"AutoMask", 1}}, nlohmann::json{{"Depth", 4294967296ull}},
                              nlohmann::json{{"ModelDll", "other.dll"}},
                              nlohmann::json{{"NvidiaDllFolder", "other-folder"}},
-                             nlohmann::json{{"Tone", .8}, {"Skin", 100}}}) {
+                             nlohmann::json{{"Tone", .8}, {"Skin", 100}},
+                             nlohmann::json{{"Comparison", 6}},
+                             nlohmann::json{{"Divider", -1}},
+                             nlohmann::json{{"DifferenceGain", 65}}}) {
             const auto before = phoenix_compat::settings_json(decoded);
             bool refused = false;
             try { phoenix_compat::apply_live_tuning_patch(decoded, invalid); }

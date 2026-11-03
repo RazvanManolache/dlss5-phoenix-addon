@@ -14,9 +14,10 @@ enum class Priority : int { Fixed, Responsiveness, Quality };
 enum class Stage : int { Neural, Scale, Color, Fusion };
 
 // Persisted by all frontends using the same field names. Defaults preserve the
-// existing frame path: no estimation, additional monitoring or image processing.
+// motion source preference: real engine vectors first, estimate missing vectors.
+// Additional monitoring and image-processing stages remain opt-in.
 struct Options {
-    bool motion_enabled = false, scene_detection = false;
+    bool motion_enabled = true, scene_detection = false;
     int motion_source = 0, flow_height = 180, motion_view = 0;
     float flow_consistency = 1.5f, flow_cost = 100.f;
     int monitoring = 0, priority = 0, sample_interval = 30;
@@ -110,9 +111,11 @@ struct MotionChoice {
     const char* reason = "No motion source";
 };
 inline MotionChoice choose_motion(const Options& p, bool engine_valid, bool nvidia_ready) {
-    if (!p.motion_enabled)
-        return engine_valid ? MotionChoice{MotionSource::Engine, "Engine vectors"} : MotionChoice{};
     const auto requested = MotionSource(p.motion_source);
+    if (!p.motion_enabled)
+        return engine_valid && (requested == MotionSource::Automatic || requested == MotionSource::Engine)
+            ? MotionChoice{MotionSource::Engine, "Engine vectors"}
+            : MotionChoice{MotionSource::Zero, "Motion estimation disabled or zero motion selected"};
     if ((requested == MotionSource::Automatic || requested == MotionSource::Engine) && engine_valid)
         return {MotionSource::Engine, "Engine vectors"};
     if ((requested == MotionSource::Automatic || requested == MotionSource::Nvidia) && nvidia_ready)

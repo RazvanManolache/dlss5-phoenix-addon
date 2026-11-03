@@ -1,4 +1,5 @@
 #pragma once
+#include "shader_compiler.h"
 #include "../network/production_network.h"
 #include <d3dcompiler.h>
 namespace phoenix_addon::phoenix::direct {
@@ -46,7 +47,7 @@ class Pass {
     }
     static ComPtr<ID3DBlob> compile(const char* source) {
         ComPtr<ID3DBlob> bytes, errors;
-        HRESULT result = D3DCompile(
+        HRESULT result = phoenix_shader::compile(
             source, strlen(source), "phoenix_direct", nullptr, nullptr, "main", "cs_5_1",
             D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &bytes, &errors);
         if (FAILED(result))

@@ -8,7 +8,7 @@ Architecture and renderer choices have different requirements. The [support matr
 
 **Yes, Phoenix DLSS5 also has a 32-bit game add-on.** Use `Phoenix.addon32` for an
 x86 game and `Phoenix.addon64` for an x64 game. Both are in the
-**[Windows download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta)**.
+**[Windows download](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta2)**.
 This is support for 32-bit games on **64-bit Windows**, not 32-bit Windows or
 older GPUs without the required rendering capabilities.
 

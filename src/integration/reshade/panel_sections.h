@@ -519,10 +519,27 @@ inline bool draw_device_controls(Context& addon_state) {
     changed = draw_kernel_style(addon_state) || changed;
     return changed;
 }
+inline bool draw_comparison_exit(Context& addon_state) {
+    if (addon_state.panel.mode != phoenix::split || !ImGui::Button("Exit comparison")) return false;
+    addon_state.panel.mode = phoenix::comparison_exit_mode(addon_state.panel);
+    return true;
+}
+inline bool draw_playback_stability(Context& context) {
+    if (!context.coherent_frames) return false;
+    context.presentation_changed = ImGui::Checkbox("Hold completed frames", context.coherent_frames);
+    ImGui::TextWrapped(*context.coherent_frames
+        ? "Show complete processed frames and hold the last result while waiting. This prevents original/processed alternation; camera movement includes processing delay."
+        : "Experimental: apply the previous model edit to the current game frame. Moving objects can expose mismatched pixels.");
+    ImGui::TextWrapped("This controls presentation, not model history. Disabled engine-motion and history controls do not turn this protection off.");
+    return context.presentation_changed;
+}
 inline bool draw_comparison_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.comparison()) {
+        // Leaving comparison must stay available even when comparison sources
+        // or engine-specific controls are unavailable on the active route.
+        if (draw_comparison_exit(addon_state)) return true;
         ImGui::BeginDisabled(!addon_state.comparison_views);
         if (ImGui::Button("Defaults##comparison")) {
             phoenix::reset_comparison_section(addon_state.panel);
@@ -819,6 +836,8 @@ inline bool draw_history_controls(Context& addon_state) {
             if (!addon_state.temporal_history)
                 ImGui::TextWrapped(
                     "This bridge resets every input; persistent history needs engine guides.");
+            else if(addon_state.motion_services_available)
+                ImGui::TextWrapped("History is reused only when valid motion is available. Disabled/unavailable motion falls back to a spatial history reset.");
         }
         ImGui::Text("History resets: %llu%s", addon_state.live_resets_recorded,
                     addon_state.live.reset_requested ? " (pending)" : "");

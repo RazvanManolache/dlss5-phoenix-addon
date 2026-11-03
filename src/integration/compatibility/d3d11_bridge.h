@@ -1,7 +1,9 @@
 // D3D11 presents; D3D12 computes. Shared NT textures avoid CPU pixel transfers.
 #pragma once
+#include "../../native/support/shader_compiler.h"
 #include "../../pipeline/paired_screenshot.h"
 #include "host_client.h"
+#include "d3d11_loading.h"
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <d3dcompiler.h>
@@ -116,6 +118,15 @@ class D3D11Bridge {
     }
 
   public:
+    struct EngineMotionInput {
+        ID3D11Texture2D* texture=nullptr;
+        float scale_x=1,scale_y=1;
+    };
+    void release_presentation_targets() {
+        // Cached RTVs indirectly own DXGI backbuffers. Keep model/shared-frame
+        // resources warm, but never retain these views across ResizeBuffers.
+        targets_.clear();
+    }
     bool request_screenshot_pair(const fs::path& folder) { return screenshot_pair_.request(folder); }
     const Json& screenshot_pair_status() const { return screenshot_pair_.result; }
     void save_screenshot_pair() noexcept {
@@ -236,7 +247,7 @@ class D3D11Bridge {
         auto compile = [&](const char* entry, const char* profile) {
             Ptr<ID3DBlob> blob, errors;
             const auto result =
-                D3DCompile(source.data(), source.size(), "phoenix_d3d11_bridge", nullptr, nullptr,
+                phoenix_shader::compile(source.data(), source.size(), "phoenix_d3d11_bridge", nullptr, nullptr,
                            entry, profile, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors);
             if (FAILED(result))
                 throw std::runtime_error(
@@ -285,6 +296,21 @@ class D3D11Bridge {
     uint64_t presented() const {
         return presented_;
     }
+    bool protect_presentation(ID3D11Texture2D* back, uint64_t frame_number,
+                              const phoenix_addon::phoenix::Settings& settings) {
+        if (!snapshot_) {
+            d3d11_record_loading(device_.Get(), back);
+            return false;
+        }
+        ContextScope state(context_.Get(), clean_state_.Get());
+        ID3D11ShaderResourceView* views[]{current_view_.Get(), input_view_.Get(), output_view_.Get()};
+        draw(presentation_target(back), compose_.Get(), views, 3,
+             helper_presentation_mode(settings), settings.intensity, true);
+        ++presented_;
+        presented_input_frame_ = presented_output_frame_ = delivered_frame_;
+        composed_at_frame_ = frame_number;
+        return true;
+    }
     Json transfer_timings() const {
         return {{"current_snapshot_copies", current_copies_},
                 {"input_submissions", input_submissions_},
@@ -294,11 +320,13 @@ class D3D11Bridge {
                 {"composed_at_frame", composed_at_frame_}, {"width", width_}, {"height", height_}};
     }
     void frame(ID3D11Texture2D* back, uint64_t frame_number,
-               const phoenix_addon::phoenix::Settings& settings, bool coherent_frames = false) {
-        frame(back, presentation_target(back), frame_number, settings, coherent_frames);
+               const phoenix_addon::phoenix::Settings& settings, bool coherent_frames = false,
+               const EngineMotionInput* engine_motion=nullptr) {
+        frame(back, presentation_target(back), frame_number, settings, coherent_frames,engine_motion);
     }
     void frame(ID3D11Texture2D* back, ID3D11RenderTargetView* target, uint64_t frame_number,
-               const phoenix_addon::phoenix::Settings& settings, bool coherent_frames = false) {
+               const phoenix_addon::phoenix::Settings& settings, bool coherent_frames = false,
+               const EngineMotionInput* engine_motion=nullptr) {
         if (!host_)
             return;
         if (host_->phase() == Phase::OpenFences) {
@@ -336,9 +364,22 @@ class D3D11Bridge {
         if (submit_input) {
             ID3D11ShaderResourceView* views[] = {current_view_.Get()};
             draw(capture_view_.Get(), copy_.Get(), views, 1, 0, 1);
+            FeedGuideState guides;
+            if(engine_motion&&engine_motion->texture&&submitted_frame_+1==frame_number){
+                D3D11_TEXTURE2D_DESC description{};engine_motion->texture->GetDesc(&description);
+                Ptr<ID3D11Device> owner;engine_motion->texture->GetDevice(&owner);
+                Ptr<IUnknown> source_identity,game_identity;hr(owner.As(&source_identity));hr(device_.As(&game_identity));
+                require(source_identity.Get()==game_identity.Get()&&description.Width==width_&&description.Height==height_&&
+                    description.Format==DXGI_FORMAT_R16G16_FLOAT&&description.SampleDesc.Count==1&&description.ArraySize==1&&description.MipLevels==1,
+                    "Engine motion must be a matching same-device RG16F texture");
+                context_->CopyResource(shared11_[FEED_MV].Get(),engine_motion->texture);
+                guides={1,engine_motion->scale_x,engine_motion->scale_y};
+            }
+            // Publish color and any declared motion in the same producer epoch.
+            // Signaling before the motion copy lets the helper observe old vectors.
             hr(context_->Signal(input_fence_.Get(), ++serial_));
             context_->Flush();
-            require(host_->submit(serial_, true), "Bridge submission lost ownership");
+            require(host_->submit(serial_, input_submissions_ == 0,{},1,guides), "Bridge submission lost ownership");
             ++input_submissions_;
             submitted_frame_ = frame_number;
             submitted_tick_ = GetTickCount64();

@@ -10,23 +10,26 @@ enum class PipelineSection { Motion, Responsiveness, Chain, Inspection, Recovery
 inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
     const std::string& model_library = {}, bool native_chain = true,
     bool portable_chain = false, bool frame_services = true,
-    PipelineSection section = PipelineSection::All) {
+    PipelineSection section = PipelineSection::All, bool motion_services = false) {
     if (section == PipelineSection::All &&
         !ImGui::CollapsingHeader("Motion, latency and processing chain")) return false;
     bool changed = false;
     if (section == PipelineSection::Motion || section == PipelineSection::All) {
-        if(!frame_services&&!portable_chain)ImGui::TextWrapped("Flow, scene analysis and pipeline-age controls require the local final-frame D3D12 bridge. This route uses its supplied guides and reset flags; its neural budget controls are separate.");
-        ImGui::BeginDisabled(!frame_services);
+        if(!frame_services&&!motion_services&&!portable_chain)ImGui::TextWrapped("Flow and scene analysis require a compatible final-frame bridge or Native RTX helper. Pipeline-age controls require the local bridge.");
+        ImGui::BeginDisabled(!frame_services&&!motion_services);
         changed |= ImGui::Checkbox("Estimate motion when engine vectors are unavailable", &p.motion_enabled);
-        ImGui::BeginDisabled(!p.motion_enabled);
         const char* providers[]{"Automatic (prefer engine vectors)", "Engine vectors", "NVIDIA Optical Flow", "Zero motion"};
         changed |= ImGui::Combo("Motion source", &p.motion_source, providers, 4);
-        changed |= ImGui::SliderInt("Motion analysis height", &p.flow_height, 64, 1080);
+        const bool estimating=p.motion_enabled&&(p.motion_source==0||p.motion_source==2);
+        ImGui::BeginDisabled(!estimating);
+        changed |= ImGui::SliderInt("Motion analysis height", &p.flow_height, 64, 2160);
+        ImGui::TextWrapped("Analysis preserves aspect ratio and never exceeds the input size. Lower heights reduce estimation work; neural output resolution is unchanged.");
         changed |= ImGui::SliderFloat("Motion consistency tolerance (pixels)", &p.flow_consistency, .1f, 20.f);
         changed |= ImGui::SliderFloat("Motion cost threshold (per mille)", &p.flow_cost, 1.f, 990.f);
         const char* views[]{"Processed image", "Motion direction and magnitude", "Motion confidence"};
         changed |= ImGui::Combo("Motion diagnostic view", &p.motion_view, views, 3);
         ImGui::EndDisabled();
+        ImGui::TextWrapped("Engine vectors require a real producer. Missing or rejected motion uses spatial processing with history reset. Confidence views and rejection thresholds apply to estimated motion.");
         changed |= ImGui::Checkbox("Detect scene changes and reset history", &p.scene_detection);
         ImGui::EndDisabled();
     }

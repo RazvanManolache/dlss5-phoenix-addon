@@ -2,6 +2,7 @@
 #include "bootstrap_contract.h"
 #include "gdi32.h"
 #include "driver_contract.h"
+#include "driver_compatibility.h"
 #include "../../../native/model/bundle_loader.h"
 #include <bcrypt.h>
 #include <fstream>
@@ -104,7 +105,8 @@ class NativeThread {
         // Native images/driver threads may retain imports. Libraries stay loaded
         // for the process lifetime rather than unloading under a callback.
     }
-    void start(const std::filesystem::path& root,phoenix_driver_probe::Channel& channel,unsigned kind,void* packet) {
+    void start(const std::filesystem::path& root,phoenix_driver_probe::Channel& channel,unsigned kind,void* packet,
+               const char* isolated_probe_driver_sha=nullptr) {
         using phoenix_bundle::require;
         const auto profile=phoenix_bundle::json_file(root/"bootstrap.json");
         require(profile.at("schema")=="phoenix-wow64-bootstrap/3","Update the matching addon and native runtime together; native TLS coordination requires bootstrap v3");
@@ -118,10 +120,12 @@ class NativeThread {
             const auto name=std::filesystem::u8path(item.key()); require(name==name.filename(),"Invalid native runtime file name");
             require(file_digest(root/name)==item.value().get<std::string>(),"Native runtime package hash mismatch");
         }
-        const auto driver=std::filesystem::u8path(profile.at("driver_directory").get<std::string>());
-        require(driver==driver.filename(),"Invalid native driver directory");
-        cuda_path_=(system/"System32/DriverStore/FileRepository"/driver/"nvcuda64.dll").wstring();
-        require(file_digest(system/"Sysnative/DriverStore/FileRepository"/driver/"nvcuda64.dll")==profile.at("cuda_sha256").get<std::string>(),"Native driver profile changed; use the helper or rebuild the runtime profile.");
+        // Only the disposable probe itself skips recursive cache validation.
+        // It still verifies the package, Windows profile and discovered driver.
+        const auto driver=isolated_probe_driver_sha?discover_native_driver():compatible_native_driver(root,profile);
+        if(isolated_probe_driver_sha)require(kind==4&&channel.operation==phoenix_driver_probe::check_compatibility&&
+            driver.sha256==isolated_probe_driver_sha,"Isolated driver probe identity changed");
+        cuda_path_=driver.library.wstring();
         service_path_=(root/(kind==4?"phoenix_driver64.dll":"phoenix-nvngx.dll")).wstring();
         extension_=LoadLibraryExW((root/"wow64ext.dll").c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
         require(extension_!=nullptr,"Matching x86 WOW64 bridge library unavailable");
@@ -166,8 +170,11 @@ class NativeThread {
         require(task_.gdi.request_event&&task_.gdi.response_event&&channel.request_event&&channel.response_event,"Native session events unavailable");
         const auto entry=proc(library,"PhoenixTlsRunTask64"), create=proc(ntdll,"NtCreateThreadEx");
         require(entry&&create,"Native bootstrap entry unavailable"); uint64_t handle=0;
+        // A zero maximum inherits the host game's PE stack reserve, which can
+        // be only 192 KiB. Native x64 driver/model frames need their own budget.
+        constexpr uint64_t native_stack_commit=256*1024, native_stack_reserve=8*1024*1024;
         require(int32_t(call(create,11,pointer(&handle),uint64_t(0x1fffff),uint64_t(0),uint64_t(-1),entry,pointer(&task_),
-            uint64_t(2),uint64_t(0),uint64_t(0),uint64_t(0),uint64_t(0)))>=0&&handle,"Cannot create native processing thread");
+            uint64_t(2),uint64_t(0),native_stack_commit,native_stack_reserve,uint64_t(0)))>=0&&handle,"Cannot create native processing thread");
         thread_=reinterpret_cast<HANDLE>(uintptr_t(handle)); wait();
     }
     void wait() {

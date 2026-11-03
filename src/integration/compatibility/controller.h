@@ -8,6 +8,8 @@
 #include "backbuffer_route.h"
 #include "transport_availability.h"
 #include "d3d12_bridge.h"
+#include "d3d11_local_bridge.h"
+#include "runtime_continuity.h"
 #include "session_policy.h"
 #include "screenshot.h"
 #include "../../native/support/control_mailbox.h"
@@ -38,6 +40,7 @@ struct Session {
     bool native_fallback=true, native_library_failed=false, native_driver_failed=false;
     bool portable_allow_unvalidated = false, portable_fallback = true, portable_failed = false;
     bool local_failed = false;
+    bool live_motion_services = false;
     TransportAvailabilityProbe availability_probe;
     TransportRuntimes runtime_availability;
     BackbufferCapabilities capabilities, selectable_capabilities;
@@ -68,6 +71,7 @@ struct Session {
     // Hold complete input/output pairs: never put an old mask over newer motion.
     bool coherent_frames = true;
     uint64_t presentation_holds = 0, loading_presentations = 0;
+    uint64_t runtime_resumes = 0;
     unsigned width = 0, height = 0;
     uint64_t frames = 0;
     uint64_t logged_outputs = 0;
@@ -92,7 +96,7 @@ inline void reset_route_failures(Session& value) {
     value.failed_routes.clear(); value.fallback_reason.clear();
 }
 inline void reject_route(Session& value, BackbufferRoute route, const std::string& error) {
-    if (route == BackbufferRoute::InProcess) value.local_failed = true;
+    if (route == BackbufferRoute::InProcess || route == BackbufferRoute::InProcessStaging) value.local_failed = true;
     else if (route == BackbufferRoute::NativeLibrary) value.native_library_failed = true;
     else if (route == BackbufferRoute::NativeDriver) value.native_driver_failed = true;
     else if (route == BackbufferRoute::Portable) value.portable_failed = true;
@@ -117,7 +121,7 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
         value.runtime_availability = {false, false, false, error.what(), error.what()};
     }
     caps.discovery_pending = value.runtime_availability.pending;
-    caps.local_api = in_process_api.available();
+    caps.local_api = in_process_api_available();
     caps.native_executor = in_process_settings(settings).execution_device == "native";
     caps.nvidia_required = needs_nvidia_dll(settings);
     caps.native_library_available = value.runtime_availability.native;
@@ -134,7 +138,11 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     if (value.runtime_availability.native && !value.runtime_availability.driver_graph)
         value.native_driver_reason = value.runtime_availability.driver_reason;
     for (bool driver : {false, true}) {
-        const char* reason = native_settings_unavailable_reason(settings, driver);
+        // Keep the concrete package/driver/bootstrap failure. Unsupported
+        // settings must not disguise it as missing motion/TLS support.
+        if (!(driver ? caps.native_driver_available : caps.native_library_available)) continue;
+        const char* reason = native_settings_unavailable_reason(settings, driver,
+            value.runtime_availability.library_frame_services, value.runtime_availability.library_appearance);
         if (caps.bits == 32 && caps.api == reshade::api::device_api::opengl && !caps.native_tls_coordinated)
             reason = "Native x86 OpenGL requires the matching TLS-coordinated v3 addon/runtime.";
         if (!*reason && driver) {
@@ -155,6 +163,10 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     if (settings.resolution_mode != 0 || settings.host_unjitter)
         value.portable_reason = "Portable backbuffer execution requires normal resolution and no unjitter.";
     if (caps.nvidia_required) value.portable_reason = "Portable processing cannot evaluate the NVIDIA DLL.";
+    if(caps.portable_available){
+        const auto* reason=portable_frame_services_unavailable(settings,caps.bits);
+        if(*reason){caps.portable_available=false;value.portable_reason=reason;}
+    }
     caps.native_library_reason=value.native_library_reason;
     caps.native_driver_reason=value.native_driver_reason;
     caps.portable_reason=value.portable_reason;
@@ -218,14 +230,35 @@ inline void log_progress(Session &value) {
 inline std::recursive_mutex sessions_mutex;
 // A D3D12 sharing device is tied to the game's D3D11 device, not its canvas.
 // Releasing the last device reference during resize can wait for driver/helper
-// teardown. Keep this lightweight owner across runtime resets; frame resources
-// remain per-bridge and are released before DXGI replaces its backbuffers.
+// teardown. Keep this lightweight owner across runtime resets; independent
+// frame textures can survive, but swapchain views must be released before resize.
 // Normal device destruction or addon detachment clears this owner. At process
 // exit, let the OS reclaim it rather than call graphics drivers under DLL lock.
 inline auto &sharing_devices = *new std::map<reshade::api::device*, Ptr<ID3D12Device>>;
 // Normal unloading calls detach before the loader lock. At process exit the
 // OS closes the helper job; static destruction must not join terminated threads.
 inline auto &sessions = *new std::map<reshade::api::effect_runtime *, std::unique_ptr<Session>>;
+inline auto &runtime_continuity = *new RuntimeContinuity<Session>;
+inline RuntimeContinuity<Session>::Owner runtime_owner(reshade::api::effect_runtime* runtime) {
+    return {reinterpret_cast<uintptr_t>(runtime->get_device()),
+            reinterpret_cast<uintptr_t>(runtime->get_hwnd())};
+}
+inline void prune_runtime_continuity() {
+    runtime_continuity.prune([](auto owner) { return IsWindow(reinterpret_cast<HWND>(owner.second)) != FALSE; });
+}
+inline bool same_helper_recipe(const Session& previous, const Session& current) try {
+    auto* host = previous.bridge ? previous.bridge->host() : nullptr;
+    return host && host->phase() != Phase::Failed && host->phase() != Phase::Stopped &&
+        settings_json(previous.applied_settings) == settings_json(current.applied_settings) &&
+        previous.configured.configuration() == current.configured.configuration() &&
+        previous.execution_name == current.execution_name && previous.helper_transport == current.helper_transport &&
+        previous.native_root == current.native_root && previous.portable_root == current.portable_root &&
+        previous.portable_device == current.portable_device && previous.output_directory == current.output_directory &&
+        previous.hotkeys == current.hotkeys && previous.native_fallback == current.native_fallback &&
+        previous.portable_fallback == current.portable_fallback && previous.portable_allow_unvalidated == current.portable_allow_unvalidated &&
+        previous.enabled == current.enabled && previous.coherent_frames == current.coherent_frames &&
+        !previous.restart && !previous.deferred_destroy && previous.processing_error.empty();
+} catch (const std::exception&) { return false; }
 inline bool applies(reshade::api::effect_runtime *runtime) {
     // The standalone thin frontend can also be built x64 for transport tests.
 #ifdef PHOENIX_COMPATIBILITY_ONLY
@@ -347,6 +380,15 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
             entry->message = error.what();
         }
         entry->applied_settings.nvidia_dll_folder = entry->settings.nvidia_dll_folder;
+        prune_runtime_continuity();
+        if (auto previous = runtime_continuity.take(runtime_owner(runtime));
+            previous && same_helper_recipe(*previous, *entry)) {
+            entry = std::move(previous);
+            ++entry->runtime_resumes;
+            entry->fps_tick = entry->fps_frames = 0;
+            reshade::log::message(reshade::log::level::info,
+                "Phoenix resumed the same shared-GPU helper after runtime reset; model and completed frame retained.");
+        }
     }
     if (entry->control.folder().empty()) {
         const auto window = uint64_t(reinterpret_cast<uintptr_t>(runtime->get_hwnd()));
@@ -357,6 +399,11 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
     return *entry;
 }
 inline void save(reshade::api::effect_runtime *runtime, Session &value, bool apply = true) {
+    if(auto* host=value.bridge?value.bridge->host():value.readback?value.readback->host():nullptr) {
+        const auto info=host->ui_snapshot();
+        value.live_motion_services=info.value("helper_motion",Json::object()).value("supported",false)||
+            info.value("runtime",Json::object()).value("pipeline_frame_services",false);
+    }
     phoenix_addon::phoenix::normalize_direct_comparison(value.settings);
     if (normalize_capabilities(value.settings))
         value.ui_error = "FPS budgeting is unavailable in a companion; using GPU-time budget.";
@@ -402,9 +449,12 @@ inline void save(reshade::api::effect_runtime *runtime, Session &value, bool app
         const bool retry = !value.processing_error.empty();
         value.processing_error.clear();
         if (retry) reset_route_failures(value);
-        const bool changed = helper_settings_changed(value.applied_settings, value.settings);
+        auto previous=value.applied_settings;
+        if(value.live_motion_services)copy_helper_motion(previous.pipeline,value.settings.pipeline);
+        const bool changed = helper_settings_changed(previous, value.settings);
         auto tuning = value.applied_settings;
-        const bool tuning_changed = phoenix_addon::phoenix::copy_live_tuning(tuning, value.settings);
+        const bool tuning_changed = phoenix_addon::phoenix::copy_live_tuning(tuning, value.settings) ||
+            (value.live_motion_services&&helper_motion_json(value.applied_settings.pipeline)!=helper_motion_json(value.settings.pipeline));
         if (changed || tuning_changed) ++value.selection_revision;
         value.restart = value.restart || changed || retry;
         value.applied_settings = value.settings;
@@ -413,6 +463,8 @@ inline void save(reshade::api::effect_runtime *runtime, Session &value, bool app
 }
 inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value,
                            const phoenix_ui::Context& ui) {
+    if (ui.presentation_changed)
+        reshade::set_config_value(runtime, "Phoenix.Compatibility", "CoherentFrames", value.coherent_frames);
     value.settings.uplift = true; // Legacy presets cannot create a hidden second switch.
     // Live controls update even during a drag. Resource edits wait until the
     // editing gesture ends, rather than rebuilding on every intermediate value.
@@ -425,15 +477,27 @@ inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value
     const bool portable_view=selection&&view_host&&view_host->in_process_portable()&&
         previous_selection.mode==value.applied_settings.mode&&!needs_nvidia_dll(value.applied_settings)&&
         portable_view_only(previous_selection,value.applied_settings);
-    const bool tuning = phoenix_addon::phoenix::copy_live_tuning(value.applied_settings, value.settings);
+    const bool ordinary_tuning = phoenix_addon::phoenix::copy_live_tuning(value.applied_settings, value.settings);
+    const bool motion_tuning=value.live_motion_services&&!ImGui::IsAnyItemActive()&&
+        copy_helper_motion(value.applied_settings.pipeline,value.settings.pipeline);
+    const bool tuning=ordinary_tuning||motion_tuning;
     if (selection || ui.processing_changed || tuning) {
         const bool retry = !value.processing_error.empty();
         if(!hud_only)++value.selection_revision;
         value.settings.uplift = value.applied_settings.uplift = true;
-        value.processing_error.clear(); value.local_failed = false;
-        if (!hud_only && (selection || ui.processing_changed || retry)) reset_route_failures(value);
-        if (!value.portable_failed) value.fallback_reason.clear();
-        value.restart = value.restart || (selection&&!portable_view&&!hud_only) || ui.processing_changed || retry;
+        value.processing_error.clear();
+        // A strength/motion/view edit cannot repair a rejected device/queue.
+        // Preserve fallback ownership rather than retrying and cold-starting
+        // the helper on every ordinary slider movement.
+        if (live_edit_retries_failed_route(previous_selection,value.applied_settings,retry)) reset_route_failures(value);
+        auto previous_resources = previous_selection;
+        if (value.live_motion_services)
+            copy_helper_motion(previous_resources.pipeline, value.applied_settings.pipeline);
+        // Selection contains live comparison layout as well as real resource
+        // choices. Match the mailbox/save path's classification so editing the
+        // same control in either UI cannot unnecessarily cold-start the helper.
+        const bool resources_changed = helper_settings_changed(previous_resources, value.applied_settings);
+        value.restart = value.restart || (resources_changed&&!portable_view&&!hud_only) || ui.processing_changed || retry;
         save(runtime, value, false);
     }
     value.settings_dirty = settings_json(value.settings) != settings_json(value.applied_settings);
@@ -449,16 +513,25 @@ inline bool portable_active(Session& value) {
     const auto* client = active_host(value);
     return client && client->in_process_portable();
 }
-inline bool native_active(Session& value) {const auto* client=active_host(value);return client&&client->native_execution();}
+inline bool local_staging_active(Session& value) {
+    const auto* client = active_host(value);
+    return client && client->native_execution() && std::string(client->native_execution()) == "in_process_staged";
+}
+inline bool native_active(Session& value) {
+    const auto* client=active_host(value);
+    return client&&client->native_execution()&&!local_staging_active(value);
+}
 inline bool resident_active(Session& value) {const auto* client=active_host(value);return client&&client->in_process();}
 inline const char* execution_mode(Session& value) {
+    if(local_staging_active(value)) return "in_process_staged";
     if(native_active(value)) return active_host(value)->native_execution();
-    return value.local ? "in_process" : portable_active(value) ? "in_process_portable" :
+    return value.local ? value.local->execution_kind() : portable_active(value) ? "in_process_portable" :
         active_host(value) ? "helper" : "not_started";
 }
 inline const char* timing_provenance(Session& value) {
+    if(local_staging_active(value)) return "Same-process native GPU; CPU upload, inference and readback included in worker wall time";
     if(native_active(value)) return "Same-process native worker; host pixel transfer and native dispatch included in wall time";
-    return value.local ? "In-process GPU (same-device D3D12)" : portable_active(value) ?
+    return value.local ? value.local->execution_description() : portable_active(value) ?
         "In-process portable (host preparation, inference and resolve; CPU pixel transfers)" :
         active_host(value) ? "Helper GPU (D3D12 companion)" : "Processing has not started";
 }
@@ -578,6 +651,7 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.direct_nr_ready = info.value("nvidia", Json::object()).value("ready", false);
     ui.nvidia_status = info.value("nvidia", Json::object()).value("status", std::string());
     ui.processing_enabled = &value.enabled;
+    ui.coherent_frames = &value.coherent_frames;
     ui.timing_provenance = timing_provenance(value);
     ui.pipeline_status = info.value("pipeline_status", Json::object());
     ui.native_kernel_styles = info.value("native_kernel_styles", Json::object());
@@ -592,9 +666,22 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     const bool native_requested = native_active(value) ||
         (value.execution == ExecutionPreference::NativeLibrary && !value.native_library_failed) ||
         (value.execution == ExecutionPreference::NativeDriver && !value.native_driver_failed && !needs_nvidia_dll(value.settings));
-    // Only the local D3D12 bridge owns motion/discontinuity/age services.
-    // A final color frame by itself does not establish these capabilities.
-    ui.frame_services_available=bool(value.local)||portable_services;
+    // Motion capability is distinct from local latency/adaptive services.
+    // A helper advertises its own estimator; color alone is not engine guides.
+    ui.frame_services_available=bool(value.local)||portable_services||
+        std::string(execution_mode(value)) == "in_process_staged";
+    const auto helper_motion=info.value("helper_motion",Json::object());
+    value.live_motion_services=host&&!resident_active(value)&&helper_motion.value("supported",false)&&
+        info.value("schema",std::string())=="phoenix-panel/1";
+    // This flag means a worker can apply motion edits without replacement. A
+    // modern same-process library worker uses the same shared native SDK.
+    const auto resident_runtime=info.value("runtime",Json::object());
+    const bool native_motion=native_active(value)&&resident_runtime.value("pipeline_frame_services",false);
+    value.live_motion_services=value.live_motion_services||native_motion;
+    ui.motion_services_available=value.live_motion_services;
+    if(ui.motion_services_available)ui.motion_status=native_motion?
+        resident_runtime.value("motion_provider",std::string("Waiting for motion sample")):
+        helper_motion.value("status",std::string());
     ui.native_chain_available=!native_requested;
     ui.final_frame_source = true;
     ui.portable_backbuffer = portable_active(value) ||
@@ -612,6 +699,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.processing_active = value.displayed && value.presented_revision == value.selection_revision;
     const std::string actual = execution_mode(value);
     ui.active_route = actual == "in_process" ? "Native D3D12 / same-device processing"
+        : actual == "in_process_d3d11" ? "Native DX11/DX12 / same-process GPU textures"
+        : actual == "in_process_staged" ? "Native GPU / same-process worker, CPU pixel transfers"
         : actual == "in_process_portable" ? "Portable runtime / same-process processing"
         : actual == "in_process_x86_driver" ? "Native x86 driver / same-process processing"
         : actual == "in_process_x64_library" ? "Native x64 library / x86 game process"
@@ -625,7 +714,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.mode_frames = value.mode_frames;
     ui.mode_own = value.mode_own;
     ui.mode_native = value.mode_native;
-    ui.real_guides = ui.temporal_history = false;
+    ui.real_guides = false;
+    ui.temporal_history = ui.motion_services_available;
     ui.comparison_views = true; // The helper returns the selected composed view too.
     ui.fps_budget = false;
     ui.model_restart = "The selected model loads automatically when editing is finished.";
@@ -719,11 +809,14 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"status", value.message},
         {"helper_pid", host && !resident_active(value) ? host->process_id() : 0},
         {"execution_mode", execution_mode(value)},
+        {"runtime_resumes", value.runtime_resumes},
         {"execution_preference", value.execution_name}, {"fallback_reason", value.fallback_reason},
         {"transport_options", std::move(transports)}, {"transport_failures", value.failed_routes},
         {"transport_discovery_pending", value.runtime_availability.pending},
+        {"native_driver_validation", value.runtime_availability.native_driver_validation},
         {"process_address_space", {{"bits", sizeof(void*) * 8},
             {"queried", value.runtime_availability.address_space.queried},
+            {"address_limit", value.runtime_availability.address_space.address_limit},
             {"free_bytes", value.runtime_availability.address_space.free_bytes},
             {"largest_free_region", value.runtime_availability.address_space.largest_free_region}}},
         {"transport_availability", {{"native_library", value.native_library_reason},
@@ -844,10 +937,12 @@ inline void comparison_hud(reshade::api::effect_runtime* runtime) {
 // The same Setup tab hosts architecture-specific transport controls.
 inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value) {
     if (ImGui::CollapsingHeader("Advanced transport")) {
-    ImGui::TextWrapped("%s", value.local ? "Phoenix DLSS5 runs inside the game on its D3D12 device." : native_active(value) ?
+    ImGui::TextWrapped("%s", value.local ? value.local->execution_description() :
+        std::string(execution_mode(value)) == "in_process_staged" ?
+        "Native GPU inference runs inside this x64 game. This graphics API uses fenced CPU capture and return." : native_active(value) ?
         "Processing runs inside this x86 game on a native 64-bit thread; no helper process. Pixel transfers still use CPU staging." : portable_active(value) ?
         "Phoenix DLSS5 runs inside the game using the portable runtime and CPU pixel transfers." :
-        "Phoenix DLSS5 selects same-device D3D12 processing when supported, otherwise an isolated 64-bit helper.");
+        "Automatic selects an eligible same-process GPU route first; the isolated helper remains a fallback.");
     bool route_changed = false;
     transport_capabilities(value,value.settings,value.capabilities);
     const auto choices = available_execution_preferences(value.selectable_capabilities);
@@ -953,13 +1048,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
     ImGui::TextUnformatted(value.applied_settings.pipeline.motion_enabled?
         "Frame history: motion provider; unavailable guides reset recurrence":
         "Frame history: spatial reset (no engine motion vectors)");
-    if (ImGui::Checkbox("Keep input and output from the same frame", &value.coherent_frames))
-        reshade::set_config_value(runtime, "Phoenix.Compatibility", "CoherentFrames",
-                                  value.coherent_frames);
-    ImGui::TextWrapped(value.coherent_frames
-                           ? "Show completed output only. Hold the last result while processing; show a black loading frame before the first result. Camera movement is delayed by processing time."
-                           : "Experimental: apply the old model edit to the current image on "
-                             "D3D9/D3D11. Moving objects can show through older masks.");
+    ImGui::TextUnformatted("Playback stability is in Image > Playback stability > Hold completed frames.");
 #ifndef _WIN64
     ImGui::TextUnformatted(value.local || resident_active(value) ? "Inference inside this 32-bit game process"
                                      : "32-bit game addon / graphics helper when required");
@@ -1003,10 +1092,24 @@ inline void panel(reshade::api::effect_runtime* runtime) {
 
 inline void destroy(reshade::api::effect_runtime *runtime) {
     std::lock_guard lock(sessions_mutex);
-    sessions.erase(runtime);
+    prune_runtime_continuity();
+    const auto found = sessions.find(runtime);
+    if (found == sessions.end()) return;
+    auto& value = *found->second;
+    auto* host = value.bridge ? value.bridge->host() : nullptr;
+    if (runtime->get_device()->get_api() == reshade::api::device_api::d3d11 && host &&
+        !host->in_process() && host->phase() != Phase::Failed && host->phase() != Phase::Stopped &&
+        !value.restart && !value.deferred_destroy && value.processing_error.empty() &&
+        IsWindow(reinterpret_cast<HWND>(runtime->get_hwnd()))) {
+        value.bridge->release_presentation_targets();
+        value.screenshot.reset();
+        runtime_continuity.park(runtime_owner(runtime), std::move(found->second));
+    }
+    sessions.erase(found);
 }
 inline void destroy_graphics_device(reshade::api::device *device) {
     std::lock_guard lock(sessions_mutex);
+    runtime_continuity.destroy_device(reinterpret_cast<uintptr_t>(device));
     sharing_devices.erase(device);
 }
 inline bool is_software_render_device(reshade::api::device* device) {
@@ -1171,6 +1274,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         decision = choose_backbuffer_route(capabilities, ExecutionPreference::Automatic);
     const bool native_attempt = decision.route == BackbufferRoute::NativeLibrary || decision.route == BackbufferRoute::NativeDriver;
     const bool portable_attempt = decision.route == BackbufferRoute::Portable;
+    const bool local_staging_attempt = decision.route == BackbufferRoute::InProcessStaging;
     if (value.helper_transport != "auto" && value.helper_transport != "shared" &&
         value.helper_transport != "readback") {
         value.message = "Unknown HelperTransport; use auto, shared or readback.";
@@ -1196,7 +1300,10 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 remember_timing(value); value.local.reset(); value.logged_outputs = 0;
             }
             if (!value.local) {
-                value.local = std::make_unique<D3D12Bridge>(runtime, description);
+                if (device->get_api() == reshade::api::device_api::d3d11)
+                    value.local = std::make_unique<D3D11LocalBridge>(runtime, description);
+                else
+                    value.local = std::make_unique<D3D12Bridge>(runtime, description);
                 value.width = description.texture.width; value.height = description.texture.height;
                 value.readback_format = description.texture.format;
                 value.message = decision.reason;
@@ -1252,7 +1359,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.processing_error = value.message;
         return;
     }
-    if (portable_attempt || native_attempt || value.helper_transport == "readback" ||
+    if (local_staging_attempt || portable_attempt || native_attempt || value.helper_transport == "readback" ||
         device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable || capabilities.software_device) {
         try {
             const auto back = back_resource;
@@ -1275,6 +1382,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                     "No model selected. Browse to your NVIDIA DLSS5 DLL or a compatible model folder.");
                 std::optional<PortableOptions> portable;
                 std::optional<NativeOptions> native;
+                std::optional<LocalGpuOptions> local;
+                if (local_staging_attempt) local = LocalGpuOptions{};
                 if(native_attempt) {
                     native = NativeOptions{runtime_path(value.native_root, "PhoenixRuntime/wow64"),
                                            decision.route == BackbufferRoute::NativeDriver};
@@ -1286,12 +1395,12 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 }
                 ++value.helper_generation;
                 value.readback = std::make_unique<ReadbackBridge>(runtime, description, module,
-                                                                  selected, value.applied_settings, portable,native);
+                                                                  selected, value.applied_settings, portable,native,local);
                 value.message = std::string(api_name(device->get_api())) +
                                 (portable_attempt ? " readback / in-process portable Phoenix DLSS5. CPU pixel transfers add " :
                                 " readback / asynchronous 64-bit helper. CPU pixel transfers add ") +
                                 "latency and bandwidth.";
-                if(native_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
+                if(native_attempt || local_staging_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
                 reshade::log::message(reshade::log::level::info, value.message.c_str());
             }
             if (portable_attempt && value.readback->host()->phase() == Phase::Failed &&
@@ -1303,6 +1412,11 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                (value.native_fallback || value.execution == ExecutionPreference::Automatic)) {
                 reject_route(value, decision.route, value.readback->host()->error()); return;
             }
+            if (local_staging_attempt && value.readback->host()->phase() == Phase::Failed &&
+                value.execution == ExecutionPreference::Automatic) {
+                require(!in_process_gpu_uncertain, "Local native GPU work did not retire; helper fallback is unsafe");
+                reject_route(value, decision.route, value.readback->host()->error()); return;
+            }
             require(value.readback->host()->update_tuning(value.applied_settings), "Helper refused live tuning");
             prepare_pair_request(value,value.readback.get());
             value.readback->frame(command, back, value.frames, value.applied_settings,
@@ -1310,8 +1424,11 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             update_pair_result(value,value.readback->screenshot_pair_status());
             log_progress(value);
         } catch (const std::exception &error) {
-            value.message = error.what();
-            if ((native_attempt && (value.native_fallback || value.execution == ExecutionPreference::Automatic)) ||
+            value.message=std::string(value.readback?value.readback->transfer_stage():"readback transport construction")+": "+error.what();
+            if(std::string_view(error.what()).find("alloc")!=std::string_view::npos)
+                value.message+="; "+in_process_address_space_reason(process_address_space());
+            if ((local_staging_attempt && value.execution == ExecutionPreference::Automatic && !in_process_gpu_uncertain) ||
+                (native_attempt && (value.native_fallback || value.execution == ExecutionPreference::Automatic)) ||
                 (portable_attempt && (value.portable_fallback || value.execution == ExecutionPreference::Automatic))) {
                 reject_route(value, decision.route, value.message);
             } else value.processing_error = value.message;
@@ -1453,13 +1570,31 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
             if (held) {
                 ++value->presentation_holds;
                 value->local_composed_at_frame = value->frames;
-                value->message += " Holding completed output.";
+                append_status_notice(value->message, " Holding completed output.");
             } else {
                 CompletedPresentation::record_loading(
                     reinterpret_cast<ID3D12GraphicsCommandList*>(uintptr_t(commands->get_native())),
                     reinterpret_cast<ID3D12Resource*>(uintptr_t(back.handle)));
                 ++value->loading_presentations;
-                value->message += " Waiting for processed output; raw game image hidden.";
+                append_status_notice(value->message, " Waiting for processed output; raw game image hidden.");
+            }
+        }
+        if (processing_requested && !composed && queue->get_device()->get_api() == reshade::api::device_api::d3d11) {
+            auto* texture = reinterpret_cast<ID3D11Texture2D*>(uintptr_t(back.handle));
+            const bool local_held = value->local && value->local->safe_to_fallback() &&
+                value->local->matches(queue->get_device()->get_resource_desc(back)) &&
+                value->local->protect_presentation(back);
+            if (local_held || (value->bridge && value->bridge->protect_presentation(texture, value->frames, settings))) {
+                ++value->presentation_holds;
+                if (local_held) value->local_composed_at_frame = value->frames;
+                append_status_notice(value->message, " Holding completed output.");
+            } else {
+                // A bridge without a snapshot has drawn its loading gate. An
+                // early exit before bridge creation needs that same protection.
+                if (!value->bridge)
+                    d3d11_record_loading(reinterpret_cast<ID3D11Device*>(uintptr_t(queue->get_device()->get_native())), texture);
+                ++value->loading_presentations;
+                append_status_notice(value->message, " Waiting for processed output; raw game image hidden.");
             }
         }
         record_screenshot(runtime, *value, commands, back);
@@ -1473,12 +1608,14 @@ inline void finish_present(reshade::api::command_queue *queue, reshade::api::swa
     for (auto &[runtime, value] : sessions) {
         if (runtime->get_device() != queue->get_device() || runtime->get_hwnd() != swapchain->get_hwnd()) continue;
         if (runtime->get_command_queue() != queue && queue->get_device()->get_api() != reshade::api::device_api::vulkan) continue;
-        if (value->readback && queue->get_device()->get_api() == reshade::api::device_api::vulkan) {
+        if (value->readback) {
             try {
                 value->readback->signal_after_present();
                 if (value->deferred_destroy) {
                     value->readback.reset();
                     value->deferred_destroy = false;
+                } else {
+                    value->readback->retire_after_present(value->applied_settings);
                 }
             } catch (const std::exception &error) {
                 value->message = error.what();
@@ -1523,6 +1660,7 @@ inline void detach() {
     reshade::unregister_event<reshade::addon_event::destroy_device>(destroy_graphics_device);
     std::lock_guard lock(sessions_mutex);
     sessions.clear();
+    runtime_continuity.clear();
     sharing_devices.clear();
     module = nullptr;
 }
@@ -1543,6 +1681,7 @@ extern "C" __declspec(dllexport) uint32_t CnrPHOENIXCompatibilityStatus(char *de
              {"api_name", api_name(runtime->get_device()->get_api())},
              {"enabled", value->enabled},
              {"execution_mode", execution_mode(*value)},
+             {"runtime_resumes", value->runtime_resumes},
              {"execution_preference", value->execution_name}, {"fallback_reason", value->fallback_reason},
              {"helper_pid", host && !resident_active(*value) ? host->process_id() : 0},
              {"processing_host_pid",processes.at("processing_host_pid")},

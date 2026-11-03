@@ -8,6 +8,11 @@ struct Object {
     void** vtable;
     ULONG refs = 1;
 };
+static unsigned final_release_notifications = 0;
+static ID3D12GraphicsCommandList* final_release_identity = nullptr;
+static void final_release_notice(ID3D12GraphicsCommandList* command) noexcept {
+    ++final_release_notifications; final_release_identity = command;
+}
 struct FakeCommand : Object {
     unsigned calls = 0;
     uint64_t last = 0;
@@ -823,15 +828,22 @@ int main() {
         // a recycled list pointer under the ASI host cannot inherit epoch
         // states from a dead recording.
         fake_command.refs = 2;
+        observer_state.final_release_callback = final_release_notice;
         check(obs::command_release(cmd) == 1, "a non-final list Release forwards the count");
         ++cases;
         check(observer_state.commands.count(cmd) == 1, "a live list keeps its record");
+        ++cases;
+        check(final_release_notifications == 0, "a non-final release keeps host ownership");
         ++cases;
         fake_command.refs = 1;
         check(obs::command_release(cmd) == 0, "a final list Release forwards zero");
         ++cases;
         check(observer_state.commands.count(cmd) == 0, "a released list is forgotten");
         ++cases;
+        check(final_release_notifications == 1 && final_release_identity == cmd,
+              "final release notifies host ownership cleanup exactly once");
+        ++cases;
+        observer_state.final_release_callback = nullptr;
         check(observer_state.command_final_releases.load(std::memory_order_relaxed) == 1,
               "final list Releases are counted");
         ++cases;

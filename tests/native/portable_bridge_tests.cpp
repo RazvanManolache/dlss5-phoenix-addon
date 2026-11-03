@@ -14,6 +14,9 @@ void wait(const std::shared_ptr<HostState>& state, Phase desired) {
 int wmain(int argc, wchar_t** argv) try {
     verify(argc == 2);
     Settings settings;
+    // This fake provider deliberately has no temporal/frame-services API.
+    // Exercise its spatial contract without silently inheriting motion defaults.
+    settings.pipeline.motion_enabled=false;
     settings.controls.enabled = true;
     settings.controls.tone = .5f;
     auto metadata = portable_metadata(settings, false);
@@ -63,7 +66,7 @@ int wmain(int argc, wchar_t** argv) try {
     verify(portable_metadata(settings,true).at("pipeline").at("ChainBrightness")==.1f);
     settings.pipeline.scaler=1;bool scaler_rejected=false;
     try{portable_metadata(settings,true);}catch(const std::runtime_error&){scaler_rejected=true;}
-    verify(scaler_rejected);settings.pipeline={};
+    verify(scaler_rejected);settings.pipeline={};settings.pipeline.motion_enabled=false;
     std::vector<uint8_t> pixels(4*2*4, 80);
     auto color = portable_color(pixels);
     verify(color.size() == 4*2*3 && color[0] == 80/255.f);
@@ -92,6 +95,10 @@ int wmain(int argc, wchar_t** argv) try {
     try {portable_compose(pixels,enhanced,4,settings,&nvidia);} catch(...) {rejected=true;}
     verify(rejected);
     Settings native_settings;
+    rejected=false;
+    try{validate_native_settings(native_settings,true);}catch(...){rejected=true;}
+    verify(rejected); // The spatial-only driver route must reject default motion.
+    native_settings.pipeline.motion_enabled=false;
     validate_native_settings(native_settings,true);
     for(unsigned failure=0;failure<7;++failure) {
         auto invalid=native_settings;
@@ -157,7 +164,7 @@ int wmain(int argc, wchar_t** argv) try {
     unsupported->start(nullptr,source,settings,build,options);wait(unsupported,Phase::Ready);
     verify(unsupported->submit(1,true,pixels));wait(unsupported,Phase::Failed);
     verify(unsupported->error().find("Update the portable runtime")!=std::string::npos);
-    unsupported->stop();settings.pipeline={};
+    unsupported->stop();settings.pipeline={};settings.pipeline.motion_enabled=false;
     auto owner = std::make_shared<HostState>(settings);
     owner->start(nullptr, source, settings, build, options);
     wait(owner, Phase::Ready);

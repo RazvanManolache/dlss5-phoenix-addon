@@ -158,7 +158,7 @@ def main():
                           f'{command} > "{out}/{name}.build.log" 2>&1\nexit /b %errorlevel%\n')
         subprocess.run(["cmd", "/d", "/c", str(recipe)], cwd=out, check=True)
 
-    includes = f'/I"{ROOT}/third_party" /I"{ROOT}/third_party/reshade"'
+    includes = f'/I"{ROOT}/third_party" /I"{ROOT}/third_party/reshade" /I"{args.ngx_sdk.resolve()}"'
     run("host", "64", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX {includes} '
         f'"{ROOT}/src/integration/compatibility/host/dlss5-feed-host64.cpp" /Fo:"{out}/host.obj" /Fe:"{out}/phoenix_graphics_host.exe" '
         '/link d3d12.lib dxgi.lib d3dcompiler.lib version.lib user32.lib gdi32.lib advapi32.lib ole32.lib windowscodecs.lib')

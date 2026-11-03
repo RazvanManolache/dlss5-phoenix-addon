@@ -260,8 +260,9 @@ struct Driver {
         ++c.completed_frames;
     }
 };
+#include "driver_check64.h"
 extern "C" __declspec(dllexport) int PhoenixDriverServe64(bridge::Channel* packet) {
-    if(!packet||!bridge::valid_initialize(*packet)) return 2;
+    if(!packet||(!bridge::valid_initialize(*packet)&&!bridge::valid_compatibility_check(*packet))) return 2;
     auto& c=*packet; bool passed=false;
     try {
         c.driver_pid=GetCurrentProcessId(); c.driver_bits=64;
@@ -279,11 +280,14 @@ extern "C" __declspec(dllexport) int PhoenixDriverServe64(bridge::Channel* packe
         if(wow64_umd_probe::gdi) { wow64_umd_probe::owner=GetCurrentThreadId(); wow64_umd_probe::patch(cuda); }
         require(function<int(*)(unsigned)>(cuda,"cuInit")(0)==0,"Native CUDA initialization refused");
         {
-            Driver driver; driver.initialize(c); SetEvent(reinterpret_cast<HANDLE>(c.response_event));
+            Driver driver;
+            const bool compatibility_only=c.operation==bridge::check_compatibility;
+            if(compatibility_only)check_installed_driver(cuda,c);else driver.initialize(c);
+            SetEvent(reinterpret_cast<HANDLE>(c.response_event));
             for(;;) {
                 require(WaitForSingleObject(reinterpret_cast<HANDLE>(c.request_event),INFINITE)==WAIT_OBJECT_0,"Driver request wait failed");
                 if(c.operation==bridge::shutdown) break;
-                require(c.operation==bridge::frame,"Unknown driver operation"); driver.frame(c);
+                require(!compatibility_only&&c.operation==bridge::frame,"Unknown driver operation"); driver.frame(c);
                 ++c.response; SetEvent(reinterpret_cast<HANDLE>(c.response_event));
             }
         }

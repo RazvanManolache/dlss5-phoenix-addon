@@ -233,6 +233,9 @@ struct Observer {
     std::array<void*, 81> targets{}, originals{};
     void (*reset_callback)(ID3D12GraphicsCommandList*, bool) = nullptr;
     void (*close_callback)(ID3D12GraphicsCommandList*, bool) = nullptr;
+    // Retire host-side queue ownership too when a command address is freed.
+    // Reset preserves object identity; final Release does not.
+    void (*final_release_callback)(ID3D12GraphicsCommandList*) noexcept = nullptr;
 };
 inline Observer& observer() {
     static auto* observer_state = new Observer;
@@ -864,6 +867,7 @@ inline ULONG STDMETHODCALLTYPE command_release(ID3D12GraphicsCommandList* cmd) {
     if (result == 0 && cmd) {
         observer().command_final_releases.fetch_add(1, std::memory_order_relaxed);
         erase(cmd);
+        if (observer().final_release_callback) observer().final_release_callback(cmd);
     }
     return result;
 }

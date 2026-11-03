@@ -1,6 +1,58 @@
 # Execution Mechanisms
 
+Private DX12 contexts created inside DX11 or staged legacy routes resolve their
+queue to a native identity before creating evaluator objects. ReShade's explicit
+native-object COM interface is preferred. An already-native queue implemented by
+the Windows system D3D12 runtime is also valid: OpenGL frontends need not hook
+private DX12 creation or emit ReShade queue events. Older proxies use the exact
+observed queue match. Unknown/ambiguous proxies are rejected. These checks run
+only at session creation. Wrappers stay alive for the session, while the observer
+and driver see one native implementation.
+
+The private staging resource owner also registers that exact native queue for
+the evaluator's submission checks. It releases the registration only after the
+bridge and its GPU work retire, including constructor-failure cleanup. A GPU
+timeout retains the owner and registration until process exit rather than
+allowing a new route over potentially live work. This explicit lease covers
+frontends that never emit ReShade queue init/destroy events; arbitrary engine
+queues still require their ordinary observed lifetime.
+
+Phoenix also resolves its shader compiler from the Windows system directory.
+Older games can load an app-local `D3DCompiler_47.dll` with an older optimizer;
+using it for Phoenix shaders can cause compilation failures that do not occur
+in the helper. The game's compiler file remains untouched. Compilation still
+uses the requested optimization level and warnings-as-errors; compiler lookup
+is cached and adds no per-frame work.
+
+Live strength, history and helper-motion edits preserve an already selected
+fallback route. They do not clear a previous device/queue failure and repeatedly
+cold-start the helper. Renderer changes and explicit retries can reopen rejected
+routes. Model/resource changes may still rebuild the resources they affect.
+
 For current model/backend availability and the Original-only x86 driver-host restriction, see [the support matrix](SUPPORT.md). [Current offline two-model benchmarks](benchmarks/current/README.md) measure native and portable inference separately; they are not new measurements of every transport mechanism.
+
+In-process x86 routing checks the address space the game can actually allocate:
+normally 2 GiB, or up to 4 GiB for a large-address-aware executable on supported
+Windows. Free addresses above that ceiling do not count as game headroom. The
+native library checks again after driver/model initialization and periodically
+on its processing worker, since level loads can exhaust an initially healthy
+process. If the reserve becomes insufficient, automatic routing retires that
+worker and selects a compatible fallback. This preserves eligible internal
+routes without assuming that loading an x64 library gives the x86 game more
+usable addresses. Executables and their address-awareness flags are not edited.
+
+The native ready signal includes the selected model's initialization and weight
+allocations, not merely D3D12 device creation. The caller checks headroom after
+that signal and immediately after the first frame, which can initialize motion
+and format resources lazily. Subsequent checks stay on the processing worker.
+
+Processing threads also own their stack budgets instead of inheriting the game's
+executable default. Small-stack legacy hosts can reserve as little as 192 KiB,
+which is insufficient for driver/model setup. The frontend worker reserves
+4 MiB with on-demand page commitment; the native x64 worker reserves 8 MiB with
+a 256 KiB initial commit. Their shared-state and orderly-retirement contracts
+are unchanged. The small-host-stack CPU regression runs in both architectures,
+and native model probes also exercise a 192 KiB host default.
 
 The compatibility panel's **Advanced transport** section selects where processing
 runs, independently of the game graphics API. It appears below the renderer
@@ -13,12 +65,79 @@ remains visible as a warning; it is not silently replaced.
 
 Automatic preference order:
 
-1. Same-device native D3D12 in x64.
+1. Native x64 inference in the game process: same-device D3D12; same-adapter
+   DX11/DX12 shared GPU textures; or fenced CPU capture/return for DX9, DX10,
+   OpenGL and Vulkan. All use the existing native evaluator and renderer controls.
 2. Matching x64-library-inside-x86 package.
 3. Matching x86 driver-host package (Original model, all eight blocks once,
    large-address-aware executable).
 4. Matching portable runtime and an eligible configured device.
 5. External x64 helper.
+
+Automatic motion estimation is enabled by default. Valid engine motion vectors
+take priority; missing vectors are estimated at the configured analysis size.
+Eligibility includes the requested frame services, not only the renderer. A
+matching x64-library-inside-x86 package can estimate motion and maintain temporal
+history in the game process, for both Original and Lightweight FP8. Automatic
+can select it with motion enabled; it no longer needs a helper just for motion.
+The package must declare the matching frame-service contract and pass its
+existing Windows/driver, model and address-space checks. Older packages, the
+x86 driver-host route and the legacy x86 portable SDK remain spatial-only;
+Automatic uses the helper when no eligible route supplies the requested services.
+The x64 native routes also provide motion services without a helper.
+
+A matching frame-service contract proves that the runtime implements the
+requested services; it does not establish whole-game stability. Keep the x86
+library route experimental. A small standalone probe does not reproduce a
+game's address-space pressure or level-loading behavior. Caught allocation
+failures can fall back to the helper, but a process-level fault inside the game
+cannot be recovered by that fallback.
+
+The x86 library route carries capture identity, timestamps, reset controls and
+live motion settings into the shared native SDK. Its CPU capture does not supply
+engine vectors: Automatic estimates missing vectors rather than treating a zero
+texture as valid engine data. The overlay reports the actual provider, analysis
+size, valid-vector frames and history resets. Analysis-size/provider edits reset
+the affected history without replacing the worker. Cold initialization can also
+cross the existing one-second discontinuity threshold and require another
+priming frame; subsequent uninterrupted frames retain their history.
+
+This temporal x86 route currently requires one evaluation per captured frame.
+Custom chains, adaptive priority, unsupported appearance controls and temporal
+refinements retain the helper fallback. A spatial-only selection can still use
+older eligible routes. No weights are added to the bridge package.
+
+## Native x64 capture routes
+
+| Game API | Native inference | Transfer | Diagnostic execution mode |
+| --- | --- | --- | --- |
+| DX12 | Game process, game device and DIRECT queue | Same-device GPU resources | `in_process` |
+| DX11 | Game process, DX12 device on the game adapter | Shared NT texture and fences, no CPU pixels | `in_process_d3d11` |
+| DX9/10, OpenGL, Vulkan | Native DX12 worker in the game process | Existing fenced CPU capture/upload and return | `in_process_staged` |
+
+The DX11 surface owns the shared texture, both API views, a DIRECT queue and a
+shared fence. Game input is copied before inference; the output fence orders
+writeback before Present. Predication is restored after unconditional copies.
+The evaluator is the same `D3D12Bridge` used by DX12 games, including model
+selection, NVIDIA DLSS5/comparison, live controls and completed-frame holds.
+
+The staged route retains `ReadbackBridge` for API-specific capture/presentation
+and Vulkan submission ordering. Its worker owns upload/readback buffers and the
+native evaluator; no external process or window is created. Initialization-only
+responses are retried on the same captured image, with a bounded deadline, and
+never published as neural output. `frame_wall_ms` includes upload, inference and
+readback; same-process execution does not make those transfers free.
+
+Only one native feeder generation owns the shared session at a time. Stop
+requests retain worker/module/resource ownership until retirement. GPU timeouts
+pin uncertain allocations and stop processing instead of falling back over live
+work. Unsupported adapters, layouts or settings can fall back after a safe
+failure; an explicit internal choice stays strict. Protected input is refused.
+
+Regression coverage includes WARP DX11/DX12 texture/fence round trips, RGB8
+staging, synthetic renderer switching, initialization/deferral holds, local
+worker PID/output/tuning/shutdown checks and API/architecture selection. These
+are software and CPU checks, not new model-quality or retail-game measurements.
 
 Runtime package and Windows/driver hash checks run off the rendering thread.
 The driver host additionally needs the matching tile-aligned graph and its pinned
@@ -44,6 +163,14 @@ pixel change. They do not establish retail-game compatibility or output parity.
 Worker wall-time medians were 16.96 ms (library), 18.14 ms (driver), 31.54 ms
 (portable) and 5.23 ms (helper); the x64 same-device route lacks that counter.
 These diagnostic samples show why "same-process first" does not mean "fastest".
+
+For an x86 game, **External x64 helper** with automatic/shared DX11 transfer can
+be considerably faster than a native route that captures, converts and composes
+pixels on the CPU. GPU inference time alone excludes that CPU work; compare the
+worker's full frame wall time too. Native CPU transports bypass identity sRGB
+processing at matching extents and unit exposure; actual scaling, HDR and
+exposure changes still use the complete conversion pipeline. Renderer strengths
+and comparison remain active when that identity conversion is skipped.
 
 **Public downloads:** the standard add-on and optional portable runtime packages
 include no profile-specific WOW64 bundle. The native x86 experiments below retain
@@ -84,7 +211,7 @@ See [native driver investigation](X86_NATIVE_INVESTIGATION.md#direct-driver-brid
 | Mechanism | Processing | Capture / return | Selection policy |
 | --- | --- | --- | --- |
 | Automatic | Eligible same-process routes in the order above, then x64 helper | Same-device D3D12, D3D11 shared textures, or staging | Same-process preference; checks package readiness and settings |
-| In-process native D3D12 | Optimized native executor inside the game | Same-device GPU resources | Requires supported D3D12/device/format/executor; refuses unsupported combinations |
+| In-process native GPU | Optimized native executor inside the x64 game | DX12 same-device resources; DX11 shared GPU textures; DX9/10/OpenGL/Vulkan CPU capture/return | Requires supported device/format/executor; refuses unsupported combinations |
 | External x64 helper | Existing graphics companion | Automatic, D3D11 shared textures only, or staging/CPU pixels | Always available as a selectable alternative |
 | In-process portable (experimental) | Matching-bitness C++ runtime on a worker thread inside the game | Existing fenced readback and upload | Offered when provider/device requirements pass |
 | x64 library inside x86 (experimental) | Native x64 Phoenix DLSS5 renderer on a native thread in the x86 game | Existing fenced CPU capture and return | x86 only; Phoenix-only; locally matched Windows/driver bootstrap package required |
@@ -162,8 +289,11 @@ CoherentFrames=1
   permits a fresh attempt.
 - `NativeRuntime`: absolute or add-on-relative path for routes 2/3. Empty uses
   `PhoenixRuntime\wow64`. Contains no model DLLs or weights. `bootstrap.json`
-  binds the native TLS routines to the verified Windows image and driver.
-  A Windows/driver/package mismatch is refused before inference.
+  binds the private native TLS routines to the verified Windows image. The
+  installed NVIDIA CUDA driver is discovered and validated separately; a
+  build-machine driver directory/hash is not an eligibility requirement.
+  A Windows/package mismatch or failed driver compatibility check is refused
+  before inference, with the actual failure retained in diagnostics.
 - `NativeFallback`: preserve a native route failure and use the retained helper.
   Default on. Off leaves processing failed visibly; the preference is retained.
 
@@ -191,7 +321,8 @@ game-directory/
         phoenix_vulkan.dll
         *.spv
     wow64/                       # optional experimental routes 2/3, x86 only
-      bootstrap.json             # locally verified Windows/driver profile
+      bootstrap.json             # verified Windows bootstrap + package hashes
+      phoenix_driver_probe32.exe # disposable model-free driver compatibility check
       wow64ext.dll                # x86, unmodified dynamic LGPL dependency
       phoenix_bootstrap64.dll
       phoenix_driver64.dll       # route 3 generic driver executor
@@ -213,9 +344,10 @@ network passes and block repetitions. Comparison uses the input snapshot from
 that exact evaluation, with wipe, absolute, signed, heatmap and luminance views.
 Original bypass, the compatibility screenshot path, markers and timing clearing
 remain available. Backbuffer input has no engine motion/depth. Without an enabled,
-working motion provider, evaluation resets history. The x64 shared frame worker
-can estimate motion from consecutive source images and reject low-confidence
-history; it does not manufacture geometric depth.
+working motion provider, evaluation resets history. The x64 shared frame worker,
+including the qualified x64 library inside an x86 game process, can estimate
+motion from consecutive source images and reject low-confidence history; it does
+not manufacture geometric depth.
 
 The portable backbuffer adapter uses SDR host planes. The x64 shared SDK worker
 supports independent processing/output geometry, NIS/tiny scaling, scene resets
@@ -238,7 +370,8 @@ is not labeled as GPU-only timing. Game presents and completed model outputs
 remain separate counters.
 
 Routes 2/3 share normal-resolution SDR capture/return, same-input comparison,
-live tone/structure/skin/mask conditioning and reset-frame inference. Iterations
+live tone/structure/skin/mask conditioning. Legacy spatial packages use reset-frame
+inference; frame-service-capable route 2 can preserve motion-aligned history. Iterations
 keep FP16 model input between passes rather than quantizing intermediate output
 to 8-bit. Route 2 supports native block repetitions; route 3 currently requires
 all eight blocks once. Unsupported resolution/adaptive/guide controls are
@@ -292,6 +425,47 @@ rendered game correctness, resize/device-loss safety or comparative performance.
 native package without running the GPU or bundling model/driver DLLs. It requires
 the current local bootstrap evidence to match Windows. This is deliberately not
 a portable, publicly validated Windows-version catalogue.
+
+### Installed-driver discovery and validation cache
+
+The experimental x86 native bridges discover the registered `nvlddmkm` package
+under the Windows driver store and select its x64 `nvcuda64.dll`. They do not scan
+old packages and guess which one is newest. x86 readers use the native system
+view; the x64 worker receives the corresponding native loader path. No driver
+files, registry values or expected hashes are rewritten.
+
+On a cache miss, a disposable x86 process starts the native worker with the same
+Windows TLS and UMD adaptations as the bridge. It checks CUDA initialization and
+device enumeration, matches the CUDA device to an NVIDIA DXGI adapter, resolves
+the required NVAPI interfaces, and verifies a tiny D3D12 queue/fence/copy/readback.
+It loads no model and performs no neural inference. Its job closes on failure or
+timeout, with a 20-second limit; it is not a persistent inference helper.
+
+Results live in `%LOCALAPPDATA%/PhoenixDLSS5/DriverCompatibility`. The cache
+identity includes the driver path/content hash, native Windows image hash,
+bootstrap/package identity (including the probe and bridge hashes), and probe
+contract. Driver or package changes require fresh validation. Successful checks
+are reused; failed checks expire after two minutes so transient initialization
+errors can recover. Corrupt, incomplete or mismatched records are not accepted.
+Expiry is evaluated on the next availability/startup check or **Recheck runtimes /
+retry routes** action; the cache does not force periodic renderer restarts.
+Native startup rechecks the selected driver, independently of route discovery.
+Validation and hashing occur during background availability/startup, not per frame.
+
+This qualifies driver startup and the mixed-bitness graphics bridge, not every
+game, model, kernel style or future Windows build. Actual renderer initialization
+and normal failure/fallback handling remain required. Windows hash/timestamp and
+private-offset checks remain in place. `native_driver_validation` in the runtime
+status reports the qualified CUDA hash and whether the result came from cache.
+
+`python tools/test_wow64_driver_discovery.py` runs x86/x64 CPU cache, path and
+process-cleanup tests. `python tools/validate_dynamic_driver.py --runtime PATH
+--allow-gpu-startup` explicitly runs the isolated startup/copy probe and verifies
+cache reuse. Neither command launches a game; the latter uses the GPU without
+performing model inference. Rebuild the optional bridge package together with
+the add-ons; older packages without the dynamic probe report that an update is
+needed and retain helper fallback.
+
 `tools/validate_wow64_addon_client.py --run-gpu` explicitly runs the packaged x86
 client and add-on worker tests with the locally selected external model. Its
 receipt is `artifacts/current/wow64-addon-client-validation.json`; it is separate
@@ -311,3 +485,99 @@ until the full presentation path is qualified.
 The separate [x86 Vulkan validation](X86_VULKAN.md) covers real standalone neural
 execution. Both layers of evidence are needed before promoting this mechanism
 to automatic selection.
+
+Comparison layout, divider position and difference gain are per-frame live controls on the helper as well as resident backends. The game UI and control mailbox use the same resource-change policy; changing these controls keeps the loaded helper/model. Renderer/source selections that require an additional NVIDIA feature remain resource changes. Tests validate the live-patch whitelist and preserve rebuilds for model/feature changes. Runtime continuity receipts distinguish a stable process from a restarted helper; package tests alone do not establish this.
+
+### CPU transport work in legacy graphics routes
+
+An x64 neural library inside an x86 game still has a CPU pixel boundary when
+its graphics API cannot share GPU resources. The legacy route captures RGBA8,
+packs RGBA16F, invokes the x64 worker, decodes
+its half-float output to RGB and composes RGBA8 for the game's upload. That work
+must not be confused with GPU inference time or the game's presentation FPS.
+
+The CPU path uses immutable256entry byte-to-half and65,536entry half-to-float
+tables generated by the existing DirectX conversion functions. A second64KiB
+table fuses half-to-UNORM8 conversion for the plain enhanced-only view. Together
+they add about321KiB per process, preserve finite half values bit-for-bit, and reject every
+infinite/NaN RGB encoding. Alpha remains governed by the original input.
+The ordinary enhanced-only view bypasses general comparison/remapping work;
+zoom, wipes and difference modes retain the general composition path. UNORM8
+rounding retains the previous float-product/lround contract, including adjacent
+values around half-integer thresholds. An unused full-frame RGB conversion is
+also omitted when native inference supplies that RGB result itself.
+For the one-pass enhanced-only view at unchanged geometry, the WOW64 frontend
+returns RGBA8 directly from the half output, eliminating a second full RGB32F
+allocation. Comparisons, magnification, resizing and repeated network passes
+retain the RGB32F path. Input packing uses an AVX2/F16C conversion on CPUs whose
+CPUID and OS extended-state support permit it; its isolated dispatched function
+does not raise the baseline CPU requirement. Older CPUs keep the lookup path.
+Exhaustive byte/half and rounding tests cover both representations.
+The dispatched return conversion handles two RGBA half pixels at a time,
+validates only RGB, retains the input alpha, and explicitly reproduces the
+existing half-up UNORM8 rule instead of using a different SIMD rounding mode.
+
+Staging capture keeps one frame ahead of the worker with one bounded CPU queue.
+DX9 additionally requires an optional second GPU
+snapshot can be allocated. The snapshot for the in-flight model input remains
+separate from the next capture; it is promoted only after the previous completed
+input has been copied into the composed pair. The CPU queue is bounded to one
+retired image. Screenshot inputs are remembered at submission, not at prefetch,
+so the next capture cannot replace the current output's paired input. If the
+extra texture allocation fails, DX9 capture remains serialized as before. Other
+staging APIs do not need that second texture: their current input already lives
+in independent CPU storage while the next GPU capture retires. Transfer
+telemetry exposes `capture_prefetch` and`queued_input`; worker duration and fresh
+output FPS still describe different parts of the pipeline.
+
+CPU-only numerical/performance probes motivated these changes. They do not
+establish in-game FPS, GPU speedup, or that a previously installed package already
+contains the new source. Validate a rebuilt package before qualifying a game.
+`cpu_color_transfer_tests` runs in the normal add-on build and the focused
+`tools/test_model_selection.py` CPU checks for both x86 and x64.
+
+### Compact pixels for the same-process x64 worker
+
+A matching worker can advertise `library_rgba8_transport=1` in its hash-bound
+`bootstrap.json`. For a single-pass, unchanged-size Phoenix DLSS5 enhanced view,
+the frontend then sends RGBA8 directly. The native worker uploads those bytes,
+converts to the model's half-float textures on the GPU, evaluates with the same
+motion/history settings, and quantizes back to bytes on the GPU. This avoids
+CPU half conversion and halves the upload/readback payload compared with RGBA16F.
+The upload and evaluation use the same D3D12 queue; queue ordering establishes
+their dependency without an extra CPU upload wait. Allocator and resource reuse
+still wait for completion. This remains in the game's process.
+
+The GPU conversion explicitly preserves the prior nearest-even input half
+rounding, half-up SDR byte output and input alpha. An additional GPU status word
+rejects nonfinite RGB before any output is published. The renderer returns one
+CPU output buffer after its screenshot/upload copies are finished; the native
+worker reuses that buffer instead of allocating and clearing a full image for
+every frame. This return slot is bounded to one image and protected by the worker
+mutex. It never lends a vector still referenced by a GPU upload or screenshot.
+
+Older profiles that do not advertise this capability retain their existing
+CPU-half route. Comparison/refinement float outputs, NVIDIA DLSS5 selection and
+the native x86 driver route also retain that path. The packet size is unchanged;
+only a negotiated former reserved word selects compact pixels. Buffer ranges,
+extents, overlap and transport/backend combinations are checked by the worker.
+Per-frame pointers reset when switching back to float output.
+
+Telemetry identifies `pixel_transport` as `rgba8_gpu` or `rgba16f_cpu` and reports
+`output_buffer_reused`. Detailed monitoring additionally reports CPU wall stages
+under `transfer_stages_ms`: upload/enqueue, evaluation/wait, and pack/readback.
+These are different from the SDK's narrower GPU interval. An upload/enqueue
+sample does not imply that the GPU upload has completed at that timestamp.
+
+`python tools/test_wow64_pixel_transport.py` runs the x86/x64 CPU contract checks.
+The explicit `--gpu` option adds isolated D3D12 checks for exact input half bits,
+finite half output quantization, source alpha, odd pitches, invalid-output
+rejection and error-word recovery. No game or neural model is loaded by this
+test. `wow64_motion_tests.cpp` additionally exercises alternating packed/float
+frames, live motion settings, history reset, buffer reuse and clean retirement
+with an explicitly supplied local model and runtime.
+
+The bounded DX9 capture FIFO and optional same-submission native output path are
+documented in [Frame delivery and worker overhead](FRAME_DELIVERY_OPTIMIZATION.md).
+Its validation distinguishes isolated scheduling/pixel checks from actual-game
+delivery rates; a fast worker alone is not proof of fast displayed output.

@@ -1,12 +1,12 @@
 # Phoenix DLSS5 documentation
 
-[Project overview](../README.md) · [Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta)
+[Project overview](../README.md) · [Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta2)
 
 ## Start with your goal
 
 | Goal | Start here | Details |
 | --- | --- | --- |
-| Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.0-beta.md) |
+| Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.0-beta2.md) |
 | See it in actual games | [Seven-game comparison gallery](GAME_GALLERY.md) | [Capture method](PAIRED_SCREENSHOTS.md), [compatibility](COMPATIBILITY.md) |
 | Change the image or overlay | [User guide](USER_GUIDE.md) | [All features](FEATURES.md), [appearance controls](NEURAL_CONTROLS.md), [overlay reference](overlay-ui.md) |
 | Pick a model | [Model support](MULTI_MODEL.md) | [Shared model library](SHARED_MODELS.md), [Lightweight FP8](SMALL_FP8.md) |
@@ -19,6 +19,7 @@
 ## Focused guides and investigations
 
 - [Processing chain](PROCESSING_CHAIN.md) and [pipeline implementation](PIPELINE_IMPLEMENTATION.md).
+- [Frame delivery and worker overhead](FRAME_DELIVERY_OPTIMIZATION.md): bounded capture overlap, frame identity and transfer-stage measurements.
 - [Paired screenshots](PAIRED_SCREENSHOTS.md) and the optional [Phoenix Input companion](PHOENIX_INPUT.md).
 - [Resolution scaling profile](NATIVE_SCALING_PROFILE.md): pixel growth, padding/token boundaries and kernel attribution.
 - [Native instruction tuning](NATIVE_TUNING_RESOLUTIONS.md): measured changes across 720p–8K and older-device limits.

@@ -76,7 +76,7 @@ def main():
         "@echo off",
         "setlocal",
         f'call "{visual_studio_path}/VC/Auxiliary/Build/vcvars64.bat" > "{out}/toolchain.log" 2>&1',
-        "if errorlevel 1 exit /b 5",
+        "if not %errorlevel%==0 exit /b 5",
     ]
     common = f'/experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /bigobj /O2 /W4 /EHsc /MD /DNOMINMAX /I"{sdk}" /I"{ROOT}/third_party/nvapi" /I"{ROOT}/third_party/minhook/include"'
     if args.experimental_native:
@@ -107,20 +107,31 @@ def main():
         ("kernel_style_tests", "kernel_style_tests.cpp"),
         ("nr_forwarder_tests", "nr_forwarder_tests.cpp"),
         ("compatibility_policy_tests", "compatibility_policy_tests.cpp"),
+        ("wow64_pixel_contract_tests", "wow64_pixel_contract_tests.cpp"),
+        ("retirement_serial_tests", "retirement_serial_tests.cpp"),
+        ("capture_retirement_tests", "capture_retirement_tests.cpp"),
+        ("capture_queue_tests", "capture_queue_tests.cpp"),
+        ("cpu_color_transfer_tests", "cpu_color_transfer_tests.cpp"),
+        ("runtime_continuity_tests", "runtime_continuity_tests.cpp"),
+        ("helper_motion_policy_tests", "helper_motion_policy_tests.cpp"),
         ("graphics_transport_tests", "graphics_transport_tests.cpp"),
         ("backbuffer_route_tests", "backbuffer_route_tests.cpp"),
         ("transport_availability_tests", "transport_availability_tests.cpp"),
         ("backbuffer_shader_tests", "backbuffer_shader_tests.cpp"),
+        ("shader_compiler_tests", "shader_compiler_tests.cpp"),
         ("compatibility_ipc_tests", "compatibility_ipc_tests.cpp"),
+        ("owned_worker_stack_tests", "owned_worker_stack_tests.cpp"),
         ("screenshot_tests", "screenshot_tests.cpp"),
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
                       ("resolution_bridge_tests", "resolution_bridge_tests.cpp"),
                       ("paired_screenshot_tests", "paired_screenshot_tests.cpp"),
-                      ("completed_presentation_tests", "completed_presentation_tests.cpp")]
+                      ("completed_presentation_tests", "completed_presentation_tests.cpp"),
+                      ("d3d11_local_tests", "d3d11_local_tests.cpp"),
+                      ("helper_motion_tests", "helper_motion_tests.cpp")]
     if args.test_set == "model-switch":
         selected_tests = {"session_tests", "feeder_api_tests", "memory_tests", "direct_tests",
-                          "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests", "observer_tests"}
+                          "dispatch_tests", "model_switch_lifetime_tests", "nvapi_lifetime_tests", "dll_loader_tests", "observer_tests", "cpu_color_transfer_tests"}
         tests = [test for test in tests if test[0] in selected_tests]
     embedded_report = None
     resource = ""
@@ -133,7 +144,7 @@ def main():
         wrapper_recipe.write_text('\n'.join([
             '@echo off',
             f'call "{visual_studio_path}/VC/Auxiliary/Build/vcvars64.bat" > "{out}/nr_forwarder.toolchain.log" 2>&1',
-            'if errorlevel 1 exit /b 5',
+            'if not %errorlevel%==0 exit /b 5',
             f'cl {common.replace("/MD", "/MT")} /LD "{forwarder_source}" /Fo:"{out}/nr_forwarder.obj" /Fe:"{forwarder}" /link /INCREMENTAL:NO > "{out}/nr_forwarder.build.log" 2>&1',
             'exit /b %errorlevel%',
         ]))
@@ -146,7 +157,7 @@ def main():
         lines.extend(
             [
                 f'rc /nologo /fo {resource} "{recipe}" > "{out}/embedded.build.log" 2>&1',
-                "if errorlevel 1 exit /b 12",
+                "if not %errorlevel%==0 exit /b 12",
             ]
         )
     # Capture source identity before compilation; receipts must not silently
@@ -165,7 +176,7 @@ def main():
         lines.extend(
             [
                 f'cl {target_common} {extra} /sourceDependencies "{out}/" "{ROOT}/{source}" /Fo:"{out}\\\\" /Fe:"{out}/{name}{extension}" /link /INCREMENTAL:NO {libraries} {payload} > "{out}/{name}.build.log" 2>&1',
-                "if errorlevel 1 exit /b 10",
+                "if not %errorlevel%==0 exit /b 10",
             ]
         )
         outputs.append(name + extension)
@@ -178,7 +189,7 @@ def main():
         lines.extend(
             [
                 f'"{out}/{name}.exe"{test_args} > "{out}/{name}.result.json" 2>&1',
-                "if errorlevel 1 exit /b 11",
+                "if not %errorlevel%==0 exit /b 11",
             ]
         )
     flags = f'/DImTextureID=ImU64 /I"{ROOT}/third_party/imgui_reshade" /I"{ROOT}/third_party/reshade" /DPHOENIX_BUILD_TAG={args.name} /LD {minhook}'

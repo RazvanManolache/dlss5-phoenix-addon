@@ -1,4 +1,5 @@
 #pragma once
+#include "../../native/support/shader_compiler.h"
 // Adapted from kibblerz/DLSS5-Reshade-AIO under Apache-2.0.
 // See third_party/aio-motion/LICENSE and NOTICE.
 #ifndef WIN32_LEAN_AND_MEAN
@@ -46,7 +47,7 @@ HRESULT CompileShader(const char *source, const char *name, const char *entry,
     ComPtr<ID3DBlob> &bytecode, std::string &error_text)
 {
     ComPtr<ID3DBlob> errors;
-    const HRESULT hr = D3DCompile(source, std::strlen(source), name, nullptr,
+    const HRESULT hr = phoenix_shader::compile(source, std::strlen(source), name, nullptr,
         nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
         &bytecode, &errors);
     if (FAILED(hr) && errors)

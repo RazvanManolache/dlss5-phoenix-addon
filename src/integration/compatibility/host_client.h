@@ -11,6 +11,8 @@
 #include "owned_worker.h"
 #include "portable_policy.h"
 #include "processing_pixels.h"
+#include "helper_motion_policy.h"
+#include "d3d12_local_pixels.h"
 #include "wow64/bridge_policy.h"
 #include "wow64/graph32.h"
 #include "../../../native_runtime/runtime_api.h"
@@ -23,6 +25,7 @@
 #include <deque>
 #include <mutex>
 #include <source_location>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include <windows.h>
@@ -98,6 +101,10 @@ inline void cleanup_stopped_session(const fs::path& folder, const fs::path& expe
     // must never escape the detached worker and terminate the game process.
 }
 enum class Phase : unsigned { Starting, OpenFences, Ready, Busy, Finished, Failed, Stopped };
+struct LocalGpuOptions {
+    // Internal dependency injection for WARP fixtures, never an INI/UI override.
+    Ptr<ID3D12Device> software_test_device;
+};
 class HostState : public std::enable_shared_from_this<HostState> {
     std::mutex mutex_;
     std::condition_variable changed_;
@@ -109,10 +116,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
     std::atomic<DWORD> child_pid_{0};
     bool portable_ = false;
     bool native_ = false;
+    bool local_gpu_ = false;
     std::string native_mode_;
     FeedFrameMsg request_{};
+    FeedGuideState request_guides_{};
     int64_t queued_at_ns_=0;
     std::vector<uint8_t> input_, output_;
+    // One returned CPU output buffer, transferred only under mutex_. The
+    // render thread returns it after upload/screenshot copies are complete.
+    std::vector<uint8_t> recycled_native_output_, recycled_native_input_;
     std::string error_;
     double roundtrip_ms_ = 0;
     uint64_t completed_at_ = 0;
@@ -127,6 +139,87 @@ class HostState : public std::enable_shared_from_this<HostState> {
     bool capture_requested_ = false;
     fs::path session_parent_;
     std::string session_name_;
+
+    void serve_local_gpu(Settings settings, FeedBuild build, LocalGpuOptions options) {
+        try {
+#ifndef _WIN64
+            throw std::runtime_error("Local x64 inference requires the x64 addon");
+#else
+            // A stopped render-facing lease may still be retiring its last
+            // frame. Serialize generations before touching the global feeder.
+            static std::mutex owner;
+            std::unique_lock generation(owner, std::defer_lock);
+            const auto owner_deadline = GetTickCount64() + 30000;
+            while (!generation.try_lock()) {
+                require(!stopping_ && GetTickCount64() < owner_deadline,
+                    "Previous local native worker has not retired");
+                Sleep(5);
+            }
+            require(!stopping_, "Local native inference cancelled");
+            require(build.cpu_bridge && build.width == build.output_width && build.height == build.output_height,
+                "Local native staging requires same-size pixel transport");
+            // Private compute owns no ReShade runtime or engine-guide lifetime.
+            D3D12LocalPixels renderer(nullptr, build.width, build.height, options.software_test_device.Get());
+            Settings active_settings = settings;
+            bool configured = false;
+            std::unique_lock lock(mutex_);
+            phase_ = Phase::Ready;
+            while (!stopping_) {
+                changed_.wait(lock, [&] { return stopping_ || phase_ == Phase::Busy || !ui_actions_.empty(); });
+                if (stopping_) break;
+                while (!ui_actions_.empty()) {
+                    const auto action = ui_actions_.front(); ui_actions_.pop_front();
+                    lock.unlock();
+                    const bool accepted = renderer.bridge().action(phoenix_ui::Action(action.action), action.value);
+                    lock.lock();
+                    ui_clear_revision_ = acknowledged_clear_revision(ui_clear_revision_, action, accepted);
+                }
+                if (phase_ != Phase::Busy) continue;
+                const auto request = request_;
+                settings = tuning_settings_; settings.uplift = request.nr_enabled != 0;
+                applied_tuning_revision_ = tuning_revision_; pending_tuning_.reset();
+                const auto revision = applied_tuning_revision_;
+                auto input = std::move(input_);
+                lock.unlock();
+                const auto started = std::chrono::steady_clock::now();
+                renderer.upload(input);
+                if (request.reset) renderer.bridge().reset_history();
+                const auto deadline = GetTickCount64() + 30000;
+                bool apply = !configured || helper_settings_changed(active_settings, settings);
+                active_settings = settings;
+                while (true) {
+                    require(!stopping_, "Local native inference cancelled");
+                    // Original/Off is an intentional bypass, never claimed as
+                    // completed neural output. Pending feature setup is retried.
+                    if (!settings.uplift || settings.mode == phoenix_addon::phoenix::input) break;
+                    const bool composed = renderer.frame(settings, apply);
+                    configured = true; apply = false;
+                    if (composed) break;
+                    require(GetTickCount64() < deadline, "Local native inference produced no completed output within 30 seconds");
+                    Sleep(2);
+                }
+                auto output = (!settings.uplift || settings.mode == phoenix_addon::phoenix::input)
+                    ? std::move(input) : renderer.download();
+                auto snapshot = renderer.bridge().ui_snapshot();
+                const auto wall = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+                snapshot["processing_location"] = "in_process_staged";
+                snapshot["processing_host_pid"] = snapshot["inference_pid"] = GetCurrentProcessId();
+                snapshot["inference_pids"] = Json::array({GetCurrentProcessId()});
+                snapshot["frame_wall_ms"] = wall;
+                snapshot["ui_clear_revision"] = ui_clear_revision_;
+                snapshot["transport"] = "fenced_cpu_pixels";
+                lock.lock();
+                output_ = std::move(output); ui_snapshot_ = std::move(snapshot);
+                roundtrip_ms_ = wall; completed_at_ = GetTickCount64();
+                completed_tuning_revision_ = revision; phase_ = Phase::Finished;
+            }
+#endif
+        } catch (const std::exception& error) {
+            std::lock_guard lock(mutex_); error_ = error.what();
+            phase_ = stopping_ ? Phase::Stopped : Phase::Failed;
+        }
+        if (stopping_) phase_ = Phase::Stopped;
+    }
 
     void serve_portable(phoenix_model::WeightSource source, Settings settings,
                         FeedBuild build, PortableOptions options) {
@@ -330,6 +423,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
     }
 
     void serve_native(phoenix_model::WeightSource source,Settings settings,FeedBuild build,NativeOptions options) {
+        const char* stage="route startup";
         try {
 #ifdef _WIN64
             throw std::runtime_error("WOW64 execution is available only in the x86 addon");
@@ -342,22 +436,30 @@ class HostState : public std::enable_shared_from_this<HostState> {
             while(!owner.try_lock()) {require(!stopping_&&GetTickCount64()<deadline,"Previous native session is still retiring");Sleep(5);}
             require(!stopping_,"Native execution cancelled");
             require(build.cpu_bridge&&build.width==build.output_width&&build.height==build.output_height,"Native execution requires same-size pixel transport");
-            validate_native_settings(settings,options.driver_host);
+            // FrameSession validates the settings against this hash-bound
+            // package's declared frame-service contract before native loading.
+            stage="model selection";
             source=phoenix_model_tools::selection(settings, source);
             require(source.external(),"No model selected for native execution");
             const auto bundle=options.root/"native";
             const auto working = settings.processing.enabled
                 ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
+            stage="frame session initialization";
             phoenix_wow64::FrameSession renderer(options.root,bundle,source,working.image_width,working.image_height,settings,options.driver_host);
             uint64_t native_phoenix_frames = 0;
+            uint64_t capture_sequence=0;
+            bool temporal_reset=true;
             std::unique_lock lock(mutex_);
             auto snapshot=[&](double wall) {return Json{{"schema","phoenix-panel/1"},{"processing_location",native_mode_},
                 {"inference_pid",GetCurrentProcessId()},{"helper_pid",0},{"frame_wall_ms",wall},{"ui_clear_revision",ui_clear_revision_},
                 {"nvidia",renderer.nvidia_status()},
+                {"motion",renderer.runtime_status().value("motion",Json::object())},
                 {"execution",{{"kind","native"}}},
                 {"phoenix",{{"submitted_frames",native_phoenix_frames}}},
-                {"runtime",{{"backend",native_mode_},{"gpu_processing_ms",renderer.gpu_ms()}}}};};
+                {"runtime",[&]{auto runtime=renderer.runtime_status();runtime["backend"]=native_mode_;
+                    runtime["host_half_buffer_bytes"]=renderer.host_half_buffer_bytes();
+                    runtime["gpu_processing_ms"]=renderer.gpu_ms();runtime["pipeline_frame_services"]=renderer.frame_services();return runtime;}()}};};
             ui_snapshot_=snapshot(0);phase_=Phase::Ready;
             while(!stopping_) {
                 changed_.wait(lock,[&]{return stopping_||phase_==Phase::Busy||pending_tuning_||!ui_actions_.empty();});
@@ -365,41 +467,78 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 if(pending_tuning_) {settings=tuning_settings_;pending_tuning_.reset();applied_tuning_revision_=tuning_revision_;}
                 for(const auto& action:ui_actions_) {
                     if(action.action==uint32_t(phoenix_ui::Action::ClearTiming)) {++ui_clear_revision_;roundtrip_ms_=0;}
+                    if(action.action==uint32_t(phoenix_ui::Action::ResetHistory)) temporal_reset=true;
                 }
                 ui_actions_.clear();
                 if(phase_!=Phase::Busy) continue;
                 const auto request=request_; const auto revision=applied_tuning_revision_; const auto frame_settings=settings;
-                auto pixels=std::move(input_);lock.unlock();
+                const auto timestamp=queued_at_ns_?queued_at_ns_:
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                const phoenix_wow64::NativeFrameContext frame_context{++capture_sequence,timestamp,temporal_reset||bool(request.reset)};
+                temporal_reset=false;
+                auto pixels=std::move(input_);
+                auto recycled=std::move(recycled_native_output_);lock.unlock();
                 const auto started=std::chrono::steady_clock::now();
-                auto phi=portable_color(pixels);std::vector<float> nv;
+                stage="CPU input preprocessing";
+                const bool resize_pixels=frame_settings.processing.enabled &&
+                    !pixels::identity_transfer(build.width,build.height,frame_settings.processing);
+                std::vector<float> phi;
+                // Native inference returns RGB itself. Avoid allocating and
+                // populating a full RGB input only to overwrite it below.
+                if(resize_pixels||!phoenix_addon::phoenix::uses_ours(frame_settings.mode))
+                    phi=portable_color(pixels);
+                std::vector<float> nv;
                 std::optional<pixels::Frame> processing;
                 std::vector<uint8_t> working_pixels;
-                if(frame_settings.processing.enabled) {
+                if(resize_pixels) {
                     processing.emplace(phi,build.width,build.height,frame_settings.processing);
                     working_pixels.resize(size_t(processing->working_width)*processing->working_height*4,255);
                 }
                 auto evaluate=[&](unsigned backend) {
                     std::vector<float> result=processing?processing->encoded:std::vector<float>{};
                     const unsigned passes=request.iterations*unsigned(frame_settings.refinement_passes);
+                    require(passes==1||(!frame_settings.pipeline.motion_enabled&&!frame_settings.pipeline.scene_detection),
+                        "Temporal x86 refinements require the helper");
                     for(unsigned i=0;i<passes;++i) {
                         require(!stopping_,"Native execution cancelled");
-                        result=renderer.evaluate(processing?working_pixels:pixels,frame_settings,backend,processing||i?&result:nullptr);
+                        stage="native floating-point evaluation";
+                        result=renderer.evaluate(processing?working_pixels:pixels,frame_settings,backend,processing||i?&result:nullptr,&frame_context);
                         if (backend == 3) ++native_phoenix_frames;
                     }
                     return processing?processing->finish(std::move(result)):result;
                 };
-                if(phoenix_addon::phoenix::uses_ours(frame_settings.mode)) phi=evaluate(3);
-                if(needs_nvidia_dll(frame_settings)) nv=evaluate(1);
-                auto result=portable_compose(pixels,phi,build.width,frame_settings,nv.empty()?nullptr:&nv);
+                std::vector<uint8_t> result=std::move(recycled);
+                const bool reused_output=result.size()==pixels.size();
+                const bool packed_view=frame_settings.mode==phoenix_addon::phoenix::ours &&
+                    !resize_pixels && phoenix_pipeline::comparison_view_bits(frame_settings.pipeline)==0 &&
+                    request.iterations*unsigned(frame_settings.refinement_passes)==1;
+                if(packed_view) {
+                    stage="native compact evaluation";
+                    renderer.evaluate(pixels,frame_settings,3,nullptr,&frame_context,&result);
+                    ++native_phoenix_frames;
+                } else {
+                    if(phoenix_addon::phoenix::uses_ours(frame_settings.mode)) phi=evaluate(3);
+                    if(needs_nvidia_dll(frame_settings)) nv=evaluate(1);
+                    stage="CPU output composition";
+                    result=portable_compose(pixels,phi,build.width,frame_settings,nv.empty()?nullptr:&nv);
+                }
                 const auto wall=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
-                auto status=snapshot(wall);lock.lock();output_=std::move(result);ui_snapshot_=std::move(status);
+                auto status=snapshot(wall);status["runtime"]["output_buffer_reused"]=packed_view&&reused_output;
+                lock.lock();recycled_native_input_=std::move(pixels);output_=std::move(result);ui_snapshot_=std::move(status);
                 roundtrip_ms_=wall;completed_at_=GetTickCount64();completed_tuning_revision_=revision;phase_=Phase::Finished;
             }
             lock.unlock();
             renderer.retire();
             phase_=Phase::Stopped;
 #endif
-        } catch(const std::exception& error) {std::lock_guard lock(mutex_);error_=std::string("Native x86 processing: ")+error.what();phase_=stopping_?Phase::Stopped:Phase::Failed;}
+        } catch(const std::exception& error) {
+            std::lock_guard lock(mutex_);
+            error_=std::string("Native x86 processing [")+stage+"]: "+error.what();
+            if(std::string_view(error.what()).find("allocation")!=std::string_view::npos ||
+               std::string_view(error.what()).find("bad_alloc")!=std::string_view::npos)
+                error_+="; "+in_process_address_space_reason(process_address_space());
+            phase_=stopping_?Phase::Stopped:Phase::Failed;
+        }
     }
 
     void transfer(void* data, size_t bytes, bool write) {
@@ -661,11 +800,16 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     continue;
                 }
                 auto request = request_;
+                const auto guides=request_guides_;
                 const auto frame_tuning_revision = applied_tuning_revision_;
                 auto pixels = std::move(input_);
                 auto fence = output_fence_;
                 lock.unlock();
                 auto started = std::chrono::steady_clock::now();
+                if(guides.engine_motion){
+                    require(!build.cpu_bridge,"CPU color transport does not carry engine motion textures");
+                    tag='G';transfer(&tag,1,true);auto message=guides;transfer(&message,sizeof(message),true);
+                }
                 tag = 'F';
                 transfer(&tag, 1, true);
                 transfer(&request, sizeof(request), true);
@@ -740,18 +884,24 @@ class HostState : public std::enable_shared_from_this<HostState> {
     void start(HMODULE addon, phoenix_model::WeightSource source,
                phoenix_addon::phoenix::Settings settings, FeedBuild build,
                std::optional<PortableOptions> portable = std::nullopt,
-               std::optional<NativeOptions> native = std::nullopt) {
+               std::optional<NativeOptions> native = std::nullopt,
+               std::optional<LocalGpuOptions> local = std::nullopt) {
         // Only shared state is captured: destroying HostClient cannot leave a
         // worker referring to freed transport, fences, mutexes or UI buffers.
         portable_ = portable.has_value();
         native_=native.has_value();
+        local_gpu_=local.has_value();
+        // Acquire before launch, not on the worker: teardown may win that race.
+        // The capture survives through private queue/resource destruction.
+        auto callbacks = local ? lease_in_process_api() : InProcessApiLease{};
         native_mode_=native&&native->driver_host?"in_process_x86_driver":"in_process_x64_library";
         auto self = shared_from_this();
         start_owned_worker(
             std::move(self),
             [addon, source = std::move(source), settings = std::move(settings),
-             build, portable,native](HostState& state) {
-                if(native) state.serve_native(source,settings,build,*native);
+             build, portable,native,local,callbacks = std::move(callbacks)](HostState& state) {
+                if(local) state.serve_local_gpu(settings,build,*local);
+                else if(native) state.serve_native(source,settings,build,*native);
                 else if (portable) state.serve_portable(source, settings, build, *portable);
                 else state.serve(addon, source, settings, build);
             });
@@ -761,7 +911,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         changed_.notify_all();
     }
     DWORD process_id() const {
-        return native_?GetCurrentProcessId():child_pid_.load();
+        return native_||local_gpu_?GetCurrentProcessId():child_pid_.load();
     }
     Phase phase() const {
         return phase_.load();
@@ -776,11 +926,13 @@ class HostState : public std::enable_shared_from_this<HostState> {
         phase_ = Phase::Ready;
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1) {
+                uint32_t iterations = 1, FeedGuideState guides = {}) {
         std::lock_guard lock(mutex_);
         if (phase() != Phase::Ready || iterations < 1 || iterations > 10)
             return false;
         request_ = {serial, uint32_t(reset), uint32_t(model_enabled_), iterations, 0};
+        require(feed_guides_valid(guides),"Invalid engine motion declaration");
+        request_guides_=guides;
         input_ = std::move(pixels);
         const auto& pipeline=tuning_settings_.pipeline;
         queued_at_ns_=(pipeline.motion_enabled||pipeline.scene_detection||pipeline.monitoring)?
@@ -796,6 +948,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
         taken_tuning_revision_ = completed_tuning_revision_;
         phase_ = Phase::Ready;
         return result;
+    }
+    std::vector<uint8_t> take_recycled_input() {
+        std::lock_guard lock(mutex_);
+        return std::move(recycled_native_input_);
+    }
+    void recycle_output(std::vector<uint8_t> pixels) {
+        std::lock_guard lock(mutex_);
+        if(native_&&!stopping_&&pixels.capacity()>recycled_native_output_.capacity())
+            recycled_native_output_=std::move(pixels);
     }
     std::string error() {
         std::lock_guard lock(mutex_);
@@ -815,10 +976,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
         if (stopping_) return false;
         if (phase() == Phase::Failed || phase() == Phase::Stopped)
             return live_tuning_json(settings) == live_tuning_json(tuning_settings_);
-        const bool view_changed=portable_&&phoenix_addon::phoenix::copy_live_selection(tuning_settings_,settings);
+        const bool view_changed=(portable_||local_gpu_)&&phoenix_addon::phoenix::copy_live_selection(tuning_settings_,settings);
         const bool controls_changed=phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings);
-        if (view_changed||controls_changed) {
-            pending_tuning_ = live_tuning_json(tuning_settings_).dump();
+        const bool helper=!portable_&&!native_&&!local_gpu_;
+        const bool motion_changed=(helper||native_||portable_)&&
+            copy_helper_motion(tuning_settings_.pipeline,settings.pipeline);
+        if (view_changed||controls_changed||motion_changed) {
+            auto patch=live_tuning_json(tuning_settings_);
+            if(helper)patch.update(helper_motion_json(tuning_settings_.pipeline));
+            pending_tuning_ = patch.dump();
             ++tuning_revision_;
             changed_.notify_all();
         }
@@ -856,14 +1022,16 @@ class HostClient {
     std::shared_ptr<HostState> state_;
     bool portable_ = false;
     std::optional<NativeOptions> native_;
+    bool local_gpu_ = false;
 
   public:
     HostClient(HMODULE addon, const phoenix_model::WeightSource& source,
                const phoenix_addon::phoenix::Settings& settings, const FeedBuild& build,
                std::optional<PortableOptions> portable = std::nullopt,
-               std::optional<NativeOptions> native = std::nullopt)
-        : state_(std::make_shared<HostState>(settings)), portable_(portable.has_value()),native_(native) {
-        state_->start(addon, source, settings, build, portable,native);
+               std::optional<NativeOptions> native = std::nullopt,
+               std::optional<LocalGpuOptions> local = std::nullopt)
+        : state_(std::make_shared<HostState>(settings)), portable_(portable.has_value()),native_(native),local_gpu_(local.has_value()) {
+        state_->start(addon, source, settings, build, portable,native,local);
     }
     ~HostClient() {
         state_->stop();
@@ -872,8 +1040,8 @@ class HostClient {
         return state_->process_id();
     }
     bool in_process_portable() const { return portable_; }
-    bool in_process() const {return portable_||native_.has_value();}
-    const char* native_execution() const {return !native_?nullptr:native_->driver_host?"in_process_x86_driver":"in_process_x64_library";}
+    bool in_process() const {return portable_||native_.has_value()||local_gpu_;}
+    const char* native_execution() const {return local_gpu_?"in_process_staged":!native_?nullptr:native_->driver_host?"in_process_x86_driver":"in_process_x64_library";}
     Phase phase() const {
         return state_->phase();
     }
@@ -884,12 +1052,14 @@ class HostClient {
         state_->opened_fences(output);
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1) {
-        return state_->submit(serial, reset, std::move(pixels), iterations);
+                uint32_t iterations = 1, FeedGuideState guides = {}) {
+        return state_->submit(serial, reset, std::move(pixels), iterations,guides);
     }
     std::vector<uint8_t> take() {
         return state_->take();
     }
+    std::vector<uint8_t> take_recycled_input(){return state_->take_recycled_input();}
+    void recycle_output(std::vector<uint8_t> pixels) {if(native_)state_->recycle_output(std::move(pixels));}
     std::string error() {
         return state_->error();
     }

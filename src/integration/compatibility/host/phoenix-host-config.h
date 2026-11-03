@@ -2,6 +2,19 @@
 #include <filesystem>
 #include <fstream>
 #include "../../../../third_party/nlohmann/json.hpp"
+#include "../../reshade/feeder_api.h"
+
+enum class PhoenixHelperOutput { Retry, Input, RequireCompletion };
+// Bypass can mean CreateFeature setup was submitted, not that a neural image
+// exists. An enabled request must keep its captured input and retry; publishing
+// that unchanged seed would flash the original image between processed frames.
+inline PhoenixHelperOutput PhoenixHelperOutputPolicy(PhoenixFeederStatusV1 status,
+                                                     bool requested, bool enabled) {
+    if (status == PhoenixFeederStatusV1::Deferred) return PhoenixHelperOutput::Retry;
+    if (status == PhoenixFeederStatusV1::Bypass)
+        return requested && enabled ? PhoenixHelperOutput::Retry : PhoenixHelperOutput::Input;
+    return PhoenixHelperOutput::RequireCompletion;
+}
 
 inline uint32_t PhoenixHostIterations(uint32_t requested, unsigned configured) {
     if (configured > 10) throw std::runtime_error("Invalid host FrameIterations; expected 0..10");

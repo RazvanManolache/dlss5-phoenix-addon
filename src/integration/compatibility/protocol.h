@@ -8,9 +8,10 @@
 
 #pragma once
 #include <cstdint>
+#include <cmath>
 
 #define FEED_IPC_MAGIC   0x35534C44u  // 'DLS5'
-#define FEED_IPC_VERSION 11u
+#define FEED_IPC_VERSION 12u
 #define FEED_IPC_MIN_VERSION 10u // Unchanged frame layout; older clients omit live tuning.
 #define FEED_SESSION_PIPE_FMT "\\\\.\\pipe\\dlss5-feed.%lu.%llu" // game PID and per-session nonce
 #define FEED_PIPE_FMT    "\\\\.\\pipe\\dlss5-feed.%lu"   // %lu = game PID
@@ -81,9 +82,23 @@ struct FeedCpuFrameAck   // host -> game after a CPU-bridge frame
 struct FeedUiAction { uint32_t action, value; };
 struct FeedUiReply { uint32_t bytes; }; // Bounded UTF-8 JSON follows (at most 1 MiB).
 struct FeedSettingsPatch { uint32_t bytes; }; // 'S': live-only JSON, <= 8192 bytes; uint32 acceptance reply.
+// Optional v12 'G', immediately before one 'F'. A declaration applies to that
+// frame only. The producer must copy real, history-aligned vectors into FEED_MV;
+// allocated/zero-filled placeholder textures do not establish availability.
+struct FeedGuideState { uint32_t engine_motion = 0; float scale_x = 1, scale_y = 1; };
 
 #pragma pack(pop)
 
 static_assert(sizeof(FeedBuild)==116);
 static_assert(sizeof(FeedFrameMsg)==24);
 static_assert(sizeof(FeedBuildAck)==24);
+static_assert(sizeof(FeedGuideState)==12);
+
+inline bool feed_guides_valid(const FeedGuideState& guides) {
+    return guides.engine_motion <= 1 && std::isfinite(guides.scale_x) && std::isfinite(guides.scale_y);
+}
+// Consume each declaration once, so a previous frame's engine vectors can never
+// silently turn an ordinary zero-filled transport texture into trusted motion.
+inline FeedGuideState feed_take_guides(FeedGuideState& pending) {
+    const auto current = pending; pending = {}; return current;
+}

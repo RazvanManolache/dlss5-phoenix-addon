@@ -5,7 +5,7 @@
 
 namespace phoenix_compat {
 enum class ExecutionPreference { Automatic, InProcess, Helper, Portable, NativeLibrary, NativeDriver, Invalid };
-enum class BackbufferRoute { InProcess, Helper, Portable, NativeLibrary, NativeDriver, Unsupported };
+enum class BackbufferRoute { InProcess, InProcessStaging, Helper, Portable, NativeLibrary, NativeDriver, Unsupported };
 inline ExecutionPreference execution_preference(const std::string& value) {
     if (value == "auto") return ExecutionPreference::Automatic;
     if (value == "in_process") return ExecutionPreference::InProcess;
@@ -42,6 +42,11 @@ inline bool local_color_format(reshade::api::format format) {
            format == F::r8g8b8a8_typeless || format == F::b8g8r8a8_unorm ||
            format == F::b8g8r8a8_unorm_srgb || format == F::b8g8r8a8_typeless ||
            format == F::r10g10b10a2_unorm || format == F::r10g10b10a2_typeless;
+}
+inline bool staging_color_format(reshade::api::format format) {
+    using F = reshade::api::format;
+    return local_color_format(format) || format == F::r8g8b8x8_unorm || format == F::r8g8b8x8_unorm_srgb ||
+        format == F::b8g8r8x8_unorm || format == F::b8g8r8x8_unorm_srgb || format == F::b8g8r8x8_typeless;
 }
 inline bool sdr_backbuffer(reshade::api::color_space space,reshade::api::format format) {
     using C=reshade::api::color_space;
@@ -88,6 +93,12 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
             decision.reason = caps.bits==32 && caps.nvidia_required ?
                 "NVIDIA DLSS5/comparison uses the x64 helper in a 32-bit game; Phoenix can run in-process." :
                 "No eligible same-process route remains; using the x64 helper.";
+        if (decision.route == BackbufferRoute::Helper && !(caps.bits==32 && caps.nvidia_required)) {
+            decision.reason += " " + choose_backbuffer_route(caps, ExecutionPreference::InProcess).reason;
+            if (caps.bits == 32 && !caps.native_library_reason.empty())
+                decision.reason += " Native x86: " + caps.native_library_reason;
+            if (!caps.portable_reason.empty()) decision.reason += " Portable: " + caps.portable_reason;
+        }
         return decision;
     }
     if(preference==ExecutionPreference::NativeLibrary||preference==ExecutionPreference::NativeDriver) {
@@ -128,15 +139,29 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         reason = "The selected NVIDIA DLSS5 DLL requires the 64-bit helper; Phoenix DLSS5-only processing does not.";
     else if (caps.bits == 32)
         reason = "Same-device native D3D12 requires the x64 addon. Use an available x86 same-process route or Automatic.";
-    else if (caps.api != reshade::api::device_api::d3d12)
+    else if (caps.api != reshade::api::device_api::d3d12 && caps.api != reshade::api::device_api::d3d11 &&
+             caps.api != reshade::api::device_api::d3d9 && caps.api != reshade::api::device_api::d3d10 &&
+             caps.api != reshade::api::device_api::opengl && caps.api != reshade::api::device_api::vulkan)
         reason = "This graphics API currently needs the D3D12 compatibility bridge.";
+    else if (caps.api == reshade::api::device_api::d3d11 &&
+             (!caps.sdr || !local_color_format(caps.format) || caps.samples != 1 || caps.layers != 1 || caps.levels != 1))
+        reason = "Native DX11 interop requires a single-sample SDR RGB8/RGB10A2 backbuffer.";
     else if (caps.software_device) reason = "Software render device requires staging to a hardware inference helper.";
     else if (!caps.local_api) reason = "This add-on does not expose the in-process backbuffer API.";
     else if (!caps.native_executor) reason = "The selected executor currently uses the isolated helper.";
     if (preference == ExecutionPreference::Helper) reason = "External helper explicitly selected.";
     if (preference == ExecutionPreference::Portable)
         reason = "NVIDIA DLSS5 DLL/comparison selected; using the helper while retaining the portable Phoenix DLSS5 preference.";
-    if (reason.empty()) return {BackbufferRoute::InProcess, "DX12 same-device GPU processing; no helper process."};
+    if (reason.empty() && caps.api != reshade::api::device_api::d3d11 && caps.api != reshade::api::device_api::d3d12) {
+        if (!caps.sdr || !staging_color_format(caps.format) || caps.width > 8192 || caps.height > 8192 || caps.layers != 1 || caps.levels != 1 ||
+            (caps.samples != 1 && caps.api != reshade::api::device_api::d3d9))
+            reason = "Local native staging requires one SDR canvas up to 8192 per axis; multisampling requires DX9.";
+        else return {BackbufferRoute::InProcessStaging,
+            "Native GPU inference inside this x64 game; fenced CPU capture/return, no helper process."};
+    }
+    if (reason.empty()) return {BackbufferRoute::InProcess, caps.api == reshade::api::device_api::d3d11 ?
+        "DX11/DX12 same-adapter GPU processing inside the game; no helper process." :
+        "DX12 same-device GPU processing; no helper process."};
     if (preference == ExecutionPreference::InProcess)
         return {BackbufferRoute::Unsupported, "In-process mode cannot be used: " + reason};
     if (caps.api == reshade::api::device_api::d3d12 && (caps.width > 8192 || caps.height > 8192))
@@ -178,7 +203,7 @@ inline const char* execution_preference_name(ExecutionPreference preference) {
 inline const char* execution_preference_label(ExecutionPreference preference) {
     switch (preference) {
     case ExecutionPreference::Automatic: return "Automatic (same-process first)";
-    case ExecutionPreference::InProcess: return "In-process native D3D12";
+    case ExecutionPreference::InProcess: return "In-process native GPU";
     case ExecutionPreference::NativeLibrary: return "x64 library inside x86 (experimental)";
     case ExecutionPreference::NativeDriver: return "x86 Phoenix DLSS5 + native driver (experimental)";
     case ExecutionPreference::Portable: return "In-process portable (experimental)";

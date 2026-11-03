@@ -10,6 +10,19 @@ struct FakeResource {
         ++released;
     }
 };
+static HRESULT WINAPI unused_evaluate(const PhoenixFeederFrameV1*, PhoenixFeederResultV1*) { return E_NOTIMPL; }
+static UINT WINAPI unused_metadata(char*, UINT) { return 0; }
+static BOOL WINAPI unused_action(uint32_t, uint32_t) { return FALSE; }
+static phoenix_compat::InProcessApi provider_callbacks() {
+    phoenix_compat::InProcessApi api;
+    api.prepare = [](auto*, const auto&) {};
+    api.release = [](auto*) {};
+    api.observe = [](auto*, auto*, auto*) {};
+    api.forget = [](ID3D12GraphicsCommandList*) noexcept {};
+    api.evaluate = unused_evaluate; api.progress = api.ui = unused_metadata;
+    api.action = unused_action; api.update_tuning = [](const auto&) {};
+    return api;
+}
 int main() try {
     unsigned checks = 0;
     auto check = [&](bool value) {
@@ -19,10 +32,55 @@ int main() try {
                                      std::to_string(checks));
     };
     using namespace phoenix_compat;
+    {
+        // Force detach while a worker still owns callbacks. The provider may
+        // neither disappear nor be replaced until its final cleanup callback.
+        Handle entered, resume;
+        entered.value = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        resume.value = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        check(entered.value && resume.value);
+        std::atomic<unsigned> cleaned = 0;
+        auto provider = std::make_shared<int>(1);
+        std::weak_ptr<int> provider_weak = provider;
+        auto api = provider_callbacks();
+        api.release = [provider, &cleaned](auto*) { ++cleaned; };
+        check(publish_in_process_api(std::move(api)));
+        auto owner = lease_in_process_api();
+        std::jthread worker([&, callbacks = lease_in_process_api()] {
+            SetEvent(entered.value);
+            WaitForSingleObject(resume.value, 2000);
+            in_process_api.release(nullptr);
+        });
+        struct Resume { HANDLE event; ~Resume() { SetEvent(event); } } unblock{resume.value};
+        check(WaitForSingleObject(entered.value, 1000) == WAIT_OBJECT_0);
+        provider.reset();
+        retire_in_process_api();
+        check(!in_process_api_available() && !can_publish_in_process_api());
+        check(!publish_in_process_api(provider_callbacks()));
+        bool denied = false;
+        try { (void)lease_in_process_api(); } catch (const std::exception&) { denied = true; }
+        check(denied && !provider_weak.expired() && cleaned == 0);
+        SetEvent(resume.value); worker.join();
+        check(cleaned == 1 && !provider_weak.expired());
+        owner.reset();
+        check(provider_weak.expired() && !in_process_api.release && can_publish_in_process_api());
+        retire_in_process_api(); // idempotent, including the no-owner case
+        check(publish_in_process_api(provider_callbacks()) && in_process_api_available());
+        retire_in_process_api();
+        check(!in_process_api_available() && !in_process_api.evaluate);
+    }
     check(!feed_protocol_compatible(9));
     check(feed_protocol_compatible(10));
     check(feed_protocol_compatible(11));
-    check(!feed_protocol_compatible(12));
+    check(feed_protocol_compatible(12));
+    check(!feed_protocol_compatible(13));
+    FeedGuideState pending{1,1920.f,-1080.f};
+    check(feed_guides_valid(pending));
+    const auto declared=feed_take_guides(pending);
+    check(declared.engine_motion==1&&declared.scale_x==1920.f&&declared.scale_y==-1080.f);
+    check(!feed_take_guides(pending).engine_motion);
+    check(!feed_guides_valid({2,1,1}));
+    check(!feed_guides_valid({1,std::numeric_limits<float>::infinity(),1}));
     {
         Settings tuning;
         auto state = std::make_shared<HostState>(tuning); // No start: no helper, GPU or pipe.

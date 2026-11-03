@@ -47,6 +47,26 @@ def main():
                 shutil.copy2(package / name, current / name)
             shutil.copy2(core / 'report.json', current / 'core-build.json')
             print('Promoted verified x86/x64 package to ' + str(current.relative_to(ROOT)), flush=True)
+        except Exception:
+            # Keep one compact failure receipt before disposable staging is
+            # removed. Otherwise a failed CPU contract loses its only evidence.
+            failure = {}
+            if core.exists():
+                for path in core.glob('*.result.json'):
+                    try:
+                        row = json.loads(path.read_text(encoding='utf-8-sig'))
+                        if row.get('passed') is not True:
+                            failure[path.name] = row
+                    except (OSError, ValueError):
+                        failure[path.name] = path.read_text(errors='replace')[-4096:]
+                if not failure:
+                    logs = sorted(core.glob('*.build.log'), key=lambda p:p.stat().st_mtime)
+                    for path in logs[-2:]:
+                        failure[path.name] = path.read_text(errors='replace')[-4096:]
+            destination = args.output.resolve() if args.output else ROOT/'artifacts/current/addon'
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination/'BUILD_FAILURE.json').write_text(json.dumps(failure, indent=2)+'\n')
+            raise
         finally:
             for path in (core, package):
                 if path.exists():

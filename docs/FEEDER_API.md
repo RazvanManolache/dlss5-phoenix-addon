@@ -1,5 +1,29 @@
 # Direct D3D12 Feeder API
 
+## Motion in the graphics helper
+
+The optional helper IPC `G` packet (protocol 12) declares real engine vectors
+for exactly the next `F` frame. Old protocol 10/11 clients remain accepted and
+make no such declaration. `FeedGuideState` supplies availability and pixel-scale
+conversion; shared `FEED_MV` is otherwise an untrusted placeholder. The DX11
+bridge accepts a matching, same-device, single-sample RG16F vector texture and
+orders its copy before the color-ready fence. Consecutive game-frame alignment
+is required: one-frame engine vectors cannot reproject across skipped captures.
+The current color-only final-frame controller does not invent that producer.
+
+Automatic motion prefers valid declared engine vectors. Missing vectors can be
+estimated by the helper's existing D3D12 NVIDIA Optical Flow service. Mono/eye
+streams own separate histories; retries do not become new motion samples, and
+repeated evaluation of one image uses a private zero surface with history reset.
+Source changes, discontinuities and rejected estimates invalidate recurrence.
+
+Helper-owned motion options travel in the existing live settings patch and are
+validated separately from the core's artistic/history options. Changing motion
+controls resets their history without recreating the process or neural model.
+Status JSON exposes `helper_motion`, per-stream source, effective analysis size,
+estimated-frame count and history-reset count. Engine-vector confidence is not
+reported as NVIDIA optical-flow confidence. See the [user controls](USER_GUIDE.md#motion-and-temporal-stability).
+
 The full x64 addon also exports `CnrPHOENIXInProcessBackbufferVersion()` (version
 1). This identifies the standalone same-device frontend, not merely the presence
 of an evaluator. `[Phoenix.Compatibility] StandaloneInput=1` selects final-color
@@ -30,7 +54,12 @@ Textures must not alias. These objects are borrowed, not transferred.
 `S_OK/Recorded` means commands were recorded, not that the GPU completed. The
 caller must submit the same list on the declared queue, wait for its fence and
 verify Phoenix DLSS5 completion/writeback before presenting the output.
-`S_OK/Bypass` preserves the input. `S_FALSE/Deferred` carries no claimed neural
+`S_OK/Bypass` preserves the input and can include required feature-initialization
+commands. Submit and retire that list safely. If neural rendering was requested,
+retry the same captured input rather than publishing the unchanged seed as a
+processed frame; initialization is not neural completion. Keep the capture token
+and do not repeat a consumed reset on the next retry. Explicitly disabled/input
+output may publish the preserved input. `S_FALSE/Deferred` carries no claimed neural
 recording; a claimed recording that fails is terminal and must be abandoned.
 There is no implicit SR fallback.
 

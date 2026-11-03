@@ -2,10 +2,54 @@
 #include "../../src/native/support/present_guides.h"
 #include "../../src/native/support/ledger.h"
 #include "../../src/integration/compatibility/completed_presentation.h"
+#include "../../src/integration/compatibility/d3d11_loading.h"
 #include <iostream>
+
+static void check_d3d11_loading() {
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID3D11Device> device;
+    ComPtr<ID3D11DeviceContext> context;
+    phoenix_native::hr(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
+        nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &context));
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = 17; description.Height = 9;
+    description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
+    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ComPtr<ID3D11Texture2D> back;
+    phoenix_native::hr(device->CreateTexture2D(&description, nullptr, &back));
+    std::vector<uint32_t> raw(17 * 9, 0xff397ac2);
+    context->UpdateSubresource(back.Get(), 0, nullptr, raw.data(), 17 * 4, 0);
+    D3D11_VIEWPORT viewport{2, 3, 13, 5, 0, 1}; context->RSSetViewports(1, &viewport);
+    D3D11_QUERY_DESC query{D3D11_QUERY_OCCLUSION_PREDICATE, 0};
+    ComPtr<ID3D11Predicate> predicate;
+    phoenix_native::hr(device->CreatePredicate(&query, &predicate));
+    context->Begin(predicate.Get()); context->End(predicate.Get());
+    context->SetPredication(predicate.Get(), TRUE);
+    phoenix_compat::d3d11_record_loading(device.Get(), back.Get());
+    ComPtr<ID3D11Predicate> restored; BOOL condition = FALSE;
+    context->GetPredication(&restored, &condition);
+    phoenix_bundle::require(restored.Get() == predicate.Get() && condition, "D3D11 loading gate changed game predication");
+    UINT count = 1; D3D11_VIEWPORT actual{}; context->RSGetViewports(&count, &actual);
+    phoenix_bundle::require(count == 1 && actual.TopLeftX == 2 && actual.Width == 13, "D3D11 loading gate changed game viewport");
+    context->SetPredication(nullptr, FALSE);
+    description.BindFlags = 0; description.Usage = D3D11_USAGE_STAGING;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> readback;
+    phoenix_native::hr(device->CreateTexture2D(&description, nullptr, &readback));
+    context->CopyResource(readback.Get(), back.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    phoenix_native::hr(context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped));
+    bool hidden = true;
+    for (unsigned row = 0; row < 9; ++row) for (unsigned x = 0; x < 17; ++x)
+        hidden &= reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(mapped.pData) + row * mapped.RowPitch)[x] == 0xff000000;
+    context->Unmap(readback.Get(), 0);
+    phoenix_bundle::require(hidden, "D3D11 cold-start/reset gate exposed the original frame");
+}
 
 int main() {
     try {
+        check_d3d11_loading();
         phoenix_test::Gpu gpu;
         auto completed = gpu.texture(17, 9), live = gpu.texture(17, 9);
         // The next raw game image is black, while the completed image contains
