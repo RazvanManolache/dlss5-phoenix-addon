@@ -37,3 +37,6 @@ __pycache__/
 *.log
 *.dmp
 *.pdb
+
+# Private development reference material; source files and metadata included.
+/local_research/

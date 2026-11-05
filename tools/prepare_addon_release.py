@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '1.0-beta2'
+VERSION = '1.0'
 _notifier_version = re.search(r'current_version\[\] = "([^"\n]+)"', (ROOT/'src/native/support/release_updates.h').read_text(encoding='utf-8'))
 if not _notifier_version or _notifier_version.group(1) != VERSION:
     raise RuntimeError('Release version and Phoenix update-notice identity differ')

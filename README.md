@@ -12,7 +12,7 @@ I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
 it can do for the games we already love—and, eventually, looks less interested
 in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download beta](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0-beta2) ·
+[Download 1.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
 <!-- current-two-model-benchmark -->
