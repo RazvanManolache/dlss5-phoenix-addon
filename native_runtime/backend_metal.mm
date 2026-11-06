@@ -70,7 +70,20 @@ class MetalBackend final : public Backend {
         queue_ = [device_ newCommandQueue];
         demand(queue_ != nil, "Metal command queue creation failed");
         MTLCompileOptions *options = [MTLCompileOptions new];
-        options.fastMathEnabled = NO; // Keep explicit half/FP8 rounding and reduction order.
+        // Preserve explicit half/FP8 rounding and reduction order on both APIs.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+        if (@available(macOS 15.0, *)) {
+            options.mathMode = MTLMathModeSafe;
+            options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsPrecise;
+        } else
+#endif
+        {
+            // macOS 14 and older SDKs only expose the legacy equivalent.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            options.fastMathEnabled = NO;
+#pragma clang diagnostic pop
+        }
         NSError *error = nil;
         NSString *source = [[NSString alloc] initWithBytes:phoenix_metal_source
                                                     length:sizeof(phoenix_metal_source) - 1

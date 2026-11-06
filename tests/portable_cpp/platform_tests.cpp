@@ -10,6 +10,12 @@
 using namespace phoenix_cpp;
 int main() {
     try {
+        // UTF-8 JSON/CLI paths must not pass through the Windows ANSI code page.
+        const std::string unicode_path = "models/\xc8\x99\xe6\xa8\xa1\xf0\x9f\x8e\xae.bin";
+        const auto roundtrip = phoenix_fs::from_utf8(unicode_path).generic_u8string();
+        demand(std::string(reinterpret_cast<const char*>(roundtrip.data()), roundtrip.size()) == unicode_path,
+               "UTF-8 filesystem path roundtrip");
+        demand(phoenix_fs::from_utf8("").empty(), "Empty UTF-8 filesystem path");
         using phoenix_model::portable_sha256;
         demand(portable_sha256(nullptr, 0) ==
                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

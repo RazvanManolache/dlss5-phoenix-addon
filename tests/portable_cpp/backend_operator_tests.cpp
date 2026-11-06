@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
                 phx::Operation merge{};
                 merge.left_input = context.address;
                 merge.output = expected_output.address;
-                merge.flags = phx::MergeAttentionHeads | phx::StoreHalf | (5 << 8);
+                merge.flags = static_cast<phx::u32>(phx::MergeAttentionHeads) | phx::StoreHalf | (5 << 8);
                 merge.column_count = heads * 32;
                 merge.batch_count = heads;
                 merge.left_batch_stride = 64;
@@ -441,7 +441,7 @@ int main(int argc, char** argv) {
                             operation.reduction_count = part == 0;
                         } else {
                             operation.family = phx::Elementwise;
-                            operation.flags = phx::SplitQkvHeads | phx::StoreHalf | (5u << 8);
+                            operation.flags = static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (5u << 8);
                             operation.column_count = heads * 32;
                             operation.left_batch_stride = 64;
                             operation.right_batch_stride = 2;

@@ -1,3 +1,4 @@
+#include "../src/common/utf8_path.h"
 // Adapts portable descriptors to the Vulkan resident-command ABI.
 // Logical addresses encode buffer identity in high bits and byte offset in low bits; they are never dereferenced.
 
@@ -310,7 +311,7 @@ class VulkanBackend final : public Backend {
                             key.family == phx::RowReduction &&
                             key.flags == (phx::StoreHalf | phx::InterleavedQkv | (1u << 18)) &&
                             value.family == phx::Elementwise &&
-                            value.flags == (phx::SplitQkvHeads | phx::StoreHalf | (5u << 8)) &&
+                            value.flags == (static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (5u << 8)) &&
                             query.left_input == operation.output &&
                             key.left_input == operation.output &&
                             value.left_input == operation.output &&
@@ -355,7 +356,7 @@ class VulkanBackend final : public Backend {
                             key.row_count == operation.row_count && key.column_count == 64 &&
                             key.batch_count == operation.batch_count &&
                             value.family == phx::Elementwise &&
-                            value.flags == (phx::SplitQkvHeads | phx::StoreHalf | (5u << 8)) &&
+                            value.flags == (static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (5u << 8)) &&
                             value.left_input == operation.left_input &&
                             value.row_count == operation.row_count &&
                             value.column_count == operation.batch_count * 32 &&
@@ -541,7 +542,7 @@ extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_utf8(const char* devic
                                                                char* error, size_t size) {
     try {
         demand(root != nullptr, "Vulkan shader folder required");
-        return new VulkanBackend(device_id ? device_id : "", std::filesystem::u8path(root),
+        return new VulkanBackend(device_id ? device_id : "", phoenix_fs::from_utf8(root),
                                  options);
     } catch (const std::exception& exception) {
         copy_error(error, size, exception.what());

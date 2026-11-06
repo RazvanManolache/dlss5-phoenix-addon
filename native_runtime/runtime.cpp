@@ -1,3 +1,4 @@
+#include "../src/common/utf8_path.h"
 // Owns one selected backend, immutable graph, frame preparation and per-pass history.
 // A frame commits its new histories only after inference/resolve and finite-value checks complete.
 
@@ -108,7 +109,7 @@ struct Runtime {
         bool tested = std::find(validated.begin(), validated.end(), selected) != validated.end();
         demand(tested || config.value("allow_unvalidated", false),
                "Selected C++ device has no validation entry; explicit opt-in required");
-        auto root = std::filesystem::u8path(config.at("runtime_root").get<std::string>());
+        auto root = phoenix_fs::from_utf8(config.at("runtime_root").get<std::string>());
         demand(root.is_absolute(), "Native runtime root must be absolute");
         std::string kind = config.at("backend"), device = config.at("device");
         demand(kind == "cpu" || kind == "cuda" || kind == "vulkan" || kind == "hip" ||
@@ -869,7 +870,7 @@ static int bounded_frame(void* handle, const phoenix_frame_v2* request,
     try {
         demand(handle, "Missing runtime");
         demand(request && request->struct_bytes == (extended ? sizeof(phoenix_frame_v3) : sizeof(phoenix_frame_v2)) &&
-                   request->version == (extended ? PHOENIX_FRAME_VERSION_3 : PHOENIX_FRAME_VERSION_2) && !request->reserved,
+                   request->version == (extended ? uint32_t(PHOENIX_FRAME_VERSION_3) : uint32_t(PHOENIX_FRAME_VERSION_2)) && !request->reserved,
                "Unsupported bounded frame structure/version");
         auto& runtime = *static_cast<Runtime*>(handle);
         const unsigned width = runtime.frame->width, height = runtime.frame->height;

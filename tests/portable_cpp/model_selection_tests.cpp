@@ -1,3 +1,4 @@
+#include "../../src/common/utf8_path.h"
 // CPU-only contracts: model identity, dispatch, parsing, and legacy compatibility.
 #include "../../native_runtime/graph.h"
 #include "../../src/native/model/bundle_loader.h"
@@ -244,7 +245,7 @@ int main(int argc, char** argv) {
         extensible_registry_contracts();
         Json models = Json::array();
         // Optional explicit reference files are never required by CI/CTest.
-        for (int i = 1; i < argc; ++i) models.push_back(decode_original(std::filesystem::u8path(argv[i])));
+        for (int i = 1; i < argc; ++i) models.push_back(decode_original(phoenix_fs::from_utf8(argv[i])));
         std::cout << Json({{"passed", true}, {"cpu_only", true}, {"checks", checks},
                            {"external_models", models}}).dump(2) << '\n';
     } catch (const std::exception& error) {

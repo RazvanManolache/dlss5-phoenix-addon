@@ -122,7 +122,7 @@ void test_vulkan_matrix2_contract(phoenix_cpp::Backend& backend, Allocate& alloc
                 prepare.reduction_count = part == 0;
             } else {
                 prepare.family = phx::Elementwise;
-                prepare.flags = phx::SplitQkvHeads | phx::StoreHalf | (5u << 8);
+                prepare.flags = static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (5u << 8);
                 prepare.column_count = 32;
                 prepare.left_batch_stride = 64;
                 prepare.right_batch_stride = 2;

@@ -338,7 +338,7 @@ class Graph {
         if (height == source.height && width == source.width)
             return source;
         demand(height >= source.height && width >= source.width, "Spatial padding cannot crop");
-        return pointwise(source, phx::SpatialPad | phx::StoreHalf, height, width, source.channels,
+        return pointwise(source, static_cast<phx::u32>(phx::SpatialPad) | phx::StoreHalf, height, width, source.channels,
                          nullptr, nullptr, 0, source.height, source.width, width);
     }
 
@@ -410,7 +410,7 @@ class Graph {
                 emit(operation, operation.row_count);
             } else {
                 // V needs only head separation and the required publication.
-                operation.flags = phx::SplitQkvHeads | phx::StoreHalf | (5 << 8);
+                operation.flags = static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (5 << 8);
                 operation.column_count = channels;
                 operation.left_batch_stride = tokens;
                 operation.right_batch_stride = 2;
@@ -490,7 +490,7 @@ class Graph {
         emit(operation, uint64_t(batch) * head_count * tokens * 32);
         auto merged = pointwise(
             context,
-            phx::MergeAttentionHeads | phx::StoreHalf | (5 << 8) | (global_attention ? 0x20000 : 0),
+            static_cast<phx::u32>(phx::MergeAttentionHeads) | phx::StoreHalf | (5 << 8) | (global_attention ? 0x20000 : 0),
             batch, tokens, channels, nullptr, global_attention ? &inverse_normalizer : nullptr,
             head_count, tokens);
         return merged;
@@ -516,14 +516,14 @@ class Graph {
              first_window += window_batch_limit_) {
             unsigned batch = std::min(window_batch_limit_, window_count - first_window);
             auto gathered =
-                pointwise(source, phx::GatherWindowBatch | phx::StoreHalf, batch, 64, channels,
+                pointwise(source, static_cast<phx::u32>(phx::GatherWindowBatch) | phx::StoreHalf, batch, 64, channels,
                           nullptr, nullptr, first_window, source.height, source.width,
                           windows_across, (top_padding << 16) | left_padding);
             auto merged = attention_windows(gathered, block, layer, false);
             phx::Operation operation{};
             operation.left_input = merged.ptr();
             operation.output = result.ptr();
-            operation.flags = phx::ScatterWindowBatch | phx::StoreHalf | phx::LeftInputHalf;
+            operation.flags = static_cast<phx::u32>(phx::ScatterWindowBatch) | phx::StoreHalf | phx::LeftInputHalf;
             operation.column_count = channels;
             operation.batch_count = first_window;
             operation.left_batch_stride = source.height;
@@ -558,12 +558,12 @@ class Graph {
             Tensor gathered;
             if (skip) {
                 demand(blend_gains, "Post blend gain missing");
-                gathered = pointwise(source, phx::GatherUpsampleBlendBatch | phx::StoreHalf, batch,
+                gathered = pointwise(source, static_cast<phx::u32>(phx::GatherUpsampleBlendBatch) | phx::StoreHalf, batch,
                                      64, channels, skip, blend_gains, first_window, height, width,
                                      windows_across, (top_padding << 16) | left_padding,
                                      float(source.width));
             } else {
-                gathered = pointwise(source, phx::GatherWindowBatch | phx::StoreHalf, batch, 64,
+                gathered = pointwise(source, static_cast<phx::u32>(phx::GatherWindowBatch) | phx::StoreHalf, batch, 64,
                                      source.channels, nullptr, nullptr, first_window, height, width,
                                      windows_across, (top_padding << 16) | left_padding);
             }
@@ -632,11 +632,11 @@ class Graph {
             if (pooled) {
                 operation.output = pooled_result.ptr();
                 operation.secondary_output = result.ptr();
-                operation.flags = phx::ScatterWindowBatchAndPool | phx::StoreHalf | (1 << 8);
+                operation.flags = static_cast<phx::u32>(phx::ScatterWindowBatchAndPool) | phx::StoreHalf | (1 << 8);
             } else {
                 operation.output = result.ptr();
                 operation.flags =
-                    phx::ScatterWindowBatch | phx::StoreHalf | ((keep_half ? 4 : 5) << 8);
+                    static_cast<phx::u32>(phx::ScatterWindowBatch) | phx::StoreHalf | ((keep_half ? 4 : 5) << 8);
             }
             emit(operation, accumulator.size());
         }
@@ -742,7 +742,7 @@ class Graph {
         }
         return pointwise(
             projected,
-            phx::UpsampleResidual | phx::StoreHalf | ((skip.channels == 32 ? 4 : 5) << 8),
+            static_cast<phx::u32>(phx::UpsampleResidual) | phx::StoreHalf | ((skip.channels == 32 ? 4 : 5) << 8),
             skip.height, skip.width, skip.channels, &skip, &gains, 0, skip.width, source.width);
     }
 

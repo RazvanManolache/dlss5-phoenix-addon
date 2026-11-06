@@ -1,3 +1,4 @@
+#include "../../src/common/utf8_path.h"
 // Resource-equivalence checks and optional real-bundle loading. Never executes GPU code.
 #include "../../native_runtime/model.h"
 #include "../../src/native/model/bundle_loader.h"
@@ -144,8 +145,8 @@ int main(int argc, char** argv) {
         for (int i = 1; i < argc; ++i) {
             if (std::string_view(argv[i]) == "--bundle") {
                 if (++i == argc) throw std::runtime_error("Missing bundle argument");
-                bundle = std::filesystem::u8path(argv[i]);
-            } else files.push_back(check_dll(std::filesystem::u8path(argv[i]), bundle));
+                bundle = phoenix_fs::from_utf8(argv[i]);
+            } else files.push_back(check_dll(phoenix_fs::from_utf8(argv[i]), bundle));
         }
         std::cout << Json({{"passed", true}, {"cpu_only", true}, {"checks", checks}, {"external_models", files}}).dump() << '\n';
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

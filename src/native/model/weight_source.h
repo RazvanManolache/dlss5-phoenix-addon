@@ -2,6 +2,7 @@
 // Resource parsing checks lengths and digests before a runner receives tensor payloads.
 
 #pragma once
+#include "../../common/utf8_path.h"
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
@@ -72,7 +73,7 @@ struct WeightSource {
             if (value.contains("sha256"))
                 throw std::runtime_error("Model folder checksum belongs in model.json");
             result.folder_mode = true;
-            result.folder = std::filesystem::u8path(value.at("path").get<std::string>());
+            result.folder = phoenix_fs::from_utf8(value.at("path").get<std::string>());
             if (result.folder.empty())
                 throw std::runtime_error("Model folder path is empty");
             result.validate();
@@ -80,7 +81,7 @@ struct WeightSource {
         }
         if (kind != "nvidia_dll")
             throw std::runtime_error("Unknown weight source");
-        result.dll = std::filesystem::u8path(value.at("path").get<std::string>());
+        result.dll = phoenix_fs::from_utf8(value.at("path").get<std::string>());
         result.dll_sha256 = value.at("sha256").get<std::string>();
         result.validate();
         return result;
@@ -458,7 +459,7 @@ inline Json folder_manifest(const std::filesystem::path& folder,
 inline std::filesystem::path folder_resource_path(const std::filesystem::path& folder,
                                                   const Json& resource) {
     const auto name = resource.at("path").get<std::string>();
-    const auto relative = std::filesystem::u8path(name);
+    const auto relative = phoenix_fs::from_utf8(name);
     if (name.empty() || name.find('\0') != std::string::npos ||
         name.find(':') != std::string::npos || relative.has_root_path() || !relative.is_relative())
         throw std::runtime_error("Model resource needs a relative file path");

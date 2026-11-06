@@ -2,6 +2,7 @@
 // Bundle discovery and model-source loading are separate so weights are not tied to packaged kernels.
 
 #pragma once
+#include "../../common/utf8_path.h"
 #include "launch_plan.h"
 #include "weight_source.h"
 #include "native_weight_reader.h"
@@ -201,7 +202,7 @@ struct Bundle {
             for (auto kernel_record : kernel_records) {
                 const auto name = kernel_record.at("name").get<std::string>();
                 require(!kernels.contains(name), "Duplicate generated kernel");
-                const auto relative = fs::u8path(kernel_record.at("binary").get<std::string>());
+                const auto relative = phoenix_fs::from_utf8(kernel_record.at("binary").get<std::string>());
                 require(relative.is_relative() && !relative.has_root_path(),
                         "Generated kernel path");
                 for (const auto& component : relative)

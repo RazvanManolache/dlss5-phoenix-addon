@@ -97,7 +97,7 @@ inline void test_window_block_contract(phoenix_cpp::Backend& backend) {
             contract.auxiliary = skip.address;
             contract.secondary_output = gains.address;
             phx::Operation quantize{};
-            quantize.flags = phx::CopyValues | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
+            quantize.flags = static_cast<phx::u32>(phx::CopyValues) | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
             quantize.left_input = residual.address;
             quantize.output = quantized.address;
             auto project_qkv = matrix(quantized, qkv_weights, projected, 96, 32, 0);
@@ -116,7 +116,7 @@ inline void test_window_block_contract(phoenix_cpp::Backend& backend) {
             normalize_key.reduction_count = 0;
             phx::Operation split_value{};
             split_value.flags =
-                phx::SplitQkvHeads | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
+                static_cast<phx::u32>(phx::SplitQkvHeads) | phx::StoreHalf | (phx::PublishHalfThenFp8 << 8);
             split_value.left_input = projected.address;
             split_value.output = value.address;
             split_value.column_count = 32;

@@ -1,3 +1,4 @@
+#include "../src/common/utf8_path.h"
 // Minimal standalone client of the public C ABI. No ReShade, Python or graphics API required.
 #include "../native_runtime/platform.h"
 #include "../native_runtime/phoenix.h"
@@ -18,7 +19,7 @@ std::vector<float> plane(const Json &job, const char *name, size_t count, bool r
             throw std::runtime_error(std::string("Missing plane: ") + name);
         return {};
     }
-    std::ifstream file(std::filesystem::u8path(job.at(name).get<std::string>()),
+    std::ifstream file(phoenix_fs::from_utf8(job.at(name).get<std::string>()),
                        std::ios::binary | std::ios::ate);
     if (!file || file.tellg() != std::streamoff(count * sizeof(float)))
         throw std::runtime_error(std::string("Plane byte count differs: ") + name);
@@ -37,10 +38,10 @@ int main(int argc, char **argv) {
         const bool devices = std::string(argv[1]) == "--devices" || vulkan_devices;
         Json job;
         if (!devices) {
-            std::ifstream input(std::filesystem::u8path(argv[1]));
+            std::ifstream input(phoenix_fs::from_utf8(argv[1]));
             input >> job;
         }
-        const auto root = std::filesystem::absolute(std::filesystem::u8path(
+        const auto root = std::filesystem::absolute(phoenix_fs::from_utf8(
             devices ? std::string(argv[2])
                     : job.at("config").at("runtime_root").get<std::string>()));
         bool broker_mode=false;
@@ -119,7 +120,7 @@ int main(int argc, char **argv) {
         if (!width || !height || width > 8192 || height > 8192)
             throw std::runtime_error("Frame extent must be 1..8192");
         const size_t pixels = size_t(width) * height;
-        const auto output_path = std::filesystem::u8path(argv[2]);
+        const auto output_path = phoenix_fs::from_utf8(argv[2]);
         if (std::filesystem::exists(output_path))
             throw std::runtime_error("Fresh output path required");
         auto color = plane(job, "color", pixels * 3, true),

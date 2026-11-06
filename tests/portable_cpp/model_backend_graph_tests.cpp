@@ -1,3 +1,4 @@
+#include "../../src/common/utf8_path.h"
 // Authenticated model graph recording for backend feature profiles; no GPU/device/execute.
 #include "../../native_runtime/graph.h"
 #include <iostream>
@@ -32,7 +33,7 @@ class Recorder : public Backend {
 };
 int main(int argc, char** argv) try {
     demand(argc == 2, "Expected authenticated 310.9.16 DLL path");
-    const auto dll = std::filesystem::absolute(std::filesystem::u8path(argv[1]));
+    const auto dll = std::filesystem::absolute(phoenix_fs::from_utf8(argv[1]));
     phoenix_model::WeightSource source{dll, file_sha(dll)};
     Json results = Json::array();
     unsigned checks = 0;
