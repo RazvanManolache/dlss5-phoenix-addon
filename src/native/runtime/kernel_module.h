@@ -5,6 +5,7 @@
 #include "device_recovery.h"
 #include "../support/kernel_resolution.h"
 #include "../support/module_capability.h"
+#include "../support/win32_file_path.h"
 #include "../../../third_party/nvapi/nvapi.h"
 #include <bcrypt.h>
 #include <filesystem>
@@ -59,7 +60,8 @@ inline std::vector<Binary> load_catalog(const std::vector<Spec>& specs) {
             !valid_resolution_variant(specification.entry, specification.large_input_entry,
                                       specification.large_input_min_pixels))
             throw std::invalid_argument("Lifecycle37 invalid or duplicate kernel contract");
-        std::ifstream file(specification.path, std::ios::binary | std::ios::ate);
+        const std::filesystem::path path(phoenix_windows::native_path(specification.path));
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file)
             throw std::runtime_error("Lifecycle37 missing kernel " + specification.path);
         auto size = file.tellg();

@@ -4,6 +4,14 @@
 
 Run every command below from the **repository root**, unless its example explicitly changes directory. See [BUILDING.md](../BUILDING.md) for broader toolchain/runtime setup and [the library guide](LIBRARY.md) for standalone integration.
 
+Optional private research material is indexed by `local_research/START_HERE.txt`
+and `local_research/INDEX.json` when that ignored directory is available locally.
+The index points to shared model references, historical fixtures and extraction
+resources outside the checkout. Local `weight_sources/*.json` files can be passed
+to existing `--weight-source` options. Historical packed captures require an
+explicit format adapter before use with current regression tools. This material
+is optional and is not included in source control or release payloads.
+
 ## Build from source
 
 The commands below build and validate the addon. For optional routes, use the

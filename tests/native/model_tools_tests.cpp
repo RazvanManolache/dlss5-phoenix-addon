@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
         // Discovering the writable root must be stable in packaged launchers too.
         check(phoenix_embedded::default_cache() == cache);
         const auto long_directory = cache / (L".long-path-test-" + std::to_wstring(GetCurrentProcessId())) /
-            std::wstring(100, L'a') / std::wstring(100, L'b');
+            std::wstring(130, L'a') / std::wstring(130, L'b');
         const auto long_root = long_directory.parent_path().parent_path();
         struct CleanupLongPath {
             std::filesystem::path path;
@@ -35,7 +35,16 @@ int main(int argc, char** argv) {
         } cleanup_long_path{long_root};
         std::filesystem::create_directories(long_directory);
         { std::ofstream test_file(long_directory / "test.bin", std::ios::binary); test_file << "test"; check(bool(test_file)); }
-        check(phoenix_embedded::file_digest(long_directory / "test.bin").size() == 64);
+        const auto prefixed_file = long_directory / "test.bin";
+        const auto plain_file = std::filesystem::path(prefixed_file.wstring().substr(4));
+        check(plain_file.wstring().size() >= MAX_PATH);
+        const auto digest = phoenix_embedded::file_digest(prefixed_file);
+        check(digest.size() == 64 && phoenix_model::mapped_file_digest(plain_file) == digest);
+        {
+            phoenix_model::ReadOnlyModelFile opened(plain_file);
+            const auto bytes = opened.bytes();
+            check(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()) == "test");
+        }
         using phoenix_model_tools::selection;
         phoenix_model::WeightSource configured;
         check(!selection("configured", "", "", configured).external());

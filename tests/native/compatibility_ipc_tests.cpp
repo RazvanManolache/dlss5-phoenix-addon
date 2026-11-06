@@ -237,11 +237,21 @@ int main() try {
     check(revision == 2);
 
     // Cleanup cannot escape its named session or remove preserved captures.
-    const auto cleanup_parent = fs::canonical(fs::current_path());
+    const auto data_root = fs::canonical(fs::current_path()) / L"central-storage";
+    check(SetEnvironmentVariableW(L"PHOENIX_DATA_ROOT", data_root.c_str()));
+    const auto [runtime, cleanup_parent] = prepare_helper_directories();
+    check(runtime == data_root / L"runtime");
+    check(cleanup_parent == data_root / L"sessions");
+    check(phoenix_embedded::default_cache() == runtime);
+    check(prepare_helper_directories().runtime == runtime);
     const std::string cleanup_name = "ipc-owned-session-" + std::to_string(GetCurrentProcessId());
     const auto cleanup_folder = cleanup_parent / cleanup_name;
     fs::create_directory(cleanup_folder);
     std::ofstream(cleanup_folder / "ReShade.ini") << "temporary test configuration";
+    const auto runtime_file = runtime / "helper.bin";
+    const auto session_link = cleanup_folder / "helper.exe";
+    std::ofstream(runtime_file) << "shared runtime";
+    check(CreateHardLinkW(session_link.c_str(), runtime_file.c_str(), nullptr));
     cleanup_stopped_session(cleanup_folder, cleanup_parent, "different-session");
     check(fs::is_regular_file(cleanup_folder / "ReShade.ini"));
     std::ofstream(cleanup_folder / "capture.rgba") << "preserved capture";
@@ -250,6 +260,7 @@ int main() try {
     fs::remove(cleanup_folder / "capture.rgba");
     cleanup_stopped_session(cleanup_folder, cleanup_parent, cleanup_name);
     check(!fs::exists(cleanup_folder));
+    check(fs::is_regular_file(runtime_file));
     // A missing directory or a file where a directory was expected can throw
     // during filesystem enumeration. Cleanup must remain safe and best effort.
     static_assert(noexcept(cleanup_stopped_session(cleanup_folder, cleanup_parent, cleanup_name)));

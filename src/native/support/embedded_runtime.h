@@ -9,6 +9,7 @@
 #include <atomic>
 #include <set>
 #include "../model/weight_source.h"
+#include "win32_file_path.h"
 
 namespace phoenix_embedded {
 namespace fs = std::filesystem;
@@ -40,16 +41,7 @@ inline fs::path relative_path(const std::string& text) {
         require(part != ".." && part != ".", "Embedded runtime path traversal");
     return path.make_preferred();
 }
-// Explicit Win32 calls do not inherit std::filesystem's long-path handling.
-// Normalize separators before applying the extended local/UNC path prefix.
-inline std::wstring native_path(const fs::path& path) {
-    auto absolute = fs::absolute(path).lexically_normal().make_preferred().wstring();
-    if (absolute.rfind(L"\\\\?\\", 0) == 0)
-        return absolute;
-    if (absolute.rfind(L"\\\\", 0) == 0)
-        return L"\\\\?\\UNC\\" + absolute.substr(2);
-    return L"\\\\?\\" + absolute;
-}
+using phoenix_windows::native_path;
 inline void check_cancelled(const std::atomic<bool>* cancelled) {
     require(!cancelled || !cancelled->load(), "Runtime preparation cancelled");
 }
@@ -112,7 +104,23 @@ inline std::string file_digest(const fs::path& path, const std::atomic<bool>* ca
     }
     return result;
 }
+inline fs::path create_data_directory(const fs::path& path) {
+    fs::create_directory(path);
+    const auto attributes = GetFileAttributesW(native_path(path).c_str());
+    require(attributes != INVALID_FILE_ATTRIBUTES &&
+            (attributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT),
+            "Phoenix data directory cannot be redirected");
+    return fs::canonical(path);
+}
 inline fs::path default_cache() {
+    wchar_t configured[32768]{};
+    const auto length = GetEnvironmentVariableW(L"PHOENIX_DATA_ROOT", configured, 32768);
+    if (length) {
+        require(length < 32768, "PHOENIX_DATA_ROOT is too long");
+        const fs::path root(configured);
+        require(root.is_absolute(), "PHOENIX_DATA_ROOT must be an absolute directory");
+        return create_data_directory(create_data_directory(root) / L"runtime");
+    }
     PWSTR path = nullptr;
     require(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &path)),
             "Phoenix DLSS5 cannot locate the local runtime cache");

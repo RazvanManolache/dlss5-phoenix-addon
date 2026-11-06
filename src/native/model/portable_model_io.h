@@ -11,6 +11,7 @@
 #include <string_view>
 #include <utility>
 #ifdef _WIN32
+#include "../support/win32_file_path.h"
 #include <windows.h>
 #include <bcrypt.h>
 #else
@@ -311,7 +312,7 @@ class ReadOnlyModelFile {
     explicit ReadOnlyModelFile(const std::filesystem::path& path, std::string_view resource_name = {},
                                std::string_view expected_digest = {}, bool map_view = true) {
         try {
-            file_ = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            file_ = CreateFileW(phoenix_windows::native_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
             LARGE_INTEGER size{};
             if (file_ == INVALID_HANDLE_VALUE || !GetFileSizeEx(file_, &size) ||

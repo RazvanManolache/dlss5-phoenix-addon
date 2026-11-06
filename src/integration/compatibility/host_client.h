@@ -78,6 +78,14 @@ inline uint64_t acknowledged_clear_revision(uint64_t revision, FeedUiAction acti
     return revision +
            (accepted == 1 && action.action == uint32_t(phoenix_ui::Action::ClearTiming) ? 1 : 0);
 }
+struct HelperDirectories {
+    fs::path runtime, sessions;
+};
+inline HelperDirectories prepare_helper_directories() {
+    const auto runtime = phoenix_embedded::default_cache();
+    // Keep the runtime on the same volume so sessions can share its binaries.
+    return {runtime, phoenix_embedded::create_data_directory(runtime.parent_path() / L"sessions")};
+}
 // Delete only our nonce-named child directory, after helper termination. Never
 // follow redirects into the cache/game, and preserve capture directories/files.
 inline void cleanup_stopped_session(const fs::path& folder, const fs::path& expected_parent,
@@ -575,14 +583,14 @@ class HostState : public std::enable_shared_from_this<HostState> {
     }
     void prepare(HMODULE addon, const phoenix_model::WeightSource& source,
                  phoenix_addon::phoenix::Settings settings, fs::path& folder) {
-        auto cache = phoenix_embedded::install(addon, {}, "compatibility", &stopping_);
+        const auto directories = prepare_helper_directories();
+        auto cache = phoenix_embedded::install(addon, directories.runtime, "compatibility", &stopping_);
         require(!cache.root.empty(), "This addon build has no embedded graphics helper");
-        session_parent_ = fs::weakly_canonical(cache.root.parent_path().parent_path()) / "sessions";
-        fs::create_directories(session_parent_);
-        session_parent_ = fs::canonical(session_parent_);
+        session_parent_ = directories.sessions;
         session_name_ = std::to_string(GetCurrentProcessId()) + "-" + std::to_string(session_id_);
-        folder = session_parent_ / fs::u8path(session_name_);
-        fs::create_directories(folder);
+        const auto session_folder = session_parent_ / fs::u8path(session_name_);
+        require(fs::create_directory(session_folder), "Phoenix helper session already exists");
+        folder = session_folder;
         for (const wchar_t* name :
              {L"phoenix_graphics_host.exe", L"dxgi.dll", L"Phoenix.addon64"}) {
             require(!stopping_, "Graphics helper cancelled");
@@ -591,9 +599,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
             if (std::wstring(name) == L"Phoenix.addon64" && !fs::exists(original)) {
                 wchar_t module[32768]{};
                 require(GetModuleFileNameW(addon, module, 32768) != 0, "Addon path unavailable");
-                // Cache this x64 addon once per version. Linking a game on E:
-                // straight into a session on C: would fall back to copying the
-                // entire addon on every start. Sessions can hard-link this copy.
+                // Keep a verified copy for this version even if the game
+                // replaces its installed addon. Sessions hard-link this copy.
                 original = cache.root / "self" / name;
                 const auto digest = phoenix_embedded::file_digest(module, &stopping_);
                 require(!digest.empty(), "Cannot verify the running addon");

@@ -132,10 +132,14 @@ inline std::string mapped_file_digest(const std::filesystem::path& path) {
                 CloseHandle(file);
         }
     } input;
-    input.file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+    const auto native = phoenix_windows::native_path(path);
+    input.file = CreateFileW(native.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (input.file == INVALID_HANDLE_VALUE)
-        throw std::runtime_error("Cannot open model file for hashing");
+    if (input.file == INVALID_HANDLE_VALUE) {
+        const auto error = GetLastError();
+        throw std::runtime_error("Cannot open " + source_path_string(path.filename()) +
+                                 " for hashing (Windows error " + std::to_string(error) + ")");
+    }
     return windows_file_digest(input.file);
 #else
     ReadOnlyModelFile file(path);

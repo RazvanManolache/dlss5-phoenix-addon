@@ -301,10 +301,12 @@ prevents mixed-frame masks but does not supply missing engine motion vectors.
    per-frame tuning does not restart it.
 
 The helper executable, its ReShade runtime and required x64 Phoenix DLSS5 code are
-embedded. They unpack into `%LOCALAPPDATA%\DLSS5Phoenix\runtime`; private session
-configuration/logs live under `%LOCALAPPDATA%\DLSS5Phoenix\sessions`. No large
-runtime folder needs to be copied beside the game. The helper is hidden and
-owned by a kill-on-close job; it does not survive its game process.
+embedded. Phoenix keeps shared binaries in `runtime` and helper configuration,
+logs and captures in `sessions` under the same data directory. Set the Windows
+user environment variable `PHOENIX_DATA_ROOT` to a writable absolute path with
+an existing parent to choose one location for all games. Restart game launchers
+after changing the variable. The default is `%LOCALAPPDATA%\DLSS5Phoenix`.
+The hidden helper runs in a kill-on-close job owned by the game process.
 
 In Phoenix DLSS5 mode the external DLL supplies model data. In NVIDIA DLSS5 execution mode
 the supplied DLL is executable vendor code, loaded only in the x64 process.
