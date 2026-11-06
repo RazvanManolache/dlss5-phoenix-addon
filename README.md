@@ -15,6 +15,21 @@ in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 [Download 1.0.1](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0.1) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
+## The easiest way to try Phoenix
+
+DLSS5 Everything is a free, open-source Windows app that gets Phoenix running
+in your games. It finds installed games, detects their graphics API and whether
+they are 32-bit or 64-bit, and installs the matching Phoenix add-on and runtime
+components. You can verify or repair an installation, launch the game from the
+library, and restore backed-up files if you want to undo the setup.
+
+It also gives you per-game model and effect settings and can use Phoenix on
+windows, the desktop or a webcam. Open the app, pick a game, choose **Install**,
+and then **Play**.
+
+[Download DLSS5 Everything](https://github.com/RazvanManolache/DLSS5-Everything/releases/latest) ·
+[Source code and setup guide](https://github.com/RazvanManolache/DLSS5-Everything)
+
 <!-- current-two-model-benchmark -->
 ## Native RTX: the main event
 
@@ -78,7 +93,7 @@ are experimental. My NVIDIA hardware testing is on an RTX 5080. Portable CUDA,
 Vulkan, HIP, CPU, SYCL and Metal routes have separate limits and performance.
 [Compatibility and tested hardware](docs/COMPATIBILITY.md).
 
-## Get started
+## Manual installation
 
 1. [Choose and install the package](docs/INSTALLATION.md) with full-addon-support ReShade.
 2. Select a separately supplied compatible model in Setup.
