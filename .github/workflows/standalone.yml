@@ -16,7 +16,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: Configure standalone library
+        if: runner.os != 'Windows'
         run: cmake -S native_runtime -B build/standalone -DCMAKE_BUILD_TYPE=Release
+      - name: Configure Visual Studio library
+        if: runner.os == 'Windows'
+        run: cmake -S native_runtime -B build/standalone
       - name: Build library and compile Metal on macOS
         run: cmake --build build/standalone --config Release --parallel 4
       - name: Test portable components
@@ -46,21 +50,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4.0.4
-        with:
-          packages: 'platform-tools'
+      - name: Set up Android CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/android-cli"
+          curl --fail --silent --show-error --location --retry 3 https://dl.google.com/android/cli/latest/linux_x86_64/android --output "$RUNNER_TEMP/android-cli/android"
+          chmod +x "$RUNNER_TEMP/android-cli/android"
+          echo "$RUNNER_TEMP/android-cli" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/android-cli/android" --no-metrics --version
       - name: Install pinned NDK
-        run: sdkmanager 'ndk;27.3.13750724'
+        run: android --no-metrics --sdk="$ANDROID_HOME" sdk install 'ndk/27.3.13750724' 'cmake/3.22.1'
       - name: Configure ARM64 library
         run: >-
-          cmake -S native_runtime -B build/android -DCMAKE_BUILD_TYPE=Release
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" -S native_runtime -B build/android -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake
-          -DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared
           -DPHOENIX_ENABLE_METAL=OFF
       - name: Cross-compile ARM64
-        run: cmake --build build/android --parallel 4
+        run: |
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --build build/android --parallel 4
       - name: Stage SDK
-        run: cmake --install build/android --prefix build/sdk
+        run: |
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --install build/android --prefix build/sdk
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: phoenix-sdk-android-arm64
@@ -76,10 +86,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4.0.4
-        with:
-          packages: 'platform-tools'
-      - run: sdkmanager 'ndk;27.3.13750724'
+      - name: Set up Android CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/android-cli"
+          curl --fail --silent --show-error --location --retry 3 https://dl.google.com/android/cli/latest/linux_x86_64/android --output "$RUNNER_TEMP/android-cli/android"
+          chmod +x "$RUNNER_TEMP/android-cli/android"
+          echo "$RUNNER_TEMP/android-cli" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/android-cli/android" --no-metrics --version
+      - run: android --no-metrics --sdk="$ANDROID_HOME" sdk install 'ndk/27.3.13750724' 'cmake/3.22.1'
       - run: sudo apt-get update -qq && sudo apt-get install -y libvulkan-dev ninja-build
       - uses: actions/checkout@v7.0.1
         with:
@@ -110,9 +124,9 @@ jobs:
           path: build/sdk-linux-vulkan
       - name: Cross-build Android Vulkan provider
         run: |
-          cmake -S native_runtime -B build/android-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
-          cmake --build build/android-vulkan --parallel 4
-          cmake --install build/android-vulkan --prefix build/sdk-android-vulkan
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" -S native_runtime -B build/android-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --build build/android-vulkan --parallel 4
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --install build/android-vulkan --prefix build/sdk-android-vulkan
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: phoenix-sdk-android-arm64-vulkan

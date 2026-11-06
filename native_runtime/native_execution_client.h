@@ -209,7 +209,14 @@ class WorkerClient {
         Json config;
         f >> config;
         config["runtime_root"] = phoenix_cpp::path_utf8(root);
-        std::string device_id(device.begin(), device.end());
+        // Device IDs are ASCII; reject wide characters before narrowing.
+        std::string device_id;
+        device_id.reserve(device.size());
+        for (const wchar_t character : device) {
+            if (static_cast<uint32_t>(character) > 0x7f)
+                throw std::runtime_error("Invalid processing device");
+            device_id.push_back(static_cast<char>(character));
+        }
         if (!valid_execution_device(device_id) || device_id == "native")
             throw std::runtime_error("Invalid processing device");
         auto kind = device_id == "cpu" ? "cpu" : device_id.substr(0, device_id.find(':'));
