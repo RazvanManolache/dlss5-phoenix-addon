@@ -146,7 +146,8 @@ struct Bundle {
     }
     Bundle(fs::path path, const std::function<std::string(const fs::path&)>& digest,
            phoenix_model::WeightSource source = {}, bool stream_weights = false,
-           std::string style = "auto", unsigned architecture = 0)
+           std::string style = "auto", unsigned architecture = 0,
+           std::string boundary_abi = "d3d12")
         : folder(std::move(path)), kernel_style(std::move(style)), weight_source(std::move(source)) {
         weight_source.validate();
         phoenix_model::require_implemented(weight_source.model());
@@ -154,6 +155,8 @@ struct Bundle {
             require(weight_source.external(),
                     "Generated native bundle requires an external model source");
             manifest = json_file(folder / "native_manifest.json");
+            require(manifest.value("boundary_abi", std::string("d3d12")) == boundary_abi,
+                    "Native bundle texture/surface ABI does not match this executor");
             const auto& kernel_records = style_catalog(manifest, kernel_style, architecture);
             require(manifest.at("schema") == "phoenix-native-generated-build/1" &&
                         manifest.at("passed") == true &&

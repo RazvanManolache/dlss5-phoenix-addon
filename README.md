@@ -95,6 +95,12 @@ Vulkan, HIP, CPU, SYCL and Metal routes have separate limits and performance.
 
 ## Manual installation
 
+**Native Linux preview:** a per-game Vulkan layer, relocatable model-free package
+and optional CUDA backends are available. The SM120 native CUDA executor reuses
+the production 154/78-launch model schedules, with bounded byte transport and
+explicit hardware validation. 0 A.D. gameplay, timings and remaining limits are
+recorded in the [Linux guide](docs/LINUX.md) and [native CUDA guide](docs/LINUX_NATIVE_CUDA.md).
+
 1. [Choose and install the package](docs/INSTALLATION.md) with full-addon-support ReShade.
 2. Select a separately supplied compatible model in Setup.
 3. Start with Automatic execution, compare the result, then [tune the look](docs/USER_GUIDE.md).

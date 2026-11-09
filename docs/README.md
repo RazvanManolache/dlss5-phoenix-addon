@@ -7,6 +7,7 @@
 | Goal | Start here | Details |
 | --- | --- | --- |
 | Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.0.1.md) |
+| Develop native Linux support | [Linux layer preview](LINUX.md) | Per-game launcher, packaging, limitations and validation |
 | See it in actual games | [Seven-game comparison gallery](GAME_GALLERY.md) | [Capture method](PAIRED_SCREENSHOTS.md), [compatibility](COMPATIBILITY.md) |
 | Change the image or overlay | [User guide](USER_GUIDE.md) | [All features](FEATURES.md), [appearance controls](NEURAL_CONTROLS.md), [overlay reference](overlay-ui.md) |
 | Pick a model | [Model support](MULTI_MODEL.md) | [Shared model library](SHARED_MODELS.md), [Lightweight FP8](SMALL_FP8.md) |
@@ -28,3 +29,5 @@
 Historical reports retain their dates and measurement scopes. Source support,
 published package contents, isolated tests and game validation are distinct;
 use the linked support/validation notes when choosing a route.
+
+- [Native CUDA for Linux](LINUX_NATIVE_CUDA.md): production model schedule, bounded byte transport and explicit hardware checks.

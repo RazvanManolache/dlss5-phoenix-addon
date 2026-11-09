@@ -4,7 +4,9 @@
 // The 64-bit texture handles contain low-word texture and high-word sampler indices.
 // Compile to PTX, select independent texture mode, then assemble with a 128-register limit.
 
+#ifndef PHOENIX_CUDA_TEXTURE_OBJECTS
 #define DLSS5_D3D12_SAMPLER
+#endif
 #include "../../common/texture_sampling.cuh"
 #include "../../common/frame_boundary_memory.cuh"
 #include "../../common/boundary_clear.cuh"

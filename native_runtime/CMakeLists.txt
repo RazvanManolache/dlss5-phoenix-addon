@@ -20,6 +20,9 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PHOENIX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 option(PHOENIX_ENABLE_METAL "Build Apple silicon Metal backend" ${APPLE})
 option(PHOENIX_ENABLE_VULKAN "Build resident Vulkan backend (Linux/Android/Windows)" OFF)
+option(PHOENIX_ENABLE_CUDA "Build the portable CUDA graph backend (external CUDA toolkit required)" OFF)
+option(PHOENIX_ENABLE_NATIVE_CUDA "Build the Linux native schedule executor (SM120 reset-RGB preview)" OFF)
+option(PHOENIX_BUILD_LINUX_LAYER "Build experimental Linux Vulkan presentation layer" OFF)
 option(PHOENIX_ENABLE_NATIVE_RTX "Build Windows x64 D3D12 native RTX and spatial extension" OFF)
 option(PHOENIX_BUILD_ADDON_CANDIDATE "Compile the Windows x64 addon with external runtime dependencies" OFF)
 set(PHOENIX_NGX_INCLUDE "" CACHE PATH "External NGX SDK directory containing nvsdk_ngx.h")
@@ -126,6 +129,12 @@ endif()
 set(PHOENIX_VULKAN_HEADERS "" CACHE PATH "Vulkan-Headers include directory, version 1.4.365 or newer")
 set(PHOENIX_GLSLANG "" CACHE FILEPATH "Host glslang compiler (not a target Android executable)")
 set(PHOENIX_VULKAN_TEST_DEVICE "" CACHE STRING "Explicit vulkan:<UUID> for device operator tests")
+if(PHOENIX_BUILD_LINUX_LAYER)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
+        message(FATAL_ERROR "The Phoenix presentation layer currently targets desktop Linux")
+    endif()
+    add_subdirectory("${PHOENIX_ROOT}/src/integration/linux" linux-layer)
+endif()
 
 # This portable baseline is separate from the optimized Windows CPU target.
 # Apple/ARM ports must not accidentally inherit AVX compiler flags.
@@ -236,6 +245,73 @@ if(PHOENIX_ENABLE_VULKAN)
     endif()
     install(DIRECTORY "${VULKAN_OUTPUT}/" DESTINATION "${VULKAN_INSTALL}"
         FILES_MATCHING PATTERN "*.spv")
+    install(FILES "${VULKAN_OUTPUT}/standalone_manifest.json" DESTINATION "${VULKAN_INSTALL}")
+endif()
+
+if(PHOENIX_ENABLE_CUDA OR PHOENIX_ENABLE_NATIVE_CUDA)
+    enable_language(CUDA)
+    set(PHOENIX_CUDA_LICENSE "${CMAKE_CUDA_COMPILER_TOOLKIT_ROOT}/LICENSE" CACHE FILEPATH "CUDA toolkit license for static runtime distribution")
+    if(NOT EXISTS "${PHOENIX_CUDA_LICENSE}")
+        message(FATAL_ERROR "Set PHOENIX_CUDA_LICENSE to the external CUDA Toolkit license")
+    endif()
+    install(FILES "${PHOENIX_CUDA_LICENSE}" DESTINATION share/licenses/phoenix RENAME CUDA-LICENSE.txt)
+endif()
+if(PHOENIX_ENABLE_CUDA)
+    set(CUDA_BACKEND_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/backend_cuda.cu")
+    add_custom_command(OUTPUT "${CUDA_BACKEND_SOURCE}"
+        COMMAND Python3::Interpreter "${PHOENIX_ROOT}/tools/generate_cuda_backend.py"
+                --output "${CUDA_BACKEND_SOURCE}"
+        DEPENDS backend_gpu.cpp "${PHOENIX_ROOT}/tools/generate_cuda_backend.py"
+        VERBATIM)
+    add_library(phoenix_cuda_cpp SHARED "${CUDA_BACKEND_SOURCE}")
+    target_include_directories(phoenix_cuda_cpp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_target_properties(phoenix_cuda_cpp PROPERTIES SKIP_BUILD_RPATH ON CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON
+        CUDA_RUNTIME_LIBRARY Static POSITION_INDEPENDENT_CODE ON)
+    target_compile_options(phoenix_cuda_cpp PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>")
+    target_link_libraries(phoenix_cuda_cpp PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    install(TARGETS phoenix_cuda_cpp LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cuda_backend.json"
+        CONTENT "{\"schema\":\"phoenix-cuda-build/1\",\"toolkit\":\"${CMAKE_CUDA_COMPILER_VERSION}\",\"architectures\":\"${CMAKE_CUDA_ARCHITECTURES}\",\"runtime\":\"static\",\"fmad\":false}\n")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cuda_backend.json" DESTINATION share/phoenix)
+    if(BUILD_TESTING)
+        # Build only. Running this explicit hardware probe is never part of CTest.
+        add_executable(cuda_math_contracts "${PHOENIX_ROOT}/tests/portable_cpp/cuda_math_contracts.cu")
+        set_target_properties(cuda_math_contracts PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON
+            CUDA_RUNTIME_LIBRARY Static)
+        target_compile_options(cuda_math_contracts PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>")
+    endif()
+endif()
+
+if(PHOENIX_ENABLE_NATIVE_CUDA)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
+        message(FATAL_ERROR "The native CUDA preview currently targets desktop Linux")
+    endif()
+    find_package(CUDAToolkit 13.1 REQUIRED)
+    add_library(phoenix_native_cuda SHARED native_cuda.cpp native_cuda_pixels.cu)
+    target_link_libraries(phoenix_native_cuda PRIVATE CUDA::cudart_static CUDA::cuda_driver Threads::Threads)
+    target_compile_options(phoenix_native_cuda PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off;-fno-fast-math>"
+        "$<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>")
+    set_target_properties(phoenix_native_cuda PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON CUDA_RUNTIME_LIBRARY Static)
+    set_target_properties(phoenix_native_cuda PROPERTIES SKIP_BUILD_RPATH ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+    install(TARGETS phoenix_native_cuda LIBRARY DESTINATION lib)
+    install(FILES phoenix_linux.h DESTINATION include)
+    set(NATIVE_CUDA_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/native-cuda")
+    file(GLOB_RECURSE NATIVE_CUDA_INPUTS CONFIGURE_DEPENDS "${PHOENIX_ROOT}/src/native/kernels/production/*")
+    add_custom_command(OUTPUT "${NATIVE_CUDA_OUTPUT}/native_manifest.json"
+        COMMAND Python3::Interpreter "${PHOENIX_ROOT}/tools/build_native_cuda.py"
+                --output "${NATIVE_CUDA_OUTPUT}" --compiler "${CMAKE_CUDA_COMPILER}" --jobs 4
+        DEPENDS ${NATIVE_CUDA_INPUTS} "${PHOENIX_ROOT}/tools/build_native_cuda.py"
+                "${PHOENIX_ROOT}/tools/production_build_native_kernels.py"
+                "${PHOENIX_ROOT}/src/native/model/production_native_graph.json"
+                "${PHOENIX_ROOT}/src/native/model/production_kernel_contracts.json"
+        VERBATIM)
+    add_custom_target(native_cuda_kernels ALL DEPENDS "${NATIVE_CUDA_OUTPUT}/native_manifest.json")
+    add_dependencies(phoenix_native_cuda native_cuda_kernels)
+    install(DIRECTORY "${NATIVE_CUDA_OUTPUT}/" DESTINATION lib/native-cuda
+        FILES_MATCHING PATTERN "*.cubin")
+    install(FILES "${NATIVE_CUDA_OUTPUT}/native_manifest.json" "${NATIVE_CUDA_OUTPUT}/native_graph.json"
+        DESTINATION lib/native-cuda)
 endif()
 
 add_executable(phoenix_frame "${PHOENIX_ROOT}/tools/portable_frame.cpp")

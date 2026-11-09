@@ -221,7 +221,7 @@ See the [Adreno validation and timings](VULKAN_MOBILE_2026-10-15.md).
 | Platform | Implementation | Validation available here |
 | --- | --- | --- |
 | Windows x64 | C DLL; portable CPU and Vulkan; existing optional CUDA/HIP/SYCL provider ABI retained | CPU/operator/C-interface tests and full-model frame |
-| Linux x64 | C shared library; portable CPU and Vulkan build paths | Built and CPU tests/full-model frame run under Ubuntu 22.04 WSL |
+| Linux x64 | C shared library; portable CPU/Vulkan, optional portable CUDA, and SM120 native CUDA schedule | CPU/contracts, RTX 5080 native CUDA full-model runs and bounded 0 A.D. gameplay; see [Linux validation](LINUX_0AD_VALIDATION.md) |
 | macOS, Apple silicon | C dynamic library; Metal compute backend and portable CPU | Apple compiler/MSL and CPU suites pass in macOS 14 ARM64 CI; full-model GPU execution unvalidated |
 | Android ARM64 | NDK C shared library; portable CPU and optional workgroup Vulkan compatibility | Adreno 735 operator/normalization contracts and 320×144 museum model output match CPU exactly; this is a bounded device test |
 | Android x86_64 emulator | NDK library with a JNI/OpenGL game-frame harness | Full-model CPU/Vulkan execution; three Vulkan image sizes match Windows portable Vulkan byte for byte; emulator timing does not predict phone performance |
@@ -280,6 +280,9 @@ without matrix extensions, using 6 KiB of workgroup storage. It remains opt-in:
 operator/model output checks pass, but full-call speed gains were inconclusive.
 These options do not disable an available matrix-accelerated route.
 
+The [Linux layer preview](LINUX.md) adds experimental Vulkan presentation capture
+through the host-plane API, with a per-game launcher and model-free packaging.
+It is separate from the standalone library's existing validation evidence.
 Linux CUDA and a Mac/Android game overlay are not implemented by this port.
 Applications must supply their own image/graphics integration. Host-plane
 copies and C++ preparation/resolve still exist; no zero-copy texture API is

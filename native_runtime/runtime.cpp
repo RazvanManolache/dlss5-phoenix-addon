@@ -20,6 +20,19 @@ using Clock = std::chrono::steady_clock;
 double elapsed(Clock::time_point started) {
     return std::chrono::duration<double, std::milli>(Clock::now() - started).count();
 }
+// Keep optional per-dispatch JSON construction outside the frame hot path.
+Json dispatch_shapes(const std::vector<Command>& commands, const std::vector<Event>& events) {
+    Json shapes = Json::array();
+    for (size_t index = 0; index < events.size(); ++index) {
+        const auto& command = commands[index % commands.size()];
+        const auto& op = command.operation;
+        shapes.push_back({{"block", command.block}, {"layer", command.layer},
+            {"family", op.family}, {"flags", op.flags}, {"rows", op.row_count},
+            {"columns", op.column_count}, {"reduction", op.reduction_count},
+            {"batch", op.batch_count}, {"gpu_ms", events[index].milliseconds}});
+    }
+    return shapes;
+}
 Json portable_capabilities() {
     return {
         {"schema", "phoenix-portable-capabilities/1"},
@@ -235,9 +248,15 @@ struct Runtime {
             using Utf8Create = Backend* (*)(const char*, const char*, uint32_t, char*, size_t);
             auto utf8_create =
                 reinterpret_cast<Utf8Create>(library_symbol(module, "phoenix_backend_create_utf8"));
+            using ProfiledCreate = Backend* (*)(const char*, const wchar_t*, uint32_t, uint32_t, char*, size_t);
+            auto profiled_create = kind == "cuda" ? reinterpret_cast<ProfiledCreate>(
+                library_symbol(module, "phoenix_backend_create_profiled")) : nullptr;
+            const auto profiling = config.value("profiling", std::string("frame"));
             const auto shader_folder_utf8 = phoenix_model::source_path_string(root / "vulkan");
             backend =
-                utf8_create ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options,
+                profiled_create ? profiled_create(device.c_str(), shader_folder_argument, options,
+                    profiling == "dispatches" ? 2u : profiling == "layers" ? 1u : 0u, message, sizeof(message))
+                : utf8_create ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options,
                                           message, sizeof(message))
                 : configured_create
                     ? configured_create(device.c_str(), shader_folder_argument, options, message,
@@ -762,6 +781,10 @@ struct Runtime {
                                          {"subkind", code % 32}, {"calls", timing.second},
                                          {"gpu_ms", timing.first}});
         }
+        if (configuration.value("profiling", std::string("frame")) == "dispatches" &&
+            status.value("backend", std::string()) == "vulkan-cpp" &&
+            !graph->commands.empty() && events.size() == graph->commands.size() * passes)
+            status["dispatch_shapes"] = dispatch_shapes(graph->commands, events);
         schedule = std::move(next_schedule);
         status["network_schedule"] = schedule.status();
         status.update(

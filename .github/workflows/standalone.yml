@@ -132,18 +132,30 @@ jobs:
         cmake --build build/glslang --parallel 4
     - name: Build Linux Vulkan provider and run portable tests
       run: |
-        cmake -S native_runtime -B build/linux-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
+        cmake -S native_runtime -B build/linux-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_BUILD_LINUX_LAYER=ON -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang
         cmake --build build/linux-vulkan --parallel 4
         ctest --test-dir build/linux-vulkan --output-on-failure
         cmake --install build/linux-vulkan --prefix build/sdk-linux-vulkan
+    - name: Fetch pinned private CUDA build tools
+      run: python tools/fetch_cuda_toolchain.py --output "$RUNNER_TEMP/cuda-13.1"
+    - name: Build optional Linux CUDA executors without GPU execution
+      run: |
+        cmake -S native_runtime -B build/linux-vulkan -DPHOENIX_ENABLE_CUDA=ON -DPHOENIX_ENABLE_NATIVE_CUDA=ON -DCMAKE_CUDA_COMPILER="$RUNNER_TEMP/cuda-13.1/bin/nvcc" -DCMAKE_CUDA_ARCHITECTURES=120
+        cmake --build build/linux-vulkan --parallel 4
+        ctest --test-dir build/linux-vulkan --output-on-failure -R '^linux_'
+        cmake --install build/linux-vulkan --prefix build/sdk-linux-vulkan
+    - name: Verify relocatable Linux package without GPU execution
+      run: |
+        python tests/linux/test_package.py --prefix build/sdk-linux-vulkan --report artifacts/current/linux/VALIDATION.json
+        python tools/package_linux.py --prefix build/sdk-linux-vulkan --output artifacts/current/linux --version 1.0.1-linux-preview
     - uses: actions/github-script@v9
       with:
         script: |
           const publish = require('./.github/scripts/publish-build.cjs');
           await publish({github, context, core, glob, exec});
       env:
-        BUILD_NAME: phoenix-sdk-linux-vulkan
-        BUILD_PATHS: build/sdk-linux-vulkan
+        BUILD_NAME: phoenix-linux-x86_64-preview
+        BUILD_PATHS: artifacts/current/linux
         BUILD_HIDDEN: 'false'
         BUILD_MISSING: warn
       if: (success()) && success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'

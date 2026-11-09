@@ -17,6 +17,7 @@
 #define PHX_DEVICE __device__
 #endif
 #include "backend.h"
+#include "platform.h"
 #include "command_cache.h"
 #include "backend_options.h"
 #if defined(PHX_SYCL)
@@ -407,6 +408,7 @@ static void launch_elementwise(phx::Operation operation, uint64_t count, uint64_
 class GpuBackend final : public Backend {
     bool tensor_attention = true;
     bool detailed_profile = false;
+    bool frame_profile = false;
     unsigned tensor_column_tiles = 1;
     bool direct_fp8 = false;
     bool fused_feed_forward = false;
@@ -421,15 +423,25 @@ class GpuBackend final : public Backend {
     // Prefixes below are translated to the CUDA equivalents for the CUDA build.
     hipStream_t stream{};
 #if defined(PHX_CUDA)
-    hipGraph_t graph{};
-    hipGraphExec_t executable{};
     struct Timer {
         hipEvent_t started{}, finished{};
     };
-    std::vector<Timer> graph_timers;
-    std::vector<Command> cached_commands;
-    std::vector<CommandSpan> graph_spans;
-    void clear_graph() {
+    struct CachedGraph {
+        hipGraph_t graph{};
+        hipGraphExec_t executable{};
+        std::vector<Timer> graph_timers;
+        std::vector<Command> cached_commands;
+        std::vector<CommandSpan> graph_spans;
+    };
+    // Frame packing and neural execution alternate. A single cache entry
+    // destroys and recaptures the network on every frame. Keep both bounded.
+    std::array<CachedGraph, 2> graph_cache;
+    unsigned next_graph{};
+    void clear_graph(CachedGraph& cache) {
+        auto& executable = cache.executable;
+        auto& graph = cache.graph;
+        auto& graph_timers = cache.graph_timers;
+        auto& cached_commands = cache.cached_commands;
         if (executable) {
             PHX_CHECK(hipGraphExecDestroy(executable));
             executable = nullptr;
@@ -469,7 +481,8 @@ class GpuBackend final : public Backend {
     }
 #endif
   public:
-    explicit GpuBackend(const std::string& device_id, uint32_t options = 0) {
+    explicit GpuBackend(const std::string& device_id, uint32_t options = 0, bool frame_timing = false) {
+        frame_profile = frame_timing;
         tensor_attention = !(options & OrderedAttention);
         detailed_profile = (options & DispatchProfiling) != 0;
         direct_fp8 = (options & CudaDirectFp8) != 0;
@@ -557,9 +570,8 @@ class GpuBackend final : public Backend {
         }
 #if !defined(PHX_SYCL)
 #if defined(PHX_CUDA)
-        try {
-            clear_graph();
-        } catch (...) {
+        for (auto& cache : graph_cache) {
+            try { clear_graph(cache); } catch (...) {}
         }
 #else
         clear_hip_timers();
@@ -588,7 +600,7 @@ class GpuBackend final : public Backend {
     void release(Allocation allocation) override {
         wait();
 #if defined(PHX_CUDA)
-        clear_graph();
+        for (auto& cache : graph_cache) clear_graph(cache);
 #endif
 #if defined(PHX_SYCL)
         sycl::free(allocation.address, *queue_);
@@ -695,10 +707,28 @@ class GpuBackend final : public Backend {
         }
 #else
 #if defined(PHX_CUDA)
-        if (!same_commands(commands, cached_commands)) {
+        auto* selected = static_cast<CachedGraph*>(nullptr);
+        for (auto& entry : graph_cache)
+            if (entry.executable && same_commands(commands, entry.cached_commands)) {
+                selected = &entry;
+                break;
+            }
+        if (!selected) selected = &graph_cache[next_graph++ % graph_cache.size()];
+        auto& cache = *selected;
+        auto& graph = cache.graph;
+        auto& executable = cache.executable;
+        auto& graph_timers = cache.graph_timers;
+        auto& graph_spans = cache.graph_spans;
+        auto& cached_commands = cache.cached_commands;
+        if (!executable || !same_commands(commands, cached_commands)) {
             wait();
-            clear_graph();
+            clear_graph(cache);
             graph_spans = command_spans(commands);
+            const auto fusion_spans = graph_spans;
+            if (frame_profile && !commands.empty()) {
+                graph_spans.clear();
+                graph_spans.push_back({0, commands.size(), UINT32_MAX, UINT32_MAX});
+            }
             if (detailed_profile) {
                 graph_spans.clear();
                 for (size_t index = 0; index < commands.size(); ++index)
@@ -715,7 +745,10 @@ class GpuBackend final : public Backend {
                 PHX_CHECK(hipStreamBeginCapture(stream, hipStreamCaptureModeThreadLocal));
                 capturing = true;
                 size_t span = 0;
+                size_t fusion_span = 0;
                 for (size_t work_index = 0; work_index < commands.size(); ++work_index) {
+                    while (work_index >= fusion_spans[fusion_span].end) ++fusion_span;
+                    const auto fusion_end = fusion_spans[fusion_span].end;
                     auto command = commands[work_index];
                     auto& timer = graph_timers[span];
                     if (work_index == graph_spans[span].begin)
@@ -727,7 +760,7 @@ class GpuBackend final : public Backend {
                     unsigned fused_count = 0;
                     WindowBlockOperations window_block;
                     if (direct_fp8 && fused_window_block && !detailed_profile &&
-                        match_window_block(commands, work_index, graph_spans[span].end,
+                        match_window_block(commands, work_index, fusion_end,
                                            window_block)) {
                         const uint64_t windows = window_block.expand.row_count / 64;
                         for (uint64_t first = 0; first < windows; first += 65535) {
@@ -757,11 +790,11 @@ class GpuBackend final : public Backend {
                         (command.operation.reduction_count == 32 ||
                          (fused_wide_feed_forward && command.operation.reduction_count == 64)) &&
                         command.operation.column_count == 4 * command.operation.reduction_count &&
-                        work_index + 1 < graph_spans[span].end) {
+                        work_index + 1 < fusion_end) {
                         const auto& next = commands[work_index + 1].operation;
                         const bool has_middle = command.operation.reduction_count == 64;
                         const size_t last = work_index + (has_middle ? 2 : 1);
-                        if (last < graph_spans[span].end) {
+                        if (last < fusion_end) {
                             const auto& contract = commands[last].operation;
                             const bool middle_matches =
                                 !has_middle ||
@@ -961,7 +994,7 @@ class GpuBackend final : public Backend {
                     if (abandoned)
                         hipGraphDestroy(abandoned);
                 }
-                clear_graph();
+                clear_graph(cache);
                 throw;
             }
         }
@@ -1082,19 +1115,19 @@ class GpuBackend final : public Backend {
 #endif
     }
 };
-extern "C" __declspec(dllexport) Backend*
+extern "C" PHOENIX_EXPORT Backend*
 phoenix_backend_create(const char* device_id, const wchar_t*, char* error, size_t size) {
     try {
         return new GpuBackend(device_id ? device_id : "");
     } catch (const std::exception& exception) {
-        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        copy_error(error, size, exception.what());
         return nullptr;
     }
 }
-extern "C" __declspec(dllexport) void phoenix_backend_destroy(Backend* backend) {
+extern "C" PHOENIX_EXPORT void phoenix_backend_destroy(Backend* backend) {
     delete backend;
 }
-extern "C" __declspec(dllexport) int phoenix_backend_devices(void (*emit)(const char*, const char*),
+extern "C" PHOENIX_EXPORT int phoenix_backend_devices(void (*emit)(const char*, const char*),
                                                              char* error, size_t size) {
     try {
         int found = 0;
@@ -1150,22 +1183,39 @@ extern "C" __declspec(dllexport) int phoenix_backend_devices(void (*emit)(const 
 #endif
         return found;
     } catch (const std::exception& exception) {
-        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        copy_error(error, size, exception.what());
         return -1;
     }
 }
 
-extern "C" __declspec(dllexport) Backend*
+extern "C" PHOENIX_EXPORT Backend*
 phoenix_backend_create_configured(const char* device_id, const wchar_t*, uint32_t options,
                                   char* error, size_t size) {
     try {
         return new GpuBackend(device_id ? device_id : "", options);
     } catch (const std::exception& exception) {
-        strncpy_s(error, size, exception.what(), _TRUNCATE);
+        copy_error(error, size, exception.what());
         return nullptr;
     }
 }
-extern "C" __declspec(dllexport) uint32_t phoenix_backend_features(Backend*) {
+#if defined(PHX_CUDA)
+// Optional factory extension. Existing clients retain layer timestamps; the
+// runtime can explicitly request a single GPU interval without hundreds of
+// external event nodes in the captured graph. Fusion boundaries stay unchanged.
+extern "C" PHOENIX_EXPORT Backend*
+phoenix_backend_create_profiled(const char* device_id, const wchar_t*, uint32_t options,
+                                uint32_t profiling, char* error, size_t size) {
+    try {
+        demand(profiling <= 2, "Unknown CUDA profiling mode");
+        if (profiling == 2) options |= DispatchProfiling;
+        return new GpuBackend(device_id ? device_id : "", options, profiling == 0);
+    } catch (const std::exception& exception) {
+        copy_error(error, size, exception.what());
+        return nullptr;
+    }
+}
+#endif
+extern "C" PHOENIX_EXPORT uint32_t phoenix_backend_features(Backend*) {
 #if defined(PHX_CUDA)
     return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual | DeviceControlMaps;
 #else

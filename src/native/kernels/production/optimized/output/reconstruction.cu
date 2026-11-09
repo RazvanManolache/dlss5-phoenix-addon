@@ -9,7 +9,9 @@
 
 // Compile to PTX, select independent texture mode, then assemble with a 128-register limit.
 
+#ifndef PHOENIX_CUDA_TEXTURE_OBJECTS
 #define DLSS5_D3D12_SAMPLER
+#endif
 
 #include "../../common/texture_sampling.cuh"
 
@@ -6580,7 +6582,7 @@ __device__ __forceinline__ void run_output_reconstruction(const uint32_t* parame
 
         uniform_word_8 = parameters[4];
         // Write the reconstructed four-channel pixel to the bound output surface.
-        image_surface(uniform_word_8, packed_word_52, packed_word_53, packed_word_12,
+        image_surface(image_surface_argument(parameters, uniform_word_8), packed_word_52, packed_word_53, packed_word_12,
                       packed_word_13, packed_word_14, packed_word_15);
     }
 
@@ -8029,7 +8031,7 @@ __device__ __forceinline__ void run_output_reconstruction(const uint32_t* parame
     }
 
     uniform_word_4 = parameters[4];
-    image_surface(uniform_word_4, packed_word_52, packed_word_53, packed_word_8, packed_word_9,
+    image_surface(image_surface_argument(parameters, uniform_word_4), packed_word_52, packed_word_53, packed_word_8, packed_word_9,
                   packed_word_10, packed_word_11);
     return;
 }

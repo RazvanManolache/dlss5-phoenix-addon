@@ -60,7 +60,22 @@ __device__ __forceinline__ void image_tex(uint32_t* destination_words, uint64_t 
         : "l"(handle), "f"(__uint_as_float(address_value)), "f"(__uint_as_float(word_y)));
 #endif
 }
-__device__ __forceinline__ void image_surface(uint32_t handle, uint32_t address_value,
+// CUDA texture/surface objects use a unified 64-bit handle. The existing
+// D3D12 route retains its 32-bit surface descriptor and separate sampler ABI.
+#ifdef PHOENIX_CUDA_TEXTURE_OBJECTS
+using ImageSurfaceHandle = uint64_t;
+#else
+using ImageSurfaceHandle = uint32_t;
+#endif
+__device__ __forceinline__ ImageSurfaceHandle
+image_surface_argument(const uint32_t* parameters, uint32_t descriptor) {
+#ifdef PHOENIX_CUDA_TEXTURE_OBJECTS
+    return uint64_t(parameters[4]) | (uint64_t(parameters[5]) << 32);
+#else
+    return descriptor;
+#endif
+}
+__device__ __forceinline__ void image_surface(ImageSurfaceHandle handle, uint32_t address_value,
                                               uint32_t word_y, uint32_t operand_a,
                                               uint32_t operand_b, uint32_t operand_c,
                                               uint32_t destination_words) {
