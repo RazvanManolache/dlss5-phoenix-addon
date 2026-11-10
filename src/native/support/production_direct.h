@@ -1814,7 +1814,11 @@ class Runner {
         const DXGI_FORMAT formats[]={DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT,DXGI_FORMAT_R32_FLOAT,DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R32G32B32A32_FLOAT};
         if(appearance) {
             check(appearance_&&evidence.experimental_appearance_contract,"Developer appearance contract not enabled for this route");
-            check(!geometry_.scaled()||(chain_&&!textures.mask&&!textures.ui&&!textures.alpha&&!textures.backbuffer&&!textures.field),"Developer planes currently require equal render/network/output extents");
+            // Ordinary style/intensity composition runs on the neural canvas
+            // before reconstruction. Only engine-owned maps still require
+            // the engine and processing canvases to match.
+            check(!geometry_.scaled()||!textures.any(),
+                  "Engine appearance maps require matching processing and output dimensions");
             check(!(textures.ui&&textures.alpha),"Supply UI or UIAlpha");
             check(std::isfinite(controls.intensity)&&controls.intensity>=0&&controls.intensity<=2&&controls.style>=0&&controls.style<=2,"Invalid developer appearance controls");
             for(unsigned i=0;i<5;++i)if(resources[i]) {

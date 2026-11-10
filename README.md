@@ -12,10 +12,18 @@ I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
 it can do for the games we already love—and, eventually, looks less interested
 in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.1.5](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.5) ·
+[Download 1.1.6](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.6) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
-## New in 1.1.5
+## New in 1.1.6
+
+- **Appearance with scaling:** fixed a rendering rejection when combining appearance with super resolution or a custom processing scale.
+- **Resolution in one click:** Normal and Super resolution remain usable with custom color controls, preserving your color settings.
+- **Clearer controls:** the Image tab now groups these options under **Color and scaling**, with the active working scale shown directly.
+
+[1.1.6 fixes and validation](docs/RELEASE_1.1.6.md).
+
+## Included from 1.1.5
 
 - **Consistent appearance:** shared style and intensity controls for Phoenix and NVIDIA, with corrected blending above intensity 1.
 - **One-click choices:** equal-sized buttons for short option lists, simpler Image controls and a separate Hotkeys tab.

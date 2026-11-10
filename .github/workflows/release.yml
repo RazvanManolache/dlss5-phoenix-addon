@@ -7,7 +7,7 @@ on:
       version:
         description: Existing release tag
         required: true
-        default: '1.1.5'
+        default: '1.1.6'
 permissions:
   contents: write
 jobs:

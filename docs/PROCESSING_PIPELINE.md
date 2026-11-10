@@ -34,7 +34,7 @@ Adaptive GPU timing uses completed backend GPU events for portable workers, and 
 
 ## Processing controls
 
-Existing profiles keep their legacy bridge. Open **Processing pipeline** and enable **Explicit scaling and color controls** to select the new path. Enabling it selects spatial reconstruction and clears the legacy reference-grid unjitter option. Legacy resolution/upscaler controls are disabled while explicit scaling owns the working extent.
+Existing profiles keep their legacy bridge. Open **Color and scaling** and enable **Custom color and scaling** to use the additional controls. Appearance stays active at both full and reduced resolutions. **Normal** selects a 100% working scale; **Super resolution** and its quality buttons select a smaller canvas while preserving your color settings. You can also choose a custom scale directly. Custom color processing uses spatial reconstruction, preserves the game aspect and clears the legacy reference-grid unjitter option. Engine-supplied UI/control/distortion maps retain their separate matching-dimensions contract.
 
 | Control | Runtime behavior |
 | --- | --- |

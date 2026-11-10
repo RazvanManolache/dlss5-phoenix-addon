@@ -521,9 +521,9 @@ int run_tests() {
                 click("Phoenix DLSS5 experiments");
                 settings = saved_settings;
                 frame();
-                click("Processing pipeline"); frame();
+                click("Color and scaling"); frame();
                 require_widget(widget_disabled("Resolution scale"), "Legacy bridge must disable explicit scale");
-                const auto enabled_pipeline=click("Explicit scaling and color controls");frame();
+                const auto enabled_pipeline=click("Custom color and scaling");frame();
                 require_widget(enabled_pipeline.changed && settings.processing.enabled,
                                "Processing checkbox must update the shared runtime setting");
                 require_widget(!widget_disabled("Resolution scale"),"Explicit scaling must become editable");
@@ -535,13 +535,25 @@ int run_tests() {
                 require_widget(settings.processing.encoding==3,"Explicit HDR10 input selection");
                 select("NR signal encoding","Linear SDR");
                 require_widget(settings.processing.signal==2,"Explicit linear NR signal selection");
+                settings.processing.scale=96; frame();
+                require_widget(!widget_disabled("Resolution mode"), "Color controls disabled the resolution buttons");
+                select("Resolution mode","Normal"); frame();
+                require_widget(settings.processing.enabled && settings.processing.scale==100 &&
+                    settings.processing.encoding==3 && settings.processing.signal==2,
+                    "Normal resolution must preserve active color settings");
+                select("Resolution mode","Super resolution"); frame();
+                select("Processing quality","Performance (1/2 scale)"); frame();
+                require_widget(settings.processing.enabled && settings.processing.scale==50 &&
+                    settings.processing.encoding==3 && settings.processing.signal==2,
+                    "Super resolution quality must update the active canvas without clearing color settings");
+                select("Resolution mode","Normal"); frame();
                 for(const char* label:{"Scaling domain","Downsample filter","Upsample filter",
                     "Scale reconstruction","Override diffuse white","Exposure multiplier",
                     "Use exposure value","Block Hudless","UI correction policy","Network passes per frame"})
                     require_widget(count_widget(label)==1,std::string("Missing processing widget: ")+label);
                 // Restore this scenario so existing presentation/tuning checks
                 // continue to exercise their original, independent defaults.
-                settings.processing={};click("Processing pipeline");frame();
+                settings.processing={};click("Color and scaling");frame();
             }
             const auto pending = settings;
             const auto pending_unchanged = [&] {

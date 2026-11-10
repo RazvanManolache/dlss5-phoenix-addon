@@ -37,51 +37,73 @@ inline bool draw_resolution_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game) {
-        ImGui::BeginDisabled(addon_state.portable_backbuffer || addon_state.panel.processing.enabled);
+        ImGui::BeginDisabled(addon_state.portable_backbuffer);
+        auto& processing = addon_state.panel.processing;
+        constexpr float scales[]{100.f * 2.f / 3.f, 50.f, 100.f / 3.f};
+        int resolution_mode = processing.enabled
+            ? (processing.scale == 100.f ? 0 : processing.scale < 100.f ? 1 : -1)
+            : addon_state.panel.resolution_mode;
         const char *modes[]{"Normal", "Super resolution"};
-        changed = choice_buttons("Resolution mode", &addon_state.panel.resolution_mode, modes, 2) ||
-                  changed;
-        if (addon_state.panel.resolution_mode) {
-            const char *upscalers[]{"Spatial", "NVIDIA DLSS Super Resolution", "Intel XeSS"};
-            const uint8_t upscaler_available[]{1,uint8_t(addon_state.real_guides),uint8_t(addon_state.real_guides)};
-            const char* upscaler_captions[]{"Spatial","DLSS SR","XeSS"};
-            changed |= choice_buttons("Upscaler",&addon_state.panel.upscaler,upscalers,3,upscaler_captions,upscaler_available);
-            if (!addon_state.real_guides)
-                ImGui::TextWrapped("Only spatial upscaling is available on this color-only capture route. Temporal upscalers need engine depth and motion guides.");
-            if (addon_state.panel.upscaler) {
-                ImGui::TextWrapped(
-                    "Temporal upscaling runs on the rendering GPU and requires observed depth and "
-                    "motion. Unsupported runtimes or dimensions use a visible spatial fallback.");
-                ImGui::TextWrapped("Runtime beside the game: %s",
-                                   addon_state.panel.upscaler == 1
-                                       ? "nvngx_dlss.dll"
-                                       : "libxess.dll and its dependencies");
-            }
-            if (addon_state.direct_runner)
-                ImGui::TextWrapped("%s", addon_state.direct_runner->upscale_status().c_str());
+        if (choice_buttons("Resolution mode", &resolution_mode, modes, 2)) {
+            addon_state.panel.resolution_mode = resolution_mode;
+            if (processing.enabled)
+                processing.scale = resolution_mode ? scales[std::clamp(addon_state.panel.resolution_quality, 0, 2)] : 100.f;
+            changed = true;
+        }
+        if (resolution_mode == 1) {
+            if (!processing.enabled) {
+                const char *upscalers[]{"Spatial", "NVIDIA DLSS Super Resolution", "Intel XeSS"};
+                const uint8_t upscaler_available[]{1,uint8_t(addon_state.real_guides),uint8_t(addon_state.real_guides)};
+                const char* upscaler_captions[]{"Spatial","DLSS SR","XeSS"};
+                changed |= choice_buttons("Upscaler",&addon_state.panel.upscaler,upscalers,3,upscaler_captions,upscaler_available);
+                if (!addon_state.real_guides)
+                    ImGui::TextWrapped("Only spatial upscaling is available on this color-only capture route. Temporal upscalers need engine depth and motion guides.");
+                if (addon_state.panel.upscaler) {
+                    ImGui::TextWrapped(
+                        "Temporal upscaling runs on the rendering GPU and requires observed depth and "
+                        "motion. Unsupported runtimes or dimensions use a visible spatial fallback.");
+                    ImGui::TextWrapped("Runtime beside the game: %s",
+                                       addon_state.panel.upscaler == 1
+                                           ? "nvngx_dlss.dll"
+                                           : "libxess.dll and its dependencies");
+                }
+                if (addon_state.direct_runner)
+                    ImGui::TextWrapped("%s", addon_state.direct_runner->upscale_status().c_str());
+            } else
+                ImGui::TextWrapped("Spatial reconstruction keeps your custom color settings active.");
             const char *qualities[]{"Quality (2/3 scale)", "Performance (1/2 scale)",
                                     "Ultra performance (1/3 scale)"};
             const char *aspects[]{"Game aspect", "16:9", "16:10", "21:9", "4:3", "Custom ratio"};
-            changed = choice_buttons("Processing quality", &addon_state.panel.resolution_quality,
-                                   qualities, 3) ||
-                      changed;
-            changed = choice_buttons("Processing aspect", &addon_state.panel.resolution_aspect,
-                                   aspects, 6) ||
-                      changed;
-            if (addon_state.panel.resolution_aspect == 5) {
-                int ratio[]{addon_state.panel.resolution_ratio_width,
-                            addon_state.panel.resolution_ratio_height};
-                if (ImGui::InputInt2("Aspect width : height", ratio)) {
-                    addon_state.panel.resolution_ratio_width = std::clamp(ratio[0], 1, 100);
-                    addon_state.panel.resolution_ratio_height = std::clamp(ratio[1], 1, 100);
-                    changed = true;
+            int quality = addon_state.panel.resolution_quality;
+            if (processing.enabled) {
+                quality = -1;
+                for (int i = 0; i < 3; ++i)
+                    if (std::abs(processing.scale - scales[i]) < .01f) quality = i;
+            }
+            if (choice_buttons("Processing quality", &quality, qualities, 3)) {
+                addon_state.panel.resolution_quality = quality;
+                if (processing.enabled) processing.scale = scales[quality];
+                changed = true;
+            }
+            if (!processing.enabled) {
+                changed = choice_buttons("Processing aspect", &addon_state.panel.resolution_aspect,
+                                       aspects, 6) ||
+                          changed;
+                if (addon_state.panel.resolution_aspect == 5) {
+                    int ratio[]{addon_state.panel.resolution_ratio_width,
+                                addon_state.panel.resolution_ratio_height};
+                    if (ImGui::InputInt2("Aspect width : height", ratio)) {
+                        addon_state.panel.resolution_ratio_width = std::clamp(ratio[0], 1, 100);
+                        addon_state.panel.resolution_ratio_height = std::clamp(ratio[1], 1, 100);
+                        changed = true;
+                    }
                 }
             }
             ImGui::TextWrapped(
-                "Runs neural rendering at a smaller resolution, then uses the selected upscaler. "
-                "Padding preserves the game's image aspect. Native Phoenix DLSS5 generates a plan for "
-                "the requested resolution and pads its internal tiles.");
+                "Processes a smaller image, then reconstructs the full-size output. Appearance remains active.");
         }
+        if (processing.enabled)
+            ImGui::Text("Working scale: %.1f%%. Resolution buttons preserve your color settings.", processing.scale);
         if (addon_state.direct_runner) {
             const auto &geometry = addon_state.direct_runner->resolution();
             ImGui::Text("Processing: %u x %u (image %u x %u) | Output: %u x %u", geometry.width,
@@ -112,10 +134,10 @@ inline bool draw_resolution_controls(Context& addon_state) {
 inline bool draw_signal_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
-    if (visible.neural() && addon_state.direct_game && ImGui::CollapsingHeader("Processing pipeline")) {
+    if (visible.neural() && addon_state.direct_game && ImGui::CollapsingHeader("Color and scaling")) {
         auto& p = addon_state.panel.processing;
         if (ImGui::Button("Defaults##processing")) { p = {}; addon_state.panel.refinement_passes=1; changed = true; }
-        if (ImGui::Checkbox("Explicit scaling and color controls", &p.enabled)) {
+        if (ImGui::Checkbox("Custom color and scaling", &p.enabled)) {
             if (p.enabled) {
                 addon_state.panel.upscaler = 0;
                 addon_state.panel.host_unjitter = false;
@@ -123,6 +145,7 @@ inline bool draw_signal_controls(Context& addon_state) {
             }
             changed = true;
         }
+        ImGui::TextWrapped("Color, appearance and resolution work together. Use Normal for full resolution, Super resolution for a smaller image, or set a custom scale below.");
         ImGui::BeginDisabled(!p.enabled);
         const char* stages[]{"Off", "Render (before upscaling)", "Upscaled", "Present"};
         ImGui::BeginDisabled(addon_state.host_controls_stage);

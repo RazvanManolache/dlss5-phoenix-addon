@@ -63,7 +63,7 @@ int main() {
         phoenix_native::hr(device->CreateCommandList(
             0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&command)));
         std::vector<ComPtr<ID3D12Resource>> uploads;
-        auto initialize = [&](ID3D12Resource* texture, unsigned bytes_per_pixel, uint16_t value) {
+        auto initialize = [&](ID3D12Resource* texture, unsigned bytes_per_pixel, uint16_t value, bool colored = false) {
             const auto description = texture->GetDesc();
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
             UINT64 bytes = 0;
@@ -79,6 +79,11 @@ int main() {
                     reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(mapped) + footprint.Offset +
                                                 size_t(row) * footprint.Footprint.RowPitch);
                 std::fill(pixels, pixels + width * bytes_per_pixel / 2, value);
+                if (colored && bytes_per_pixel == 8)
+                    for (unsigned x = 0; x < width; ++x) {
+                        pixels[x*4+1] = 0x3400; // 0.25 green
+                        pixels[x*4+2] = 0x3000; // 0.125 blue
+                    }
             }
             upload->Unmap(0, nullptr);
             D3D12_TEXTURE_COPY_LOCATION source{}, destination{};
@@ -201,6 +206,72 @@ int main() {
         check(captured.appearance[4].size()==width*height*16&&
             std::all_of(captured.appearance[4].begin(),captured.appearance[4].end(),[](uint8_t b){return b==0;}),"Field snapshot changed");
         check(runner.capture_readback_bytes()==0,"Advanced capture retained buffers after retirement");
+        // Exercise the exact rendering entry point that rejected appearance
+        // with super resolution or a 96% explicit canvas. Inference is a
+        // passthrough; appearance, color conversion, scaling and writeback
+        // execute their real shaders on WARP for both model selections.
+        unsigned scaled_appearance_cases = 0;
+        for (const char* model : {"original", "small-fp8"})
+            for (unsigned recipe = 0; recipe < 4; ++recipe) {
+                auto scaled_settings = settings;
+                scaled_settings.model_id = model;
+                scaled_settings.resolution_mode = recipe == 0 ? 1 : 0;
+                scaled_settings.processing.enabled = recipe != 0;
+                scaled_settings.processing.scale = recipe == 1 ? 96.f : recipe == 2 ? 150.f : 100.f;
+                const auto geometry = scaled_settings.processing.enabled
+                    ? phoenix::processing_resolution(width, height, scaled_settings.processing, false)
+                    : phoenix::choose_resolution(width, height, 1, 0, 0, 16, 9, false);
+                phoenix::direct::Runner scaled(device.Get(), queue.Get(),
+                    {{"width",geometry.width},{"height",geometry.height}}, {}, {},
+                    DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, false, 1,
+                    {{1,1,1,1,1,1,1,1}}, std::make_unique<PassthroughExecutor>(), &scaled_settings,
+                    {}, true, width, height);
+                phoenix_native::hr(allocator->Reset());
+                phoenix_native::hr(command->Reset(allocator.Get(), nullptr));
+                phoenix_native::transition(command.Get(), color.Get(), evidence.color_state, D3D12_RESOURCE_STATE_COPY_DEST);
+                phoenix_native::transition(command.Get(), motion.Get(), evidence.motion_state, D3D12_RESOURCE_STATE_COPY_DEST);
+                initialize(color.Get(), 8, 0x3800, true);
+                initialize(motion.Get(), 4, 0);
+                Controls look{}; look.style=2; look.intensity=2;
+                if (recipe == 0) {
+                    bool rejected = false;
+                    try {
+                        scaled.record(command.Get(),color.Get(),motion.Get(),evidence,look,scaled_settings,8,
+                            nullptr,D3D12_RESOURCE_STATE_COMMON,&developer);
+                    } catch (const std::runtime_error& error) {
+                        rejected = std::string(error.what()).find("Engine appearance maps require") != std::string::npos;
+                    }
+                    check(rejected && scaled.ready(), "Mismatched engine maps must be rejected before recording GPU work");
+                }
+                scaled.record(command.Get(), color.Get(), motion.Get(), evidence, look, scaled_settings, 8);
+                const auto desc = color->GetDesc();
+                D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{}; UINT64 bytes = 0;
+                device->GetCopyableFootprints(&desc, 0, 1, 0, &fp, nullptr, nullptr, &bytes);
+                auto readback = phoenix_native::buffer(device.Get(), bytes, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+                phoenix_native::transition(command.Get(), color.Get(), evidence.color_state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+                from.pResource=color.Get(); from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                to.pResource=readback.Get(); to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; to.PlacedFootprint=fp;
+                command->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+                phoenix_native::transition(command.Get(), color.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, evidence.color_state);
+                phoenix_native::hr(command->Close()); queue->ExecuteCommandLists(1,lists);
+                check(scaled.after_submit(queue.Get(),1,lists), "Scaled appearance submission not tracked");
+                const auto scaled_deadline=GetTickCount64()+10000;
+                while(scaled.completed()<scaled.submitted()&&GetTickCount64()<scaled_deadline) Sleep(1);
+                check(scaled.completed()==scaled.submitted(), "Scaled appearance fence did not retire");
+                void* mapped=nullptr; phoenix_native::hr(readback->Map(0,nullptr,&mapped));
+                const auto* pixel=reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(mapped)+fp.Offset+
+                    (height/2)*fp.Footprint.RowPitch+(width/2)*8);
+                for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x) {
+                    const auto* rgba=reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(mapped)+fp.Offset+y*fp.Footprint.RowPitch+x*8);
+                    check(rgba[3]==0x3800, "Scaled appearance lost the original alpha");
+                    for(unsigned channel=0;channel<3;++channel)
+                        check((rgba[channel]&0x7c00)!=0x7c00, "Scaled appearance produced non-finite color");
+                }
+                check(pixel[0]!=0x3800, "Scaled appearance bypassed the Cinematic style");
+                readback->Unmap(0,nullptr);
+                ++scaled_appearance_cases;
+            }
         std::cout << Json({{"passed", true},
                            {"software_d3d12", "WARP"},
                            {"model_inference_executed", false},
@@ -209,7 +280,8 @@ int main() {
                            {"retired_capture_readback_bytes", 0},
                            {"capture_input_bytes_exact", true},
                            {"burst_readbacks_reused", true},
-                           {"optional_snapshots_exact",true},{"producer_epochs_checked",true}})
+                           {"optional_snapshots_exact",true},{"producer_epochs_checked",true},
+                           {"scaled_appearance_cases",scaled_appearance_cases}})
                          .dump()
                   << '\n';
         return 0;
