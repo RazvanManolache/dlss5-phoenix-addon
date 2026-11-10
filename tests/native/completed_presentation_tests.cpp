@@ -5,6 +5,49 @@
 #include "../../src/integration/compatibility/d3d11_loading.h"
 #include <iostream>
 
+// Translate the public command operations to WARP. This exercises the loading
+// implementation through its owning descriptor namespace, without a game.
+struct LoadingCommands {
+    ID3D12Device* device;
+    ID3D12GraphicsCommandList* command;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> views;
+    unsigned barriers=0, clears=0;
+    LoadingCommands* get_device() { return this; }
+    reshade::api::resource_desc get_resource_desc(reshade::api::resource resource) {
+        const auto description=reinterpret_cast<ID3D12Resource*>(resource.handle)->GetDesc();
+        reshade::api::resource_desc result{};
+        result.texture.format=static_cast<reshade::api::format>(description.Format);
+        return result;
+    }
+    bool create_resource_view(reshade::api::resource resource, reshade::api::resource_usage usage,
+            const reshade::api::resource_view_desc&, reshade::api::resource_view* view) {
+        phoenix_bundle::require(usage==reshade::api::resource_usage::render_target,"Loading view usage");
+        D3D12_DESCRIPTOR_HEAP_DESC description{};
+        description.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV; description.NumDescriptors=1;
+        phoenix_native::hr(device->CreateDescriptorHeap(&description,IID_PPV_ARGS(&views)));
+        const auto handle=views->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(reinterpret_cast<ID3D12Resource*>(resource.handle),nullptr,handle);
+        view->handle=handle.ptr; return true;
+    }
+    void destroy_resource_view(reshade::api::resource_view view) {
+        phoenix_bundle::require(view.handle==views->GetCPUDescriptorHandleForHeapStart().ptr,"Loading descriptor owner");
+        views.Reset();
+    }
+    void barrier(reshade::api::resource resource,reshade::api::resource_usage before,reshade::api::resource_usage after) {
+        auto state=[](auto usage) {
+            return usage==reshade::api::resource_usage::render_target ?
+                D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_COMMON;
+        };
+        phoenix_native::transition(command,reinterpret_cast<ID3D12Resource*>(resource.handle),state(before),state(after));
+        ++barriers;
+    }
+    void clear_render_target_view(reshade::api::resource_view view,const float* color,uint32_t count,const reshade::api::rect* rectangles) {
+        phoenix_bundle::require(count==0 && rectangles==nullptr && views &&
+            view.handle==views->GetCPUDescriptorHandleForHeapStart().ptr,"Loading clear descriptor owner");
+        command->ClearRenderTargetView({SIZE_T(view.handle)},color,0,nullptr); ++clears;
+    }
+};
+
 static void check_d3d11_loading() {
     using Microsoft::WRL::ComPtr;
     ComPtr<ID3D11Device> device;
@@ -94,7 +137,11 @@ int main() {
         D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
         phoenix_native::hr(gpu.device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&description,
             D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&startup)));
-        phoenix_compat::CompletedPresentation::record_loading(gpu.cmd.Get(),startup.Get());
+        LoadingCommands loading_commands{gpu.device.Get(),gpu.cmd.Get()};
+        phoenix_compat::CompletedPresentation::record_loading_commands(&loading_commands,
+            reshade::api::resource{uint64_t(startup.Get())});
+        phoenix_bundle::require(loading_commands.barriers==2 && loading_commands.clears==1 && !loading_commands.views,
+            "Loading command sequence or descriptor lifetime changed");
         phoenix_native::transition(gpu.cmd.Get(),startup.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         auto loading = gpu.readback(startup.Get());
         gpu.submit(); gpu.validate();

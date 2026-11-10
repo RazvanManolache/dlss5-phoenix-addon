@@ -14,6 +14,11 @@ class CompletedPresentation {
     // Cold start and failed initialization have no processed pixels to hold.
     // Clear the display instead of treating the live game image as a result.
     static void record_loading(reshade::api::command_list* command, reshade::api::resource backbuffer) {
+        record_loading_commands(command,backbuffer);
+    }
+    // The software fixture supplies the same descriptor/command operations.
+    template<class Command>
+    static void record_loading_commands(Command* command, reshade::api::resource backbuffer) {
         using namespace reshade::api;
         auto* device=command->get_device();
         resource_view view{};
