@@ -126,13 +126,17 @@ def prepare(runtime, native, output, nr_forwarder=None, *, experimental_native=F
     }
     allowed = {".dll", ".exe", ".spv", ".rtl", ".o", ".cfg"}
     for path in runtime.rglob("*"):
-        if not path.is_file() or path.name in excluded or path.suffix.lower() not in allowed:
-            continue
         relative = path.relative_to(runtime).as_posix()
+        cuda_payload = relative.startswith('native-cuda/') and (
+            path.suffix.lower() == '.cubin' or path.name in ('native_manifest.json', 'native_graph.json'))
+        if not path.is_file() or path.name in excluded or (path.suffix.lower() not in allowed and not cuda_payload):
+            continue
         if "nvngx" in relative.lower() or "weights" in relative.lower():
             raise ValueError("Model/NVIDIA DLL cannot be embedded: " + relative)
         data = path.read_bytes()
         expected = validation["binaries"].get(relative)
+        if cuda_payload and not expected:
+            raise ValueError("Native CUDA payload lacks validation identity: " + relative)
         if expected and digest(data) != expected:
             raise ValueError("Runtime binary changed since validation: " + relative)
         files["runtime/" + relative] = data

@@ -9,6 +9,34 @@ from validate_addon_release import inspect_payload
 
 
 class PackageGuards(unittest.TestCase):
+    def test_embedded_cuda_payload_requires_and_preserves_validation_identity(self):
+        from embed_runtime import prepare
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime, native = root/'runtime', root/'native'
+            (runtime/'native-cuda').mkdir(parents=True)
+            native.mkdir()
+            (native/'native_manifest.json').write_text(json.dumps({'kernels': []}))
+            (runtime/'phoenix_native_cpp.json').write_text('{}')
+            payload = {'native-cuda/kernel.cubin': b'compiled fixture',
+                       'native-cuda/native_manifest.json': b'{}',
+                       'native-cuda/native_graph.json': b'{}'}
+            for name, raw in payload.items():
+                (runtime/name).write_bytes(raw)
+            receipt = {'passed': True, 'inference_validated': True,
+                       'binaries': {name: sha(raw) for name, raw in payload.items()}}
+            (runtime/'validation_manifest.json').write_text(json.dumps(receipt))
+            with patch('embed_runtime.require_native_packaging'), patch('embed_runtime.compress', side_effect=lambda raw: raw):
+                prepare(runtime, native, root/'embedded', experimental_native=True)
+                manifest = json.loads((root/'embedded/manifest.json').read_text())
+                actual = {row['path']: row['sha256'] for row in manifest['files']}
+                for name, raw in payload.items():
+                    self.assertEqual(actual['runtime/'+name], sha(raw))
+                receipt['binaries'].pop('native-cuda/kernel.cubin')
+                (runtime/'validation_manifest.json').write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, 'lacks validation identity'):
+                    prepare(runtime, native, root/'unchecked', experimental_native=True)
+
     def test_package_documentation_keeps_local_docs_and_pins_missing_assets(self):
         files = {'README.md': b'[Install](docs/INSTALLATION.md) [Source](src/example.cpp)\n',
                  'docs/INSTALLATION.md': b'![UI](features/example.png)\n```md\n[Example](src/root.cpp)\n```\n',
