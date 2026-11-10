@@ -12,7 +12,7 @@ std::atomic<unsigned> created{};
 int amdHandle{},nvidiaHandle{};
 VkPhysicalDevice amd=reinterpret_cast<VkPhysicalDevice>(&amdHandle);
 VkPhysicalDevice nvidia=reinterpret_cast<VkPhysicalDevice>(&nvidiaHandle);
-const char* amdID="vulkan:00112233445566778899aabbccddeeff";
+const char* amdID="vulkan:0123456789abcdef0123456789abcdef";
 std::atomic<bool> incompleteOnce{};
 VKAPI_ATTR VkResult VKAPI_CALL create(const VkInstanceCreateInfo*,const VkAllocationCallbacks*,VkInstance* output) {
     unsigned index=created++;
@@ -33,7 +33,7 @@ VKAPI_ATTR VkResult VKAPI_CALL enumerate(VkInstance,uint32_t* count,VkPhysicalDe
 VKAPI_ATTR void VKAPI_CALL properties(VkPhysicalDevice device,VkPhysicalDeviceProperties2* output) {
     auto* id=static_cast<VkPhysicalDeviceIDProperties*>(output->pNext);
     std::array<uint8_t,VK_UUID_SIZE> uuid{};
-    require(parseDevice(device==amd ? amdID : "vulkan:11111111111111111111111111111111",uuid),"fixture UUID");
+    require(parseDevice(device==amd ? amdID : "vulkan:fedcba9876543210fedcba9876543210",uuid),"fixture UUID");
     std::memcpy(id->deviceUUID,uuid.data(),uuid.size());
     std::strcpy(output->properties.deviceName,device==amd ? "Display AMD" : "Compute NVIDIA");
 }

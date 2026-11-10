@@ -42,9 +42,20 @@ int main(int argc,char** argv) {
                     if(!trial&&mode=="in_process")across.push_back(output);
                     else if(!trial&&!across.empty()&&across[f]!=output)throw std::runtime_error("Local/broker output mismatch");
                 }
+                // Drop every optional view in the same live session after it
+                // held nonzero UI/mask/backbuffer values. Broker flag absence
+                // must hide retained mapping bytes just like the local ABI.
+                const Json basic={{"reset",true},{"has_motion",true},{"has_depth",true},{"has_history_validity",true}};
+                if(session.frame_advanced(color.data(),motion.data(),depth.data(),valid.data(),basic.dump(),output.data()))
+                    throw std::runtime_error(session.error());
+                if(!trial)reference.push_back(output);
+                else if(reference[2]!=output)throw std::runtime_error("Absent planes changed continuation");
+                if(!trial&&mode=="in_process")across.push_back(output);
+                else if(!trial&&!across.empty()&&across[2]!=output)throw std::runtime_error("Retained optional broker planes leaked");
             }
             report["routes"].push_back({{"execution",mode},{"protocol",2},{"all_optional_planes",true},
                 {"rejected_request_preserves_continuation",true},
+                {"present_to_absent_optional_planes",true},
                 {"last_output_sha256",phoenix_model::weight_digest(reinterpret_cast<const uint8_t*>(reference.back().data()),reference.back().size()*sizeof(float))}});
         }
         // A new helper must still consume the fixed version-1 layout.

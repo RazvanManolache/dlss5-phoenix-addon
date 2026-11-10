@@ -7,6 +7,8 @@
 #include "frame.h"
 #include "advanced_frame.h"
 #include "broker_client.h"
+#include "portable_pixels.h"
+#include "portable_d3d12_pixels.h"
 #include "../src/pipeline/d3d12_motion.h"
 #include "../src/pipeline/json.h"
 #include "../src/pipeline/nis.h"
@@ -62,6 +64,9 @@ void buffer_extent(const void* pointer, size_t capacity, size_t stride, unsigned
 
 struct PhoenixNativeSession {
     struct Graph;
+    // A hooked creator may return a ReShade proxy. Keep it until every raw
+    // child has retired, while private pipeline resources use the native device.
+    ComPtr<ID3D12Device> creator_device_proxy;
     std::shared_ptr<Graph> graph;
     Json configuration;
     phoenix_pipeline::Tuning tuning;
@@ -89,8 +94,11 @@ struct PhoenixNativeSession {
     phoenix_addon::phoenix::Resolution geometry;
     bool spatial_only, portable=false, portable_leaf=false, poisoned = false, history = false, in_flight = false;
     std::unique_ptr<phoenix_cpp::NativeSession> portable_session;
+    std::unique_ptr<phoenix_portable_pixels::D3D12Codec> portable_codec;
     Json portable_status=Json::object();
     Plane portable_color_readback,portable_motion_readback,portable_output_upload;
+    std::vector<float> portable_rgb,portable_vectors,portable_result;
+    std::vector<uint16_t> portable_rgba;
     void frame_portable(ID3D12Resource*,D3D12_RESOURCE_STATES,ID3D12Resource*,D3D12_RESOURCE_STATES,
         ID3D12Resource*,D3D12_RESOURCE_STATES,const PhoenixNativeControls*,const PhoenixNativeFrameV2*);
     uint64_t submitted = 0, frequency = 0, completed_frames = 0;
@@ -233,6 +241,15 @@ struct PhoenixNativeSession {
                 require(adapter != nullptr, "No NVIDIA adapter available for native RTX");
             }
             hr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)));
+            // ReShade's published proxy escape interface (source/com_utils.hpp).
+            // Avoid mixing proxy/native object identities or passing proxies to
+            // the optical-flow driver. QueryInterface owns the returned reference.
+            constexpr GUID unwrapped={0x7f2c9a11,0x3b4e,0x4d6a,{0x81,0x2f,0x5e,0x9c,0xd3,0x7a,0x1b,0x42}};
+            ComPtr<IUnknown> original;
+            if(SUCCEEDED(device->QueryInterface(unwrapped,reinterpret_cast<void**>(original.GetAddressOf())))){
+                ComPtr<ID3D12Device> native;hr(original.As(&native));
+                creator_device_proxy=device;device=std::move(native);
+            }
             D3D12_COMMAND_QUEUE_DESC description{};
             hr(device->CreateCommandQueue(&description, IID_PPV_ARGS(&queue)));
         }
@@ -259,7 +276,8 @@ struct PhoenixNativeSession {
             auto runner=config.at("portable_runtime");
             const auto root=std::filesystem::u8path(runner.at("runtime_root").get<std::string>());
             require(root.is_absolute(),"Portable runtime root must be absolute");
-            const auto dll=root/"phoenix_runtime_cpp.dll";
+            const bool native_cuda=runner.value("backend",std::string())=="native-cuda";
+            const auto dll=root/(native_cuda?"phoenix_native_cuda.dll":"phoenix_runtime_cpp.dll");
             require(runner.contains("runtime_sha256")&&file_digest(dll)==runner.at("runtime_sha256").get<std::string>(),
                 "Portable runtime checksum differs");
             if(runner.contains("files")){
@@ -279,7 +297,8 @@ struct PhoenixNativeSession {
             runner["weight_source"]=config.at("weight_source");
             // Separate native workers let two replacement renderers and Vulkan
             // branches coexist without violating the runner's public-session lock.
-            runner["execution"]="broker";
+            runner["execution"]=native_cuda?"in_process":"broker";
+            if(native_cuda)runner["diagnostics"]=pipeline.monitoring!=0;
             portable_session=std::make_unique<phoenix_cpp::NativeSession>();
             portable_session->open(root,runner,width,height);
             portable_status=Json::parse(portable_session->status_json());
@@ -1063,6 +1082,7 @@ int phoenix_native_reconfigure(PhoenixNativeSession** session,const char* config
         require(session&&*session&&config,"Missing native session/configuration");
         auto* previous=*session;previous->check_thread();
         auto replacement=std::make_unique<PhoenixNativeSession>(Json::parse(config),previous->device.Get(),previous->queue.Get());
+        replacement->creator_device_proxy=previous->creator_device_proxy;
         previous->drain();delete previous;*session=replacement.release();
     });
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "../../native/support/model_tools.h"
+#include "../../native/support/device_selection.h"
 #include "../../native/model/bundle_loader.h"
 #include "process_address_space.h"
 #include "wow64/model_contract.h"
@@ -135,16 +136,27 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
         } catch (const std::exception& error) { result.native_reason = error.what(); }
     } else result.native_reason = "Native cross-bitness routes require an x86 game.";
     try {
-        phoenix_bundle::require(transport_dll_matches(portable_root / "phoenix_runtime_cpp.dll", bits),
-                                "Matching-bitness portable runtime is not installed.");
         const auto backend = portable_device == "auto" ? "vulkan" : portable_device.substr(0, portable_device.find(':'));
-        phoenix_bundle::require(backend == "cpu" || backend == "vulkan" || backend == "cuda" || backend == "hip" || backend == "sycl",
+        phoenix_bundle::require(backend == "cpu" || backend == "vulkan" || backend == "cuda" || backend == "hip" || backend == "sycl" || backend == "native-cuda",
                                 "Choose a supported portable device.");
-        phoenix_bundle::require(transport_dll_matches(portable_root / ("phoenix_" + backend + "_cpp.dll"), bits),
+        if(backend=="native-cuda") {
+            phoenix_bundle::require(bits==64,"Native CUDA preview requires an x64 process.");
+            phoenix_bundle::require(phoenix_addon::phoenix::valid_execution_device(portable_device),"Invalid native CUDA UUID.");
+            phoenix_bundle::require(transport_dll_matches(portable_root / "phoenix_native_cuda.dll",bits),
+                                    "Matching native CUDA runtime is not installed.");
+            phoenix_bundle::require(std::filesystem::is_regular_file(portable_root / "native-cuda/native_manifest.json"),
+                                    "Native CUDA kernel bundle is not installed.");
+        } else {
+            phoenix_bundle::require(transport_dll_matches(portable_root / "phoenix_runtime_cpp.dll", bits),
+                                    "Matching-bitness portable runtime is not installed.");
+            phoenix_bundle::require(transport_dll_matches(portable_root / ("phoenix_" + backend + "_cpp.dll"), bits),
                                 "Matching portable backend library is not installed.");
-        if (backend != "cpu") {
-            phoenix_bundle::require(transport_dll_matches(portable_root / backend / ("phoenix_" + backend + ".dll"), bits),
+            // The CUDA C++ backend links its own CUDA runtime and driver API.
+            // It does not use the legacy discovery/provider DLL.
+            if (backend != "cpu" && backend != "cuda") {
+                phoenix_bundle::require(transport_dll_matches(portable_root / backend / ("phoenix_" + backend + ".dll"), bits),
                                     "Matching portable device provider is not installed.");
+            }
         }
         nlohmann::json config = nlohmann::json::object();
         if (std::filesystem::is_regular_file(portable_root / "phoenix_native_cpp.json"))
@@ -152,7 +164,7 @@ inline TransportRuntimes inspect_transport_runtimes(const std::filesystem::path&
         const auto devices = config.value("validated_devices", std::vector<std::string>{});
         const bool validated = portable_device == "auto"
             ? std::any_of(devices.begin(), devices.end(), [](const auto& id) { return id.starts_with("vulkan:"); })
-            : std::find(devices.begin(), devices.end(), portable_device) != devices.end();
+            : std::find(devices.begin(), devices.end(), backend=="native-cuda"?"cuda:"+portable_device.substr(12):portable_device) != devices.end();
         phoenix_bundle::require(validated || allow_unvalidated || config.value("allow_unvalidated", false),
                                 "Portable device has no validation entry; explicit opt-in is required.");
         result.portable = true; result.portable_reason.clear();

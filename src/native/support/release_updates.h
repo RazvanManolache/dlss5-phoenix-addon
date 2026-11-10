@@ -9,10 +9,50 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "shell32.lib")
 namespace phoenix_updates {
-inline constexpr char current_version[] = "1.0.1";
+// Unity/BepInEx games can preload their own winhttp.dll. A normal import (or
+// basename-only LoadLibrary) binds to that proxy, whose forwarding stubs may
+// not be initialized when an addon calls them. Resolve the Windows DLL by its
+// absolute system path, and keep its reference for the lifetime of the process.
+struct WinHttpApi {
+    HMODULE module{};
+    decltype(&::WinHttpOpen) open{};
+    decltype(&::WinHttpCloseHandle) close{};
+    decltype(&::WinHttpSetTimeouts) set_timeouts{};
+    decltype(&::WinHttpConnect) connect{};
+    decltype(&::WinHttpOpenRequest) open_request{};
+    decltype(&::WinHttpSetOption) set_option{};
+    decltype(&::WinHttpSendRequest) send_request{};
+    decltype(&::WinHttpReceiveResponse) receive_response{};
+    decltype(&::WinHttpQueryHeaders) query_headers{};
+    decltype(&::WinHttpReadData) read_data{};
+    bool available{};
+    WinHttpApi() {
+        wchar_t directory[MAX_PATH]{};
+        const auto length = GetSystemDirectoryW(directory, MAX_PATH);
+        if (!length || length >= MAX_PATH) return;
+        const auto path = std::wstring(directory, length) + L"\\winhttp.dll";
+        module = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!module) return;
+#define PHOENIX_WINHTTP_BIND(member, name) member = reinterpret_cast<decltype(member)>(GetProcAddress(module, name))
+        PHOENIX_WINHTTP_BIND(open, "WinHttpOpen");
+        PHOENIX_WINHTTP_BIND(close, "WinHttpCloseHandle");
+        PHOENIX_WINHTTP_BIND(set_timeouts, "WinHttpSetTimeouts");
+        PHOENIX_WINHTTP_BIND(connect, "WinHttpConnect");
+        PHOENIX_WINHTTP_BIND(open_request, "WinHttpOpenRequest");
+        PHOENIX_WINHTTP_BIND(set_option, "WinHttpSetOption");
+        PHOENIX_WINHTTP_BIND(send_request, "WinHttpSendRequest");
+        PHOENIX_WINHTTP_BIND(receive_response, "WinHttpReceiveResponse");
+        PHOENIX_WINHTTP_BIND(query_headers, "WinHttpQueryHeaders");
+        PHOENIX_WINHTTP_BIND(read_data, "WinHttpReadData");
+#undef PHOENIX_WINHTTP_BIND
+        available = open && close && set_timeouts && connect && open_request &&
+            set_option && send_request && receive_response && query_headers && read_data;
+    }
+};
+inline const WinHttpApi& winhttp() { static const WinHttpApi api; return api; }
+inline constexpr char current_version[] = "1.1.0";
 inline constexpr wchar_t releases_url[] = L"https://github.com/RazvanManolache/dlss5-phoenix-addon/releases";
 inline std::string newer_release(std::string_view body, std::string_view current = current_version) {
     if (body.size() > 256 * 1024) return {};
@@ -43,7 +83,7 @@ inline std::string newer_release(std::string_view body, std::string_view current
 }
 struct InternetHandle {
     HINTERNET value{};
-    ~InternetHandle() { if (value) WinHttpCloseHandle(value); }
+    ~InternetHandle() { if (value) winhttp().close(value); }
 };
 class Service {
     std::mutex mutex;
@@ -53,32 +93,34 @@ class Service {
     std::atomic<HINTERNET> request{};
     std::chrono::steady_clock::time_point next{};
     struct Work { Service* service; HMODULE module; };
-    void close_request() { if (auto handle = request.exchange(nullptr)) WinHttpCloseHandle(handle); }
+    void close_request() { if (auto handle = request.exchange(nullptr)) winhttp().close(handle); }
     std::string fetch() {
-        InternetHandle session{WinHttpOpen(L"DLSS5-Phoenix-update-notice", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+        const auto& http = winhttp();
+        if (!http.available || cancelled) return {};
+        InternetHandle session{http.open(L"DLSS5-Phoenix-update-notice", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0)};
         if (!session.value || cancelled) return {};
-        if (!WinHttpSetTimeouts(session.value, 2000, 2000, 2000, 2000)) return {};
+        if (!http.set_timeouts(session.value, 2000, 2000, 2000, 2000)) return {};
         const auto deadline = GetTickCount64() + 10000;
-        InternetHandle connection{WinHttpConnect(session.value, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0)};
+        InternetHandle connection{http.connect(session.value, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0)};
         if (!connection.value || cancelled) return {};
-        auto handle = WinHttpOpenRequest(connection.value, L"GET",
+        auto handle = http.open_request(connection.value, L"GET",
             L"/repos/RazvanManolache/dlss5-phoenix-addon/releases?per_page=10", nullptr,
             WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
         if (!handle) return {};
         request.store(handle);
         struct CloseRequest { Service* owner; ~CloseRequest() { owner->close_request(); } } close{this};
         DWORD redirects = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
-        if (cancelled || !WinHttpSetOption(handle, WINHTTP_OPTION_REDIRECT_POLICY, &redirects, sizeof redirects) ||
-            !WinHttpSendRequest(handle, L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28", DWORD(-1),
-                nullptr, 0, 0, 0) || !WinHttpReceiveResponse(handle, nullptr)) return {};
+        if (cancelled || !http.set_option(handle, WINHTTP_OPTION_REDIRECT_POLICY, &redirects, sizeof redirects) ||
+            !http.send_request(handle, L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28", DWORD(-1),
+                nullptr, 0, 0, 0) || !http.receive_response(handle, nullptr)) return {};
         DWORD status{}, bytes = sizeof status;
-        if (!WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+        if (!http.query_headers(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX, &status, &bytes, WINHTTP_NO_HEADER_INDEX) || status != 200) return {};
         std::string body;
         char buffer[4096]; DWORD read{};
         while (!cancelled && GetTickCount64() < deadline) {
-            if (!WinHttpReadData(handle, buffer, sizeof buffer, &read)) return {};
+            if (!http.read_data(handle, buffer, sizeof buffer, &read)) return {};
             if (!read) return body;
             if (body.size() + read > 256 * 1024) return {};
             body.append(buffer, read);

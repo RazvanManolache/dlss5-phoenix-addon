@@ -18,7 +18,12 @@ struct PhoenixNativeSession::Graph {
             if(owner.portable)config["_portable_leaf"]=true;
             config["width"]=nw;config["height"]=nh;config["output_width"]=nw;config["output_height"]=nh;config["neural_width"]=nw;config["neural_height"]=nh;
             config["repeats"]=owner.tuning.repeats;config["transformer_blocks"]=owner.tuning.blocks;
-            config["pipeline"]={{"PipelineMonitoring",owner.pipeline.monitoring},{"MonitoringSampleInterval",owner.pipeline.sample_interval}};
+            // The parent owns motion/scene policy. A leaf consumes its supplied
+            // vectors and must not inherit the public motion-enabled default.
+            config["engine_motion_valid"]=true;
+            config["pipeline"]={{"MotionEstimation",false},{"SceneDetection",false},
+                {"ProcessingChain",false},{"PipelinePriority",0},
+                {"PipelineMonitoring",owner.pipeline.monitoring},{"MonitoringSampleInterval",owner.pipeline.sample_interval}};
             networks.emplace(name,std::make_unique<PhoenixNativeSession>(config,owner.device.Get(),owner.queue.Get()));
         }
     }
@@ -43,6 +48,9 @@ struct PhoenixNativeSession::Graph {
         owner.submit();owner.wait(owner.submitted);
     }
     ID3D12Resource* resample(const std::string& key,ID3D12Resource* source,D3D12_RESOURCE_STATES state,unsigned w,unsigned h,bool motion=false){
+        const auto description=source->GetDesc();
+        if(state==D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE&&description.Width==w&&description.Height==h)
+            return source; // Borrowed through this synchronous frame; no identity copy/submission.
         auto* target=image(key,w,h,motion?DXGI_FORMAT_R16G16_FLOAT:DXGI_FORMAT_R16G16B16A16_FLOAT);
         run(source,state,target,motion?1:0);return target;
     }
@@ -180,6 +188,9 @@ void PhoenixNativeSession::frame_graph(ID3D12Resource* color,D3D12_RESOURCE_STAT
                         pipeline.color_brightness,pipeline.color_contrast,pipeline.color_saturation,pipeline.color_gamma);current=treated;
                 }
             }else{
+                if(step.width==w&&step.height==h&&(!pipeline.chain_enabled||pipeline.scaler==0)){
+                    scaler_status="Identity (same extent)";g.executed.back()["identity"]=true;
+                }else{
                 auto* scaled=g.image("scale",step.width,step.height);
                 if(pipeline.chain_enabled&&pipeline.scaler==3){
                     require(step.width==w*2&&step.height==h*2,"Tiny reconstruction requires 2x output geometry");
@@ -193,6 +204,7 @@ void PhoenixNativeSession::frame_graph(ID3D12Resource* color,D3D12_RESOURCE_STAT
                     require(done,"NIS admits 1x to 2x output per axis");submit();wait(submitted);scaler_status="NVIDIA Image Scaling";
                 }else{g.run(current,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,scaled);scaler_status="Existing spatial scaler";}
                 current=scaled;w=step.width;h=step.height;
+                }
             }
             elapsed(step.stage==phoenix_pipeline::Stage::Scale?3:2);
         }
@@ -204,18 +216,23 @@ void PhoenixNativeSession::frame_graph(ID3D12Resource* color,D3D12_RESOURCE_STAT
             phoenix_native::transition(command.Get(),diagnostic,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             submit();wait(submitted);if(visualized)current=diagnostic;
         }
-        auto* finished=g.image("finished",w,h);
+        const bool direct_output=output_state==D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE&&
+            (output->GetDesc().Flags&D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)!=0;
+        auto* finished=direct_output?output:g.image("finished",w,h);
         // Neural kernels do not reconstruct opacity. Carry original alpha
         // through arbitrary stage order and output-size changes explicitly.
         auto* alpha=g.resample("alpha",color,color_state,w,h);
         g.run(current,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,finished,5,alpha);
         current=finished;
+        if(!direct_output){
         begin();phoenix_native::transition(command.Get(),current,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
         phoenix_native::transition(command.Get(),output,output_state,D3D12_RESOURCE_STATE_COPY_DEST);
         command->CopyResource(output,current);
         phoenix_native::transition(command.Get(),output,D3D12_RESOURCE_STATE_COPY_DEST,output_state);
         phoenix_native::transition(command.Get(),current,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        submit();wait(submitted);if(motion_provider)motion_provider->consumed(submitted);
+        submit();wait(submitted);
+        }
+        if(motion_provider)motion_provider->consumed(submitted);
         elapsed(4);
         ++completed_frames;frame_info_pending=false;history=motion!=nullptr;retained_optional.clear();
         completed_tuning=tuning.json();completed_pipeline=phoenix_pipeline::options_json(pipeline);

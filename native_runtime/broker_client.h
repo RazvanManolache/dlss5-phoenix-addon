@@ -4,6 +4,7 @@
 #pragma once
 #include "broker_protocol.h"
 #include "runtime_api.h"
+#include "phoenix_cuda_d3d12.h"
 #include "../third_party/nlohmann/json.hpp"
 #include <bcrypt.h>
 #include <algorithm>
@@ -129,11 +130,14 @@ class BrokerClient {
         copy(5 * pixels, pixels, depth);
         copy(6 * pixels, pixels, validity);
         if (protocol == broker_extended_version) {
-            copy(10*pixels, 4*pixels, mask);
-            copy(14*pixels, 4*pixels, ui);
-            copy(18*pixels, pixels, alpha);
-            copy(19*pixels, 3*pixels, backbuffer);
-            copy(22*pixels, 4*pixels, distortion);
+            // V3 views are absent unless their matching flag is set. Do not
+            // write 16 unused float planes on every basic color/motion frame.
+            // Present planes are always completely overwritten before publish.
+            if(mask)copy(10*pixels, 4*pixels, mask);
+            if(ui)copy(14*pixels, 4*pixels, ui);
+            if(alpha)copy(18*pixels, pixels, alpha);
+            if(backbuffer)copy(19*pixels, 3*pixels, backbuffer);
+            if(distortion)copy(22*pixels, 4*pixels, distortion);
         }
         header->reserved = flags;
         broker_text(header->metadata, metadata);
@@ -167,6 +171,16 @@ class NativeSession {
     }
 
   public:
+    bool gpu_frames_available()const{
+        return !broker&&local.module&&GetProcAddress(local.module,"phoenix_runtime_frame_d3d12");
+    }
+    int frame_d3d12(const phoenix_cuda_d3d12_frame& frame){
+        if(!gpu_frames_available())return 1;
+        const auto entry=reinterpret_cast<decltype(&phoenix_runtime_frame_d3d12)>(GetProcAddress(local.module,"phoenix_runtime_frame_d3d12"));
+        const auto result=entry(local.instance,&frame);
+        if(result)error_text=local.error();
+        return result;
+    }
     void set_cancellation(HANDLE handle) {
         cancellation = handle;
     }

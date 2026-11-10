@@ -5,6 +5,8 @@
 #include <vector>
 #include <stdexcept>
 #include "phoenix.h"
+#include "phoenix_rgba8.h"
+#include "../third_party/nlohmann/json.hpp"
 
 namespace phoenix_cpp {
 inline std::string path_utf8(const std::filesystem::path& path) {
@@ -22,6 +24,7 @@ struct RuntimeApi {
                  float*) = nullptr;
     int (*frame_v2)(void*, const phoenix_frame_v2*) = nullptr;
     int (*frame_v3)(void*, const phoenix_frame_v3*) = nullptr;
+    int (*frame_rgba8)(void*, const phoenix_rgba8_frame*) = nullptr;
     const char* (*error)() = nullptr;
     size_t (*status)(void*, char*, size_t) = nullptr;
     size_t (*capabilities)(char*, size_t) = nullptr;
@@ -42,8 +45,11 @@ struct RuntimeApi {
               unsigned height) {
         if (module)
             throw std::runtime_error("Runtime API already loaded");
+        const auto settings = nlohmann::json::parse(config);
+        const auto library = settings.value("backend", std::string()) == "native-cuda"
+            ? L"phoenix_native_cuda.dll" : L"phoenix_runtime_cpp.dll";
         module =
-            LoadLibraryExW((root / L"phoenix_runtime_cpp.dll").c_str(), nullptr,
+            LoadLibraryExW((root / library).c_str(), nullptr,
                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         if (!module)
             throw std::runtime_error("Native runtime library unavailable (Windows error " +
@@ -55,6 +61,7 @@ struct RuntimeApi {
         frame = reinterpret_cast<decltype(frame)>(GetProcAddress(module, "phoenix_runtime_frame"));
         frame_v2 = reinterpret_cast<decltype(frame_v2)>(GetProcAddress(module, "phoenix_runtime_frame_v2"));
         frame_v3 = reinterpret_cast<decltype(frame_v3)>(GetProcAddress(module, "phoenix_runtime_frame_v3"));
+        frame_rgba8 = reinterpret_cast<decltype(frame_rgba8)>(GetProcAddress(module, "phoenix_runtime_frame_rgba8"));
         capabilities = reinterpret_cast<decltype(capabilities)>(GetProcAddress(module, "phoenix_runtime_capabilities"));
         error = reinterpret_cast<decltype(error)>(GetProcAddress(module, "phoenix_runtime_error"));
         status =

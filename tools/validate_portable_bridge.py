@@ -75,13 +75,18 @@ def main():
         raise RuntimeError('No MSVC toolchain')
     current = ROOT/'artifacts/current'
     report_path = current/'portable-bridge-validation.json'
-    inputs = [*list((ROOT/'src/integration/compatibility').glob('*.h')),
+    inputs = [*list((ROOT/'src/integration/compatibility').rglob('*.h')),
         *[p for p in (ROOT/'src/integration/compatibility/wow64').rglob('*') if p.is_file()],
         *list((ROOT/'src/integration/reshade').glob('*.h')), ROOT/'src/integration/reshade/addon.cpp',
         ROOT/'native_runtime/runtime_api.h', ROOT/'tools/validate_portable_bridge.py',
         ROOT/'tests/native/portable_bridge_fake.cpp', ROOT/'tests/native/portable_bridge_tests.cpp',
         ROOT/'tests/native/backbuffer_route_tests.cpp']
     inputs.extend([ROOT/'tests/native/shared_panel_tests.cpp', ROOT/'tests/native/dashboard_tests.h'])
+    inputs.extend([ROOT/'native_runtime/phoenix_rgba8.h', ROOT/'src/native/support/device_selection.h',
+        ROOT/'src/native/support/device_catalog.h', ROOT/'tests/native/compatibility_policy_tests.cpp',
+        ROOT/'tests/native/compatibility_ipc_tests.cpp', ROOT/'tests/native/transport_availability_tests.cpp'])
+    inputs.extend([ROOT/'native_runtime/broker_client.h',ROOT/'native_runtime/pipeline_client.h',
+        ROOT/'native_runtime/phoenix_cuda_d3d12.h'])
     bindings = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     report = dict(schema='phoenix-portable-bridge-validation/1', passed=False,
         gpu_used=False, games_launched=False, game_presentation_validated=False,
@@ -120,7 +125,7 @@ def main():
                     if result.returncode: raise RuntimeError(row['tests'][name]['output'])
                 compile('fake_runtime', f'cl {common} /LD "{ROOT}/tests/native/portable_bridge_fake.cpp" '
                     f'/Fe:"{out}/phoenix_runtime_cpp.dll" /link /INCREMENTAL:NO')
-                for name in ('portable_bridge_tests', 'backbuffer_route_tests', 'compatibility_policy_tests', 'compatibility_ipc_tests'):
+                for name in ('portable_bridge_tests', 'backbuffer_route_tests', 'compatibility_policy_tests', 'compatibility_ipc_tests', 'transport_availability_tests'):
                     compile(name, f'cl {common} "{ROOT}/tests/native/{name}.cpp" /Fe:"{out}/{name}.exe" /link {libraries}')
                     run(name, *([out] if name == 'portable_bridge_tests' else []))
                 if args.imgui_source:

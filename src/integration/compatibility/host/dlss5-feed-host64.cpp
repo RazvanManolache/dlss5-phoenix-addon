@@ -19,7 +19,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_6.h>
 #include <cstdio>
 #include <cstdarg>
 #include <cstdint>
@@ -636,9 +636,51 @@ static bool InitDisguise()
         }
         if(FAILED(selection)){Log("[host] Render adapter unavailable 0x%08X",selection);return false;}
     }
-    HRESULT hr = create_device(selected_adapter, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device),
-                               reinterpret_cast<void **>(&h.dev));
-    if(selected_adapter)selected_adapter->Release();
+    HRESULT hr = E_FAIL;
+    if (selected_adapter || g_reference_cpu) {
+        // Shared GPU resources must stay on the caller-specified adapter.
+        // The reference CPU route does not require NVIDIA hardware.
+        hr = create_device(selected_adapter, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device),
+                           reinterpret_cast<void **>(&h.dev));
+    } else {
+        // CPU pixel transport has no game-adapter affinity. Windows default
+        // adapter 0 may be an integrated AMD/Intel GPU on a hybrid system.
+        // Native Phoenix kernels require NVIDIA, just like local staging.
+        IDXGIFactory6* selection_factory = nullptr;
+        hr = create_factory(__uuidof(IDXGIFactory6), reinterpret_cast<void**>(&selection_factory));
+        if (SUCCEEDED(hr)) {
+            for (UINT index = 0; ; ++index) {
+                IDXGIAdapter1* candidate = nullptr;
+                const auto found = selection_factory->EnumAdapterByGpuPreference(
+                    index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, __uuidof(IDXGIAdapter1),
+                    reinterpret_cast<void**>(&candidate));
+                if (found == DXGI_ERROR_NOT_FOUND) break;
+                if (FAILED(found)) { hr = found; break; }
+                DXGI_ADAPTER_DESC1 info{};
+                const auto described = candidate->GetDesc1(&info);
+                if (SUCCEEDED(described) && info.VendorId == 0x10de &&
+                    !(info.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+                    hr = create_device(candidate, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device),
+                                       reinterpret_cast<void**>(&h.dev));
+                    if (SUCCEEDED(hr)) selected_adapter = candidate;
+                }
+                if (selected_adapter) break;
+                candidate->Release();
+            }
+            selection_factory->Release();
+        }
+        if (!h.dev) {
+            Log("[host] No eligible NVIDIA adapter for native helper inference (0x%08X)", hr);
+            return false;
+        }
+    }
+    if (selected_adapter) {
+        DXGI_ADAPTER_DESC info{};
+        if (SUCCEEDED(selected_adapter->GetDesc(&info)))
+            Log("[host] Render adapter: %ls (vendor 0x%04X, device 0x%04X, explicit affinity %u)",
+                info.Description, info.VendorId, info.DeviceId, g_adapter_luid != 0);
+        selected_adapter->Release();
+    }
     if (FAILED(hr)) { Log("[host] D3D12CreateDevice failed 0x%08X", hr); return false; }
 
     D3D12_COMMAND_QUEUE_DESC qd = {};

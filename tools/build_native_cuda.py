@@ -29,8 +29,9 @@ def main():
     if not 1 <= args.jobs <= 8:
         parser.error("Use 1..8 compiler jobs")
     compiler = args.compiler.resolve()
-    if not compiler.is_file() or not compiler.with_name("ptxas").is_file():
-        parser.error("Provide Linux nvcc with its sibling ptxas")
+    assembler = compiler.with_name("ptxas.exe" if compiler.suffix.lower() == ".exe" else "ptxas")
+    if not compiler.is_file() or not assembler.is_file():
+        parser.error("Provide nvcc with its sibling ptxas")
     catalogue, _ = production_inputs(ROOT)
     source_hashes = {path.relative_to(ROOT).as_posix(): digest(path)
                      for path in (ROOT / "src/native/kernels/production").rglob("*") if path.is_file()}
@@ -54,6 +55,8 @@ def main():
         command = [str(compiler), "--entries", ",".join(entries), "-diag-suppress", "177",
                    "-diag-suppress", "550", "-DPHOENIX_CUDA_TEXTURE_OBJECTS", "-arch=sm_120",
                    "-O3", "-std=c++17", "-ptx" if boundary else "-cubin"]
+        if compiler.suffix.lower() == ".exe":
+            command += ["-allow-unsupported-compiler", "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"]
         if not boundary:
             command += [f"-Xptxas=-O{optimization},--suppress-debug-info"]
         command += [row["source"], "-o", str(ptx if boundary else binary)]
@@ -70,7 +73,7 @@ def main():
                 if count != 1:
                     raise RuntimeError("Native CUDA boundary PTX declaration changed")
                 ptx.write_text(text)
-                subprocess.run([str(compiler.with_name("ptxas")), "-arch=sm_120", "--entry",
+                subprocess.run([str(assembler), "-arch=sm_120", "--entry",
                                 row["entry"], f"-O{optimization}", "--suppress-debug-info",
                                 str(ptx), "-o", str(binary)], stdout=log, stderr=subprocess.STDOUT,
                                check=True, timeout=600, cwd=ROOT)

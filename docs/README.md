@@ -1,13 +1,14 @@
 # Phoenix DLSS5 documentation
 
-[Project overview](../README.md) · [Download 1.0.1](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0.1)
+[Project overview](../README.md) · [Download 1.1.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.0)
 
 ## Start with your goal
 
 | Goal | Start here | Details |
 | --- | --- | --- |
-| Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.0.1.md) |
+| Install or update | [Installation](INSTALLATION.md) | [Package contents and validation](RELEASE_1.1.0.md) |
 | Develop native Linux support | [Linux layer preview](LINUX.md) | Per-game launcher, packaging, limitations and validation |
+| Try the Windows CUDA preview | [Windows CUDA integration](WINDOWS_CUDA.md) | Optional native executor, packed transport, build and validation scope |
 | See it in actual games | [Seven-game comparison gallery](GAME_GALLERY.md) | [Capture method](PAIRED_SCREENSHOTS.md), [compatibility](COMPATIBILITY.md) |
 | Change the image or overlay | [User guide](USER_GUIDE.md) | [All features](FEATURES.md), [appearance controls](NEURAL_CONTROLS.md), [overlay reference](overlay-ui.md) |
 | Pick a model | [Model support](MULTI_MODEL.md) | [Shared model library](SHARED_MODELS.md), [Lightweight FP8](SMALL_FP8.md) |

@@ -283,7 +283,7 @@ These options do not disable an available matrix-accelerated route.
 The [Linux layer preview](LINUX.md) adds experimental Vulkan presentation capture
 through the host-plane API, with a per-game launcher and model-free packaging.
 It is separate from the standalone library's existing validation evidence.
-Linux CUDA and a Mac/Android game overlay are not implemented by this port.
+Linux supports portable CUDA and optional native CUDA execution. A Mac/Android game overlay is not implemented by this port.
 Applications must supply their own image/graphics integration. Host-plane
 copies and C++ preparation/resolve still exist; no zero-copy texture API is
 promised. The CPU reference is a portability/correctness fallback, not the

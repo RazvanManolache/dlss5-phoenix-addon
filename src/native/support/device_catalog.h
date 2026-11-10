@@ -3,6 +3,7 @@
 #include "kernel_style_device.h"
 #include <windows.h>
 #include <cstdio>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include "../../../third_party/nlohmann/json.hpp"
@@ -39,7 +40,7 @@ inline void append_native_devices(std::vector<ExecutionDevice>& result,
     } catch (const std::exception&) { /* Missing/invalid SDK catalogue stays unavailable. */
     }
 }
-inline std::vector<ExecutionDevice> cuda_execution_devices() {
+inline std::vector<ExecutionDevice> cuda_execution_devices(bool native_cuda_available=false) {
     std::vector<ExecutionDevice> result{{"native", "Rendering GPU (optimized NVIDIA)"},
                                         {"cpu", "CPU (reference, slow)"}};
     HMODULE library = LoadLibraryExW(L"nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -96,6 +97,11 @@ inline std::vector<ExecutionDevice> cuda_execution_devices() {
             device_id += pair;
         }
         result.push_back({device_id, std::string(label) + " (portable reference)"});
+        if(native_cuda_available && capability && !capability(&major,&minor,cuda_device) && major==12 && minor==0) {
+            std::string raw=device_id.substr(9);
+            raw.erase(std::remove(raw.begin(),raw.end(),'-'),raw.end());
+            result.push_back({"native-cuda:"+raw,std::string(label)+" (native CUDA; SM120)"});
+        }
     }
     return result;
 }
@@ -103,7 +109,9 @@ inline std::vector<ExecutionDevice>
 execution_devices(const std::filesystem::path& vulkan_build = {},
                   const std::filesystem::path& hip_build = {},
                   const std::filesystem::path& sycl_build = {}) {
-    auto result = cuda_execution_devices();
+    const bool native_cuda_available=!vulkan_build.empty() && vulkan_build.is_absolute() &&
+        std::filesystem::is_regular_file(vulkan_build.parent_path()/"phoenix_native_cuda.dll");
+    auto result = cuda_execution_devices(native_cuda_available);
     append_native_devices(result, hip_build, "hip");
     append_native_devices(result, sycl_build, "sycl");
     // Vulkan discovery is independent of CUDA; AMD/Intel-only systems reach here.

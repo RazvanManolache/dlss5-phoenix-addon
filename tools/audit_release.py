@@ -135,7 +135,9 @@ def validate_public_content(name, raw):
     # may use UUID-shaped strings; measurement exports use descriptive labels.
     synthetic = {b'cuda:GPU-01234567-89ab-cdef-0123-456789abcdef',
                  b'vulkan:0123456789abcdef0123456789abcdef',
-                 b'vulkan:0123456789abcdef0123456789abcdef0'}
+                 b'vulkan:0123456789abcdef0123456789abcdef0',
+                 b'vulkan:fedcba9876543210fedcba9876543210',
+                 b'vulkan:ffffffffffffffffffffffffffffffff'}
     for match in re.finditer(rb'(?:cuda:GPU-[0-9a-fA-F-]{36}|vulkan:[0-9a-fA-F]{32,33})', raw):
         if match.group() not in synthetic:
             raise ValueError('Private device identifier in publication file: ' + name)

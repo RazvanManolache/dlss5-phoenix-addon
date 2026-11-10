@@ -7,10 +7,12 @@ with Windows. Original runs 154 neural launches; Lightweight FP8 runs 78.
 CUDA streams/graphs provide ordered dispatch and CUDA texture/surface objects
 replace the Windows descriptor/sampler ABI. No Windows DLL code is executed.
 
-The current scope is **SM120, SDR final-color input, reset on every frame**.
-Both models are selectable. Motion, temporal reuse, advanced V3 controls,
-adaptive depth, multistage pipelines, model hot-swapping and other GPU
-architectures are rejected or unavailable in this frontend. The portable CUDA
+The current Vulkan presentation frontend remains **SM120, SDR final-color input,
+reset on every frame**. The runtime itself now implements temporal V2/V3 input,
+GPU history, motion/depth/validity, appearance, block scheduling, repeated passes
+and model replacement. Engine guides or Windows shared-pipeline services must
+be supplied by a producer; the Linux Vulkan presentation hook still supplies
+color-only reset frames. Other GPU architectures remain unavailable. The portable CUDA
 backend remains separately selectable when its broader host-frame API is needed.
 The launcher never silently substitutes a backend or GPU.
 
@@ -66,8 +68,10 @@ This removes full-frame RGB32F transport and CPU conversion from the game hook.
 It **still uses host transport**, including the Vulkan readback/upload. It does
 not provide GPU-to-GPU zero-copy or repair the NVIDIA presentation route on the
 tested desktop. The bounded float32 V2 API remains available, including strided
-and aliased input/output. It requires exactly `{"reset":true}` metadata; unsupported
-optional planes/controls fail before writing caller output.
+and aliased input/output. Its temporal V2/V3 contract accepts motion/depth/validity and frame controls;
+invalid planes/metadata fail before writing caller output. The packed V1 entry
+retains reset-only semantics. See [Windows integration](WINDOWS_CUDA.md) for the
+shared pipeline service integration and current feature validation scope.
 
 GPU event timing covers counter initialization and the complete native
 stem/model/head. Synchronous API timings also include staging, transfers and

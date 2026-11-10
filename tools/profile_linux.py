@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import statistics
+import sys
 import time
 
 
@@ -43,12 +44,14 @@ def main():
     parser.add_argument("--samples", type=int, default=24)
     parser.add_argument("--window-batch-limit", type=int)
     parser.add_argument("--rgba8", action="store_true", help="use the native CUDA packed byte frontend")
+    parser.add_argument("--save-image", type=Path, help="save the last output for fixture comparisons")
     args = parser.parse_args()
     if args.warmup < 1 or args.samples < 2:
         parser.error("Use at least one warmup and two measured samples")
     from PIL import Image
     config = json.loads(args.config.read_text())
-    root = args.package.resolve() / "lib"
+    root = args.package.resolve()
+    if (root / "lib").is_dir(): root = root / "lib"
     config["runtime_root"] = str(root)
     if args.window_batch_limit is not None:
         config["window_batch_limit"] = args.window_batch_limit
@@ -59,7 +62,8 @@ def main():
         rgba = image.convert("RGBA").tobytes()
     source = array.array("f", (value / 255 for value in pixels))
     output = array.array("f", [0]) * len(source)
-    library = root / ("libphoenix_native_cuda.so" if config["backend"] == "native-cuda" else "libphoenix_runtime_cpp.so")
+    stem = "phoenix_native_cuda" if config["backend"] == "native-cuda" else "phoenix_runtime_cpp"
+    library = root / (stem + ".dll" if sys.platform == "win32" else "lib" + stem + ".so")
     lib = C.CDLL(str(library))
     lib.phoenix_runtime_create.argtypes = [C.c_char_p, C.c_uint, C.c_uint]
     lib.phoenix_runtime_create.restype = C.c_void_p
@@ -82,8 +86,9 @@ def main():
     if args.rgba8:
         if config["backend"] != "native-cuda":
             parser.error("--rgba8 requires native-cuda")
-        lib.phoenix_linux_frame_rgba8.argtypes = [C.c_void_p, C.POINTER(BytesFrame)]
-        lib.phoenix_linux_frame_rgba8.restype = C.c_int
+        packed_call = getattr(lib, "phoenix_runtime_frame_rgba8", None) or lib.phoenix_linux_frame_rgba8
+        packed_call.argtypes = [C.c_void_p, C.POINTER(BytesFrame)]
+        packed_call.restype = C.c_int
     started = time.perf_counter()
     session = lib.phoenix_runtime_create(json.dumps(config).encode(), width, height)
     if not session:
@@ -95,7 +100,7 @@ def main():
             if args.rgba8:
                 byte_data[:] = rgba
             started = time.perf_counter()
-            result = (lib.phoenix_linux_frame_rgba8(session, C.byref(byte_frame)) if args.rgba8
+            result = (packed_call(session, C.byref(byte_frame)) if args.rgba8
                       else lib.phoenix_runtime_frame_v2(session, C.byref(frame)))
             call_ms = (time.perf_counter() - started)*1000
             if result:
@@ -126,6 +131,14 @@ def main():
         "scope": "Synchronous host-plane inference; excludes game capture/presentation. GPU clocks unmanaged.",
     }
     args.output.write_text(json.dumps(receipt, indent=2) + "\n")
+    if args.save_image:
+        if args.rgba8:
+            rendered = Image.frombytes("RGBA", (width, height), bytes(byte_data))
+        else:
+            import math
+            values = bytes(math.floor(max(0, min(1, v))*255 + .5) for v in output)
+            rendered = Image.frombytes("RGB", (width, height), values)
+        rendered.save(args.save_image)
     print(json.dumps(receipt["median_ms"], indent=2))
 
 

@@ -227,14 +227,48 @@ int main() try {
         verify(recovered.route == BackbufferRoute::Helper);
         verify(recovered.reason.find(exhausted) != std::string::npos);
         auto pending = ordered; pending.discovery_pending = true;
-        verify(choose_backbuffer_route_with_fallback(pending, forced, true, true).route == BackbufferRoute::Unsupported);
+        verify(choose_backbuffer_route_with_fallback(pending, forced, true, true).route == BackbufferRoute::Helper);
         auto protected_frame = ordered; protected_frame.protected_resource = true;
         verify(choose_backbuffer_route_with_fallback(protected_frame, forced, true, true).route == BackbufferRoute::Unsupported);
         auto wrong_queue = ordered; wrong_queue.queue_matches = false;
         verify(choose_backbuffer_route_with_fallback(wrong_queue, forced, true, true).route == BackbufferRoute::Unsupported);
     }
     auto alternate = ordered; alternate.portable_available = true;
-    verify(choose_backbuffer_route_with_fallback(alternate, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::Portable);
+    verify(choose_backbuffer_route_with_fallback(alternate, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::Helper);
+    {
+        // Reproduce a worker running successfully before its game's next level
+        // exhausts low address space. Other installed renderers must be skipped.
+        auto memory = base; memory.bits = 32; memory.portable_available = true;
+        verify(in_process_memory_failure(32, BackbufferRoute::NativeLibrary, exhausted));
+        verify(in_process_memory_failure(32, BackbufferRoute::Portable, "Frame worker: bad allocation"));
+        verify(in_process_memory_failure(32, BackbufferRoute::InProcessStaging, "std::bad_alloc"));
+        verify(!in_process_memory_failure(32, BackbufferRoute::Helper, "bad allocation"));
+        verify(!in_process_memory_failure(64, BackbufferRoute::InProcess, "bad allocation"));
+        verify(!in_process_memory_failure(32, BackbufferRoute::NativeLibrary, "CUDA_ERROR_OUT_OF_MEMORY"));
+        verify(!in_process_memory_failure(32, BackbufferRoute::NativeLibrary, "GPU allocation failed"));
+        verify(!in_process_memory_failure(32, BackbufferRoute::NativeLibrary,
+            "GPU allocation failed; Low 32-bit address space: 2048 MiB free"));
+        verify(in_process_memory_failure(32, BackbufferRoute::NativeLibrary,
+            "Frame worker: bad allocation; Low 32-bit address space: 128 MiB free"));
+        verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true).route == BackbufferRoute::NativeLibrary);
+        verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Helper);
+        for (auto forced : {ExecutionPreference::NativeLibrary, ExecutionPreference::NativeDriver, ExecutionPreference::Portable}) {
+            verify(choose_backbuffer_route_with_fallback(memory, forced, true, true, true).route == BackbufferRoute::Helper);
+            verify(choose_backbuffer_route_with_fallback(memory, forced, false, false, true).route != BackbufferRoute::Helper);
+        }
+        memory.discovery_pending = true;
+        verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Helper);
+        memory.protected_resource = true;
+        verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Unsupported);
+        memory.protected_resource = false; memory.queue_matches = false;
+        verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Unsupported);
+        memory.queue_matches = true; memory.discovery_pending = false;
+        memory.native_library_available = false; memory.native_library_reason = exhausted;
+        verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::Helper);
+        // An unrelated native failure retains the ordinary ordered fallback.
+        memory.native_library_reason = "Missing native runtime";
+        verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::NativeDriver);
+    }
     verify(choose_backbuffer_route_with_fallback(ordered, ExecutionPreference::Invalid, true, true).route == BackbufferRoute::Unsupported);
     const auto blocked=choose_backbuffer_route(ordered,ExecutionPreference::NativeLibrary);
     verify(terminal_route_refusal(ordered,blocked));

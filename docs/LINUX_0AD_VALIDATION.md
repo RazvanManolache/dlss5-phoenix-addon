@@ -110,9 +110,9 @@ general game-compatibility or visual-parity certification.
 - OS: Ubuntu 24.04, kernel `6.14.0-27-generic`, X11 desktop.
 - Game GPU: AMD Ryzen 9 9950X3D integrated graphics, RADV
   `RAPHAEL_MENDOCINO`, Mesa **25.2.8**;
-  `vulkan:00000000740000000000000000000000`.
+  `vulkan:fedcba9876543210fedcba9876543210`.
 - Inference GPU: **NVIDIA GeForce RTX 5080**, driver **595.99.02**;
-  `vulkan:1b962af4ae3f9cf1b93a70efe043a13d`.
+  `vulkan:0123456789abcdef0123456789abcdef`.
 - Runtime: portable **vulkan-cpp** backend, reference arithmetic, cooperative
   matrix acceleration enabled. This is separate from Windows Native RTX/D3D12.
 - Model: **small-fp8**, read as resources from the pinned compatibility DLL
@@ -224,7 +224,7 @@ VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation \
 PHOENIX_DIAGNOSTICS=1 \
 LD_LIBRARY_PATH=/snap/0ad/current/binaries/system:/snap/0ad/current/usr/lib/x86_64-linux-gnu \
 /path/to/package/bin/phoenix \
-  --game-device vulkan:00000000740000000000000000000000 \
+  --game-device vulkan:fedcba9876543210fedcba9876543210 \
   --config /path/to/phoenix-rtx.json -- \
   /snap/0ad/current/binaries/system/pyrogenesis \
   -conf=rendererbackend:vulkan -conf=windowed:true \

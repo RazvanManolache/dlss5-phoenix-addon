@@ -1,17 +1,22 @@
 #pragma once
 #include "session_policy.h"
 #include "cpu_color_transfer.h"
+#include "processing_pixels.h"
 #include "../../pipeline/recipe.h"
 #include "../../pipeline/comparison_view.h"
 #include <filesystem>
 #include <cmath>
 #include <algorithm>
+#include <memory>
 
 namespace phoenix_compat {
+struct PortableGpuHandles;
 struct PortableOptions {
     std::filesystem::path root;
     std::string device = "auto";
     bool allow_unvalidated = false;
+    bool gpu_transport = true;
+    std::shared_ptr<PortableGpuHandles> gpu;
 };
 // Physical-device enumeration order can change with active graphics drivers.
 // Automatic must prefer a qualified device rather than fail on an unqualified
@@ -39,6 +44,29 @@ inline bool portable_frame_pipeline_requested(const Settings& settings){
     return settings.controls.appearance||p.motion_enabled||p.scene_detection||p.monitoring||p.priority||
         (p.chain_enabled&&(p.scaler!=0||!phoenix_pipeline::default_chain(p,1,1,1,1)||
             (settings.processing.enabled&&settings.processing.scale!=100)));
+}
+inline SettingsJson native_cuda_configuration(const Settings& settings, const SettingsJson& base) {
+    const auto controls=settings.controls.apply(phoenix_addon::Controls{});
+    SettingsJson config={{"backend","native-cuda"},{"device",base.at("device")},
+        {"runtime_root",base.at("runtime_root")},{"weight_source",base.at("weight_source")},
+        {"allow_unvalidated",base.value("allow_unvalidated",false)},
+        {"validated_devices",base.value("validated_devices",std::vector<std::string>{})},
+        {"local_tone",controls.tone},{"local_structure",controls.structure},
+        {"skin_structure",controls.skin},{"auto_mask",controls.auto_mask!=0}};
+    if(base.contains("native_bundle"))config["native_bundle"]=base.at("native_bundle");
+    return config;
+}
+// GPU transport preserves the existing SDR same-size temporal SDK contract.
+// Comparison/remapping and nonidentity host color processing retain CPU transport.
+inline bool portable_gpu_settings(const Settings& s,unsigned width,unsigned height){
+    return sizeof(void*)==8&&s.mode==phoenix_addon::phoenix::ours&&
+        phoenix_pipeline::comparison_view_bits(s.pipeline)==0&&portable_frame_pipeline_requested(s)&&
+        (!s.processing.enabled||pixels::identity_transfer(width,height,s.processing));
+}
+inline bool native_cuda_packed_frame(const Settings& settings){
+    return !portable_frame_pipeline_requested(settings)&&!settings.processing.enabled&&settings.refinement_passes==1&&
+        settings.blocks_for(settings.mode)==8&&!settings.automatic_budget&&
+        std::all_of(settings.block_repeats.begin(),settings.block_repeats.end(),[](auto n){return n==1;});
 }
 inline const char* portable_frame_services_unavailable(const Settings& settings,unsigned bits){
     // PipelineClient::supported currently exposes the shared frame SDK only

@@ -3,6 +3,7 @@
 #include "parallel_rows.h"
 #include "frame_contract.h"
 #include "appearance.h"
+#include "frame_resolve.h"
 namespace phoenix_cpp {
 struct Controls {
     float intensity = 1, tone = 1, structure = 1, skin = -1, history_strength = 1;
@@ -155,8 +156,13 @@ struct FrameState {
         resolve_history.resize(pixel_count * 3);
         conditioning_valid.assign(pixel_count, 0);
         resolve_valid.assign(pixel_count, 0);
-        if (source_history().empty() || !motion)
+        if (source_history().empty() || !motion) {
+            // These planes are reused between frames. A reset still exposes
+            // canonical zero prior planes to diagnostics and both transports.
+            std::fill(conditioning_history.begin(),conditioning_history.end(),0.f);
+            std::fill(resolve_history.begin(),resolve_history.end(),0.f);
             return;
+        }
         rows.run(height, [&](unsigned pixel_y) {
             for (unsigned pixel_x = 0; pixel_x < width; ++pixel_x) {
                 size_t pixel_index = size_t(pixel_y) * width + pixel_x, closest_pixel = pixel_index;
@@ -266,13 +272,27 @@ struct FrameState {
     // The four-channel head predicts RGB corrections plus a history gate.
     // Update half-rounded history separately from display intensity, so changing
     // intensity does not silently change the temporal state fed to the next frame.
-    std::vector<float> resolve(const float* color, const std::vector<float>& head,
+    void resolve(const float* color, const std::vector<float>& head,
                                const Controls& controls, const std::vector<float>& prior,
                                const std::vector<uint8_t>& valid, std::vector<float>& next,
+                               std::vector<float>& output,
                                const float* control_mask = nullptr, bool defer_display = false) {
         size_t pixel_count = size_t(width) * height;
-        std::vector<float> output(pixel_count * 3);
+        output.resize(pixel_count * 3);
         next.resize(pixel_count * 3);
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+        const bool neural_display=!controls.legacy_output && (defer_display ||
+            (!control_mask && controls.intensity>=1.f && (!controls.style || controls.tone<=0)));
+        if(neural_display && phoenix_native_cuda::host_f16c_available()){
+            rows.run(height,[&](unsigned y){
+                const size_t p=size_t(y)*width;
+                resolve_neural_row(color+p*3,head.data()+size_t(y)*padded_width*4,
+                    prior.data()+p*3,valid.data()+p,controls.history_strength,next.data()+p*3,width);
+                std::copy_n(next.data()+p*3,size_t(width)*3,output.data()+p*3);
+            });
+            return;
+        }
+#endif
         rows.run(height, [&](unsigned pixel_y) {
             for (unsigned pixel_x = 0; pixel_x < width; ++pixel_x) {
                 auto pixel_index = size_t(pixel_y) * width + pixel_x,
@@ -290,6 +310,7 @@ struct FrameState {
                                                0.f, 1.f);
                     network += (prior[pixel_index * 3 + channel] - network) * activation_gate;
                     next[pixel_index * 3 + channel] = math.half(network);
+                    if(!controls.legacy_output)continue;
                     float blended_value =
                         std::clamp(current_value + std::min(intensity, 1.f) *
                                                        (network - current_value),
@@ -298,7 +319,7 @@ struct FrameState {
                     frame_luma += current_value * luminance_weights[channel];
                     out_luma += blended_value * luminance_weights[channel];
                 }
-                if (intensity > 1) {
+                if (controls.legacy_output && intensity > 1) {
                     float ratio = (out_luma + 1.f / 512) / (frame_luma + 1.f / 512),
                           safe_luminance_ratio = std::max(ratio, 1e-6f),
                           intensity_gain = std::clamp(
@@ -322,7 +343,6 @@ struct FrameState {
                 }
             }
         });
-        return output;
     }
 };
 }

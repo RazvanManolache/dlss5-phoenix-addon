@@ -186,6 +186,12 @@ class VulkanBackend final : public Backend {
             close_library(module);
         }
     }
+    unsigned preferred_batch_limit() {
+        const auto vendor=call<unsigned>("phoenix_native_vendor");
+        if(vendor==0x10de)return 2048;
+        if(vendor==0x1002 && call<unsigned>("phoenix_native_device_id")==0x13c0)return 128;
+        return 512;
+    }
     uint32_t features() const {
         return DeviceFeaturePacking | (library_symbol(module, "phoenix_control_map_abi") ? DeviceControlMaps : 0) |
                (matrix_rows || scalar_attention ? FusedWindowAttention : 0) |
@@ -575,4 +581,7 @@ extern "C" PHOENIX_EXPORT Backend* phoenix_backend_create_configured(const char*
 }
 extern "C" PHOENIX_EXPORT uint32_t phoenix_backend_features(Backend* backend) {
     return static_cast<VulkanBackend*>(backend)->features();
+}
+extern "C" PHOENIX_EXPORT unsigned phoenix_backend_preferred_window_batch(Backend* backend) {
+    return static_cast<VulkanBackend*>(backend)->preferred_batch_limit();
 }

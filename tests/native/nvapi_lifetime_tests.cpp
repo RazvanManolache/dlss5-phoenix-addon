@@ -10,6 +10,15 @@ NvAPI_Status __cdecl unload_ok() { ++unloaded; return NVAPI_OK; }
 int main() try {
     using phoenix_native::Api;
     using phoenix_bundle::require;
+    try {
+        phoenix_native::nv(NVAPI_INVALID_ARGUMENT);
+        throw std::runtime_error("Failed NVAPI status was accepted");
+    } catch (const std::exception& error) {
+        const std::string message = error.what();
+        require(message.find("phoenix NVAPI failure -5") != std::string::npos &&
+                message.find("main") != std::string::npos && message.find("line ") != std::string::npos,
+                "NVAPI failure lost its return code or call location");
+    }
     for (unsigned iteration = 0; iteration < 32; ++iteration) {
         Api api{Api::NoLoad{}};
         api.initialize_session(initialize_ok, unload_ok);

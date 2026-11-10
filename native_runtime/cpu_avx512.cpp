@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "cpu_math_avx.h"
+#include "cpu_left_tile.h"
 // An AVX-512 vector holds sixteen rows of one output column. Eight
 // accumulators form a 16x8 tile, doubling weight reuse without changing K order.
 // Keep the ascending reduction/FMA order: changing it changes model rounding.
@@ -30,10 +31,25 @@ extern "C" void phoenix_cpu_avx512(const phoenix_cpp::Command& command, uint64_t
     // instead of issuing the same sixteen memory reads a second time.
     // This is a register cache only: weights and tensor storage stay packed.
     __m512i packed_pair = _mm512_setzero_si512();
+    __m512 left_columns[8];
     for (unsigned reduction_index = 0; reduction_index < operation.reduction_count;
          ++reduction_index) {
         __m512 left_values;
-        if (paired_rows) {
+        const unsigned tile_begin = reduction_index & ~7u;
+        if (operation.reduction_count - tile_begin >= 8u) {
+            if ((reduction_index & 7u) == 0u) {
+                __m256 low[8], high[8];
+                phoenix_cpp::load_left_tile8(left_base + reduction_index, operation.left_row_stride,
+                                             std::min(8u, live_rows), low);
+                // Do not even form a pointer beyond the last live row.
+                phoenix_cpp::load_left_tile8(left_base + reduction_index +
+                    (live_rows > 8 ? uint64_t(8) * operation.left_row_stride : 0),
+                    operation.left_row_stride, live_rows > 8 ? live_rows - 8 : 0, high);
+                for (unsigned k=0;k<8;++k)
+                    left_columns[k]=_mm512_insertf32x8(_mm512_castps256_ps512(low[k]),high[k],1);
+            }
+            left_values=left_columns[reduction_index & 7u];
+        } else if (paired_rows) {
             // Fetch one aligned pair of halves from each row, then select K.
             // The even row stride keeps the last pair inside its source row.
             if ((reduction_index & 1u) == 0u) {

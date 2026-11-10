@@ -1,0 +1,71 @@
+name: Linux release package
+on:
+  push:
+    tags: ['1.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing release tag
+        required: true
+        default: '1.1.0'
+permissions:
+  contents: write
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        ref: ${{ inputs.version || github.ref_name }}
+    - uses: actions/setup-python@v7.1.0
+      with:
+        python-version: '3.11'
+    - run: sudo apt-get update -qq && sudo apt-get install -y libvulkan-dev ninja-build
+    - uses: actions/checkout@v7.0.1
+      with:
+        repository: KhronosGroup/Vulkan-Headers
+        ref: v1.4.365
+        path: build/dependencies/headers
+    - uses: actions/checkout@v7.0.1
+      with:
+        repository: KhronosGroup/glslang
+        ref: 16.6.0
+        path: build/dependencies/glslang
+    - name: Build shader compiler
+      run: |
+        cd build/dependencies/glslang
+        python update_glslang_sources.py
+        cd ../../..
+        cmake -S build/dependencies/glslang -B build/glslang -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=ON -DENABLE_HLSL=OFF -DGLSLANG_TESTS=OFF
+        cmake --build build/glslang --parallel 4
+    - name: Fetch pinned CUDA toolchain
+      run: python tools/fetch_cuda_toolchain.py --output "$RUNNER_TEMP/cuda-13.1"
+    - name: Build and test Linux layer and all providers
+      run: |
+        cmake -S native_runtime -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DPHOENIX_ENABLE_METAL=OFF -DPHOENIX_BUILD_LINUX_LAYER=ON -DPHOENIX_ENABLE_VULKAN=ON -DPHOENIX_VULKAN_HEADERS=$PWD/build/dependencies/headers/include -DPHOENIX_GLSLANG=$PWD/build/glslang/StandAlone/glslang -DPHOENIX_ENABLE_CUDA=ON -DPHOENIX_ENABLE_NATIVE_CUDA=ON -DCMAKE_CUDA_COMPILER="$RUNNER_TEMP/cuda-13.1/bin/nvcc" -DCMAKE_CUDA_ARCHITECTURES=120
+        cmake --build build/linux --parallel 4
+        ctest --test-dir build/linux --output-on-failure
+        cmake --install build/linux --prefix build/sdk
+    - name: Validate and package
+      env:
+        RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+      run: |
+        python tests/linux/test_package.py --prefix build/sdk --report artifacts/current/linux/LINUX_VALIDATION.json
+        python tools/package_linux.py --prefix build/sdk --output artifacts/current/linux --version "$RELEASE_VERSION"
+    - uses: actions/github-script@v9
+      env:
+        RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+      with:
+        script: |
+          const fs = require('fs');
+          const tag = process.env.RELEASE_VERSION;
+          if (!/^1\.\d+\.\d+$/.test(tag)) throw new Error('Invalid stable release tag');
+          const releases = await github.paginate(github.rest.repos.listReleases, context.repo);
+          let release = releases.find(r => r.tag_name === tag);
+          if (!release) release = (await github.rest.repos.createRelease({...context.repo, tag_name: tag, name: `Phoenix DLSS5 ${tag}`, draft: true, prerelease: false})).data;
+          if (!release.draft) throw new Error('Refusing to modify a published release');
+          for (const name of fs.readdirSync('artifacts/current/linux')) {
+            if (!/\.(tar\.gz|sha256|json)$/.test(name)) continue;
+            if (release.assets.some(a => a.name === name)) throw new Error(`Asset already exists: ${name}`);
+            await github.rest.repos.uploadReleaseAsset({...context.repo, release_id: release.id, name, data: fs.readFileSync(`artifacts/current/linux/${name}`)});
+          }

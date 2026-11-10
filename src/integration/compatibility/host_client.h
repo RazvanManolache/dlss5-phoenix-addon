@@ -11,6 +11,7 @@
 #include "owned_worker.h"
 #include "portable_policy.h"
 #include "processing_pixels.h"
+#include "portable_gpu.h"
 #include "helper_motion_policy.h"
 #include "d3d12_local_pixels.h"
 #include "wow64/bridge_policy.h"
@@ -145,6 +146,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
              completed_tuning_revision_ = 0, taken_tuning_revision_ = 0;
     uint64_t session_id_ = 0, ui_clear_revision_ = 0;
     bool capture_requested_ = false;
+    std::optional<fs::path> portable_pair_request_;
+    Json portable_pair_result_=Json::object();
     fs::path session_parent_;
     std::string session_name_;
 
@@ -244,7 +247,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
             }
             require(!stopping_, "Portable execution cancelled");
             require_in_process_address_space();
-            require(build.cpu_bridge && build.width == build.output_width &&
+            require((build.cpu_bridge||options.gpu) && build.width == build.output_width &&
                         build.height == build.output_height,
                     "Portable execution requires same-size pixel transport");
             require(!needs_nvidia_dll(settings), "NVIDIA DLSS5 evaluation requires the helper");
@@ -291,6 +294,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
             config["runtime_root"] = phoenix_model::source_path_string(options.root);
             config["backend"] = portable_backend(options.device);
             config["device"] = options.device;
+            const bool native_cuda=config["backend"]=="native-cuda";
+            if(native_cuda)config["device"]="cuda:"+options.device.substr(12);
             config["weight_source"] = source.configuration();
             config["cpu_threads"] = settings.cpu_threads;
             if (options.allow_unvalidated) config["allow_unvalidated"] = true;
@@ -298,9 +303,13 @@ class HostState : public std::enable_shared_from_this<HostState> {
             const auto working = settings.processing.enabled
                 ? phoenix_addon::phoenix::processing_resolution(build.width,build.height,settings.processing,false)
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
-            runtime.open(options.root, config.dump(), working.image_width, working.image_height);
+            std::string active_config=(native_cuda?native_cuda_configuration(settings,config):config).dump();
+            if(!options.gpu)runtime.open(options.root, active_config, working.image_width, working.image_height);
             const bool shared_pipeline=phoenix_cpp::PipelineClient::supported(options.root);
+            std::unique_ptr<PortableGpuFrames> gpu_frames;
+            if(options.gpu){require(shared_pipeline,"Shared GPU transport requires the native pipeline SDK");gpu_frames=std::make_unique<PortableGpuFrames>(*options.gpu,build.width,build.height);}
             std::unique_ptr<phoenix_cpp::PipelineClient> frame_pipeline;
+            if(gpu_frames)frame_pipeline=std::make_unique<phoenix_cpp::PipelineClient>(options.root,gpu_frames->device(),gpu_frames->queue());
             bool pipeline_reset=true;
             uint64_t portable_phoenix_frames = 0;
             auto snapshot = [&](Json status) {
@@ -322,7 +331,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     {"nvidia", {{"ready", false}, {"status", "NVIDIA DLSS5 modes use the retained helper"}}}};
             };
             std::unique_lock lock(mutex_);
-            ui_snapshot_ = snapshot(Json::parse(runtime.status_json()));
+            ui_snapshot_ = snapshot(gpu_frames?frame_pipeline->status():Json::parse(runtime.status_json()));
             phase_ = Phase::Ready;
             while (!stopping_) {
                 changed_.wait(lock, [&] { return stopping_ || phase_ == Phase::Busy ||
@@ -352,10 +361,50 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 const auto revision = applied_tuning_revision_;
                 const auto frame_settings = settings;
                 auto pixels = std::move(input_);
+                auto pair_request=std::move(portable_pair_request_);portable_pair_request_.reset();
                 lock.unlock();
-                require(pixels.size() == size_t(build.width) * build.height * 4,
+                if(!gpu_frames)require(pixels.size() == size_t(build.width) * build.height * 4,
                         "Portable input extent mismatch");
                 const auto started = std::chrono::steady_clock::now();
+                std::vector<uint8_t> result;
+                Json runtime_status;
+                if(gpu_frames){
+                    require(portable_gpu_settings(frame_settings,build.width,build.height),"Portable GPU transport settings changed without retiring the bridge");
+                    auto metadata=portable_metadata(frame_settings,pipeline_reset||!frame_settings.pipeline.motion_enabled,true);
+                    require(request.iterations*metadata.at("passes").get<unsigned>()<=10,"Total whole-network passes exceed ten");
+                    metadata["passes"]=request.iterations*metadata.at("passes").get<unsigned>();
+                    std::string tiny;
+                    if(frame_settings.pipeline.chain_enabled&&frame_settings.pipeline.scaler==3){
+                        const auto model=phoenix_pipeline::find_tiny_model(fs::u8path(frame_settings.model_library_directory));
+                        require(bool(model),"Install the tiny 2x model through DLSS Everything first");tiny=phoenix_model::source_path_string(*model);
+                    }
+                    if(pair_request)gpu_frames->request_pair(*pair_request);
+                    const auto now=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                    gpu_frames->frame(*frame_pipeline,options.root,config,build.width,build.height,metadata,request.n,queued_ns,
+                        queued_ns?double(now-queued_ns)*1e-6:0,tiny);
+                    pipeline_reset=false;++portable_phoenix_frames;runtime_status=frame_pipeline->status();
+                    runtime_status["capture_pixel_transport"]="shared-gpu-mailbox";
+                    runtime_status["capture_host_transfer_bytes"]=0;
+                } else if(native_cuda&&native_cuda_packed_frame(frame_settings)) {
+                    require(request.iterations==1,"Native CUDA preview requires one network pass");
+                    const auto requested_config=native_cuda_configuration(frame_settings,config).dump();
+                    if(frame_pipeline){frame_pipeline.reset();pipeline_reset=true;}
+                    if(requested_config!=active_config||!runtime.instance) {
+                        runtime.close();runtime.open(options.root,requested_config,build.width,build.height);
+                        active_config=requested_config;
+                    }
+                    require(runtime.frame_rgba8!=nullptr,"Native CUDA packed frame ABI unavailable");
+                    auto enhanced=pixels;
+                    phoenix_rgba8_frame packed{sizeof(phoenix_rgba8_frame),1,build.width,build.height,
+                        enhanced.data(),enhanced.size(),0,0,1};
+                    if(runtime.frame_rgba8(runtime.instance,&packed))throw std::runtime_error(runtime.error());
+                    ++portable_phoenix_frames;
+                    result=frame_settings.mode==phoenix_addon::phoenix::ours &&
+                        phoenix_pipeline::comparison_view_bits(frame_settings.pipeline)==0
+                        ?std::move(enhanced):portable_compose(pixels,portable_color(enhanced),build.width,frame_settings);
+                    runtime_status=Json::parse(runtime.status_json());
+                    runtime_status["pixel_transport"]="bounded-rgba8-gpu-conversion";
+                } else {
                 auto color = portable_color(pixels);
                 std::optional<pixels::Frame> processing;
                 if (frame_settings.processing.enabled) {
@@ -364,7 +413,6 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 }
                 const bool use_pipeline=shared_pipeline&&portable_frame_pipeline_requested(frame_settings);
                 std::vector<float> enhanced;
-                Json runtime_status;
                 if(use_pipeline){
                     if(runtime.instance)runtime.close();
                     if(!frame_pipeline)frame_pipeline=std::make_unique<phoenix_cpp::PipelineClient>(options.root);
@@ -409,13 +457,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     if(processing)enhanced=processing->finish(std::move(enhanced));
                     runtime_status=Json::parse(runtime.status_json());
                 }
-                auto result=portable_compose(pixels,enhanced,build.width,frame_settings);
+                result=portable_compose(pixels,enhanced,build.width,frame_settings);
+                }
                 auto status=snapshot(std::move(runtime_status));
                 const auto wall_ms = std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - started).count();
                 status["frame_wall_ms"] = wall_ms;
                 lock.lock();
                 output_ = std::move(result);
+                if(gpu_frames&&!portable_pair_request_)portable_pair_result_=gpu_frames->pair_status();
                 ui_snapshot_ = std::move(status);
                 roundtrip_ms_ = wall_ms;
                 completed_at_ = GetTickCount64();
@@ -900,7 +950,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         local_gpu_=local.has_value();
         // Acquire before launch, not on the worker: teardown may win that race.
         // The capture survives through private queue/resource destruction.
-        auto callbacks = local ? lease_in_process_api() : InProcessApiLease{};
+        auto callbacks = (local||(portable&&portable->gpu)) ? lease_in_process_api() : InProcessApiLease{};
         native_mode_=native&&native->driver_host?"in_process_x86_driver":"in_process_x64_library";
         auto self = shared_from_this();
         start_owned_worker(
@@ -997,6 +1047,12 @@ class HostState : public std::enable_shared_from_this<HostState> {
         }
         return true;
     }
+    bool request_gpu_pair(const fs::path& folder){
+        std::lock_guard lock(mutex_);
+        if(portable_pair_request_||portable_pair_result_.value("state",std::string())=="pending")return false;
+        portable_pair_request_=folder;portable_pair_result_={{"state","pending"}};return true;
+    }
+    Json gpu_pair_status(){std::lock_guard lock(mutex_);return portable_pair_result_;}
     bool tuning_current_output() {
         std::lock_guard lock(mutex_);
         return taken_tuning_revision_ == tuning_revision_;
@@ -1074,6 +1130,8 @@ class HostClient {
         return state_->ui_snapshot();
     }
     bool update_tuning(const Settings& settings) { return state_->update_tuning(settings); }
+    bool request_gpu_pair(const fs::path& folder){return state_->request_gpu_pair(folder);}
+    Json gpu_pair_status(){return state_->gpu_pair_status();}
     bool tuning_current_output() { return state_->tuning_current_output(); }
     bool ui_action(phoenix_ui::Action action, unsigned value = 0) {
         return state_->ui_action(action, value);

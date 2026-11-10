@@ -40,6 +40,7 @@ struct Session {
     bool native_fallback=true, native_library_failed=false, native_driver_failed=false;
     bool portable_allow_unvalidated = false, portable_fallback = true, portable_failed = false;
     bool local_failed = false;
+    bool process_memory_exhausted = false;
     bool live_motion_services = false;
     TransportAvailabilityProbe availability_probe;
     TransportRuntimes runtime_availability;
@@ -93,6 +94,7 @@ inline void update_pair_result(Session& value,const Json& result) {
 }
 inline void reset_route_failures(Session& value) {
     value.local_failed = value.portable_failed = value.native_library_failed = value.native_driver_failed = false;
+    value.process_memory_exhausted = false;
     value.failed_routes.clear(); value.fallback_reason.clear();
 }
 inline void reject_route(Session& value, BackbufferRoute route, const std::string& error) {
@@ -102,7 +104,13 @@ inline void reject_route(Session& value, BackbufferRoute route, const std::strin
     else if (route == BackbufferRoute::Portable) value.portable_failed = true;
     value.failed_routes.push_back(error);
     value.fallback_reason = error;
-    value.message = error + "; trying the next eligible route.";
+    value.process_memory_exhausted |= in_process_memory_failure(sizeof(void*) * 8, route, error);
+    value.message = error + (value.process_memory_exhausted ?
+        "; switching to the external 64-bit helper to preserve game address space." :
+        "; trying the next eligible route.");
+    // Worker failures otherwise appeared only in the live overlay/status and
+    // disappeared on restart, leaving only the subsequent helper error logged.
+    reshade::log::message(reshade::log::level::warning, value.message.c_str());
     value.restart = true;
 }
 inline std::filesystem::path runtime_path(const std::string& configured, const std::filesystem::path& fallback) {
@@ -807,6 +815,7 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"restart_pending", value.restart}, {"settings_pending", value.settings_dirty},
         {"selection_revision", value.selection_revision}, {"presented_revision", value.presented_revision},
         {"status", value.message},
+        {"process_memory_exhausted", value.process_memory_exhausted},
         {"helper_pid", host && !resident_active(value) ? host->process_id() : 0},
         {"execution_mode", execution_mode(value)},
         {"runtime_resumes", value.runtime_resumes},
@@ -1267,10 +1276,11 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
     }
     auto capabilities = value.capabilities;
     auto decision = choose_backbuffer_route_with_fallback(capabilities, value.execution,
-                                                        value.native_fallback, value.portable_fallback);
-    if ((value.execution == ExecutionPreference::NativeLibrary && value.native_library_failed && value.native_fallback) ||
+        value.native_fallback, value.portable_fallback, value.process_memory_exhausted);
+    if (!value.process_memory_exhausted &&
+        ((value.execution == ExecutionPreference::NativeLibrary && value.native_library_failed && value.native_fallback) ||
         (value.execution == ExecutionPreference::NativeDriver && value.native_driver_failed && value.native_fallback) ||
-        (value.execution == ExecutionPreference::Portable && value.portable_failed && value.portable_fallback))
+        (value.execution == ExecutionPreference::Portable && value.portable_failed && value.portable_fallback)))
         decision = choose_backbuffer_route(capabilities, ExecutionPreference::Automatic);
     const bool native_attempt = decision.route == BackbufferRoute::NativeLibrary || decision.route == BackbufferRoute::NativeDriver;
     const bool portable_attempt = decision.route == BackbufferRoute::Portable;
@@ -1366,7 +1376,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             const auto description = device->get_resource_desc(back);
             if (value.restart || value.width != description.texture.width ||
                 value.height != description.texture.height ||
-                value.readback_format != description.texture.format) {
+                value.readback_format != description.texture.format ||
+                (portable_attempt&&value.readback&&!value.readback->matches_gpu_settings(value.applied_settings))) {
                 remember_timing(value);
                 value.readback.reset();
                 value.restart = false;
@@ -1392,6 +1403,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                     portable = PortableOptions{runtime_path(value.portable_root,
                         sizeof(void*) == 4 ? "PhoenixRuntime/win-x86" : "PhoenixRuntime/win-x64"),
                         value.portable_device, value.portable_allow_unvalidated};
+                    portable->gpu_transport=value.helper_transport!="readback";
                 }
                 ++value.helper_generation;
                 value.readback = std::make_unique<ReadbackBridge>(runtime, description, module,
@@ -1400,6 +1412,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                                 (portable_attempt ? " readback / in-process portable Phoenix DLSS5. CPU pixel transfers add " :
                                 " readback / asynchronous 64-bit helper. CPU pixel transfers add ") +
                                 "latency and bandwidth.";
+                if(value.readback->gpu_transport())value.message=std::string(api_name(device->get_api()))+" / asynchronous portable GPU mailbox.";
                 if(native_attempt || local_staging_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
                 reshade::log::message(reshade::log::level::info, value.message.c_str());
             }
@@ -1572,9 +1585,7 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
                 value->local_composed_at_frame = value->frames;
                 append_status_notice(value->message, " Holding completed output.");
             } else {
-                CompletedPresentation::record_loading(
-                    reinterpret_cast<ID3D12GraphicsCommandList*>(uintptr_t(commands->get_native())),
-                    reinterpret_cast<ID3D12Resource*>(uintptr_t(back.handle)));
+                CompletedPresentation::record_loading(commands,back);
                 ++value->loading_presentations;
                 append_status_notice(value->message, " Waiting for processed output; raw game image hidden.");
             }

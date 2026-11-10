@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
+#include <array>
 #if defined(PHX_SYCL)
 #include <sycl/sycl.hpp>
 #define PHX_DEVICE
@@ -410,6 +411,7 @@ class GpuBackend final : public Backend {
     bool detailed_profile = false;
     bool frame_profile = false;
     unsigned tensor_column_tiles = 1;
+    unsigned preferred_window_batch_limit = 512;
     bool direct_fp8 = false;
     bool fused_feed_forward = false;
     bool fused_window_block = false;
@@ -481,7 +483,8 @@ class GpuBackend final : public Backend {
     }
 #endif
   public:
-    explicit GpuBackend(const std::string& device_id, uint32_t options = 0, bool frame_timing = false) {
+    explicit GpuBackend(const std::string& device_id, uint32_t options = 0, bool frame_timing = false,
+                        unsigned requested_columns = 16) {
         frame_profile = frame_timing;
         tensor_attention = !(options & OrderedAttention);
         detailed_profile = (options & DispatchProfiling) != 0;
@@ -559,6 +562,10 @@ class GpuBackend final : public Backend {
         // retain their existing column choice until independently benchmarked.
         shape_matrices =
             shape_matrices && selected_properties.major == 12 && selected_properties.minor == 0;
+        if(selected_properties.major==12 && selected_properties.minor==0){
+            preferred_window_batch_limit=2048;
+            if(!requested_columns)tensor_column_tiles=4;
+        }
 #endif
         PHX_CHECK(hipStreamCreateWithFlags(&stream, hipStreamNonBlocking));
 #endif
@@ -583,6 +590,8 @@ class GpuBackend final : public Backend {
     const char* name() const override {
         return DEVICE_NAME;
     }
+    unsigned preferred_batch_limit() const { return preferred_window_batch_limit; }
+    unsigned matrix_columns() const { return tensor_column_tiles*16; }
     Allocation allocate(uint64_t byte_count) override {
         demand(byte_count > 0 && byte_count <= size_t(-1), "Device allocation size");
         void* address = nullptr;
@@ -1199,6 +1208,22 @@ phoenix_backend_create_configured(const char* device_id, const wchar_t*, uint32_
     }
 }
 #if defined(PHX_CUDA)
+extern "C" PHOENIX_EXPORT unsigned phoenix_backend_preferred_window_batch(Backend* backend) {
+    return static_cast<GpuBackend*>(backend)->preferred_batch_limit();
+}
+extern "C" PHOENIX_EXPORT unsigned phoenix_backend_matrix_columns(Backend* backend) {
+    return static_cast<GpuBackend*>(backend)->matrix_columns();
+}
+extern "C" PHOENIX_EXPORT Backend*
+phoenix_backend_create_tuned(const char* device_id,const wchar_t*,uint32_t options,
+                             uint32_t profiling,uint32_t columns,char* error,size_t size) {
+    try {
+        demand(profiling<=2,"Unknown CUDA profiling mode");
+        demand(columns==0||columns==16||columns==32||columns==64,"Unknown CUDA matrix columns");
+        if(profiling==2)options|=DispatchProfiling;
+        return new GpuBackend(device_id?device_id:"",options,profiling==0,columns);
+    }catch(const std::exception& exception){copy_error(error,size,exception.what());return nullptr;}
+}
 // Optional factory extension. Existing clients retain layer timestamps; the
 // runtime can explicitly request a single GPU interval without hundreds of
 // external event nodes in the captured graph. Fusion boundaries stay unchanged.
@@ -1217,7 +1242,7 @@ phoenix_backend_create_profiled(const char* device_id, const wchar_t*, uint32_t 
 #endif
 extern "C" PHOENIX_EXPORT uint32_t phoenix_backend_features(Backend*) {
 #if defined(PHX_CUDA)
-    return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual | DeviceControlMaps;
+    return FusedWindowAttention | DeviceFeaturePacking | FusedMatrixResidual | DeviceControlMaps | DeviceNoiseCache;
 #else
     return 0;
 #endif

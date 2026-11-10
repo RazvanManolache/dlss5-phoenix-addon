@@ -155,6 +155,13 @@ availability refusals such as insufficient 32-bit address space, not just errors
 after executor creation. Disabling fallback keeps the explicit route strict.
 Discovery and graphics resource/queue safety checks still apply.
 
+Low 32-bit address space and host `bad_alloc` failures select the external x64
+helper directly instead of trying another renderer inside the same exhausted
+process. This applies to Automatic and fallback-enabled selections; strict
+selections retain their failure. The original error and recovery decision are
+written to `ReShade.log` and retained in live status. GPU/VRAM exhaustion does
+not trigger this policy, and helper startup/inference failures remain errors.
+
 The 2026-10-20 development build passed presented-output checks in generated
 640×360 DX12 fixtures for x86 library, x86 driver, portable fallback from a
 configured external folder, final helper fallback and x64 same-device execution.
@@ -581,3 +588,5 @@ The bounded DX9 capture FIFO and optional same-submission native output path are
 documented in [Frame delivery and worker overhead](FRAME_DELIVERY_OPTIMIZATION.md).
 Its validation distinguishes isolated scheduling/pixel checks from actual-game
 delivery rates; a fast worker alone is not proof of fast displayed output.
+
+CPU pixel transport has no game-adapter affinity. The external native helper selects a hardware NVIDIA adapter in high-performance order, rather than the Windows default adapter, which may be an AMD or Intel integrated GPU. It logs the selected adapter. A shared-texture helper keeps the explicitly requested adapter identity. If no NVIDIA device is eligible, native helper startup fails with a specific adapter message. NVAPI failures include their status code and call location.

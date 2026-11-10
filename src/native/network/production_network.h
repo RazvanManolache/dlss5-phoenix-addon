@@ -32,8 +32,13 @@ inline void hr(HRESULT value, const std::source_location& location = std::source
         throw std::runtime_error(message.str());
     }
 }
-inline void nv(NvAPI_Status value) {
-    require(value == NVAPI_OK, "phoenix NVAPI failure");
+inline void nv(NvAPI_Status value, const std::source_location& location = std::source_location::current()) {
+    if (value != NVAPI_OK) {
+        std::ostringstream message;
+        message << "phoenix NVAPI failure " << int(value) << " in " << location.function_name()
+                << " (line " << location.line() << ')';
+        throw std::runtime_error(message.str());
+    }
 }
 struct Api {
     using LifecycleFn = NvAPI_Status(__cdecl*)();

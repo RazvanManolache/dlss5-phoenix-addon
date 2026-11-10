@@ -12,8 +12,17 @@ I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
 it can do for the games we already love—and, eventually, looks less interested
 in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.0.1](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.0.1) ·
+[Download 1.1.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.0) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
+
+## New in 1.1.0
+
+- **Faster native CUDA:** now close to native RTX and NVIDIA speed on the tested RTX 5080, for both Original and Lightweight FP8.
+- **Linux support:** a per-game Vulkan layer, portable CPU/CUDA/Vulkan processing and an optional native CUDA executor.
+- **Temporal and extended Windows functionality:** persistent history, motion and guide inputs, masks, appearance controls and shared D3D12/CUDA texture transport on supported routes.
+- **Faster processing across backends:** reduced host overhead and improved portable CUDA, Vulkan and CPU execution.
+
+**2,219 validation checks passed; tested across 76 games.** [Release notes and measurements](docs/RELEASE_1.1.0.md) · [Validation details](docs/VALIDATION_1.1.0.md).
 
 ## The easiest way to try Phoenix
 

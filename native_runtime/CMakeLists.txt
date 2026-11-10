@@ -2,11 +2,12 @@ cmake_minimum_required(VERSION 3.22)
 # Backend plugins exchange C++ objects with the runtime. Android must use one
 # shared C++ runtime rather than an independent static runtime in each DSO.
 set(ANDROID_STL c++_shared CACHE STRING "Android C++ runtime for backend plugins")
-project(PhoenixStandalone VERSION 1.0.0 LANGUAGES C CXX)
+project(PhoenixStandalone VERSION 1.1.0 LANGUAGES C CXX)
 if(MSVC)
     # Keep source_location diagnostics useful without exposing a builder's path.
     get_filename_component(PHOENIX_SOURCE_PARENT "${CMAKE_CURRENT_SOURCE_DIR}/../.." REALPATH)
-    add_compile_options(/experimental:deterministic "/pathmap:${PHOENIX_SOURCE_PARENT}=.")
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/experimental:deterministic>"
+        "$<$<COMPILE_LANGUAGE:C,CXX>:/pathmap:${PHOENIX_SOURCE_PARENT}=.>")
 endif()
 if(ANDROID AND NOT ANDROID_STL STREQUAL "c++_shared")
     message(FATAL_ERROR "Phoenix backend plugins require -DANDROID_STL=c++_shared")
@@ -21,7 +22,7 @@ set(PHOENIX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 option(PHOENIX_ENABLE_METAL "Build Apple silicon Metal backend" ${APPLE})
 option(PHOENIX_ENABLE_VULKAN "Build resident Vulkan backend (Linux/Android/Windows)" OFF)
 option(PHOENIX_ENABLE_CUDA "Build the portable CUDA graph backend (external CUDA toolkit required)" OFF)
-option(PHOENIX_ENABLE_NATIVE_CUDA "Build the Linux native schedule executor (SM120 reset-RGB preview)" OFF)
+option(PHOENIX_ENABLE_NATIVE_CUDA "Build the native CUDA schedule executor (SM120)" OFF)
 option(PHOENIX_BUILD_LINUX_LAYER "Build experimental Linux Vulkan presentation layer" OFF)
 option(PHOENIX_ENABLE_NATIVE_RTX "Build Windows x64 D3D12 native RTX and spatial extension" OFF)
 option(PHOENIX_BUILD_ADDON_CANDIDATE "Compile the Windows x64 addon with external runtime dependencies" OFF)
@@ -136,9 +137,15 @@ if(PHOENIX_BUILD_LINUX_LAYER)
     add_subdirectory("${PHOENIX_ROOT}/src/integration/linux" linux-layer)
 endif()
 
-# This portable baseline is separate from the optimized Windows CPU target.
-# Apple/ARM ports must not accidentally inherit AVX compiler flags.
-add_library(phoenix_cpu_cpp SHARED backend_reference.cpp)
+# Windows x86 uses the dispatched AVX provider. Apple/ARM and Unix retain the
+# portable baseline and must not accidentally inherit x86 compiler flags.
+if(MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|X86|x86|i.86)$")
+    add_library(phoenix_cpu_cpp SHARED backend_cpu.cpp cpu_avx2.cpp cpu_avx512.cpp)
+    set_source_files_properties(cpu_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(cpu_avx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
+else()
+    add_library(phoenix_cpu_cpp SHARED backend_reference.cpp)
+endif()
 add_library(phoenix_runtime_cpp SHARED runtime.cpp)
 if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_sources(phoenix_cpu_cpp PRIVATE cpu_backend.def)
@@ -283,19 +290,24 @@ if(PHOENIX_ENABLE_CUDA)
 endif()
 
 if(PHOENIX_ENABLE_NATIVE_CUDA)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
-        message(FATAL_ERROR "The native CUDA preview currently targets desktop Linux")
+    if((NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32) OR ANDROID)
+        message(FATAL_ERROR "The native CUDA preview targets desktop Linux and Windows")
     endif()
     find_package(CUDAToolkit 13.1 REQUIRED)
     add_library(phoenix_native_cuda SHARED native_cuda.cpp native_cuda_pixels.cu)
     target_link_libraries(phoenix_native_cuda PRIVATE CUDA::cudart_static CUDA::cuda_driver Threads::Threads)
+    if(WIN32)
+        target_link_libraries(phoenix_native_cuda PRIVATE bcrypt d3d12 dxgi)
+    endif()
     target_compile_options(phoenix_native_cuda PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off;-fno-fast-math>"
+        "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-ffp-contract=off;-fno-fast-math>"
+        "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/EHsc;/bigobj;/fp:strict>"
         "$<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>")
     set_target_properties(phoenix_native_cuda PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON CUDA_RUNTIME_LIBRARY Static)
     set_target_properties(phoenix_native_cuda PROPERTIES SKIP_BUILD_RPATH ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-    install(TARGETS phoenix_native_cuda LIBRARY DESTINATION lib)
-    install(FILES phoenix_linux.h DESTINATION include)
+    target_compile_definitions(phoenix_native_cuda PRIVATE NOMINMAX)
+    install(TARGETS phoenix_native_cuda LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+    install(FILES phoenix_linux.h phoenix_rgba8.h phoenix_cuda_d3d12.h DESTINATION include)
     set(NATIVE_CUDA_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/native-cuda")
     file(GLOB_RECURSE NATIVE_CUDA_INPUTS CONFIGURE_DEPENDS "${PHOENIX_ROOT}/src/native/kernels/production/*")
     add_custom_command(OUTPUT "${NATIVE_CUDA_OUTPUT}/native_manifest.json"
@@ -308,10 +320,15 @@ if(PHOENIX_ENABLE_NATIVE_CUDA)
         VERBATIM)
     add_custom_target(native_cuda_kernels ALL DEPENDS "${NATIVE_CUDA_OUTPUT}/native_manifest.json")
     add_dependencies(phoenix_native_cuda native_cuda_kernels)
-    install(DIRECTORY "${NATIVE_CUDA_OUTPUT}/" DESTINATION lib/native-cuda
+    if(WIN32)
+        set(NATIVE_CUDA_INSTALL bin/native-cuda)
+    else()
+        set(NATIVE_CUDA_INSTALL lib/native-cuda)
+    endif()
+    install(DIRECTORY "${NATIVE_CUDA_OUTPUT}/" DESTINATION "${NATIVE_CUDA_INSTALL}"
         FILES_MATCHING PATTERN "*.cubin")
     install(FILES "${NATIVE_CUDA_OUTPUT}/native_manifest.json" "${NATIVE_CUDA_OUTPUT}/native_graph.json"
-        DESTINATION lib/native-cuda)
+        DESTINATION "${NATIVE_CUDA_INSTALL}")
 endif()
 
 add_executable(phoenix_frame "${PHOENIX_ROOT}/tools/portable_frame.cpp")

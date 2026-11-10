@@ -45,6 +45,7 @@ int main(int argc, char **argv) {
             devices ? std::string(argv[2])
                     : job.at("config").at("runtime_root").get<std::string>()));
         bool broker_mode=false;
+        const bool native_cuda=!devices&&job.at("config").value("backend",std::string())=="native-cuda";
 #ifdef _WIN32
         broker_mode=!devices&&job.at("config").value("execution",std::string("in_process"))=="broker";
         std::unique_ptr<NativeSession> broker_session;
@@ -52,7 +53,8 @@ int main(int argc, char **argv) {
         const auto module =
             broker_mode?nullptr:open_library(vulkan_devices ? root / "vulkan" / library_name("phoenix_vulkan")
                                         : root / library_name(devices ? "phoenix_metal_cpp"
-                                                                      : "phoenix_runtime_cpp"));
+                                                                      : native_cuda
+                                                                          ? "phoenix_native_cuda" : "phoenix_runtime_cpp"));
         if (!module&&!broker_mode)
             throw std::runtime_error("Standalone library unavailable in runtime_root");
         auto library =
@@ -146,9 +148,11 @@ int main(int argc, char **argv) {
         if (!session&&!broker_mode)
             throw std::runtime_error(error());
         auto metadata = job.value("metadata", Json::object());
-        metadata["has_motion"] = !motion.empty();
-        metadata["has_depth"] = !depth.empty();
-        metadata["has_history_validity"] = !validity.empty();
+        if(!native_cuda) {
+            metadata["has_motion"] = !motion.empty();
+            metadata["has_depth"] = !depth.empty();
+            metadata["has_history_validity"] = !validity.empty();
+        }
         metadata["reset"] = true;
         const auto text = metadata.dump();
         phoenix_frame_v2 bounded{};

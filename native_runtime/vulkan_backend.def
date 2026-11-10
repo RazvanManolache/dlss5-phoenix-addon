@@ -4,3 +4,4 @@ phoenix_backend_create_utf8
 phoenix_backend_create_configured
 phoenix_backend_destroy
 phoenix_backend_features
+phoenix_backend_preferred_window_batch

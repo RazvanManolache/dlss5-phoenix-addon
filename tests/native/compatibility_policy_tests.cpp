@@ -10,6 +10,25 @@ int main() {
     auto verify = [&](bool condition) { ++checks; if (!condition) throw std::runtime_error("Policy assertion failed"); };
     namespace control = phoenix_addon::phoenix::control_bridge;
     try {
+        {
+            const std::string id="native-cuda:0123456789abcdef0123456789abcdef";
+            verify(phoenix_addon::phoenix::valid_execution_device(id));
+            verify(!phoenix_addon::phoenix::valid_execution_device(id+"0"));
+            verify(phoenix_compat::portable_backend(id)=="native-cuda");
+            phoenix_compat::Settings settings;
+            const nlohmann::json base={{"device","cuda:0123456789abcdef0123456789abcdef"},
+                {"runtime_root","runtime"},{"weight_source",nlohmann::json::object()}};
+            verify(phoenix_compat::native_cuda_configuration(settings,base).at("backend")=="native-cuda");
+            verify(!phoenix_compat::native_cuda_packed_frame(settings)); // Motion must use the shared temporal pipeline.
+            settings.pipeline.motion_enabled=false;
+            verify(phoenix_compat::native_cuda_configuration(settings,base).at("backend")=="native-cuda");
+            verify(phoenix_compat::native_cuda_packed_frame(settings));
+            settings.refinement_passes=2;verify(!phoenix_compat::native_cuda_packed_frame(settings));
+            settings.refinement_passes=1;settings.experimental=true;settings.transformer_blocks=4;
+            verify(!phoenix_compat::native_cuda_packed_frame(settings));
+            settings.transformer_blocks=8;settings.controls.appearance=true;
+            verify(!phoenix_compat::native_cuda_packed_frame(settings));
+        }
         std::string status = "Native worker";
         for (unsigned frame = 0; frame < 10000; ++frame)
             phoenix_compat::append_status_notice(status, " Waiting for processed output.");
@@ -277,6 +296,19 @@ int main() {
             bool rejected = false;
             try {phoenix_compat::portable_metadata(portable,true);} catch(const std::exception&) {rejected=true;}
             verify(rejected);
+        }
+        {
+            phoenix_compat::Settings gpu;gpu.mode=phoenix_addon::phoenix::ours;
+            gpu.pipeline.motion_enabled=true;gpu.pipeline.scene_detection=true;gpu.pipeline.monitoring=1;
+            verify(phoenix_compat::portable_gpu_settings(gpu,1281,721)==(sizeof(void*)==8));
+            auto other=gpu;other.mode=phoenix_addon::phoenix::split;
+            verify(!phoenix_compat::portable_gpu_settings(other,1281,721));
+            other=gpu;other.processing.enabled=true;other.processing.scale=50;
+            verify(!phoenix_compat::portable_gpu_settings(other,1281,721));
+            other=gpu;other.processing.enabled=true;other.processing.exposure=2;
+            verify(!phoenix_compat::portable_gpu_settings(other,1281,721));
+            other=gpu;other.pipeline.motion_enabled=false;other.pipeline.scene_detection=false;other.pipeline.monitoring=0;
+            verify(!phoenix_compat::portable_gpu_settings(other,1281,721));
         }
         std::cout << nlohmann::json{{"passed", true}, {"cpu_only", true}, {"checks", checks}}.dump() << '\n';
         return 0;

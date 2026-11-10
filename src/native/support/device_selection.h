@@ -6,7 +6,9 @@ inline bool valid_execution_device(const std::string& device_id) {
     if (device_id == "native" || device_id == "cpu" || device_id == "sycl:cpu")
         return true;
     size_t prefix = 0;
-    if (device_id.rfind("vulkan:", 0) == 0)
+    if (device_id.rfind("native-cuda:", 0) == 0)
+        prefix = 12;
+    else if (device_id.rfind("vulkan:", 0) == 0)
         prefix = 7;
     else if (device_id.rfind("hip:", 0) == 0)
         prefix = 4;

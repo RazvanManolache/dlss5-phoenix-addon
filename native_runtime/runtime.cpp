@@ -79,6 +79,12 @@ struct Runtime {
     bool fused_residual = false;
     unsigned window_batch_limit = 128;
     std::vector<std::vector<float>> histories;
+    // Two history banks keep publication transactional without allocating and
+    // zero-filling all host planes on every frame. Only a successful frame swaps
+    // these banks; rejected input cannot replace the committed history.
+    std::vector<std::vector<float>> next_histories;
+    std::vector<float> conditioning_history, resolve_history, current, head;
+    std::vector<uint8_t> conditioning_valid, resolve_valid;
     Json status, signature;
     phoenix_model::WeightSource weight_source;
     std::mutex lock;
@@ -238,9 +244,9 @@ struct Runtime {
                 options |= Fp8Columns64;
             if (fp8_columns == 128)
                 options |= Fp8Columns128;
-            const auto matrix_columns = config.value("cuda_matrix_columns", 16u);
-            demand(matrix_columns == 16 || matrix_columns == 32 || matrix_columns == 64,
-                   "CUDA matrix columns must be 16, 32 or 64");
+            const auto matrix_columns = config.value("cuda_matrix_columns", 0u);
+            demand(matrix_columns == 0 || matrix_columns == 16 || matrix_columns == 32 || matrix_columns == 64,
+                   "CUDA matrix columns must be 0 (automatic), 16, 32 or 64");
             if (matrix_columns == 32)
                 options |= MatrixColumns32;
             if (matrix_columns == 64)
@@ -251,10 +257,15 @@ struct Runtime {
             using ProfiledCreate = Backend* (*)(const char*, const wchar_t*, uint32_t, uint32_t, char*, size_t);
             auto profiled_create = kind == "cuda" ? reinterpret_cast<ProfiledCreate>(
                 library_symbol(module, "phoenix_backend_create_profiled")) : nullptr;
+            using TunedCreate = Backend* (*)(const char*, const wchar_t*, uint32_t, uint32_t, uint32_t, char*, size_t);
+            auto tuned_create = kind == "cuda" ? reinterpret_cast<TunedCreate>(
+                library_symbol(module, "phoenix_backend_create_tuned")) : nullptr;
             const auto profiling = config.value("profiling", std::string("frame"));
             const auto shader_folder_utf8 = phoenix_model::source_path_string(root / "vulkan");
             backend =
-                profiled_create ? profiled_create(device.c_str(), shader_folder_argument, options,
+                tuned_create ? tuned_create(device.c_str(),shader_folder_argument,options,
+                    profiling == "dispatches" ? 2u : profiling == "layers" ? 1u : 0u,matrix_columns,message,sizeof(message))
+                : profiled_create ? profiled_create(device.c_str(), shader_folder_argument, options,
                     profiling == "dispatches" ? 2u : profiling == "layers" ? 1u : 0u, message, sizeof(message))
                 : utf8_create ? utf8_create(device.c_str(), shader_folder_utf8.c_str(), options,
                                           message, sizeof(message))
@@ -275,9 +286,11 @@ struct Runtime {
             config.value("fused_attention",
                          !features || !(features(backend) & PreferUnfusedWindowAttention)) &&
             features && (features(backend) & FusedWindowAttention);
-        device_noise_cache = device_features && features && (features(backend) & DeviceNoiseCache);
+        device_noise_cache = device_features && config.value("device_noise_cache",true) && features && (features(backend) & DeviceNoiseCache);
         device_control_maps = features && (features(backend) & DeviceControlMaps);
-        window_batch_limit = config.value("window_batch_limit", 512u);
+        using PreferredBatch = unsigned (*)(Backend*);
+        auto preferred_batch=reinterpret_cast<PreferredBatch>(library_symbol(module,"phoenix_backend_preferred_window_batch"));
+        window_batch_limit = config.value("window_batch_limit", preferred_batch?preferred_batch(backend):512u);
         demand(window_batch_limit >= 16 && window_batch_limit <= 8192,
                "Window batch limit must be 16..8192");
         model = std::make_unique<Model>(weight_source);
@@ -316,6 +329,9 @@ struct Runtime {
                   {"inference_validated", tested && model->definition().id == phoenix_model::models::original.id},
                   {"python_required", false}};
         status["frame_boundary_contract"] = frame_boundary_contract;
+        status["device_noise_cache"]=device_noise_cache;
+        if(auto columns=reinterpret_cast<PreferredBatch>(library_symbol(module,"phoenix_backend_matrix_columns")))
+            status["cuda_matrix_columns"]=columns(backend);
         status["legacy_frame_boundary_emulation"]=legacy_history_gain&&legacy_output;
         status["history_gain_mode"] = legacy_history_gain ? "legacy_unit" : "model";
         status["model_history_gain"] = model_history_gain;
@@ -557,11 +573,8 @@ struct Runtime {
         const SamplingPlan sampling{controls.seed,
                                     reset || next_signature != signature ? 0u : sampling_index,
                                     controls.advancing_noise};
-        if (reset)
-            histories.clear();
-        if (next_signature != signature) {
-            histories.clear();
-        }
+        if (reset || next_signature != signature)
+            for(auto& history:histories)history.clear();
         // Backend allocation/build/execution failures are outside preflight: these
         // operations can replace the graph and invalidate history before failing.
         if (requested != repeats) {
@@ -577,22 +590,19 @@ struct Runtime {
             graph->build(frame->padded_width, frame->padded_height, requested);
             model->discard_decoded();
             repeats = requested;
-            histories.clear();
+            for(auto& history:histories)history.clear();
         }
         if (histories.size() != passes)
-            histories.assign(passes, {});
+            histories.resize(passes);
         struct HistoryBorrow {
             FrameState& frame;
             ~HistoryBorrow() {
                 frame.history_view = nullptr;
             }
         } history_borrow{*frame};
-        std::vector<std::vector<float>> next_histories(passes);
-        std::vector<float> conditioning_history, resolve_history;
-        std::vector<uint8_t> conditioning_valid, resolve_valid;
+        next_histories.resize(passes);
         // Borrow the caller's first-pass color until resolve publishes a new image.
         // No input is written, including when caller input/output pointers alias.
-        std::vector<float> current, next, head;
         const float* current_color = color;
         std::vector<Event> events;
         double prepare_ms = 0, execute_ms = 0, resolve_ms = 0;
@@ -608,7 +618,7 @@ struct Runtime {
         };
         auto sample_temporary_capacity = [&](uint64_t feature_bytes = 0) {
             const uint64_t bytes = (conditioning_history.capacity() + resolve_history.capacity() +
-                                    current.capacity() + next.capacity() + head.capacity()) *
+                                    current.capacity() + head.capacity()) *
                                        sizeof(float) +
                                    conditioning_valid.capacity() + resolve_valid.capacity() +
                                    events.capacity() * sizeof(Event) +
@@ -618,6 +628,7 @@ struct Runtime {
             temporary_capacity_high_water = std::max(temporary_capacity_high_water, bytes);
         };
         for (unsigned pass = 0; pass < passes; ++pass) {
+            auto& next=next_histories[pass];
             auto stage_started = Clock::now();
             frame->history_view = &histories[pass];
             const std::vector<float>* conditioning_source = &conditioning_history;
@@ -691,9 +702,10 @@ struct Runtime {
             execute_ms += elapsed(stage_started);
             if (validation_stage_hashes) validation["network_head"] = digest(head);
             stage_started = Clock::now();
-            current =
-                frame->resolve(current_color, head, controls, *resolve_source, *resolve_mask, next,
-                               control_mask, advanced != nullptr || neural_only);
+            // Resolve reads and writes only its own pixel, including display
+            // composition. Later passes may therefore reuse current in place.
+            frame->resolve(current_color, head, controls, *resolve_source, *resolve_mask, next,
+                           current, control_mask, advanced != nullptr || neural_only);
             current_color = current.data();
             resolve_ms += elapsed(stage_started);
             if (validation_stage_hashes) {
@@ -727,7 +739,6 @@ struct Runtime {
             demand(!(result_errors.load() & 1), "Nonfinite network result");
             demand(!(result_errors.load() & 2), "Nonfinite history result");
             validation_ms += elapsed(validation_started);
-            next_histories[pass] = std::move(next);
             sample_temporary_capacity();
         }
         frame->history_view = nullptr;
@@ -747,7 +758,7 @@ struct Runtime {
             presentation_ms=elapsed(presentation_started);
         }
         next_schedule.complete(events);
-        histories = std::move(next_histories);
+        histories.swap(next_histories);
         previous_distortion = std::move(next_distortion);
         std::copy(current.begin(), current.end(), output);
         signature = std::move(next_signature);

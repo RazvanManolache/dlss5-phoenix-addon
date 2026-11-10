@@ -1,6 +1,7 @@
 #pragma once
 #include "pixel_transport.h"
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace phoenix_compat {
@@ -168,12 +169,36 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         return {BackbufferRoute::Unsupported, "The helper cannot transport this DX12 extent; no automatic downscale is applied."};
     return {BackbufferRoute::Helper, reason};
 }
+inline bool low_process_memory(unsigned bits, std::string_view error) {
+    // GPU/VRAM exhaustion is not evidence that moving to another process helps.
+    // These messages come from our x86 address-space guard or a host bad_alloc.
+    // Other errors can append address-space telemetry after a semicolon even
+    // when the caller has ample memory. Classify the original exception only.
+    error = error.substr(0, error.find(';'));
+    return bits == 32 && (error.find("Low 32-bit address space:") != error.npos ||
+        error.find("bad allocation") != error.npos || error.find("std::bad_alloc") != error.npos);
+}
+inline bool in_process_memory_failure(unsigned bits, BackbufferRoute route, std::string_view error) {
+    return route != BackbufferRoute::Helper && route != BackbufferRoute::Unsupported &&
+        low_process_memory(bits, error);
+}
 inline BackbufferDecision choose_backbuffer_route_with_fallback(const BackbufferCapabilities& caps,
-        ExecutionPreference preference, bool native_fallback, bool portable_fallback) {
+        ExecutionPreference preference, bool native_fallback, bool portable_fallback,
+        bool process_memory_exhausted = false) {
     auto decision = choose_backbuffer_route(caps, preference);
     const bool fallback_enabled =
         ((preference == ExecutionPreference::NativeLibrary || preference == ExecutionPreference::NativeDriver) && native_fallback) ||
         (preference == ExecutionPreference::Portable && portable_fallback);
+    // All in-process mechanisms share the x86 caller's address space. Once it
+    // is exhausted, do not initialize another native/portable renderer there.
+    // Helper selection still enforces protected-resource and queue ownership.
+    if ((preference == ExecutionPreference::Automatic || fallback_enabled) &&
+        (process_memory_exhausted || low_process_memory(caps.bits, decision.reason))) {
+        auto recovery = choose_backbuffer_route(caps, ExecutionPreference::Helper);
+        if (recovery.route == BackbufferRoute::Helper)
+            recovery.reason = decision.reason + " 32-bit process memory exhausted; using the external 64-bit helper.";
+        return recovery;
+    }
     // Availability checks can reject a route before its executor is created.
     // Honour the same opt-in recovery as an initialization failure, but wait
     // for discovery and retain Automatic's resource/queue safety checks.

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <wrl/client.h>
+#include "../../../third_party/reshade/reshade_api.hpp"
 
 namespace phoenix_compat {
 // Only a retired, successfully processed image can become a presentation
@@ -12,27 +13,21 @@ class CompletedPresentation {
   public:
     // Cold start and failed initialization have no processed pixels to hold.
     // Clear the display instead of treating the live game image as a result.
-    static void record_loading(ID3D12GraphicsCommandList* command, ID3D12Resource* backbuffer) {
-        Microsoft::WRL::ComPtr<ID3D12Device> device;
-        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> views;
-        D3D12_DESCRIPTOR_HEAP_DESC heap{};
-        heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV; heap.NumDescriptors = 1;
-        if (FAILED(backbuffer->GetDevice(IID_PPV_ARGS(&device))) ||
-            FAILED(device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&views))))
+    static void record_loading(reshade::api::command_list* command, reshade::api::resource backbuffer) {
+        using namespace reshade::api;
+        auto* device=command->get_device();
+        resource_view view{};
+        const auto format=format_to_default_typed(device->get_resource_desc(backbuffer).texture.format,0);
+        if(!device->create_resource_view(backbuffer,resource_usage::render_target,resource_view_desc(format),&view))
             throw std::runtime_error("Cannot create the loading presentation view");
-        const auto view = views->GetCPUDescriptorHandleForHeapStart();
-        device->CreateRenderTargetView(backbuffer, nullptr, view);
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition = {backbuffer, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-                              D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET};
-        command->ResourceBarrier(1, &barrier);
+        // Use the owning API for both descriptors and commands. Besides the
+        // descriptor namespace, this marks ReShade's immediate list dirty so
+        // loading-only frames are submitted too.
+        command->barrier(backbuffer,resource_usage::present,resource_usage::render_target);
         const float black[4] = {0, 0, 0, 1};
-        command->ClearRenderTargetView(view, black, 0, nullptr);
-        std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
-        command->ResourceBarrier(1, &barrier);
-        // ClearRenderTargetView consumes CPU descriptors while recording;
-        // the view heap owns no pixels and need not survive GPU execution.
+        command->clear_render_target_view(view,black,0,nullptr);
+        command->barrier(backbuffer,resource_usage::render_target,resource_usage::present);
+        device->destroy_resource_view(view);
     }
     void invalidate() { available_ = false; }
     void completed() { available_ = true; }

@@ -34,7 +34,7 @@ Json PhoenixNativeSession::portable_stage_reports()const{
     auto report_for=[](const PhoenixNativeSession& stage){
         auto report=stage.portable_status;
         report["inference_pid"]=stage.portable_session?stage.portable_session->process_id():0;
-        report["worker_execution"]="native_broker";
+        report["worker_execution"]=stage.configuration.at("portable_runtime").value("backend",std::string())=="native-cuda"?"in_process_native_cuda":"native_broker";
         return report;
     };
     if(portable_leaf)reports.push_back(report_for(*this));
@@ -59,6 +59,52 @@ void PhoenixNativeSession::frame_portable(ID3D12Resource* color,D3D12_RESOURCE_S
     phoenix_cpp::Controls::from(parameters); // Reject before touching recurrence.
     const auto counts=configuration.value("repeats",std::array<int,8>{1,1,1,1,1,1,1,1});
     const size_t pixels=size_t(width)*height;
+    const auto started=pipeline.monitoring?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
+    auto completed=[&]{
+        history=motion!=nullptr;frame_info_pending=false;++completed_frames;
+        const auto timing=portable_status.value("network_schedule",Json::object());
+        const bool budget_clock=configuration.value("neural_budget_clock",std::string{})=="backend_gpu";
+        gpu_sampled_last_frame=(measure_gpu||budget_clock)&&timing.value("gpu_sample",false);gpu_ms=gpu_sampled_last_frame?timing.value("gpu_ms",0.):0;
+        call_ms=pipeline.monitoring?std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count():0;
+    };
+    Json metadata{{"reset",bool(controls.reset)||!history||!motion},{"has_motion",bool(motion)},
+        {"has_depth",false},{"has_history_validity",false},{"controls",parameters},
+        {"transformer_blocks",transformer_blocks},{"repeats",counts},{"passes",1},
+        {"adaptive_budget",{{"enabled",false}}}};
+    std::string gpu_fallback;
+    if(portable_session->gpu_frames_available()){
+        phoenix_cuda_d3d12_frame request{};request.struct_bytes=sizeof(request);request.version=1;
+        request.queue=queue.Get();request.color=color;request.motion=motion;request.output=output;
+        request.color_state=color_state;request.motion_state=motion_state;request.output_state=output_state;
+        request.motion_scale_x=controls.motion_scale_x;request.motion_scale_y=controls.motion_scale_y;
+        const auto text=metadata.dump();request.metadata_json=text.c_str();
+        const auto result=portable_session->frame_d3d12(request);
+        if(result==0){portable_status=Json::parse(portable_session->status_json());completed();return;}
+        require(result==1,portable_session->error());gpu_fallback=portable_session->error();
+    }
+    const auto& runner_configuration=configuration.at("portable_runtime");
+    // Repeated RTX trials favor compute conversion for both GPU providers.
+    // CPU/HIP/SYCL retain the host codec; explicit overrides support ablation.
+    const auto runner_backend=runner_configuration.value("backend",std::string{});
+    if(runner_configuration.value("gpu_pixel_codec",runner_backend=="vulkan"||runner_backend=="cuda")){
+        try{
+            if(!portable_codec)portable_codec=std::make_unique<phoenix_portable_pixels::D3D12Codec>(device.Get(),width,height,accounting);
+            portable_result.resize(pixels*3);
+            begin();portable_codec->download(command.Get(),color,color_state,motion,motion_state,controls.motion_scale_x,controls.motion_scale_y);
+            submit();wait(submitted);
+            portable_codec->planes([&](const float* rgb,const float* vectors){
+                require(portable_session->frame(rgb,vectors,nullptr,nullptr,metadata.dump(),portable_result.data())==0,
+                    portable_session->error());
+            });
+            portable_status=Json::parse(portable_session->status_json());
+            portable_status["pixel_conversion"]="d3d12_compute";
+            portable_status["texture_boundary_host_bytes"]=pixels*(motion?32:24);
+            if(!gpu_fallback.empty())portable_status["gpu_transport_fallback"]=gpu_fallback;
+            require(std::all_of(portable_result.begin(),portable_result.end(),[](float value){return std::isfinite(value);}),"Portable runner returned nonfinite pixels");
+            begin();portable_codec->upload_output(command.Get(),portable_result.data(),output,output_state);
+            submit();wait(submitted);completed();return;
+        }catch(...){poisoned=true;throw;}
+    }
     auto prepare=[&](Plane& plane,ID3D12Resource* image,bool readback){
         if(plane.transfer)return;
         const auto description=image->GetDesc();
@@ -70,10 +116,8 @@ void PhoenixNativeSession::frame_portable(ID3D12Resource* color,D3D12_RESOURCE_S
     };
     prepare(portable_color_readback,color,true);if(motion)prepare(portable_motion_readback,motion,true);
     prepare(portable_output_upload,output,false);
-    const auto started=pipeline.monitoring?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
-    std::vector<float> rgb(pixels*3),vectors(motion?pixels*2:0),result(pixels*3);
-    std::vector<uint16_t> rgba(pixels*4);
-    phx::Kernel<HostMath> math{};
+    portable_rgb.resize(pixels*3);portable_vectors.resize(motion?pixels*2:0);portable_result.resize(pixels*3);portable_rgba.resize(pixels*4);
+    auto& rgb=portable_rgb;auto& vectors=portable_vectors;auto& result=portable_result;auto& rgba=portable_rgba;
     try{
         begin();
         const auto download=[&](Plane& plane,ID3D12Resource* image,D3D12_RESOURCE_STATES state){
@@ -86,26 +130,29 @@ void PhoenixNativeSession::frame_portable(ID3D12Resource* color,D3D12_RESOURCE_S
         download(portable_color_readback,color,color_state);
         if(motion)download(portable_motion_readback,motion,motion_state);
         submit();wait(submitted);
-        auto read=[&](Plane& plane,unsigned channels,auto consume){
+        auto read=[&](Plane& plane,auto consume){
             void* mapped=nullptr;D3D12_RANGE range{0,size_t(plane.bytes)},empty{};
             hr(plane.transfer->Map(0,&range,&mapped));
             for(unsigned y=0;y<height;++y){
                 const auto* row=reinterpret_cast<const uint16_t*>(static_cast<const char*>(mapped)+plane.footprint.Offset+size_t(y)*plane.footprint.Footprint.RowPitch);
-                for(unsigned x=0;x<width;++x)for(unsigned c=0;c<channels;++c)consume((size_t(y)*width+x)*channels+c,row[x*channels+c]);
+                consume(y,row);
             }
             plane.transfer->Unmap(0,&empty);
         };
-        read(portable_color_readback,4,[&](size_t i,uint16_t value){rgba[i]=value;if(i%4<3)rgb[i/4*3+i%4]=std::clamp(math.half_value(value),0.f,1.f);});
-        if(motion)read(portable_motion_readback,2,[&](size_t i,uint16_t value){vectors[i]=math.half_value(value)*(i%2?controls.motion_scale_y:controls.motion_scale_x);});
-        Json metadata{{"reset",bool(controls.reset)||!history||!motion},{"has_motion",bool(motion)},
-            {"has_depth",false},{"has_history_validity",false},{"controls",parameters},
-            {"transformer_blocks",transformer_blocks},{"repeats",counts},{"passes",1},
-            {"adaptive_budget",{{"enabled",false}}}};
+        read(portable_color_readback,[&](unsigned y,const uint16_t* row){
+            phoenix_portable_pixels::color(row,rgb.data()+size_t(y)*width*3,rgba.data()+size_t(y)*width*4,width);
+        });
+        if(motion)read(portable_motion_readback,[&](unsigned y,const uint16_t* row){
+            phoenix_portable_pixels::motion(row,vectors.data()+size_t(y)*width*2,size_t(width)*2,controls.motion_scale_x,controls.motion_scale_y);
+        });
         require(portable_session->frame(rgb.data(),vectors.empty()?nullptr:vectors.data(),nullptr,nullptr,metadata.dump(),result.data())==0,
             portable_session->error());
         portable_status=Json::parse(portable_session->status_json());
+        portable_status["pixel_conversion"]="host_simd";
+        portable_status["texture_boundary_host_bytes"]=pixels*(motion?20:16);
+        if(!gpu_fallback.empty())portable_status["gpu_transport_fallback"]=gpu_fallback;
         require(std::all_of(result.begin(),result.end(),[](float value){return std::isfinite(value);}),"Portable runner returned nonfinite pixels");
-        for(size_t p=0;p<pixels;++p)for(unsigned c=0;c<3;++c)rgba[p*4+c]=uint16_t(math.half_bits(result[p*3+c]));
+        phoenix_portable_pixels::output(result.data(),rgba.data(),pixels);
         void* mapped=nullptr;D3D12_RANGE empty{};hr(portable_output_upload.transfer->Map(0,&empty,&mapped));
         for(unsigned y=0;y<height;++y)std::memcpy(static_cast<char*>(mapped)+portable_output_upload.footprint.Offset+
             size_t(y)*portable_output_upload.footprint.Footprint.RowPitch,rgba.data()+size_t(y)*width*4,size_t(width)*8);
@@ -116,10 +163,6 @@ void PhoenixNativeSession::frame_portable(ID3D12Resource* color,D3D12_RESOURCE_S
         command->CopyTextureRegion(&to,0,0,0,&from,nullptr);
         phoenix_native::transition(command.Get(),output,D3D12_RESOURCE_STATE_COPY_DEST,output_state);
         submit();wait(submitted);
-        history=motion!=nullptr;frame_info_pending=false;++completed_frames;
-        const auto timing=portable_status.value("network_schedule",Json::object());
-        const bool budget_clock=configuration.value("neural_budget_clock",std::string{})=="backend_gpu";
-        gpu_sampled_last_frame=(measure_gpu||budget_clock)&&timing.value("gpu_sample",false);gpu_ms=gpu_sampled_last_frame?timing.value("gpu_ms",0.):0;
-        call_ms=pipeline.monitoring?std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count():0;
+        completed();
     }catch(...){poisoned=true;throw;}
 }

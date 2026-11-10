@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cmath>
+#include <wrl/client.h>
 
 namespace phoenix_cpp {
 // Owned by an asynchronous capture worker. No driver loading, host copies or
@@ -21,12 +22,15 @@ class PipelineClient {
     decltype(&phoenix_native_reconfigure) reconfigure_=nullptr;
     decltype(&phoenix_native_set_tuning) tuning_=nullptr;
     decltype(&phoenix_native_frame_host) frame_=nullptr;
+    decltype(&phoenix_native_frame_d3d12) gpu_frame_=nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Device> device_;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
     decltype(&phoenix_native_set_frame_info) identity_=nullptr;
     decltype(&phoenix_native_set_latency) latency_=nullptr;
     decltype(&phoenix_native_status) status_=nullptr;
     decltype(&phoenix_native_error) error_=nullptr;
     Json config_=nullptr;
-    std::string runtime_digest_;
+    std::string runtime_digest_,native_cuda_digest_;
     std::vector<uint16_t> input_,output_;
     template<class T>void load(T& target,const char* name){target=reinterpret_cast<T>(GetProcAddress(library_,name));if(!target)throw std::runtime_error(name);}
     static std::string digest(const std::filesystem::path& path){
@@ -44,14 +48,16 @@ public:
         auto contract=reinterpret_cast<unsigned(*)()>(GetProcAddress(library,"phoenix_native_portable_contract"));
         const bool result=contract&&contract()>=1;FreeLibrary(library);return result;
     }
-    PipelineClient(const std::filesystem::path& root){
+    PipelineClient(const std::filesystem::path& root,ID3D12Device* device=nullptr,ID3D12CommandQueue* queue=nullptr):device_(device),queue_(queue){
+        if(bool(device)!=bool(queue))throw std::runtime_error("Pipeline device and queue must be supplied together");
         library_=LoadLibraryExW((root/L"phoenix_native.dll").c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32);
         if(!library_)throw std::runtime_error("Install the shared native pipeline SDK to use these portable stages");
         try{
             runtime_digest_=digest(root/L"phoenix_runtime_cpp.dll");
+            if(std::filesystem::is_regular_file(root/L"phoenix_native_cuda.dll"))native_cuda_digest_=digest(root/L"phoenix_native_cuda.dll");
             auto contract=reinterpret_cast<unsigned(*)()>(GetProcAddress(library_,"phoenix_native_portable_contract"));
             if(!contract||contract()<1)throw std::runtime_error("Update the native pipeline SDK before using portable frame services");
-            load(create_,"phoenix_native_create");load(destroy_,"phoenix_native_destroy");load(frame_,"phoenix_native_frame_host");
+            load(create_,"phoenix_native_create");load(destroy_,"phoenix_native_destroy");load(frame_,"phoenix_native_frame_host");load(gpu_frame_,"phoenix_native_frame_d3d12");
             load(reconfigure_,"phoenix_native_reconfigure");load(tuning_,"phoenix_native_set_tuning");
             load(identity_,"phoenix_native_set_frame_info");load(latency_,"phoenix_native_set_latency");
             load(status_,"phoenix_native_status");load(error_,"phoenix_native_error");
@@ -74,12 +80,10 @@ public:
             {"estimate_ms",config_.value("neural_budget_clock",std::string{})=="backend_gpu"?result.at("gpu_processing_ms"):result.at("complete_call_ms")}};
         return result;
     }
-    std::vector<float> frame(const std::filesystem::path& root,const Json& runner,const std::vector<float>& color,
-        unsigned width,unsigned height,unsigned ow,unsigned oh,const Json& metadata,
-        uint64_t sequence,int64_t timestamp_ns,double source_age_ms,const std::string& tiny_model={}){
-        if(color.size()!=size_t(width)*height*3)throw std::runtime_error("Portable pipeline input size differs");
+    void configure(const std::filesystem::path& root,const Json& runner,unsigned width,unsigned height,
+        unsigned ow,unsigned oh,const Json& metadata,const std::string& tiny_model={}){
         auto portable=runner;portable["runtime_root"]=phoenix_model::source_path_string(root);
-        portable["runtime_sha256"]=runtime_digest_;
+        portable["runtime_sha256"]=runner.at("backend")=="native-cuda"?native_cuda_digest_:runtime_digest_;
         const auto controls=metadata.value("controls",Json::object());auto neural=controls;
         neural["network_passes"]=metadata.value("passes",1u);
         neural["central_blocks"]=metadata.value("transformer_blocks",8u);
@@ -102,9 +106,24 @@ public:
             auto before=config_.is_object()?config_:Json::object();auto after=config;before.erase("tuning");after.erase("tuning");
             if(session_&&before==after){if(tuning_(session_,neural.dump().c_str()))throw std::runtime_error(error_());}
             else if(session_){if(reconfigure_(&session_,config.dump().c_str()))throw std::runtime_error(error_());}
-            else {session_=create_(config.dump().c_str(),nullptr,nullptr);if(!session_)throw std::runtime_error(error_());}
+            else {session_=create_(config.dump().c_str(),device_.Get(),queue_.Get());if(!session_)throw std::runtime_error(error_());}
             config_=std::move(config);
         }
+    }
+    void frame_gpu(const std::filesystem::path& root,const Json& runner,ID3D12Resource* color,ID3D12Resource* output,
+        unsigned width,unsigned height,const Json& metadata,uint64_t sequence,int64_t timestamp_ns,double age,const std::string& tiny_model={}){
+        if(!device_||!queue_)throw std::runtime_error("GPU pipeline requires an explicit device and queue");
+        configure(root,runner,width,height,width,height,metadata,tiny_model);
+        PhoenixNativeFrameInfo info{sizeof(info),1,0,sequence,timestamp_ns,0,0};
+        if(identity_(session_,&info)||latency_(session_,std::clamp(age,0.,60000.),0))throw std::runtime_error(error_());
+        PhoenixNativeControls options{sizeof(options),unsigned(metadata.value("reset",false)),1,1,1,1,-1,0,1};
+        if(gpu_frame_(session_,color,D3D12_RESOURCE_STATE_COMMON,nullptr,D3D12_RESOURCE_STATE_COMMON,output,D3D12_RESOURCE_STATE_COMMON,&options))throw std::runtime_error(error_());
+    }
+    std::vector<float> frame(const std::filesystem::path& root,const Json& runner,const std::vector<float>& color,
+        unsigned width,unsigned height,unsigned ow,unsigned oh,const Json& metadata,
+        uint64_t sequence,int64_t timestamp_ns,double source_age_ms,const std::string& tiny_model={}){
+        if(color.size()!=size_t(width)*height*3)throw std::runtime_error("Portable pipeline input size differs");
+        configure(root,runner,width,height,ow,oh,metadata,tiny_model);
         input_.resize(size_t(width)*height*4);output_.resize(size_t(ow)*oh*4);
         for(size_t p=0;p<color.size()/3;++p){for(unsigned c=0;c<3;++c){
             const float value=color[p*3+c];if(!std::isfinite(value)||value<0||value>1)throw std::runtime_error("Invalid portable proxy input");

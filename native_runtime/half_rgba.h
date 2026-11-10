@@ -2,7 +2,11 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#include <immintrin.h>
+#include <intrin.h>
+#define PHOENIX_HAS_F16C_DISPATCH 1
+#elif (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
 #include <immintrin.h>
 #define PHOENIX_HAS_F16C_DISPATCH 1
 #endif
@@ -30,7 +34,12 @@ inline void half_rgba_scalar(const uint16_t* source, float* target, size_t pixel
             target[pixel * 3 + channel] = half_value(source[pixel * 4 + channel]);
 }
 #ifdef PHOENIX_HAS_F16C_DISPATCH
-__attribute__((target("avx,f16c"))) inline void half_rgba_f16c(const uint16_t* source,
+#if defined(_MSC_VER)
+__declspec(noinline)
+#else
+__attribute__((target("avx,f16c")))
+#endif
+inline void half_rgba_f16c(const uint16_t* source,
                                                                float* target, size_t pixels) {
     size_t pixel = 0;
     for (; pixel + 1 < pixels; pixel += 2) {
@@ -47,11 +56,26 @@ __attribute__((target("avx,f16c"))) inline void half_rgba_f16c(const uint16_t* s
     half_rgba_scalar(source + pixel * 4, target + pixel * 3, pixels - pixel);
 }
 #endif
-inline void half_rgba_to_rgb(const uint16_t* source, float* target, size_t pixels) {
+inline bool host_f16c_available() {
 #ifdef PHOENIX_HAS_F16C_DISPATCH
     // Runtime checks preserve the baseline binary's ISA requirements.
-    static const bool supported = __builtin_cpu_supports("avx") && __builtin_cpu_supports("f16c");
-    if (supported) {
+    static const bool supported = []{
+#if defined(_MSC_VER)
+        int flags[4]{};__cpuid(flags,1);
+        constexpr unsigned required=(1u<<27)|(1u<<28)|(1u<<29);
+        return (unsigned(flags[2])&required)==required&&(_xgetbv(0)&6)==6;
+#else
+        return __builtin_cpu_supports("avx") && __builtin_cpu_supports("f16c");
+#endif
+    }();
+    return supported;
+#else
+    return false;
+#endif
+}
+inline void half_rgba_to_rgb(const uint16_t* source, float* target, size_t pixels) {
+#ifdef PHOENIX_HAS_F16C_DISPATCH
+    if (host_f16c_available()) {
         half_rgba_f16c(source, target, pixels);
         return;
     }

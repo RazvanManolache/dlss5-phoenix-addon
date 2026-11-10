@@ -181,9 +181,20 @@ def main():
         )
         outputs.append(name + extension)
 
+    if any(name == 'release_update_tests' for name, _ in tests):
+        proxy_dir = out / 'winhttp-proxy'
+        proxy_dir.mkdir()
+        lines.extend([
+            f'cl {common.replace("/MD", "/MT")} /LD "{ROOT}/tests/native/winhttp_proxy_fixture.cpp" '
+            f'/Fo:"{proxy_dir}/proxy.obj" /Fe:"{proxy_dir}/winhttp.dll" '
+            f'/link /INCREMENTAL:NO > "{proxy_dir}/build.log" 2>&1',
+            'if not %errorlevel%==0 exit /b 10',
+        ])
     for name, source in tests + software_tests:
         target(name, "tests/native/" + source)
         test_args = f' "{ROOT}"' if name == "generated_plan_tests" else ""
+        if name == 'release_update_tests':
+            test_args = f' "{proxy_dir}/winhttp.dll"'
         if name == 'nr_forwarder_tests' and args.embed_runtime:
             test_args = f' "{forwarder}"'
         lines.extend(

@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '1.0.1'
+VERSION = '1.1.0'
 _notifier_version = re.search(r'current_version\[\] = "([^"\n]+)"', (ROOT/'src/native/support/release_updates.h').read_text(encoding='utf-8'))
 if not _notifier_version or _notifier_version.group(1) != VERSION:
     raise RuntimeError('Release version and Phoenix update-notice identity differ')
@@ -124,7 +124,7 @@ def common_files():
                  'PERFORMANCE.md', 'DEVELOPMENT.md', 'PROJECT.md',
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
-                 'EXECUTION_MECHANISMS.md', 'FRAME_DELIVERY_OPTIMIZATION.md', 'PORTABLE_MODEL_CONTROLS.md',
+                 'EXECUTION_MECHANISMS.md', 'FRAME_DELIVERY_OPTIMIZATION.md', 'PORTABLE_MODEL_CONTROLS.md', 'WINDOWS_CUDA.md', 'LINUX.md', 'LINUX_NATIVE_CUDA.md',
                  'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'PAIRED_SCREENSHOTS.md', 'PHOENIX_INPUT.md', 'UPSTREAM_CREDITS.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
@@ -215,6 +215,7 @@ def main():
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--runtime-x86', type=Path, required=True)
+    parser.add_argument('--cuda-runtime', type=Path, help='Source-verified Windows CUDA runtime to include with the main addon')
     parser.add_argument('--runtime-wow64', type=Path,
                         help='Model-free optional x86 native bridge, with a matching build receipt')
     parser.add_argument('--wow64-validation', type=Path,
@@ -257,6 +258,21 @@ def main():
         files=common_files()
         for name in ('Phoenix.addon32','Phoenix.addon64','phoenix_graphics_host.exe'):
             files[name]=(candidate/name).read_bytes()
+        if args.cuda_runtime:
+            runtime = args.cuda_runtime.resolve()
+            receipt = json.loads((runtime/'BUILD.json').read_text(encoding='utf-8'))
+            if not receipt.get('passed'):
+                raise ValueError('Windows CUDA runtime build failed')
+            for name, expected in receipt['source_inputs'].items():
+                if sha((ROOT/name).read_bytes()) != expected:
+                    raise ValueError('Windows CUDA runtime source changed: '+name)
+            for name, expected in receipt['files'].items():
+                raw = (runtime/name).read_bytes()
+                if sha(raw) != expected:
+                    raise ValueError('Windows CUDA runtime changed: '+name)
+                prefix = 'include/' if name.endswith('.h') else 'PhoenixRuntime/win-x64/'
+                files[prefix+name] = raw
+            files['PhoenixRuntime/win-x64/phoenix_native_cpp.json'] = b'{"validated_devices":["cpu"],"allow_unvalidated":false}\n'
         assets={}
         input_files, input_validation = input_package(args.input_candidate)
         name=f'DLSS5-Phoenix-{VERSION}-Input-Windows.zip'
