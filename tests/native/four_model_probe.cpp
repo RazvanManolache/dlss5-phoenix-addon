@@ -3,6 +3,7 @@
 #include "../../src/native/support/dispatch.h"
 #include "../../src/native/runtime/texture_binding.h"
 #include "../../src/native/support/kernel_style_device.h"
+#include "../../src/native/support/appearance_gpu.h"
 #include "../../native_runtime/network_schedule.h"
 #include <nvsdk_ngx.h>
 #include <MinHook.h>
@@ -21,7 +22,7 @@ static void require(bool good, const std::string& message) { if (!good) throw st
 static void require(bool good, const char* message) { if (!good) throw std::runtime_error(message); }
 static double ms(Clock::time_point t) { return std::chrono::duration<double,std::milli>(Clock::now()-t).count(); }
 static std::string digest(const fs::path& path) {
-    const auto bytes=read(path); return phoenix_model::weight_digest(bytes.data(),bytes.size());
+    return phoenix_model::mapped_file_digest(path);
 }
 template<class T> static T symbol(HMODULE module,const char* name) {
     auto function=reinterpret_cast<T>(GetProcAddress(module,name));require(function!=nullptr,name);return function;
@@ -154,7 +155,8 @@ struct Nvidia {
         auto query=symbol<void*(__cdecl*)(unsigned)>(nvapi,"nvapi_QueryInterface");auto* target=query(0x24973538);require(target!=nullptr,"NVAPI launch entry");
         require(MH_Initialize()==MH_OK,"Launch observer initialize");require(MH_CreateHook(target,reinterpret_cast<void*>(&count_launch),reinterpret_cast<void**>(&real_launch))==MH_OK,"Launch observer hook");require(MH_EnableHook(target)==MH_OK,"Launch observer enable");
     }
-    void record(Gpu& gpu,Texture& color,Texture& motion,Texture& output,bool reset,unsigned w,unsigned h){
+    void record(Gpu& gpu,Texture& color,Texture& motion,Texture& output,bool reset,unsigned w,unsigned h,
+                const phoenix_addon::Controls& controls){
         params->Reset();
         for(auto key:{"DLSSNR.Color","Color"})params->Set(key,color.resource.Get());
         for(auto key:{"DLSSNR.Output","Output"})params->Set(key,output.resource.Get());
@@ -165,6 +167,9 @@ struct Nvidia {
         params->Set("DLSSNR.SkinStructureStrength",-1.f);params->Set("DLSSNR.UseAutoMask",1u);
         params->Set("DLSSNR.SDR",1u);params->Set("DLSSNR.Enabled",1u);params->Set("DLSSNR.Reset",unsigned(reset));params->Set("DLSSNR.Style",0u);params->Set("DLSSNR.UICorrection",0u);
         params->Set("DLSSNR.DepthInverted",0u);
+        params->Set("DLSSNR.Intensity",controls.intensity);params->Set("DLSSNR.Style",controls.style);
+        params->Set("DLSSNR.LocalToneStrength",controls.tone);params->Set("DLSSNR.LocalStructureStrength",controls.structure);
+        params->Set("DLSSNR.SkinStructureStrength",controls.skin);params->Set("DLSSNR.UseAutoMask",unsigned(controls.auto_mask));
         counting=true;launch_count=0;const auto result=evaluate(gpu.command.Get(),handle,params,nullptr);counting=false;success(result,"Evaluate NR");
     }
     ~Nvidia(){if(handle)symbol<NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Handle*)>(forwarder,"PhoenixNrRelease")(handle);
@@ -176,6 +181,15 @@ int main(int argc,char** argv){
     try{
         require(argc==3,"JOB_JSON OUTPUT_JSON");const auto config=phoenix_bundle::json_file(argv[1]);destination=argv[2];
         const unsigned w=config.at("width"),h=config.at("height");const bool vendor=config.at("engine")=="nvidia";const auto source=phoenix_model::WeightSource::config(config.at("weight_source"));
+        phoenix_addon::Controls requested;requested.auto_mask=1;requested.inverted=0;
+        if(config.contains("controls")) {
+            const auto& c=config.at("controls");
+            requested.intensity=c.value("intensity",1.f);requested.style=c.value("style",0u);
+            requested.tone=c.value("tone",1.f);requested.structure=c.value("structure",1.f);
+            requested.skin=c.value("skin",-1.f);requested.auto_mask=c.value("auto_mask",true)?1:0;
+            require(std::isfinite(requested.intensity)&&requested.intensity>=0&&requested.intensity<=2&&requested.style<=2,"Invalid appearance controls");
+            require(std::isfinite(requested.tone)&&requested.tone>=0&&requested.tone<=2&&std::isfinite(requested.structure)&&requested.structure>=0&&requested.structure<=2,"Invalid local strengths");
+        }
         if(source.disk_model())require(!vendor,"NVIDIA reference requires its DLL, not a disk-model export");
         else require(digest(source.dll)==source.dll_sha256,"Model DLL digest mismatch");
         report.update({{"engine",config.at("engine")},{"model_id",source.model_id},{"width",w},{"height",h},{"debug",config.value("debug",false)},
@@ -183,6 +197,11 @@ int main(int argc,char** argv){
             {"model_dll_sha256",source.dll_sha256},{"captures",Json::object()}, {"gpu_scope","Complete engine recording, barriers, and matching output copy; excludes upload/readback/CPU gaps"},
             {"effective_controls",{{"auto_mask",true},{"inverted_depth",false},{"tone",1},{"structure",1},{"skin",-1},{"style",0}}},
             {"wall_scope","Command recording, execute, signal and synchronous fence wait; excludes upload/readback/status parsing"}});
+        report["effective_controls"]["auto_mask"]=requested.auto_mask!=0;
+        report["effective_controls"]["tone"]=requested.tone;report["effective_controls"]["structure"]=requested.structure;
+        report["effective_controls"]["skin"]=requested.skin;report["effective_controls"]["style"]=requested.style;
+        if(config.contains("controls"))report["effective_controls"]["intensity"]=requested.intensity;
+        const bool appearance_requested=phoenix_addon::phoenix::direct::AppearanceStage::requested(requested,{});
         phoenix_cpp::NetworkSchedule schedule;schedule.prepare(config,source.model_id,true);
         require(!vendor || (schedule.passes==1 && schedule.depth==8 && schedule.repeats==std::array<unsigned,8>{1,1,1,1,1,1,1,1}),"Vendor comparison requires its full trained schedule");
         const bool profile_gpu=config.value("profile_gpu_stages",false);
@@ -206,6 +225,8 @@ int main(int argc,char** argv){
             gpu.command->CopyResource(original_color.Get(),color.resource.Get());barrier(gpu.command.Get(),original_color.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
             barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);gpu.submit();}
         phoenix_native::memory::Ledger ledger;auto accounting=ledger.begin(w,h);
+        std::unique_ptr<phoenix_addon::phoenix::direct::AppearanceStage> appearance;
+        if(!vendor&&appearance_requested)appearance=std::make_unique<phoenix_addon::phoenix::direct::AppearanceStage>(gpu.device.Get(),w,h,accounting);
         std::unique_ptr<phoenix_bundle::Bundle> bundle;std::unique_ptr<phoenix_addon::FrameDispatch> dispatch;std::unique_ptr<phoenix_native::Network> network;
         std::vector<std::unique_ptr<phoenix_native::Network>> refinement;
         std::unique_ptr<Nvidia> nvidia;auto started=Clock::now();
@@ -278,12 +299,18 @@ int main(int argc,char** argv){
             if(individual)individual->begin_frame();
             if(original_color){barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);gpu.command->CopyResource(color.resource.Get(),original_color.Get());barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
             gpu.command->EndQuery(gpu.queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);ID3D12Resource* result=nullptr;
-            if(vendor){nvidia->record(gpu,color,motion,output,reset,w,h);result=output.resource.Get();if(deep_gpu)gpu.mark(5);if(profile_gpu)gpu.mark(2);barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);}
-            else{phoenix_addon::Controls controls;controls.reset=reset;controls.auto_mask=1;controls.inverted=0;
+            if(vendor){nvidia->record(gpu,color,motion,output,reset,w,h,requested);result=output.resource.Get();if(deep_gpu)gpu.mark(5);if(profile_gpu)gpu.mark(2);barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);}
+            else{auto controls=requested;controls.reset=reset;
+                if(appearance){require(schedule.passes==1,"Appearance probe requires one network pass");appearance->prepare(gpu.command.Get(),color.resource.Get(),motion.resource.Get(),{},controls,0);}
                 for(unsigned pass=0;pass<schedule.passes;++pass){auto* net=pass?refinement.at(pass-1).get():network.get();
                     if(pass){barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);gpu.command->CopyResource(color.resource.Get(),result);barrier(gpu.command.Get(),color.resource.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
-                    const auto resolved=phoenix_addon::resolve_controls(controls,w,h,true,net->frames()!=0,reset?0:net->next_sampling_index());
+                    auto core_controls=controls;core_controls.intensity=1;core_controls.style=0;
+                    auto resolved=phoenix_addon::resolve_controls(core_controls,w,h,true,net->frames()!=0,reset?0:net->next_sampling_index());
+                    // Diagnostic only: hold input noise constant while preserving recurrent bindings.
+                    if(config.value("diagnostic_fixed_sampling",false) && !reset)resolved.sampling=1;
+                    resolved.style=float(controls.style)/128.f;
                     dispatch->prepare_repeats(gpu.command.Get());phoenix_addon::FrameDispatch::Scope scope(*dispatch,gpu.command.Get(),resolved,schedule.depth);result=net->record(gpu.command.Get(),reset,0,gpu.queue.Get());scope.finish();}
+                if(appearance)result=appearance->present(gpu.command.Get(),result,{},controls,0);
                 if(profile_gpu)gpu.mark(2);barrier(gpu.command.Get(),result,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);}
             if(profile_gpu)gpu.mark(3);
             gpu.command->CopyResource(shared.Get(),result);if(profile_gpu)gpu.mark(4);
@@ -327,6 +354,14 @@ int main(int argc,char** argv){
                 report["gpu_stage_samples_ms"][names[i]]=segments[i];}
             report["gpu_stage_scope"]="Engine includes recorded preparation/network GPU work, not CPU recording; optional extra timestamps perturb boundaries. Use the uninstrumented control. Segment sums checked per frame.";
         }
+        const unsigned temporal_frames=config.value("temporal_frames",0u);
+        require(temporal_frames<=128,"Invalid temporal capture count");
+        require(!vendor || !config.value("diagnostic_fixed_sampling",false),"Fixed sampling diagnostic requires Phoenix");
+        for(unsigned i=0;i<temporal_frames;++i){
+            frame(config.value("temporal_reset_each_frame",false));capture("temporal_"+std::to_string(i));
+        }
+        report["temporal_frames"]=temporal_frames;
+        report["diagnostic_fixed_sampling"]=config.value("diagnostic_fixed_sampling",false);
         frame(true);capture("reset_a");frame(false);capture("history");frame(true);capture("reset_b");
         report["reset_repeatable"]=report["captures"]["reset_a"]["sha256"]==report["captures"]["reset_b"]["sha256"];
         if(vendor)report["observed_cuda_launches"]=launch_count;

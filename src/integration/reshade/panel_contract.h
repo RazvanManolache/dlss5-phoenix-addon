@@ -21,7 +21,7 @@ enum class BindingResult { Accepted, Cancelled, Reserved, Duplicate, Invalid };
 inline bool bindable_key(unsigned key) {
     return key >= 8 && key <= 255 && key != 0x1b && key != 0x24 && key != 0x7b;
 }
-inline unsigned sanitize_bindings(std::array<int, 7> &bindings) {
+inline unsigned sanitize_bindings(std::array<int, 8> &bindings) {
     std::array<bool, 256> seen{};
     unsigned cleared = 0;
     for (auto &key : bindings) {
@@ -35,7 +35,7 @@ inline unsigned sanitize_bindings(std::array<int, 7> &bindings) {
     }
     return cleared;
 }
-inline BindingResult capture_binding(std::array<int, 7> &bindings, int slot, unsigned key) {
+inline BindingResult capture_binding(std::array<int, 8> &bindings, int slot, unsigned key) {
     if (slot < 0 || slot >= int(bindings.size()) || key > 255 || key == 0)
         return BindingResult::Invalid;
     if (key == 0x1b) // Escape cancels without changing the binding.

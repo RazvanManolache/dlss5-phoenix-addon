@@ -1,8 +1,19 @@
 #pragma once
 #include "panel_context.h"
 namespace phoenix_ui {
+inline void draw_game_fps(const Context &addon_state) {
+    ImGui::TextUnformatted("Recent game presentation rate (FPS)");
+    if (addon_state.presentation_timing && !addon_state.presentation_timing->history().empty()) {
+        const auto& fps=addon_state.presentation_timing->history();
+        ImGui::PushItemWidth(-1);
+        ImGui::PlotLines("##game_fps",fps.data(),int(fps.size()),0,nullptr,0.f,FLT_MAX,ImVec2(0,70));
+        ImGui::PopItemWidth();
+    } else ImGui::TextDisabled("Waiting for a complete one-second FPS sample.");
+    ImGui::TextWrapped("Game FPS includes repeated displayed frames. Retained FPS uses complete windows for the same workload; missing samples show --.");
+}
 inline void draw_timing(Context &addon_state) {
     if (addon_state.portable_wall_ms) {
+        draw_game_fps(addon_state);
         ImGui::Text("Game presentation: %.1f FPS", addon_state.present_fps);
         ImGui::Text("Last processed frame: %.3f ms (host + inference + resolve)", *addon_state.portable_wall_ms);
         ImGui::TextWrapped("Timing source: %s", addon_state.timing_provenance.c_str());
@@ -41,6 +52,7 @@ inline void draw_timing(Context &addon_state) {
         if (confirm_clear_timing("Clear GPU timing")) {
             addon_state.action(Action::ClearTiming);
         }
+        draw_game_fps(addon_state);
         if (!addon_state.worker_timing.report().at("rows").empty()) {
             ImGui::TextUnformatted("Other processing devices (wall time, ms)");
             ImGui::TextWrapped("Rows retain completed results across device switches. Execute "
@@ -100,7 +112,7 @@ inline void draw_timing(Context &addon_state) {
                          int(addon_state.live_timing->history_offset()), nullptr, 0.f, FLT_MAX,
                          ImVec2(0, 70));
         ImGui::PopItemWidth();
-        if (ImGui::BeginTable("phoenix_gpu", 5,
+        if (ImGui::BeginTable("phoenix_gpu", 6,
                               ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY,
                               ImVec2(0,std::min(360.f,65.f + 90.f * float(addon_state.live_timing->data.at("rows").size()))))) {
             ImGui::TableSetupColumn("Route");
@@ -108,6 +120,7 @@ inline void draw_timing(Context &addon_state) {
             ImGui::TableSetupColumn("Phoenix DLSS5 ms");
             ImGui::TableSetupColumn("NVIDIA DLSS5 ms");
             ImGui::TableSetupColumn("Route ms");
+            ImGui::TableSetupColumn("Game FPS");
             ImGui::TableHeadersRow();
             const auto live_report = addon_state.live_timing->report();
             for (const auto &row : live_report.at("rows")) {
@@ -141,6 +154,10 @@ inline void draw_timing(Context &addon_state) {
                     else
                         ImGui::TextUnformatted("--");
                 }
+                ImGui::TableNextColumn();
+                const auto fps=addon_state.presentation_timing ? addon_state.presentation_timing->fps(row) : std::nullopt;
+                if(fps)ImGui::Text("%.1f",*fps);
+                else ImGui::TextUnformatted("--");
             }
             ImGui::EndTable();
         }

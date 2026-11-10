@@ -96,7 +96,8 @@ __global__ void finish_external_pixels(cudaTextureObject_t original,cudaSurfaceO
                 const float factor=old>0?clamp_unit(old*scale)/old:0;
                 for(auto& channel:rgb)channel=clamp_unit(light+(channel-light)*factor);}
         }
-        for(unsigned c=0;c<3;++c)rgb[c]=clamp_unit(base[c]+intensity*(rgb[c]-base[c]));
+        const float blend=clamp_unit(intensity);
+        for(unsigned c=0;c<3;++c)rgb[c]=clamp_unit(base[c]+blend*(rgb[c]-base[c]));
         h.x=__half_as_ushort(__float2half_rn(rgb[0]));h.y=__half_as_ushort(__float2half_rn(rgb[1]));h.z=__half_as_ushort(__float2half_rn(rgb[2]));
     }
     h.w=surf2Dread<ushort4>(alpha,x*sizeof(ushort4),y).w;

@@ -58,7 +58,7 @@ engine depth or other game buffers.
 
 The status reports the active source, configured estimation size and whether
 history is available. Missing, priming or invalid flow resets history; it does
-not intentionally switch to the original game image. **History policy → Force
+not intentionally switch to the original game image. **Temporal history and resets → Force
 reset every frame** overrides temporal reuse, so leave it off when evaluating
 motion stability. Motion settings apply when you release the control, without
 restarting the helper or reloading the neural model. Artistic sliders remain live
@@ -140,11 +140,15 @@ summaries stay visible while the body scrolls. All 136 saved settings are retain
 
 **Image and pipeline details**
 
-![Image tab with expandable motion, processing-chain, appearance and history controls](features/overlay-image.png)
+![Image tab with motion, processing-chain, engine-guide and history controls](features/overlay-image.png)
 
 **Performance and retained comparisons**
 
 ![Quality budgets, network workload and retained timing comparisons](features/overlay-performance.png)
+
+**Hotkeys and quick bypass**
+
+![Separate Hotkeys tab with the rebindable F6 processing toggle](features/overlay-hotkeys.png)
 
 **Narrow panels and useful errors**
 

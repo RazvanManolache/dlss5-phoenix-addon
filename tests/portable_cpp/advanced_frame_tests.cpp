@@ -18,7 +18,18 @@ int main() {
         check(close_enough(compose_display(original,neural,0,.5f,0,1,DisplayInputs{map})[0],.375f),"mask times display intensity");
         check(compose_display(original,neural,0,2,0,1,{})==neural,"above-one pass activation");
         map[0]=1;
-        check(compose_display(original,neural,0,2,0,1,DisplayInputs{map})[0]==1,"postprocess extrapolation clamp");
+        check(compose_display(original,neural,0,2,0,1,DisplayInputs{map})==neural,"masked display intensity saturates at one");
+        const RGB colored_original{.15f,.3f,.45f},colored_neural{.8f,.5f,.2f};
+        float coverage[]={.1f,.2f,.3f,.5f};
+        for(unsigned style=0;style<=2;++style)for(float tone:{0.f,.5f,2.f})
+            for(float surface:{0.f,.5f,1.f})for(float alpha:{0.f,.5f,1.f}) {
+                map[0]=surface;coverage[3]=alpha;
+                const DisplayInputs layers{map,coverage};
+                const auto full=compose_display(colored_original,colored_neural,0,1,style,tone,layers);
+                for(float intensity:{1.1f,2.f})
+                    check(compose_display(colored_original,colored_neural,0,intensity,style,tone,layers)==full,
+                          "style/mask/UI display blend extrapolates above one");
+            }
         float ui[]={.1f,.2f,.3f,1};
         DisplayInputs hud; hud.ui=ui;
         check(compose_display(original,neural,0,1,0,1,hud)==RGB{.1f,.2f,.3f},"opaque UI protection");

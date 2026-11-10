@@ -115,13 +115,13 @@ where, costs and experimental limits. VSR and OptiScaler remain deferred.
 
 **Tune the look.** Tone, structure, skin and guide controls, without leaving the game.
 
-![Tone, structure, skin masking, motion scale and depth controls](features/appearance.png)
+![Shared artistic style, intensity, tone, structure and skin controls](features/appearance.png)
 
 **Keep your comparisons.** Timing rows survive backend and settings changes.
 
-![Retained GPU timing history with a recent timing graph and separate Phoenix DLSS5 and NVIDIA DLSS5 columns](features/timing-history.png)
+![Retained timing and FPS histories with separate Phoenix DLSS5 and NVIDIA DLSS5 columns](features/timing-history.png)
 
-The values above are from the screenshot session, not the controlled benchmark.
+These screenshots render the actual C++/ImGui controls with synthetic status values.
 
 - **Choose the runner:** native RTX, CUDA, Vulkan, HIP, CPU or SYCL in the Windows addon, with experimental Metal in the standalone Apple runtime, subject to
   the installed provider and device capabilities. Compiled runners need no

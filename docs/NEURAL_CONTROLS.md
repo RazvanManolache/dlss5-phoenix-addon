@@ -1,13 +1,21 @@
 # Phoenix appearance and optional inputs
 
 <!-- current-two-model-evidence -->
-Both Phoenix models expose the eight model-specific central transformer controls, 0-4 repetitions and addon/portable 1-10 passes. See [support and integration limits](SUPPORT.md), [portable scheduling](PORTABLE_MODEL_CONTROLS.md) and [current measured control costs](benchmarks/current/README.md#granular-and-appearance-controls). Experimental appearance options are not vendor-parity modes.
+Both Phoenix models expose the eight model-specific central transformer controls, 0-4 repetitions and addon/portable 1-10 passes. See [support and integration limits](SUPPORT.md), [portable scheduling](PORTABLE_MODEL_CONTROLS.md) and [current measured control costs](benchmarks/current/README.md#granular-and-appearance-controls).
 <!-- /current-two-model-evidence -->
 
-The shared panel exposes an experimental Phoenix appearance switch, global
-intensity (0-2), and Default/Natural/Cinematic styles. Values take effect as
-live tuning edits and remain separate from the NVIDIA-only overrides.
+The Play tab exposes shared appearance overrides, global intensity (0-2),
+and Default/Natural/Cinematic styles. Values take effect as
+live tuning edits for both Phoenix and NVIDIA output. Shared appearance takes
+precedence over legacy NVIDIA-only intensity/style settings.
 Disabling appearance restores host values while retaining the chosen settings.
+Press **F6** to toggle processing off and on without changing the selected
+backend, model or image settings. Rebind or clear **Toggle processing** in the
+**Hotkeys** tab. Existing shortcut assignments are preserved; if F6 is already
+assigned to another action, choose a different key for the new toggle.
+The accepted intensity range remains 0-2 for host compatibility. The display
+blend saturates at 1, matching the verified Original and Lightweight DLL
+behavior; values above 1 do not extrapolate shading or the selected style.
 
 ```mermaid
 flowchart LR
@@ -27,6 +35,11 @@ flowchart LR
 The encoder, central attention blocks, decoder and temporal recurrence remain
 the model pipeline. Block repetitions, whole-network passes and prior-frame
 history are separate mechanisms; this adds no diffusion sampling loop.
+
+For the trained network, keep each block at **1** and network passes at **1**.
+A block count of **0** skips that learned block; it does not disable temporal
+history. Skipping blocks changes the network and can amplify temporal variation.
+Counts above 1 repeat a learned block on its preceding result and are experimental.
 
 | Feature | How it is supplied |
 | --- | --- |

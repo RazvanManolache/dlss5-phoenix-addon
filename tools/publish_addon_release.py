@@ -65,6 +65,7 @@ def main():
     parser.add_argument('--title', help='Public release title')
     parser.add_argument('--prerelease', action='store_true', help='Publish as a GitHub prerelease; beta/alpha/rc/preview versions imply this automatically')
     parser.add_argument('--publish', action='store_true', help='Push the ref/tag and publish a new release')
+    parser.add_argument('--draft', action='store_true', help='Leave uploaded assets in draft while platform CI adds its packages')
     args = parser.parse_args()
     prerelease = args.prerelease or bool(re.search(r'(?i)(?:alpha|beta|preview|rc)', VERSION))
     output = CURRENT/f'release-{VERSION}'
@@ -115,6 +116,12 @@ def main():
         if asset['state'] != 'uploaded' or asset['size'] != (output/name).stat().st_size:
             raise ValueError('Asset upload incomplete: '+name)
         print('Uploaded '+name, flush=True)
+    if args.draft:
+        proof = dict(draft=True, version=VERSION, commit=commit, release_id=release['id'],
+                     url=release['html_url'], awaiting_platform_packages=True)
+        (output/'DRAFT.json').write_text(json.dumps(proof, indent=2)+'\n')
+        print(json.dumps(proof, indent=2))
+        return
     release = json.loads(request(API+'/releases/'+str(release['id']), token, 'PATCH',
                                  dict(draft=False, make_latest='false' if prerelease else 'true')))
     public = json.loads(request(API+'/releases/tags/'+VERSION, token))

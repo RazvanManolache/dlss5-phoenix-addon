@@ -21,14 +21,15 @@ struct Session {
     phoenix_addon::phoenix::Settings applied_settings;
     phoenix_addon::phoenix::Settings displayed_settings;
     std::array<phoenix_addon::phoenix::Settings, 4> presets;
-    std::array<int, 7> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0}};
+    std::array<int, 8> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0, VK_F6}};
     int capture_hotkey = -1;
-    uint64_t hotkey_deadline = 0, markers = 0, fps_tick = 0, fps_frames = 0;
+    uint64_t hotkey_deadline = 0, markers = 0;
     double present_fps = 0;
+    phoenix_addon::phoenix::PresentationTiming presentation_timing;
     bool settings_dirty = false;
     std::vector<phoenix_addon::phoenix::ExecutionDevice> execution_devices{
         {"native", "Native RTX"}};
-    std::string ui_error;
+    std::string ui_error, control_error;
     Json previous_gpu_rows = Json::array(), previous_worker_rows = Json::array();
     std::unique_ptr<D3D11Bridge> bridge;
     std::unique_ptr<ReadbackBridge> readback;
@@ -393,7 +394,7 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
             previous && same_helper_recipe(*previous, *entry)) {
             entry = std::move(previous);
             ++entry->runtime_resumes;
-            entry->fps_tick = entry->fps_frames = 0;
+            entry->presentation_timing.clear();
             reshade::log::message(reshade::log::level::info,
                 "Phoenix resumed the same shared-GPU helper after runtime reset; model and completed frame retained.");
         }
@@ -577,6 +578,11 @@ inline Phase processing_phase(Session& value) {
     auto* host = active_host(value);
     return host ? host->phase() : Phase::Starting;
 }
+inline std::string presentation_scope(Session& value) {
+    auto* host=active_host(value);
+    if(host && !resident_active(value))return "helper:"+std::to_string(host->process_id());
+    return value.local ? "in_process" : "staged_in_process";
+}
 inline void remember_timing(Session &value) {
     auto *host = active_host(value);
     if ((!host && !value.local) || value.timing_clear_pending)
@@ -588,6 +594,7 @@ inline void remember_timing(Session &value) {
         if (!report.is_object())
             continue;
         for (auto row : report.value("rows", Json::array())) {
+            if(std::string(item.first)=="gpu_timing")row["presentation_scope"]=presentation_scope(value);
             if (host && std::string(item.first) == "gpu_timing")
                 row["settings"]["HelperProcess"] = host->process_id();
             item.second->push_back(std::move(row));
@@ -598,6 +605,7 @@ inline void remember_timing(Session &value) {
     }
 }
 inline bool send_action(Session &value, phoenix_ui::Action action, unsigned argument = 0) {
+    if(action==phoenix_ui::Action::ClearTiming)value.presentation_timing.clear();
     if(action==phoenix_ui::Action::SaveScreenshotPair) {
         if(!value.enabled || value.applied_settings.mode==phoenix_addon::phoenix::input || value.pair_requested || value.screenshot_pair.value("state",std::string())=="pending") {
             value.ui_error="Enable processed output before capturing a pair; an existing request must finish first.";return false;
@@ -751,6 +759,7 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.live_resets_recorded = info.value("history_resets", uint64_t(0));
     ui.depth_budget.estimate = info.value("budget_estimate_ms", 0.0);
     ui.present_fps = value.present_fps;
+    ui.presentation_timing = &value.presentation_timing;
     if (info.contains("resolution")) {
         const auto &geometry = info["resolution"];
         ui.direct_runner = phoenix_ui::Preview{
@@ -769,6 +778,9 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
         ui.live_timing->data["rows"] = Json::array();
     for (const auto &row : value.previous_gpu_rows)
         ui.live_timing->data["rows"].push_back(row);
+    const auto current_scope=presentation_scope(value);
+    for(auto& row:ui.live_timing->data["rows"])
+        if(!row.contains("presentation_scope"))row["presentation_scope"]=current_scope;
     if (info.contains("gpu_history"))
         ui.live_timing->samples = info["gpu_history"].get<std::vector<float>>();
     const auto worker = info.value("worker_timing", Json::object());
@@ -815,6 +827,7 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"restart_pending", value.restart}, {"settings_pending", value.settings_dirty},
         {"selection_revision", value.selection_revision}, {"presented_revision", value.presented_revision},
         {"status", value.message},
+        {"control_error", value.control_error},
         {"process_memory_exhausted", value.process_memory_exhausted},
         {"helper_pid", host && !resident_active(value) ? host->process_id() : 0},
         {"execution_mode", execution_mode(value)},
@@ -855,6 +868,7 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"helper", host && !resident_active(value) ? host->ui_snapshot() : Json::object()},
         {"in_process", value.local || resident_active(value) ? processing_info(value) : Json::object()},
         {"present_fps", value.present_fps},
+        {"presentation_timing", value.presentation_timing.report()},
         {"screenshot_pair",value.screenshot_pair},
         {"screenshot", {{"pending", !value.screenshot_pending.empty()},
                         {"path", phoenix_model::source_path_string(value.screenshot_complete)},
@@ -909,7 +923,8 @@ inline void poll_control(reshade::api::effect_runtime* runtime, Session& value) 
                 }
                 return "observed";
             });
-    } catch (const std::exception& error) { value.ui_error = error.what(); }
+        value.control_error = value.control.error();
+    } catch (const std::exception& error) { value.control_error = error.what(); }
 }
 inline void record_screenshot(reshade::api::effect_runtime* runtime, Session& value,
                               reshade::api::command_list* command, reshade::api::resource back) {
@@ -946,6 +961,7 @@ inline void comparison_hud(reshade::api::effect_runtime* runtime) {
 // The same Setup tab hosts architecture-specific transport controls.
 inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value) {
     if (ImGui::CollapsingHeader("Advanced transport")) {
+    if (!value.control_error.empty()) ImGui::TextWrapped("Control channel: %s", value.control_error.c_str());
     ImGui::TextWrapped("%s", value.local ? value.local->execution_description() :
         std::string(execution_mode(value)) == "in_process_staged" ?
         "Native GPU inference runs inside this x64 game. This graphics API uses fenced CPU capture and return." : native_active(value) ?
@@ -956,17 +972,17 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
     transport_capabilities(value,value.settings,value.capabilities);
     const auto choices = available_execution_preferences(value.selectable_capabilities);
     const bool saved_available = std::find(choices.begin(), choices.end(), value.execution) != choices.end();
-    const auto preview = saved_available ? execution_preference_label(value.execution) : "Saved mode unavailable - choose a route";
-    if (ImGui::BeginCombo("Execution mechanism", preview)) {
-        for (auto choice : choices) {
-            const bool selected = choice == value.execution;
-            if (ImGui::Selectable(execution_preference_label(choice), selected)) {
-                value.execution = choice; value.execution_name = execution_preference_name(choice);
-                route_changed = true;
-            }
-            if (selected) ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndCombo();
+    std::vector<const char*> execution_labels;
+    int selected_execution = -1;
+    for (auto choice : choices) {
+        if (choice == value.execution) selected_execution = int(execution_labels.size());
+        execution_labels.push_back(execution_preference_label(choice));
+    }
+    if (phoenix_ui::choice_buttons("Execution mechanism", &selected_execution,
+                                   execution_labels.data(), int(execution_labels.size()))) {
+        value.execution = choices[selected_execution];
+        value.execution_name = execution_preference_name(value.execution);
+        route_changed = true;
     }
     if (!saved_available) ImGui::TextWrapped("The saved execution mechanism is not available for this architecture, runtime or settings. Select Automatic to try eligible routes.");
     ImGui::TextWrapped("Automatic tries same-device native DX12, eligible x86 native routes, then portable processing. The x64 helper is last.");
@@ -999,7 +1015,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
     const char* transfers[]{"Automatic", "Shared GPU textures (D3D11 only)", "Staging / CPU pixels"};
     int transfer = value.helper_transport == "shared" ? 1 : value.helper_transport == "readback" ? 2 : 0;
     ImGui::BeginDisabled(native_active(value));
-    if (ImGui::Combo("Helper transfer", &transfer, transfers, 3)) {
+    if (phoenix_ui::choice_buttons("Helper transfer", &transfer, transfers, 3)) {
         value.helper_transport = transfer == 1 ? "shared" : transfer == 2 ? "readback" : "auto";
         route_changed = true;
     }
@@ -1160,14 +1176,16 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         if (value.recorded_mode >= 0) ++value.switches;
         value.recorded_mode = value.applied_settings.mode;
     }
-    ++value.fps_frames;
     const auto now = GetTickCount64();
-    if (!value.fps_tick)
-        value.fps_tick = now;
-    if (now - value.fps_tick >= 1000) {
-        value.present_fps = value.fps_frames * 1000.0 / double(now - value.fps_tick);
-        value.fps_frames = 0;
-        value.fps_tick = now;
+    if (const auto sample=value.presentation_timing.present(now,std::to_string(value.helper_generation),
+            value.selection_revision,value.applied_settings.mode)) {
+        value.present_fps=sample->fps;
+        if(value.enabled && value.presented_revision==value.selection_revision) {
+            const auto info=processing_info(value);
+            if(info.value("last_mode",-1)==value.applied_settings.mode)
+                value.presentation_timing.record_active(*sample,info.value("gpu_timing",Json::object()),
+                    info.value("last_mode",-1),info.value("transformer_blocks",8u),presentation_scope(value));
+        }
     }
     if (value.capture_hotkey >= 0) {
         if (now > value.hotkey_deadline)
@@ -1216,6 +1234,15 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             if (index == 4)
                 send_action(value, phoenix_ui::Action::ClearTiming);
             if (index == 6) send_action(value, phoenix_ui::Action::SaveScreenshotPair);
+            if (index == 7) {
+                value.enabled = !value.enabled;
+                value.settings.uplift = value.applied_settings.uplift = true;
+                ++value.selection_revision;
+                value.restart = true;
+                value.processing_error.clear();
+                reset_route_failures(value);
+                save(runtime, value, false);
+            }
             if (index == 5)
                 send_action(value, phoenix_ui::Action::CaptureInputs,
                             value.settings.capture_burst ? value.settings.capture_burst : 8);

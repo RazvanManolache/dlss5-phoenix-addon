@@ -6,7 +6,7 @@ One button, two PNGs, one processed frame. No frantic toggling while your subjec
 2. In **Play**, use **Save original + modified** in the Compare card. It is visible even when the detailed comparison controls are collapsed.
 3. The status changes from pending to saved and shows the output folder, or explains a failure.
 
-For a keyboard shortcut, open **Setup → Hotkeys → Save original + modified**, click **Unbound** and press a key. Existing shortcut slots keep their meanings; the new slot starts unbound. The existing duplicate/reserved-key rules apply. Binding changes are persisted, and Save configuration remains available at the top.
+For a keyboard shortcut, open **Hotkeys → Save original + modified**, click **Unbound** and press a key. Existing shortcut slots keep their meanings; this slot starts unbound. The existing duplicate/reserved-key rules apply. Binding changes are persisted, and Save configuration remains available at the top.
 
 ## Saved files
 

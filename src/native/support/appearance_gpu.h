@@ -1,8 +1,9 @@
 #pragma once
 #include "compute_pass.h"
 namespace phoenix_addon::phoenix::direct {
-// Independent SDR proxy composition. Style constants match the inspected
-// 310.8 table; this does not claim equivalence for other model editions.
+// Independent SDR proxy composition. The display blend saturates intensity:
+// verified Original/Lightweight DLL outputs at intensity 1 and 2 are identical.
+// Style constants alone do not certify other model editions or host transfers.
 inline constexpr const char* appearance_delta_shader = R"hlsl(
 Texture2D<float4> Original:register(t0);
 Texture2D<float4> Neural:register(t1);
@@ -20,7 +21,7 @@ float3 saturation(float3 c,float scale) {
  float t=saturate(asfloat(ToneBits));
  if(Style==1) { c=saturate(c*exp2(-.1*t)); c=saturate(c+(-.25*t)*(c*c*(3-2*c)-c)); c=saturation(c,1-.1*t); }
  if(Style==2)c=saturation(c,1-.15*t);
- float amount=Intensity*((Flags&1)!=0?Mask.Load(int3(p.xy,0)).r:1);
+ float amount=saturate(Intensity)*((Flags&1)!=0?Mask.Load(int3(p.xy,0)).r:1);
  Output[p.xy]=float4(amount*(c-original),0);
 })hlsl";
 inline constexpr const char* appearance_compose_shader = R"hlsl(

@@ -15,7 +15,8 @@ class Mailbox {
     uint64_t poll_tick_ = 0;
     bool published_ = false;
     Json pending_;
-    static void write(const std::filesystem::path& path, const Json& value) {
+    std::string error_;
+    bool write(const std::filesystem::path& path, const Json& value) {
         auto temporary = path;
         temporary += L".tmp";
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
@@ -24,13 +25,25 @@ class Mailbox {
         output.flush();
         check(bool(output), "Control response write failed");
         output.close();
-        check(MoveFileExW(temporary.c_str(), path.c_str(),
-                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0,
-              "Control response publication failed");
+        if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            const auto code = GetLastError();
+            error_ = "Control response publication deferred (Win32 " + std::to_string(code) + ")";
+            // Readers/scanners may briefly deny delete sharing. Keep the already
+            // executed response and retry on the next poll, without blocking the
+            // render callback or executing a command twice.
+            if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION ||
+                code == ERROR_ACCESS_DENIED) return false;
+            throw std::runtime_error("Control response publication failed (Win32 " +
+                                     std::to_string(code) + ")");
+        }
+        error_.clear();
+        return true;
     }
   public:
     const std::filesystem::path& folder() const { return folder_; }
     const std::string& session() const { return session_; }
+    const std::string& error() const { return error_; }
     void configure(std::filesystem::path folder, uint64_t window) {
         folder_ = std::move(folder);
         FILETIME created{}, exited{}, kernel{}, user{};
@@ -47,14 +60,14 @@ class Mailbox {
         poll_tick_ = now;
         if (!published_) {
             std::filesystem::create_directories(folder_);
-            write(folder_ / "endpoint.json", {{"schema", "phoenix-control/1"},
+            if (!write(folder_ / "endpoint.json", {{"schema", "phoenix-control/1"},
                 {"session", session_}, {"pid", GetCurrentProcessId()},
                 {"frontend_controls", {"enabled", "coherent_frames"}},
-                {"operations", {"status", "set", "save", "reset_history", "screenshot", "screenshot_pair", "capture", "validate_model"}}});
+                {"operations", {"status", "set", "save", "reset_history", "screenshot", "screenshot_pair", "capture", "validate_model"}}})) return;
             published_ = true;
         }
         if (!pending_.is_null()) {
-            write(folder_ / "response.json", pending_);
+            if (!write(folder_ / "response.json", pending_)) return;
             pending_ = nullptr;
         }
         const auto incoming = folder_ / "request.json", claimed = folder_ / "processing.json";
@@ -91,7 +104,7 @@ class Mailbox {
         pending_ = std::move(response);
         std::error_code error;
         std::filesystem::remove(claimed, error);
-        write(folder_ / "response.json", pending_);
+        if (!write(folder_ / "response.json", pending_)) return;
         pending_ = nullptr;
     }
 };

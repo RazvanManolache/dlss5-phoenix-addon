@@ -52,7 +52,7 @@ struct WinHttpApi {
     }
 };
 inline const WinHttpApi& winhttp() { static const WinHttpApi api; return api; }
-inline constexpr char current_version[] = "1.1.0";
+inline constexpr char current_version[] = "1.1.5";
 inline constexpr wchar_t releases_url[] = L"https://github.com/RazvanManolache/dlss5-phoenix-addon/releases";
 inline std::string newer_release(std::string_view body, std::string_view current = current_version) {
     if (body.size() > 256 * 1024) return {};

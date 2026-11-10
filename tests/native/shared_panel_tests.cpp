@@ -18,6 +18,7 @@ struct Widget {
     std::string label;
     ImRect rect;
     bool disabled = false;
+    float choice_width = 0, choice_height = 0;
 };
 std::vector<Widget> widgets;
 bool record_widgets = false;
@@ -39,7 +40,7 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext *context, ImGuiID id, const ImRect
         return;
     // BeginCombo has ItemAdd geometry but no ItemInfo label in ImGui 1.92.5.
     std::string label;
-    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Phoenix style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target", "Native RTX kernel style", "Motion source", "Motion diagnostic view", "Pipeline monitoring"})
+    for (const char *combo : {"Output", "View", "Source A", "Source B", "Depth", "Resolution mode", "Artistic style", "Neural model", "Shared native models", "NVIDIA neural model", "Hook method", "Present DLSS guide reuse", "Scaling domain", "Downsample filter", "Upsample filter", "Scale reconstruction", "Input encoding", "NR signal encoding", "Use exposure value", "UI correction policy", "Target", "Native RTX kernel style", "Motion source", "Motion diagnostic view", "Pipeline monitoring"})
         if (context->CurrentWindow->GetID(combo) == id)
             label = combo;
     const auto found = std::find_if(widgets.begin(), widgets.end(),
@@ -70,11 +71,76 @@ void ImGuiTestEngineHook_ItemInfo(ImGuiContext *context, ImGuiID id, const char 
             widgets.push_back({id, label, context->LastItemData.Rect,
                                (context->LastItemData.ItemFlags & ImGuiItemFlags_Disabled) != 0});
     }
+    if(record_widgets) {
+        const std::string text=label;const auto marker=text.find("###choice.");
+        if(marker!=std::string::npos) {
+            const auto separator=text.find('|',marker+10);
+            if(separator!=std::string::npos) {
+                const auto group=text.substr(marker+10,separator-marker-10);
+                const auto group_id=context->CurrentWindow->GetID(("choice-group/"+group).c_str());
+                const auto rect=context->LastItemData.Rect;
+                const bool disabled=(context->LastItemData.ItemFlags&ImGuiItemFlags_Disabled)!=0;
+                auto found=std::find_if(widgets.begin(),widgets.end(),[&](const Widget& w){return w.id==group_id;});
+                if(found==widgets.end())widgets.push_back({group_id,group,rect,disabled,rect.GetWidth(),rect.GetHeight()});
+                else {
+                    if(std::abs(found->choice_width-rect.GetWidth())>.5f || std::abs(found->choice_height-rect.GetHeight())>.5f)
+                        throw std::runtime_error("Choice buttons have unequal hit areas: "+group);
+                    if(rect.GetHeight()<28.f)throw std::runtime_error("Choice button is too short to click comfortably");
+                    found->rect.Add(rect);found->disabled=found->disabled&&disabled;
+                }
+            }
+        }
+    }
+
 }
 void ImGuiTestEngineHook_Log(ImGuiContext *, const char *, ...) {}
 const char *ImGuiTestEngine_FindItemDebugLabel(ImGuiContext *, ImGuiID) { return ""; }
 #include "dashboard_tests.h"
 int run_tests() {
+    {
+        phoenix_ui::Settings settings;
+        phoenix_addon::Controls host;host.intensity=.4f;host.style=1;
+        settings.controls.appearance=true;settings.controls.intensity=2;settings.controls.style=2;
+        settings.native_options=true;settings.intensity=.25f;settings.style=0;
+        for(int mode:{phoenix_ui::phoenix::ours,phoenix_ui::phoenix::nvidia,phoenix_ui::phoenix::split}) {
+            settings.mode=mode;
+            const auto nvidia=phoenix_ui::phoenix::nvidia_appearance(settings,host);
+            const auto phoenix=settings.controls.apply(host);
+            if(nvidia.intensity!=phoenix.intensity||nvidia.style!=phoenix.style)
+                throw std::runtime_error("Shared appearance diverged between outputs");
+        }
+        settings.controls.appearance=false;
+        auto legacy=phoenix_ui::phoenix::nvidia_appearance(settings,host);
+        if(legacy.intensity!=.25f||legacy.style!=0)throw std::runtime_error("Legacy appearance was not retained");
+        settings.native_options=false;
+        auto defaults=phoenix_ui::phoenix::nvidia_appearance(settings,host);
+        if(defaults.intensity!=1.f||defaults.style!=0)throw std::runtime_error("NVIDIA reference appearance changed");
+        settings.processing.enabled=true;
+        auto processing=phoenix_ui::phoenix::nvidia_appearance(settings,host);
+        if(processing.intensity!=host.intensity||processing.style!=host.style)throw std::runtime_error("Explicit processing controls were lost");
+    }
+    // Presentation FPS must count intervals, discard mixed-workload windows,
+    // retain weighted per-row results and clear independently of GPU samples.
+    {
+        phoenix_ui::phoenix::PresentationTiming fps;
+        const nlohmann::json row={{"mode",3},{"transformer_blocks",8},{"width",1920},{"height",1080},{"settings",{{"ModelId","original"}}}};
+        if(fps.present(100,"a",1,3))throw std::runtime_error("Initial presentation was counted as an interval");
+        for(unsigned i=1;i<60;++i)if(fps.present(100+i*1000/60,"a",1,3))throw std::runtime_error("FPS window completed too early");
+        const auto sample=fps.present(1100,"a",1,3);
+        if(!sample || sample->frames!=60 || sample->fps!=60.)throw std::runtime_error("FPS interval count incorrect");
+        fps.record(*sample,row);
+        if(fps.fps(row)!=60.)throw std::runtime_error("Retained FPS missing");
+        if(fps.present(1500,"b",2,3) || fps.present(2400,"b",2,3))throw std::runtime_error("Mixed settings FPS window accepted");
+        const auto next=fps.present(2500,"b",2,3);if(!next || next->frames!=2)throw std::runtime_error("FPS switch did not reset the interval counter");
+        auto other=row;other["settings"]["ModelId"]="small-fp8";fps.record(*next,other);
+        if(fps.fps(row)!=60. || fps.fps(other)!=2.)throw std::runtime_error("FPS workload rows were mixed");
+        auto helper=row;helper["presentation_scope"]="helper:10";fps.record(*sample,helper);
+        auto retained=helper;retained["settings"]["HelperProcess"]=10;
+        if(fps.fps(retained)!=60.)throw std::runtime_error("Retained helper annotation lost FPS");
+        auto different_helper=helper;different_helper["presentation_scope"]="helper:20";
+        if(fps.fps(different_helper))throw std::runtime_error("Separate helper routes shared FPS");
+        fps.clear();if(fps.fps(row)||!fps.history().empty())throw std::runtime_error("FPS clear retained old samples");
+    }
     struct LibraryFixture {
         std::filesystem::path root = std::filesystem::absolute(std::filesystem::temp_directory_path() /
             ("phoenix-shared-widget-models-" + std::to_string(GetCurrentProcessId())));
@@ -101,7 +167,7 @@ int run_tests() {
     ImGui::CreateContext();
     auto &io = ImGui::GetIO();
     io.IniFilename = nullptr;
-    io.DisplaySize = {1600, 6000};
+    io.DisplaySize = {1600, 12000};
     io.DeltaTime = 1.f / 60;
     unsigned char *pixels;
     int width, height;
@@ -109,7 +175,7 @@ int run_tests() {
     io.Fonts->SetTexID(ImTextureID(1));
     phoenix_ui::Settings settings;
     std::array<phoenix_ui::Settings, 4> presets;
-    std::array<int, 7> hotkeys{};
+    std::array<int, 8> hotkeys{};
     int capture_key = -1;
     uint64_t deadline = 0, markers = 0;
     phoenix_model_tools::Task picker;
@@ -154,7 +220,7 @@ int run_tests() {
                 context.live_timing->data["active_settings"] = nlohmann::json::object();
                 ImGui::NewFrame();
                 ImGui::SetNextWindowPos({0, 0});
-                ImGui::SetNextWindowSize({1600, 6000});
+                ImGui::SetNextWindowSize({1600, 12000});
                 ImGui::Begin("Shared addon UI");
                 for (const char *section :
                      {"History policy", "Phoenix DLSS5 experiments",
@@ -193,7 +259,7 @@ int run_tests() {
     check(phoenix_ui::capture_binding(hotkeys, 0, 0x79) == BindingResult::Duplicate);
     check(hotkeys == original_keys);
     check(phoenix_ui::capture_binding(hotkeys, -1, 0x75) == BindingResult::Invalid);
-    check(phoenix_ui::capture_binding(hotkeys, 7, 0x75) == BindingResult::Invalid);
+    check(phoenix_ui::capture_binding(hotkeys, 8, 0x75) == BindingResult::Invalid);
     check(phoenix_ui::capture_binding(hotkeys, 0, 256) == BindingResult::Invalid);
     check(phoenix_ui::capture_binding(hotkeys, 0, 0x75) == BindingResult::Accepted);
     check(hotkeys[0] == 0x75);
@@ -201,8 +267,17 @@ int run_tests() {
     check(hotkeys[6] == 0x74);
     check(phoenix_ui::capture_binding(hotkeys, 0, 0x74) == BindingResult::Duplicate);
     hotkeys[6]=0;
+    check(phoenix_ui::capture_binding(hotkeys,7,0x76)==BindingResult::Duplicate);
+    check(phoenix_ui::capture_binding(hotkeys,7,0x73)==BindingResult::Accepted);
+    check(hotkeys[7]==0x73);
+    hotkeys[7]=0;
+    for(int mode=0;mode<4;++mode) {
+        settings.mode=mode;
+        check(phoenix_ui::phoenix::PanelVisibility{settings}.hotkey(7));
+    }
+    settings.mode=phoenix_ui::phoenix::ours;
     check(phoenix_ui::valid_action(7) && !phoenix_ui::valid_action(8));
-    std::array<int, 7> imported{{0x78, 0x78, 0x24, -1, 256, 0x1b}};
+    std::array<int, 8> imported{{0x78, 0x78, 0x24, -1, 256, 0x1b}};
     check(phoenix_ui::sanitize_bindings(imported) == 5);
     check(imported[0] == 0x78 && imported[1] == 0 && imported[5] == 0);
     check(phoenix_ui::sanitize_bindings(imported) == 0);
@@ -335,7 +410,7 @@ int run_tests() {
                 widgets.clear();
                 ImGui::NewFrame();
                 ImGui::SetNextWindowPos({0, 0});
-                ImGui::SetNextWindowSize({1600, 6000});
+                ImGui::SetNextWindowSize({1600, 12000});
                 ImGui::Begin(window_name.c_str());
                 if (!compact)
                     for (const char* group : {"Skin and automatic mask", "Appearance details", "Engine motion and depth"})
@@ -363,7 +438,15 @@ int run_tests() {
                 return click_at(widget_rect(label).GetCenter());
             };
             const auto select = [&](const char *combo, const char *option) {
-                frame(); frame(); // Settle text wrapping after the preceding selection.
+                frame(); frame(); // Settle wrapping after the preceding selection.
+                const auto suffix=std::string("###choice.")+combo+"|"+option;
+                const auto choice=std::find_if(widgets.begin(),widgets.end(),[&](const Widget& w){return w.label.ends_with(suffix);});
+                if(choice!=widgets.end()) {
+                    const auto label=choice->label;
+                    const auto result=click(label.c_str());
+                    require_widget(ImGui::GetCurrentContext()->OpenPopupStack.Size==0,"Fixed choice opened a popup instead of selecting in one click");
+                    return result;
+                }
                 const auto rect = widget_rect(combo);
                 // Combo bounds include the label; click inside the frame at its left edge.
                 Changes result = click_at(ImVec2(rect.Min.x + 12, rect.GetCenter().y));
@@ -703,28 +786,28 @@ int run_tests() {
                     const float nvidia_intensity = settings.intensity;
                     const int nvidia_style = settings.style;
                     frame(); frame();
-                    require_widget(widget_disabled("Phoenix intensity") && widget_disabled("Phoenix style"),
+                    require_widget(widget_disabled("Overall intensity") && widget_disabled("Artistic style"),
                                    "Appearance children must start disabled");
-                    const auto enabled_appearance = click("Phoenix appearance (experimental)");
+                    const auto enabled_appearance = click("Appearance overrides");
                     require_widget(enabled_appearance.changed && enabled_appearance.tuning &&
                                        !enabled_appearance.selection && !enabled_appearance.processing &&
                                        settings.controls.appearance,
                                    "Appearance enable must apply as a live tuning edit");
                     frame();
-                    require_widget(!widget_disabled("Phoenix intensity") && !widget_disabled("Phoenix style"),
+                    require_widget(!widget_disabled("Overall intensity") && !widget_disabled("Artistic style"),
                                    "Appearance controls must work without engine motion/depth");
-                    const auto intensity = widget_rect("Phoenix intensity");
+                    const auto intensity = widget_rect("Overall intensity");
                     const auto edited = click_at({intensity.Min.x + 55, intensity.GetCenter().y});
                     require_widget(edited.changed && edited.tuning && settings.controls.intensity != 1.f,
-                                   "Phoenix intensity slider did not edit the live override");
-                    const auto natural = select("Phoenix style", "Natural");
+                                   "Overall intensity slider did not edit the live override");
+                    const auto natural = select("Artistic style", "Natural");
                     require_widget(natural.changed && natural.tuning && settings.controls.style == 1,
                                    "Natural style selection did not edit the Phoenix override");
-                    const auto cinematic = select("Phoenix style", "Cinematic");
+                    const auto cinematic = select("Artistic style", "Cinematic");
                     require_widget(cinematic.changed && cinematic.tuning && settings.controls.style == 2,
                                    "Cinematic style selection did not edit the Phoenix override");
                     require_widget(settings.intensity == nvidia_intensity && settings.style == nvidia_style,
-                                   "Phoenix appearance edited the separate NVIDIA overrides");
+                                   "Appearance overrides edited the separate NVIDIA overrides");
                     phoenix_addon::Controls host_controls;
                     host_controls.intensity = .3f;
                     host_controls.style = 1;
@@ -747,11 +830,11 @@ int run_tests() {
                                        restored.style == nvidia_style,
                                    "Persisted Phoenix tuning failed to round-trip independently of NVIDIA values");
                     const float retained_intensity = settings.controls.intensity;
-                    require_widget(click("Phoenix appearance (experimental)").changed &&
+                    require_widget(click("Appearance overrides").changed &&
                                        !settings.controls.appearance,
                                    "Appearance disable did not switch off the override");
                     frame();
-                    require_widget(widget_disabled("Phoenix intensity") && widget_disabled("Phoenix style") &&
+                    require_widget(widget_disabled("Overall intensity") && widget_disabled("Artistic style") &&
                                        settings.controls.intensity == retained_intensity && settings.controls.style == 2,
                                    "Appearance disable must retain the selected values");
                     const auto disabled = settings.controls.apply(host_controls);
@@ -761,8 +844,8 @@ int run_tests() {
                 }
                 settings.mode = phoenix_ui::phoenix::nvidia;
                 frame();
-                require_widget(count_widget("Phoenix appearance (experimental)") == 0,
-                               "NVIDIA-only mode exposed Phoenix appearance controls");
+                require_widget(count_widget("Appearance overrides") == 1,
+                               "NVIDIA mode lost the shared appearance controls");
             }
             require_widget(std::array<unsigned, 3>{persisted, applied, actions} == callbacks_before,
                            "Shared controls dispatched a persistence/runtime callback");
@@ -786,7 +869,8 @@ int run_tests() {
                 require_widget(!widget_disabled("Motion analysis height"),"Enabled helper estimation kept resolution disabled");
                 select("Motion source","Zero motion");frame();
                 require_widget(widget_disabled("Motion analysis height"),"Zero motion still exposed estimation work");
-                click("History policy");frame();
+                frame();
+                require_widget(count_widget("History policy")==0,"History policy wrapper still hides its controls");
                 require_widget(!widget_disabled("Force reset every frame"),"Helper history policy remained disabled");
                 const auto history=click("Force reset every frame");
                 require_widget(history.changed&&history.tuning&&settings.force_reset,
@@ -823,8 +907,8 @@ int run_tests() {
                                "Portable Phoenix DLSS5 showed NVIDIA DLSS5-only controls");
                 require_widget(count_widget("Phoenix DLSS5 processing device") == 0,
                                "Portable mode duplicated the selected-device control");
-                require_widget(count_widget("Phoenix appearance (experimental)") == 0 &&
-                                   count_widget("Phoenix intensity") == 0 && count_widget("Phoenix style") == 0,
+                require_widget(count_widget("Appearance overrides") == 0 &&
+                                   count_widget("Overall intensity") == 0 && count_widget("Artistic style") == 0,
                                "Portable final-color route exposed unsupported appearance controls");
                 interaction.portable_backbuffer = false;
                 interaction.fps_budget = true;

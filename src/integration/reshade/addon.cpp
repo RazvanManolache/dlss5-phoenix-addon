@@ -97,18 +97,18 @@ struct State {
         worker_hip_build, worker_sycl_build;
     PhoenixLiveControls& live = panel.controls;
     std::array<phoenix::Settings, 4> presets;
-    std::array<int, 7> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0}};
+    std::array<int, 8> hotkeys{{VK_F9, VK_F10, VK_F11, VK_F8, VK_F7, 0, 0, VK_F6}};
     // Offline input-capture burst bookkeeping: base path + frames written.
     std::string capture_base;
     unsigned captures_taken = 0;
     uint64_t hotkey_deadline = 0;
     bool timing_settings_dirty = true;
+    phoenix::PresentationTiming presentation_timing;
     int capture_hotkey = -1, last_mode = -1;
     int reset_hold = 0;
     unsigned last_transformer_blocks = 8;
     std::array<uint64_t, 9> depth_frames{};
     phoenix::DepthBudget depth_budget;
-    uint64_t fps_tick = 0, fps_presents = 0;
     double present_fps = 0;
     uint64_t budget_recorded = 0, budget_record_tick = 0;
     uint64_t routed_frames = 0, switches = 0, markers = 0;
@@ -204,6 +204,8 @@ struct State {
         bool failed = false, first = true;
         int bridge = -1, hdr_mode = -1, auto_exp = -1;
         unsigned preset = 0, passes = 1;
+        float last_intensity = 1;
+        unsigned last_style = 0;
         std::string source_choice, requested_contract;
         uint64_t creates = 0, evaluates = 0;
         uint64_t depth_present = 0, depth_proven = 0, depth_typed = 0;
@@ -1048,9 +1050,15 @@ NVSDK_NGX_Result evaluate(void* instance, ID3D12GraphicsCommandList* cmd,
                     edits.add("DLSSNR.DepthInverted", addon_state.live.depth);
             }
             if (mode == phoenix::nvidia && addon_state.panel.native_options) {
-                edits.add("DLSSNR.Intensity", addon_state.panel.intensity);
-                edits.add("DLSSNR.Style", unsigned(addon_state.panel.style));
+                if (!addon_state.live.appearance) {
+                    edits.add("DLSSNR.Intensity", addon_state.panel.intensity);
+                    edits.add("DLSSNR.Style", unsigned(addon_state.panel.style));
+                }
                 edits.add("DLSSNR.UICorrection", addon_state.panel.ui_correction);
+            }
+            if (mode == phoenix::nvidia && addon_state.live.appearance) {
+                edits.add("DLSSNR.Intensity", addon_state.live.intensity);
+                edits.add("DLSSNR.Style", unsigned(addon_state.live.style));
             }
         }
         edits.apply();
@@ -2602,6 +2610,8 @@ void selfdrive_direct_run(ID3D12GraphicsCommandList* cmd, ID3D12Resource* proxy,
     parameters->Set("DLSSNR.Enabled", 1u);
     parameters->Set("DLSSNR.Reset", (unsigned)reset);
     parameters->Set("DLSSNR.Intensity", intensity);
+    selfdrive_state.last_intensity = intensity;
+    selfdrive_state.last_style = style;
     // Caller-supplied effective values (configured override or reference
     // default): the panel finally drives our own feature, not fixed profile.
     parameters->Set("DLSSNR.LocalToneStrength", tone);
@@ -4208,9 +4218,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             ? unsigned(controls.auto_mask != 0)
                             : ((!addon_state.live.advanced || addon_state.live.auto_mask) ? 1u : 0u);
                         if (!sd_mask) sd_skin = 0;
-                        const unsigned sd_style = addon_state.panel.processing.enabled && !addon_state.panel.native_options
-                            ? controls.style : unsigned(phoenix::host_strength(
-                                addon_state.panel.native_options, addon_state.panel.style, 0));
+                        const auto sd_appearance = phoenix::nvidia_appearance(addon_state.panel,controls);
                         unsigned host_ui_correction = 0;
                         get("DLSSNR.UICorrection", host_ui_correction);
                         const unsigned sd_uicorr = addon_state.panel.processing.enabled
@@ -4269,10 +4277,9 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                             resolution.scaled() ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
                                                 : proof.motion_state,
                             controls.reset, controls.motion_x, controls.motion_y,
-                            addon_state.panel.processing.enabled && !addon_state.panel.native_options
-                                ? controls.intensity : addon_state.panel.intensity,
+                            sd_appearance.intensity,
                             sd_tone, sd_structure, sd_skin, sd_mask,
-                            sd_style, sd_uicorr, addon_state.panel.host_globaltone,
+                            sd_appearance.style, sd_uicorr, addon_state.panel.host_globaltone,
                             addon_state.panel.processing.enabled ? 1.f : addon_state.panel.host_exposure,
                             addon_state.panel.processing.enabled ? 1.f : addon_state.panel.host_exposure_scale,
                             sd_jx * resolution.motion_x(), sd_jy * resolution.motion_y(), sd_flags,
@@ -4936,17 +4943,13 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
             addon_state.budget_record_tick = 0;
             addon_state.depth_budget.present(addon_state.last_transformer_blocks, 0, false);
         }
-        // Count intervals after the initial timestamp, not the initial event.
-        if (!addon_state.fps_tick) {
-            addon_state.fps_tick = now;
-            addon_state.fps_presents = 0;
-        } else
-            ++addon_state.fps_presents;
-        if (now - addon_state.fps_tick >= 1000) {
-            addon_state.present_fps =
-                double(addon_state.fps_presents) * 1000.0 / double(now - addon_state.fps_tick);
-            addon_state.fps_presents = 0;
-            addon_state.fps_tick = now;
+        if (const auto sample = addon_state.presentation_timing.present(now,
+                addon_state.live_timing ? std::string_view(addon_state.live_timing->settings_key()) : std::string_view{},
+                reinterpret_cast<uintptr_t>(addon_state.live_timing.get()), addon_state.panel.mode)) {
+            addon_state.present_fps = sample->fps;
+            if (addon_state.live_timing && addon_state.last_mode == addon_state.panel.mode)
+                addon_state.presentation_timing.record_active(*sample, addon_state.live_timing->report(),
+                    addon_state.last_mode, addon_state.last_transformer_blocks);
         }
         if (addon_state.live_timing)
             addon_state.live_timing->poll();
@@ -5478,6 +5481,8 @@ Json bridge_snapshot() {
          {{"status", addon_state.direct_nr_status},
           {"ready", addon_state.direct_nr_ready},
           {"feature", addon_state.selfdrive.feature_id},
+          {"intensity", addon_state.selfdrive.last_intensity},
+          {"style", addon_state.selfdrive.last_style},
           {"creates", addon_state.selfdrive.creates},
           {"evaluates", addon_state.selfdrive.evaluates},
           {"create_result", addon_state.selfdrive.last_create_result},
@@ -5494,6 +5499,7 @@ Json bridge_snapshot() {
         {"screenshot_pair", addon_state.direct_runner ? addon_state.direct_runner->screenshot_pair_status() : Json::object()},
         {"screenshot_pair_readback_bytes", addon_state.direct_runner ? addon_state.direct_runner->screenshot_pair_bytes() : 0},
         {"present_fps", addon_state.present_fps},
+        {"presentation_timing", addon_state.presentation_timing.report()},
         {"gpu_timing", addon_state.live_timing ? addon_state.live_timing->report() : Json(nullptr)},
         {"scope",
          "Recorded frames and command acknowledgement do not prove completed rendering or visual correctness"}};
@@ -5721,6 +5727,12 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
         } else addon_state.error = phoenix_ui::binding_error(result);
         return;
     }
+    if (addon_state.hotkeys[7] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[7]))) {
+        addon_state.panel.uplift = !addon_state.panel.uplift;
+        addon_state.live.reset_requested = true;
+        addon_state.timing_settings_dirty = true;
+        save_live_controls(runtime);
+    }
     if (addon_state.hotkeys[0] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[0]))) {
         addon_state.panel.mode = (addon_state.panel.mode + 1) % 4;
         addon_state.live.reset_requested = true;
@@ -5746,6 +5758,7 @@ void live_runtime_tick(reshade::api::effect_runtime* runtime) {
     }
     if (addon_state.hotkeys[4] && runtime->is_key_pressed(unsigned(addon_state.hotkeys[4])) &&
         addon_state.live_timing) {
+        addon_state.presentation_timing.clear();
         addon_state.live_timing->restart();
         addon_state.worker_timing.clear();
     }
@@ -5813,6 +5826,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.last_transformer_blocks = value.last_transformer_blocks;
     ui.last_mode = value.last_mode;
     ui.present_fps = value.present_fps;
+    ui.presentation_timing = &value.presentation_timing;
     if (value.live_timing) {
         ui.live_timing.emplace();
         ui.live_timing->data = value.live_timing->report();
@@ -5846,6 +5860,7 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
         if (action == phoenix_ui::Action::SaveScreenshotPair) request_screenshot_pair();
         if (action == phoenix_ui::Action::ResetHistory) value.live.reset_requested = true;
         if (action == phoenix_ui::Action::ClearTiming) {
+            value.presentation_timing.clear();
             if (value.live_timing) value.live_timing->restart();
             value.worker_timing.clear();
         }
@@ -6522,6 +6537,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI CnrPHOENIXFeederUiAction(uint32_t c
             record_event("phoenix_marker", {{"index", value.markers}, {"mode", value.panel.mode},
                                             {"frame", value.routed_frames}}); break;
         case phoenix_ui::Action::ClearTiming:
+            value.presentation_timing.clear();
             if (value.live_timing) value.live_timing->restart();
             value.worker_timing.clear(); break;
         case phoenix_ui::Action::SaveScreenshotPair:

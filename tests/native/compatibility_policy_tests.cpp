@@ -4,10 +4,14 @@
 #include "../../src/integration/compatibility/process_address_space.h"
 #include "../../src/native/support/control_mailbox.h"
 #include <iostream>
+#include <source_location>
 
 int main() {
     unsigned checks = 0;
-    auto verify = [&](bool condition) { ++checks; if (!condition) throw std::runtime_error("Policy assertion failed"); };
+    auto verify = [&](bool condition, const std::source_location where = std::source_location::current()) {
+        ++checks;
+        if (!condition) throw std::runtime_error("Policy assertion failed at line " + std::to_string(where.line()));
+    };
     namespace control = phoenix_addon::phoenix::control_bridge;
     try {
         {
@@ -279,6 +283,33 @@ int main() {
         request["session"] = "old";
         verify(run(request, 3200).at("ok") == false);
         verify(commands == 2);
+        // A reader without FILE_SHARE_DELETE prevents atomic replacement. A
+        // completed command must survive this transient lock without replay.
+        request["session"] = mailbox.session();
+        request["id"] = "locked-response";
+        request["enabled"] = true;
+        HANDLE reader = CreateFileW((folder / "response.json").c_str(), GENERIC_READ,
+                                    FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        verify(reader != INVALID_HANDLE_VALUE);
+        std::string locked_response_error;
+        { std::ofstream file(folder / "request.json"); file << request.dump(); }
+        try {
+            mailbox.poll(settings, snapshot, dispatch, 3500);
+            verify(enabled && commands == 3);
+            locked_response_error = mailbox.error();
+            verify(locked_response_error.find("Win32 ") != std::string::npos);
+            nlohmann::json previous;
+            std::ifstream(folder / "response.json") >> previous;
+            verify(previous.at("id") == "wrong-session");
+            mailbox.poll(settings, snapshot, dispatch, 3800);
+            verify(commands == 3);
+        } catch (...) { CloseHandle(reader); throw; }
+        CloseHandle(reader);
+        mailbox.poll(settings, snapshot, dispatch, 4100);
+        nlohmann::json recovered;
+        std::ifstream(folder / "response.json") >> recovered;
+        verify(recovered.at("id") == "locked-response" && recovered.at("ok") == true);
+        verify(mailbox.error().empty() && commands == 3);
         for(const char* model : {"original", "small-fp8"}) {
             phoenix_compat::Settings portable;
             portable.model_id = model;
@@ -310,7 +341,8 @@ int main() {
             other=gpu;other.pipeline.motion_enabled=false;other.pipeline.scene_detection=false;other.pipeline.monitoring=0;
             verify(!phoenix_compat::portable_gpu_settings(other,1281,721));
         }
-        std::cout << nlohmann::json{{"passed", true}, {"cpu_only", true}, {"checks", checks}}.dump() << '\n';
+        std::cout << nlohmann::json{{"passed", true}, {"cpu_only", true}, {"checks", checks},
+            {"publication_lock_diagnostic", locked_response_error}}.dump() << '\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

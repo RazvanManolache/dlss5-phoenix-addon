@@ -118,7 +118,9 @@ int wmain(int argc,wchar_t** argv){
         }
         checks.push_back("changing nonunit motion scales preserve recurrent CPU arithmetic exactly");
         frame.motion_scale_x=frame.motion_scale_y=1;for(size_t p=0;p<pixels;++p)vectors[p*2]=-1;
-        for(const auto& controls:std::vector<Json>{{{"local_tone",0.f},{"local_structure",0.f}},{{"local_tone",2.f},{"local_structure",2.f},{"auto_mask",true}},{{"intensity",0.f}},{{"intensity",.5f}},{{"style",1}},{{"style",2}}})evaluate({{"reset",true},{"controls",controls}});
+        for(const auto& controls:std::vector<Json>{{{"local_tone",0.f},{"local_structure",0.f}},{{"local_tone",2.f},{"local_structure",2.f},{"auto_mask",true}},{{"intensity",0.f}},{{"intensity",.5f}},{{"style",1}},{{"style",2}},
+            {{"intensity",2.f},{"style",1},{"local_tone",2.f},{"local_structure",2.f}},
+            {{"intensity",2.f},{"style",2},{"local_tone",2.f},{"local_structure",2.f}}})evaluate({{"reset",true},{"controls",controls}});
         checks.push_back("conditioning, intensity and both authenticated styles exact");
         for(auto metadata:std::vector<Json>{{{"reset",true},{"transformer_blocks",4}},{{"reset",true},{"repeats",{1,0,2,1,0,1,1,1}}},{{"reset",true},{"repeats",{0,0,0,0,0,0,0,0}}},{{"reset",true},{"repeats",{4,4,4,4,4,4,4,4}}},{{"reset",true}}})evaluate(metadata);
         checks.push_back("truncation, bypass, maximum repetitions and recovery exact");

@@ -66,7 +66,9 @@ inline RGB compose_display(RGB original, RGB neural, size_t pixel, float intensi
         inputs.ui_alpha || inputs.backbuffer || (style && tone > 0);
     if (!postprocess) return neural; // edition's >1-only path skips postprocess
     const auto graded = style_grade(neural, style, tone);
-    const float weight = intensity * (inputs.control_mask ? inputs.control_mask[pixel * 4] : 1.f)
+    // Clamp the global blend before the optional surface weight. Values above
+    // one must not extrapolate the model's shading or amplify the style grade.
+    const float weight = saturate(intensity) * (inputs.control_mask ? inputs.control_mask[pixel * 4] : 1.f)
         * (1.f - alpha);
     for (unsigned c = 0; c < 3; ++c) base[c] = saturate(base[c] + weight * (graded[c] - original[c]));
     return base;

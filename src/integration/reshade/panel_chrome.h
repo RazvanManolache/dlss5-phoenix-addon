@@ -33,13 +33,10 @@ inline QuickMeasurements quick_measurements(const Context& context) {
 }
 inline void draw_fact_tiles(const Context& context) {
     const auto measured = quick_measurements(context);
-    char neural[48] = "--", age[48] = "--", canvas[48] = "--";
+    char neural[48] = "--", fps[48] = "--", canvas[48] = "--";
     if (measured.neural) snprintf(neural,sizeof neural,"%.2f ms",*measured.neural);
     else if (context.portable_wall_ms) snprintf(neural,sizeof neural,"%.1f ms",*context.portable_wall_ms);
-    const auto& pipeline = context.pipeline_status;
-    if (context.processing_active && context.frame_services_available && context.panel.pipeline.monitoring > 0 && pipeline.contains("capture_to_output_ms") &&
-        pipeline.at("capture_to_output_ms").is_number())
-        snprintf(age,sizeof age,"%.1f ms",pipeline.at("capture_to_output_ms").get<double>());
+    if (context.present_fps > 0) snprintf(fps,sizeof fps,"%.1f FPS",context.present_fps);
     if (context.direct_runner) {
         const auto& geometry = context.direct_runner->resolution();
         snprintf(canvas,sizeof canvas,"%ux%u",geometry.width,geometry.height);
@@ -49,8 +46,8 @@ inline void draw_fact_tiles(const Context& context) {
     fact_tile(context.portable_wall_ms ? "Worker wall" : "Neural GPU", neural, width, blue,
         "Recent neural GPU interval for the active workload. Worker wall time includes host preparation/inference/resolve. Missing measurements are --.");
     ImGui::SameLine(0,gap);
-    fact_tile(width < 145.f ? "Output age" : "Capture to output",age,width,mint,
-        "Measured capture-to-output age from the final-frame pipeline, when that route supplies it. Unavailable is --, not zero.");
+    fact_tile("Game FPS",fps,width,mint,
+        "Game presentation rate, including repeated processed frames. This is separate from neural processing speed.");
     ImGui::SameLine(0,gap);
     fact_tile(width < 145.f ? "Canvas" : "Processing canvas",canvas,width,violet,
         "Current loaded runner canvas, including internal padding. Output geometry is shown in the status card.");

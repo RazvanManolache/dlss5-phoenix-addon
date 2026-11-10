@@ -164,6 +164,15 @@ struct Settings {
                capture_burst >= 0 && capture_burst <= 64;
     }
 };
+struct OutputAppearance { float intensity; unsigned style; };
+inline OutputAppearance nvidia_appearance(const Settings& settings, const Controls& controls) {
+    if(settings.controls.appearance)
+        return {settings.controls.intensity,unsigned(settings.controls.style)};
+    if(settings.processing.enabled && !settings.native_options)
+        return {controls.intensity,controls.style};
+    return {host_strength(settings.native_options,settings.intensity,1.f),
+            unsigned(host_strength(settings.native_options,settings.style,0))};
+}
 inline bool normalize_direct_comparison(Settings& settings) {
     if (settings.mode != split || settings.comparison != 0) return false;
     settings.comparison = 1; // Direct feeds expose pairs, not the legacy three-way view.

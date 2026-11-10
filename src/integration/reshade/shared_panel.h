@@ -13,7 +13,7 @@ inline bool pipeline_group(Context& context, PipelineSection section) {
         context.frame_services_available && context.final_frame_source && context.panel.mode != phoenix::nvidia,
         section,context.motion_services_available);
 }
-// All exercises the real task renderers in CPU tests; it is not a fifth tab.
+// All exercises the real task renderers in CPU tests; it is not a visible tab.
 inline bool draw_sections(Context& context, PanelPage page, bool advanced = false) {
     bool changed = false;
     auto before = context.panel;
@@ -88,11 +88,9 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             if (all || ImGui::CollapsingHeader("Processing chain"))
                 edited |= pipeline_group(context,PipelineSection::Chain);
             edited |= draw_advanced_appearance(context);
-            if (all || advanced || ImGui::CollapsingHeader("Advanced image controls")) {
-                edited |= draw_signal_controls(context);
-                edited |= draw_guide_controls(context);
-                edited |= draw_reference_reset(context);
-            }
+            edited |= draw_signal_controls(context);
+            edited |= draw_guide_controls(context);
+            edited |= draw_reference_reset(context);
             if (all || ImGui::CollapsingHeader("Temporal history and resets")) edited |= draw_history_controls(context);
             return edited;
         });
@@ -137,9 +135,9 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             if (all || ImGui::CollapsingHeader("Recovery")) edited |= pipeline_group(context,PipelineSection::Recovery);
             return edited;
         });
-        changed |= section_card(all,"diagnostics_card","Shortcuts & details",
-            "Hotkeys, diagnostics and scoped resets remain available here.",amber,[&] {
-            bool edited = draw_hotkey_controls(context);
+        changed |= section_card(all,"diagnostics_card","Diagnostics",
+            "Captures, logging and scoped resets.",amber,[&] {
+            bool edited = false;
             if (all || advanced || ImGui::CollapsingHeader("Diagnostics")) {
                 edited |= draw_neural_diagnostics(context);
                 edited |= draw_diagnostic_controls(context);
@@ -148,6 +146,11 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             return edited;
         });
     }
+    if (page == PanelPage::Hotkeys || all)
+        changed |= section_card(all,"hotkeys_card","Hotkeys",
+            "Choose keyboard shortcuts for Phoenix actions.",blue,[&] {
+                return draw_hotkey_controls(context,!all);
+            });
     context.live_selection_changed = phoenix::copy_live_selection(before,context.panel);
     context.live_tuning_changed = phoenix::copy_live_tuning(before,context.panel);
     return changed;
@@ -165,7 +168,7 @@ inline bool draw_controls(Context& context) {
     const auto navigation_id = ImGui::GetID("requested_page");
     std::optional<PanelPage> requested_page = context.requested_page;
     const int stored_page = storage->GetInt(navigation_id,-1);
-    if (!requested_page && stored_page >= 0 && stored_page < 4) requested_page = PanelPage(stored_page);
+    if (!requested_page && stored_page >= 0 && stored_page < int(PanelPage::All)) requested_page = PanelPage(stored_page);
     storage->SetInt(navigation_id,-1);
     context.requested_page.reset();
     const auto advanced_id = ImGui::GetID("advanced");
@@ -179,8 +182,8 @@ inline bool draw_controls(Context& context) {
     const float footer = ImGui::GetContentRegionAvail().x >= 420.f
         ? ImGui::GetFrameHeightWithSpacing() * 1.6f : ImGui::GetFrameHeightWithSpacing() * 3.8f;
     if (ImGui::BeginTabBar("phoenix_pages", ImGuiTabBarFlags_FittingPolicyScroll)) {
-        const char* names[]{"Play", "Image", "Performance", "Setup"};
-        for (int index = 0; index < 4; ++index) {
+        const char* names[]{"Play", "Image", "Performance", "Setup", "Hotkeys"};
+        for (int index = 0; index < int(PanelPage::All); ++index) {
             const auto flags = requested_page && *requested_page == PanelPage(index) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
             if (!ImGui::BeginTabItem(names[index],nullptr,flags)) continue;
             const float height = std::max(1.f, content_bottom - footer - ImGui::GetCursorScreenPos().y);

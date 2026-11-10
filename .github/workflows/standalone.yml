@@ -147,7 +147,7 @@ jobs:
     - name: Verify relocatable Linux package without GPU execution
       run: |
         python tests/linux/test_package.py --prefix build/sdk-linux-vulkan --report artifacts/current/linux/VALIDATION.json
-        python tools/package_linux.py --prefix build/sdk-linux-vulkan --output artifacts/current/linux --version 1.1.0
+        python tools/package_linux.py --prefix build/sdk-linux-vulkan --output artifacts/current/linux --version 1.1.5
     - uses: actions/github-script@v9
       with:
         script: |

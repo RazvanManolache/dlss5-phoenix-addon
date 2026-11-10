@@ -8,6 +8,7 @@
 #include "../../native/model/model_library.h"
 #include "../../native/support/panel_visibility.h"
 #include "panel_contract.h"
+#include "../../native/support/presentation_timing.h"
 #include <cfloat>
 #include <functional>
 #include <optional>
@@ -38,12 +39,12 @@ struct TimingView {
     size_t history_count() const { return samples.size(); }
     size_t history_offset() const { return 0; }
 };
-enum class PanelPage { Play, Image, Performance, Setup, All };
+enum class PanelPage { Play, Image, Performance, Setup, Hotkeys, All };
 struct Context {
     Settings &panel;
     phoenix_addon::PhoenixLiveControls &live;
     std::array<Settings, 4> &presets;
-    std::array<int, 7> &hotkeys;
+    std::array<int, 8> &hotkeys;
     int &capture_hotkey;
     uint64_t &hotkey_deadline;
     phoenix_model_tools::Task &model_picker;
@@ -97,6 +98,7 @@ struct Context {
     unsigned last_transformer_blocks = 8;
     int last_mode = -1;
     double present_fps = 0;
+    const phoenix::PresentationTiming* presentation_timing = nullptr;
     std::optional<double> portable_wall_ms;
     std::optional<TimingView> live_timing;
     TimingView worker_timing;

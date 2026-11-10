@@ -11,14 +11,16 @@ panel keeps the host theme colors.
 - **Header:** Save configuration, enable, a tinted processing-status card, actual route,
   loaded model, geometry and actionable errors. Save retains the adapter's
   existing persistence behavior. Editing controls still autosaves.
-- **Play:** output, Original/Lightweight selection, tone and structure, skin
+- **Play:** output, Original/Lightweight selection, shared artistic style and intensity, tone and structure, skin
   mask, comparisons, presets, reset history and quick resolution controls.
 - **Image:** resolution and reconstruction, motion, processing chain,
-  appearance, engine guides and temporal-history policy.
+  engine guides and temporal-history policy.
 - **Performance:** pipeline responsiveness, network passes, approximate-block
   budgets, retained timing comparisons, GPU stages and worker details.
 - **Setup:** model files, Browse and Validate, devices and CPU threads,
-  execution mechanisms and eligibility, recovery, hotkeys and diagnostics.
+  execution mechanisms and eligibility, recovery and diagnostics.
+- **Hotkeys:** rebindable actions, including F6 to toggle processing while keeping
+  the selected output, model and image settings.
 
 Under **Play → Compare**, turn off **Show on-screen labels** to hide the
 source-name overlays in full-screen and comparison views. This saves with your
@@ -26,7 +28,7 @@ configuration and takes effect immediately, without restarting the runner or
 clearing temporal history. Split-view separator lines have their own control.
 
 The header includes three measured-summary tiles: neural GPU (or worker wall
-time), capture-to-output age when supplied by the active pipeline, and the
+time), game presentation FPS, and the
 loaded processing canvas. Unavailable timings remain `--`; the UI does not
 enable monitoring itself. Source, Look, Resolution, Compare, Presets, image
 controls, workload budgets, retained timings and setup details have separate

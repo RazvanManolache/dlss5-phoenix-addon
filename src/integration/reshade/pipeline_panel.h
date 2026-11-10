@@ -1,5 +1,6 @@
 #pragma once
 #include <imgui.h>
+#include "choice_buttons.h"
 #include "../../pipeline/options.h"
 #include "../../pipeline/tiny_model.h"
 
@@ -19,7 +20,8 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         ImGui::BeginDisabled(!frame_services&&!motion_services);
         changed |= ImGui::Checkbox("Estimate motion when engine vectors are unavailable", &p.motion_enabled);
         const char* providers[]{"Automatic (prefer engine vectors)", "Engine vectors", "NVIDIA Optical Flow", "Zero motion"};
-        changed |= ImGui::Combo("Motion source", &p.motion_source, providers, 4);
+        const char* provider_captions[]{"Auto","Engine","Optical flow","Zero"};
+        changed |= choice_buttons("Motion source", &p.motion_source, providers, 4,provider_captions);
         const bool estimating=p.motion_enabled&&(p.motion_source==0||p.motion_source==2);
         ImGui::BeginDisabled(!estimating);
         changed |= ImGui::SliderInt("Motion analysis height", &p.flow_height, 64, 2160);
@@ -27,7 +29,7 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         changed |= ImGui::SliderFloat("Motion consistency tolerance (pixels)", &p.flow_consistency, .1f, 20.f);
         changed |= ImGui::SliderFloat("Motion cost threshold (per mille)", &p.flow_cost, 1.f, 990.f);
         const char* views[]{"Processed image", "Motion direction and magnitude", "Motion confidence"};
-        changed |= ImGui::Combo("Motion diagnostic view", &p.motion_view, views, 3);
+        changed |= choice_buttons("Motion diagnostic view", &p.motion_view, views, 3);
         ImGui::EndDisabled();
         ImGui::TextWrapped("Engine vectors require a real producer. Missing or rejected motion uses spatial processing with history reset. Confidence views and rejection thresholds apply to estimated motion.");
         changed |= ImGui::Checkbox("Detect scene changes and reset history", &p.scene_detection);
@@ -36,11 +38,11 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
     if (section == PipelineSection::Responsiveness || section == PipelineSection::All) {
         ImGui::BeginDisabled(!frame_services);
         const char* monitoring[]{"Off", "Basic (CPU counters)", "Detailed (sample GPU stages)"};
-        changed |= ImGui::Combo("Pipeline monitoring", &p.monitoring, monitoring, 3);
+        changed |= choice_buttons("Pipeline monitoring", &p.monitoring, monitoring, 3);
         ImGui::BeginDisabled(!p.monitoring);
         changed |= ImGui::SliderInt("GPU monitoring sample interval", &p.sample_interval, 1, 120);
         const char* priority[]{"Keep quality fixed", "Prefer responsiveness", "Prefer image quality"};
-        changed |= ImGui::Combo("Adaptive priority", &p.priority, priority, 3);
+        changed |= choice_buttons("Adaptive priority", &p.priority, priority, 3);
         changed |= ImGui::SliderFloat("Pipeline age budget (ms)", &p.latency_ms, 5.f, 250.f);
         changed |= ImGui::Checkbox("Allow motion resolution adjustment", &p.adjust_flow);
         changed |= ImGui::SliderInt("Minimum motion analysis height", &p.minimum_flow_height, 64, 1080);
@@ -79,15 +81,11 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         ImGui::EndDisabled();
         const char* scalers[]{"Existing scaler", "NVIDIA Image Scaling", "RTX Video Super Resolution", "Tiny neural 2x"};
         ImGui::BeginDisabled(!native_chain);
-        if (ImGui::BeginCombo("Additional upscaler", scalers[std::clamp(p.scaler,0,3)])) {
-            const bool tiny_available=bool(phoenix_pipeline::find_tiny_model(std::filesystem::u8path(model_library)));
-            for (int provider : {0,1,3}) {
-                if(portable_chain&&!frame_services&&provider!=0)continue;
-                if(provider==3&&!tiny_available)continue;
-                if (ImGui::Selectable(scalers[provider], p.scaler == provider)) { p.scaler=provider;changed=true; }
-            }
-            ImGui::EndCombo();
-        }
+        const bool tiny_available=bool(phoenix_pipeline::find_tiny_model(std::filesystem::u8path(model_library)));
+        const uint8_t scaler_available[]{1,uint8_t(!portable_chain||frame_services),0,
+            uint8_t(tiny_available&&(!portable_chain||frame_services))};
+        const char* scaler_captions[]{"Existing","NIS","RTX VSR","Tiny 2x"};
+        changed |= choice_buttons("Additional upscaler",&p.scaler,scalers,4,scaler_captions,scaler_available);
         if(p.scaler)ImGui::TextWrapped("NIS/tiny reconstruction currently uses explicit sRGB input encoding. Choose one reconstruction provider. Tiny models are installed through DLSS Everything.");
         changed |= ImGui::SliderFloat("Scaling sharpness", &p.sharpness, 0.f, 1.f);
         ImGui::EndDisabled();

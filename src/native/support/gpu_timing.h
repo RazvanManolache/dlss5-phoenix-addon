@@ -98,6 +98,7 @@ class GpuTiming {
     unsigned history_offset() const noexcept {
         return archive_->history_offset();
     }
+    const std::string& settings_key() const { return settings_; }
     void settings(const std::string& key) {
         if (base_settings_ != key) {
             base_settings_ = key;

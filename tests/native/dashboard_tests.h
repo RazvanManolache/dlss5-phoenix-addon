@@ -60,6 +60,7 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
         context.direct_runner = phoenix_ui::Preview{{1920,1080,1280,720,1280,720}, "Spatial"};
         context.last_mode = phoenix_ui::phoenix::ours;
         context.timing_provenance = "UI fixture: no GPU samples";
+        context.present_fps = 60.;
         context.inference_process = false;
         context.active_route = "Native D3D12 / game DLSS textures";
         context.active_device = "Game graphics device";
@@ -107,6 +108,14 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
         };
         const auto bounds = [&](const char* name) {
             auto found = std::find_if(widgets.begin(), widgets.end(), [&](const Widget& item) { return item.label == name; });
+            // Off-screen auto-height cards skip widgets until the body is
+            // scrolled into view. Exercise ordinary scrolling before failing.
+            for (int attempt=0; found==widgets.end() && attempt<20; ++attempt) {
+                io.AddMousePosEvent(float(width)*.75f,650);
+                io.AddMouseWheelEvent(0,attempt==10?24.f:-2.f);
+                frame(); frame(); frame(); frame();
+                found=std::find_if(widgets.begin(),widgets.end(),[&](const Widget& item){return item.label==name;});
+            }
             if (found == widgets.end()) {
                 capture("failure");
                 std::string labels; for (const auto& widget : widgets) if (!widget.label.empty()) labels += widget.label + " | ";
@@ -119,7 +128,7 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
             frame(); frame();
             auto rect = bounds(name);
             const bool fixed = std::strcmp(name,"Save configuration")==0 || std::strcmp(name,"Advanced details")==0 ||
-                std::strcmp(name,"Play")==0 || std::strcmp(name,"Image")==0 || std::strcmp(name,"Performance")==0 || std::strcmp(name,"Setup")==0;
+                std::strcmp(name,"Play")==0 || std::strcmp(name,"Image")==0 || std::strcmp(name,"Performance")==0 || std::strcmp(name,"Setup")==0 || std::strcmp(name,"Hotkeys")==0;
             if (!fixed) {
                 const float footer_top = width < 420 ? 755.f : 835.f;
                 for (int attempt=0; attempt<8 && (rect.Max.y > footer_top || rect.Min.y < 370); ++attempt) {
@@ -150,15 +159,21 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
         click("Models and runner setup");
         bounds("NVIDIA DLL search folder");
         click("Play");
+        bounds("Appearance overrides"); bounds("Overall intensity"); bounds("Artistic style");
         capture("play-default-"+std::to_string(width));
         click("Skin and automatic mask");
         bounds("Skin structure");
         capture("play-" + std::to_string(width));
-        for (const char* tab : {"Image", "Performance", "Setup", "Play"}) {
+        for (const char* tab : {"Image", "Performance", "Setup", "Hotkeys", "Play"}) {
             click(tab);
             const auto next_save = bounds("Save configuration");
             require(save_rect.Min.y == next_save.Min.y, "Save moved with tab contents");
-            if (std::strcmp(tab,"Image") == 0) bounds("Advanced image controls");
+            if (std::strcmp(tab,"Image") == 0) {
+                bounds("Engine motion and depth");
+                require(std::none_of(widgets.begin(),widgets.end(),[](const Widget& w){return w.label=="Advanced image controls" || w.label=="Appearance overrides";}),
+                    "Image retained nested advanced controls or Play appearance controls");
+            }
+            if (std::strcmp(tab,"Hotkeys") == 0) bounds("Clear");
             if (std::strcmp(tab,"Performance") == 0) bounds("Clear GPU timing");
             if (std::strcmp(tab,"Setup") == 0) bounds("NVIDIA DLL search folder");
             if (width == 700) capture(std::string(tab) + "-700");

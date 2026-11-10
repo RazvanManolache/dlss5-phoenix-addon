@@ -12,10 +12,24 @@ I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
 it can do for the games we already love—and, eventually, looks less interested
 in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.1.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.0) ·
+[Download 1.1.5](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.1.5) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
-## New in 1.1.0
+## New in 1.1.5
+
+- **Consistent appearance:** shared style and intensity controls for Phoenix and NVIDIA, with corrected blending above intensity 1.
+- **One-click choices:** equal-sized buttons for short option lists, simpler Image controls and a separate Hotkeys tab.
+- **Quick bypass:** rebindable F6 toggles processing while preserving your selected model and settings.
+- **Useful FPS comparisons:** game FPS in the main panel, history chart and retained timing grid.
+- **Reliable controls:** temporary response-file locks retry without repeating commands or reporting a rendering failure.
+
+[1.1.5 fixes and validation](docs/RELEASE_1.1.5.md).
+
+<table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix 1.1.5 Play tab with one-click model choices and FPS" width="420"></a></td><td><a href="docs/features/overlay-performance.png"><img src="docs/features/overlay-performance.png" alt="Phoenix 1.1.5 timing and FPS comparisons" width="420"></a></td></tr></table>
+
+*Current C++/ImGui controls rendered with synthetic status values. [More UI screenshots](docs/USER_GUIDE.md#a-quick-look).*
+
+## Included from 1.1.0
 
 - **Faster native CUDA:** now close to native RTX and NVIDIA speed on the tested RTX 5080, for both Original and Lightweight FP8.
 - **Linux support:** a per-game Vulkan layer, portable CPU/CUDA/Vulkan processing and an optional native CUDA executor.
