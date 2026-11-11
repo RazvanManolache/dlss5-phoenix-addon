@@ -2,6 +2,7 @@
 #include "compute_pass.h"
 #include "resolution.h"
 #include "processing_shader.h"
+#include "nis_resize.h"
 #include "../../pipeline/nis.h"
 #include "../../pipeline/options.h"
 #include "../../pipeline/tiny.h"
@@ -119,6 +120,7 @@ class ResolutionBridge {
         std::unique_ptr<Pass> pass;
         uint64_t submission = 0;
         bool processing = false;
+        std::unique_ptr<NisResize> nis, baseline_nis;
     };
     std::vector<Binding> bindings_;
     ComPtr<ID3D12Resource> output_;
@@ -133,28 +135,69 @@ class ResolutionBridge {
         std::unique_ptr<phoenix_pipeline::TinyUpscaler> tiny;
     };
     std::vector<ScalerSlot> scaler_slots_;
+    std::unique_ptr<phoenix_pipeline::NisScaler> resize_nis_;
+    uint64_t nis_dispatches_=0;
+    unsigned last_nis_passes_=0;
+    std::string resize_status_="Manual filters";
+    std::string input_resize_status_="No resize",output_resize_status_="No resize";
 
-    Pass& pass(std::array<ID3D12Resource*, 4> resources, bool processing = false) {
+    Binding& binding(std::array<ID3D12Resource*, 4> resources, bool processing = false) {
         for (auto& binding : bindings_) {
             bool matches = binding.processing == processing;
+            // NIS constants are upload buffers: never overwrite an in-flight slot.
+            if(processing&&processing_.resize_method&&binding.submission>completed_&&binding.submission!=recording_)
+                matches=false;
             for (size_t index = 0; index < resources.size(); ++index)
                 matches &= binding.resources[index].Get() == resources[index];
             if (matches) {
                 binding.submission = recording_;
-                return *binding.pass;
+                return binding;
             }
         }
         auto reusable = std::find_if(bindings_.begin(), bindings_.end(), [&](const auto& binding) {
             return binding.submission <= completed_ && binding.processing == processing;
         });
         if (reusable == bindings_.end()) {
-            bindings_.push_back({{}, std::make_unique<Pass>(processing ? *processing_pipeline_ : pipeline_, accounting_), 0, processing});
+            bindings_.push_back({{}, std::make_unique<Pass>(processing ? *processing_pipeline_ : pipeline_, accounting_), 0, processing,{}, {}});
             reusable = std::prev(bindings_.end());
         }
+        reusable->nis.reset();reusable->baseline_nis.reset();
         for (size_t index = 0; index < resources.size(); ++index)
             reusable->resources[index] = resources[index];
         reusable->submission = recording_;
-        return *reusable->pass;
+        return *reusable;
+    }
+    Pass& pass(std::array<ID3D12Resource*,4> resources,bool processing=false){return *binding(resources,processing).pass;}
+    bool use_nis(ID3D12Resource* source,unsigned width,unsigned height) {
+        if(!processing_.enabled||!processing_.resize_method)return false;
+        const auto d=source->GetDesc();
+        const bool enlarging=width>=d.Width&&height>=d.Height&&(width!=d.Width||height!=d.Height);
+        if(!enlarging){
+            const char* filters[]{"Area","Bilinear","Nearest"};
+            resize_status_=std::string(filters[processing_.reduction_filter()])+" reduction / no resize";return false;
+        }
+        if(processing_.resize_method>=3) {
+            const char* filters[]{"Bilinear","Bicubic","Nearest"};
+            resize_status_=std::string(filters[processing_.enlargement_filter()])+" enlargement";return false;
+        }
+        if(frame_processing().input_encoding(srgb_)!=2) {
+            resize_status_="Auto: Bicubic enlargement (NIS requires an sRGB source)";return false;
+        }
+        if(d.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&d.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&d.Format!=DXGI_FORMAT_R32G32B32A32_FLOAT) {
+            resize_status_="Auto: Bicubic enlargement (NIS source format unavailable)";return false;
+        }
+        resize_status_="NVIDIA Image Scaling";return true;
+    }
+    ID3D12Resource* nis(Binding& slot,bool baseline,ID3D12GraphicsCommandList* command,
+        ID3D12Resource* source,D3D12_RESOURCE_STATES state,unsigned width,unsigned height,DXGI_FORMAT format) {
+        auto& chain=baseline?slot.baseline_nis:slot.nis;
+        if(!chain) {
+            if(!resize_nis_)resize_nis_=std::make_unique<phoenix_pipeline::NisScaler>(additional_device_.Get());
+            const auto d=source->GetDesc();
+            chain=std::make_unique<NisResize>(additional_device_.Get(),unsigned(d.Width),d.Height,width,height,format,*resize_nis_,accounting_);
+        }
+        last_nis_passes_=chain->passes();nis_dispatches_+=last_nis_passes_;
+        return chain->record(command,source,state,processing_.nis_sharpness);
     }
 
   public:
@@ -165,6 +208,8 @@ class ResolutionBridge {
           pipeline_(device, resolution_shader, accounting), processing_(processing), srgb_(srgb) {
         additional_device_=device;
         if (processing.enabled) processing_pipeline_ = std::make_unique<Pass>(device, processing_shader, accounting);
+        if(processing.enabled&&(processing.resize_method==1||processing.resize_method==2)&&geometry.scaled())
+            resize_nis_=std::make_unique<phoenix_pipeline::NisScaler>(device);
         output_ = phoenix_native::image(device, geometry.output_width, geometry.output_height,
                                         format, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         phoenix_native::memory::resource(device, output_.Get(), accounting,
@@ -186,11 +231,18 @@ class ResolutionBridge {
     size_t binding_count() const {
         return bindings_.size();
     }
+    void update_processing(const Processing& value) {
+        check(value.valid()&&same_processing_resources(processing_,value),
+            "Resolution changes require a retired processing canvas");
+        copy_processing_color(processing_,value);
+    }
     phoenix_bundle::Json status() const {
         return {{"compiled_pipelines", processing_pipeline_ ? 2 : 1},
                 {"descriptor_tables", bindings_.size()},
                 {"completed_submission", completed_},
-                {"recording_submission", recording_}, {"additional_scaler",additional_status_}};
+                {"recording_submission", recording_}, {"additional_scaler",additional_status_},
+                {"resize_method",resize_status_},{"input_resize",input_resize_status_},{"output_resize",output_resize_status_},
+                {"nis_dispatches",nis_dispatches_},{"last_nis_passes",last_nis_passes_}};
     }
     Constants constants(unsigned operation) const {
         return {operation >= 2 ? geometry_.output_width : geometry_.width,
@@ -207,7 +259,19 @@ class ResolutionBridge {
                 ID3D12Resource* destination, bool motion, float motion_scale_x = 0,
                 float motion_scale_y = 0) {
         const bool process = processing_.enabled && !motion;
-        auto& dispatch = pass({source, nullptr, nullptr, destination}, process);
+        auto& slot=binding({source,nullptr,nullptr,destination},process);
+        const bool nvidia=process&&use_nis(source,geometry_.image_width,geometry_.image_height);
+        if(process)input_resize_status_=resize_status_;
+        if(nvidia) {
+            auto* enlarged=nis(slot,false,cmd,source,state,geometry_.image_width,geometry_.image_height,destination->GetDesc().Format);
+            phoenix_native::transition(cmd,enlarged,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            phoenix_native::transition(cmd,destination,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+            cmd->CopyResource(destination,enlarged);
+            phoenix_native::transition(cmd,destination,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            phoenix_native::transition(cmd,enlarged,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            return;
+        }
+        auto& dispatch=*slot.pass;
         phoenix_native::transition(cmd, source, state,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
@@ -237,7 +301,13 @@ class ResolutionBridge {
                         ID3D12Resource* original, D3D12_RESOURCE_STATES original_state,
                         ID3D12Resource* game, D3D12_RESOURCE_STATES state, ID3D12Resource* baseline = nullptr) {
         check(!processing_.enabled || baseline, "Residual reconstruction requires the working input snapshot");
-        auto& dispatch = pass({low, original, baseline, output_.Get()}, processing_.enabled);
+        auto& slot=binding({low, original, baseline, output_.Get()}, processing_.enabled);
+        auto& dispatch=*slot.pass;
+        const bool nvidia=use_nis(low,geometry_.output_width,geometry_.output_height);
+        output_resize_status_=resize_status_;
+        auto* resized=nvidia?nis(slot,false,cmd,low,D3D12_RESOURCE_STATE_COPY_SOURCE,geometry_.output_width,geometry_.output_height,output_->GetDesc().Format):low;
+        auto* resized_baseline=nvidia&&processing_.reconstruction==0?
+            nis(slot,true,cmd,baseline,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,geometry_.output_width,geometry_.output_height,output_->GetDesc().Format):baseline;
         phoenix_native::transition(cmd, low, D3D12_RESOURCE_STATE_COPY_SOURCE,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         phoenix_native::transition(cmd, game, state,
@@ -247,8 +317,8 @@ class ResolutionBridge {
                                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         // The low-resolution surface is stable. The engine output rotates.
         if (processing_.enabled)
-            dispatch.record(cmd, {low, original, baseline}, output_.Get(),
-                processing_constants(frame_processing(), geometry_, 3, srgb_, host_white_));
+            dispatch.record(cmd, {resized, original, resized_baseline}, output_.Get(),
+                processing_constants(frame_processing(), geometry_, nvidia?4:3, srgb_, host_white_));
         else
             dispatch.record(cmd, {low, original, nullptr}, output_.Get(), constants(2));
         if (original != game)

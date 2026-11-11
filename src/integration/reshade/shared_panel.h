@@ -1,6 +1,7 @@
 // One shared dashboard for native x64, x86 and compatibility routes.
 // Tabs and expansion state belong to ImGui, not persisted inference settings.
 #pragma once
+#include "widgets.h"
 #include "panel_sections.h"
 #include "panel_timing.h"
 #include "panel_chrome.h"
@@ -11,7 +12,7 @@ inline bool pipeline_group(Context& context, PipelineSection section) {
             context.panel.execution_device == "native" && context.panel.mode != phoenix::nvidia,
         context.portable_chain_available,
         context.frame_services_available && context.final_frame_source && context.panel.mode != phoenix::nvidia,
-        section,context.motion_services_available);
+        section,context.motion_services_available,context.panel.processing.enabled&&context.panel.processing.resize_method!=0);
 }
 // All exercises the real task renderers in CPU tests; it is not a visible tab.
 inline bool draw_sections(Context& context, PanelPage page, bool advanced = false) {
@@ -24,7 +25,7 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             "Choose the output. Processing devices and model files live in Setup.",blue,[&] {
             bool edited = draw_output_selection(context);
             edited |= draw_model_choice(context);
-            if (!all && ImGui::Button("Models and runner setup")) context.requested_page = PanelPage::Setup;
+            if (!all && phoenix_ui::button("Models and runner setup")) context.requested_page = PanelPage::Setup;
             return edited;
         });
         changed |= section_card(all,"look_card","Look",
@@ -32,7 +33,7 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             const bool edited = draw_appearance_controls(context);
             if (!all) {
                 help("Tone and structure keep their independent controls. Skin detail follows the automatic mask.");
-                if (ImGui::Button("More image controls")) context.requested_page = PanelPage::Image;
+                if (phoenix_ui::button("More image controls")) context.requested_page = PanelPage::Image;
             }
             return edited;
         });
@@ -47,7 +48,7 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Show or hide the source labels over fullscreen and comparison output. Separator lines are controlled separately.");
             if (all || ImGui::CollapsingHeader("Compare and inspect")) {
-                if (!all && context.panel.mode != phoenix::split && ImGui::Button("Compare input / processed")) {
+                if (!all && context.panel.mode != phoenix::split && phoenix_ui::button("Compare input / processed")) {
                     const bool nvidia = context.panel.mode == phoenix::nvidia;
                     context.panel.mode = phoenix::split;
                     context.panel.comparison = 1;
@@ -56,17 +57,26 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
                     edited = true;
                 }
                 edited |= draw_comparison_controls(context);
+                if (context.final_frame_source) {
+                    ImGui::BeginDisabled(!context.legacy_depth_available);
+                    edited |= ImGui::Checkbox("Depth only", &context.panel.pipeline.legacy_depth_preview);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("Show the selected depth source in grayscale while neural rendering is enabled. Near surfaces are bright. Game depth shows black when the current game buffer is unavailable.");
+                    if (context.panel.pipeline.legacy_depth_preview && !context.legacy_depth_status.empty())
+                        ImGui::TextWrapped("%s", context.legacy_depth_status.c_str());
+                }
                 edited |= pipeline_group(context,PipelineSection::Inspection);
             }
             ImGui::BeginDisabled(!context.screenshot_pair_available);
-            if (ImGui::Button("Save original + modified")) context.action(Action::SaveScreenshotPair);
+            if (phoenix_ui::button("Save original + modified")) context.action(Action::SaveScreenshotPair);
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Save two PNGs from the same processed frame, before later game effects and the overlay. Direct game captures retain the selected comparison view; helper captures save the full processed result. HDR is converted to SDR.");
             if (!context.screenshot_pair_status.empty()) ImGui::TextWrapped("%s",context.screenshot_pair_status.c_str());
             if (!all) {
-                if (ImGui::Button("Reset history")) context.action(Action::ResetHistory);
-                if (ImGui::Button("Timing comparisons")) context.requested_page = PanelPage::Performance;
+                if (phoenix_ui::button("Reset history")) context.action(Action::ResetHistory);
+                if (phoenix_ui::button("Timing comparisons")) context.requested_page = PanelPage::Performance;
             }
             return edited;
         });
@@ -90,6 +100,48 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             edited |= draw_advanced_appearance(context);
             edited |= draw_signal_controls(context);
             edited |= draw_guide_controls(context);
+            if (context.final_frame_source && (all || ImGui::CollapsingHeader("Legacy depth"))) {
+                constexpr std::array<int, 5> source_ids{0, 4, 2, 1, 3};
+                const char* methods[]{"Auto", "Game depth", "NVIDIA NvDepthAnythingV2", "Depth Anything V2 Small", "None"};
+                const char* captions[]{"Auto", "Game depth", "NVIDIA", "Small", "None"};
+                const uint8_t enabled = uint8_t(context.legacy_depth_available);
+                const uint8_t available[]{enabled, uint8_t(context.legacy_game_depth_available), enabled, enabled, enabled};
+                auto& pipeline = context.panel.pipeline;
+                const auto selected = std::find(source_ids.begin(), source_ids.end(), pipeline.legacy_depth);
+                int choice = selected == source_ids.end() ? 0 : int(selected - source_ids.begin());
+                if (choice_buttons("Depth source", &choice, methods, 5, captions, available)) {
+                    pipeline.legacy_depth = source_ids.at(choice);
+                    edited = true;
+                }
+                ImGui::BeginDisabled(!context.legacy_depth_available || pipeline.legacy_depth == 3);
+                edited |= phoenix_ui::slider_float("Depth strength", &pipeline.legacy_depth_strength,
+                    0.f, phoenix_pipeline::Options::maximum_depth_strength,
+                    phoenix_pipeline::Options{}.legacy_depth_strength, "%.3fx", ImGuiSliderFlags_AlwaysClamp);
+                edited |= ImGui::Checkbox("Invert depth", &pipeline.legacy_depth_invert);
+                phoenix_ui::item_help("Reverse near and far in the preview and in the guide sent to the model.");
+                edited |= ImGui::Checkbox("Fixed depth range", &pipeline.legacy_depth_fixed_range);
+                phoenix_ui::item_help("Select a percentage window within the observed depth range. 0% is the closest sample and 100% is the farthest.");
+                if (pipeline.legacy_depth_fixed_range) {
+                    constexpr phoenix_pipeline::Options defaults;
+                    float near_percent = 100.f * pipeline.legacy_depth_near;
+                    if (phoenix_ui::slider_float("Near depth", &near_percent,
+                            0.f, 100.f, 100.f * defaults.legacy_depth_near, "%.2f%%", ImGuiSliderFlags_AlwaysClamp)) {
+                        pipeline.legacy_depth_near = std::min(near_percent * .01f, pipeline.legacy_depth_far - .00002f);
+                        edited = true;
+                    }
+                    float far_percent = 100.f * pipeline.legacy_depth_far;
+                    if (phoenix_ui::slider_float("Far depth", &far_percent,
+                            0.f, 100.f, 100.f * defaults.legacy_depth_far, "%.2f%%", ImGuiSliderFlags_AlwaysClamp)) {
+                        pipeline.legacy_depth_far = std::max(far_percent * .01f, pipeline.legacy_depth_near + .00002f);
+                        edited = true;
+                    }
+                }
+                ImGui::EndDisabled();
+                if (!context.legacy_depth_available)
+                    help("Available for Phoenix and NVIDIA DLSS5 on the external mono CPU capture helper.");
+                else if (!context.legacy_depth_status.empty())
+                    ImGui::TextWrapped("%s", context.legacy_depth_status.c_str());
+            }
             edited |= draw_reference_reset(context);
             if (all || ImGui::CollapsingHeader("Temporal history and resets")) edited |= draw_history_controls(context);
             return edited;

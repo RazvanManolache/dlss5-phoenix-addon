@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from audit_release import ROOT, audit, validate_public_content
 from validate_portable_bridge import resources
 
-VERSION = '1.1.6'
+VERSION = '1.2.0'
 _notifier_version = re.search(r'current_version\[\] = "([^"\n]+)"', (ROOT/'src/native/support/release_updates.h').read_text(encoding='utf-8'))
 if not _notifier_version or _notifier_version.group(1) != VERSION:
     raise RuntimeError('Release version and Phoenix update-notice identity differ')
@@ -116,6 +116,7 @@ def write_archive(path, files):
 def common_files():
     files = {name: (ROOT/name).read_bytes() for name in ('LICENSE', 'NOTICE', 'THIRD_PARTY.md')}
     files['README.md'] = (ROOT/'README.md').read_bytes()
+    files['CHANGELOG.md'] = (ROOT/'CHANGELOG.md').read_bytes()
     for path in (ROOT/'third_party').rglob('*'):
         if path.is_file() and (path.name.upper().startswith(('LICENSE', 'NOTICE', 'COPYING', 'MIT_LICENSE')) or path.name == 'ReShade-LICENSE.txt'):
             files['licenses/'+path.relative_to(ROOT/'third_party').as_posix()] = path.read_bytes()
@@ -125,7 +126,7 @@ def common_files():
                  'FEEDER_API.md', 'LIBRARY.md', 'NATIVE_LIBRARY.md', 'SUPPORT.md',
                  'MULTI_MODEL.md', 'SMALL_FP8.md', 'SHARED_MODELS.md', 'NATIVE_ARCHITECTURES.md',
                  'EXECUTION_MECHANISMS.md', 'FRAME_DELIVERY_OPTIMIZATION.md', 'PORTABLE_MODEL_CONTROLS.md', 'WINDOWS_CUDA.md', 'LINUX.md', 'LINUX_NATIVE_CUDA.md',
-                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'PAIRED_SCREENSHOTS.md', 'PHOENIX_INPUT.md', 'UPSTREAM_CREDITS.md'):
+                 'PROCESSING_PIPELINE.md', 'PROCESSING_CHAIN.md', 'overlay-ui.md', 'model-switching.md', 'PAIRED_SCREENSHOTS.md', 'PHOENIX_INPUT.md', 'UPSTREAM_CREDITS.md', 'REALISM_TUNING.md'):
         files['docs/'+name] = (ROOT/'docs'/name).read_bytes()
     files['README.txt'] = (f'Phoenix DLSS5 add-on {VERSION}\n'
         'Use a current ReShade build with full add-on support. Copy only the matching add-on and graphics helper.\n'

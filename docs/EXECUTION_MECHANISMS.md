@@ -350,8 +350,12 @@ The portable adapter applies live tone, structure, skin/mask conditioning,
 network passes and block repetitions. Comparison uses the input snapshot from
 that exact evaluation, with wipe, absolute, signed, heatmap and luminance views.
 Original bypass, the compatibility screenshot path, markers and timing clearing
-remain available. Backbuffer input has no engine motion/depth. Without an enabled,
-working motion provider, evaluation resets history. The x64 shared frame worker,
+remain available. Backbuffer capture ordinarily supplies only color. The
+external CPU helper can use matching game depth on DX9, DX10.1, and DX11
+readback, or generate relative depth from color for Phoenix and NVIDIA
+output. Native Phoenix binds the optional scalar map to the temporal stem
+when history is active. See [Legacy depth](USER_GUIDE.md#legacy-depth).
+Without an enabled, working motion provider, evaluation resets history. The x64 shared frame worker,
 including the qualified x64 library inside an x86 game process, can estimate
 motion from consecutive source images and reject low-confidence history; it does
 not manufacture geometric depth.

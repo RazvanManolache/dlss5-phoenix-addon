@@ -4,10 +4,10 @@
   "files": [
     {
       "source": "source\\host\\dlss5-feed-host64.cpp",
-      "sha256": "4366d10dd15cc9a041e8801afb729ed767758196a5708d02e8ab818c0103efdf",
+      "sha256": "85cade43fd1f8ac1d50c2808ed78727c47f99f3000b0688c924f9d34a87c6340",
       "import_sha256": "5a51e7271c1c4199f11696c5d76311a6587052a96572a8cdec74949ce7acd060",
       "path": "src/integration/compatibility/host/dlss5-feed-host64.cpp",
-      "normalized_lf_sha256": "bac91c9751cf653629f8bce95fac89483ce227d22a8f55d70cef78c37419baee"
+      "normalized_lf_sha256": "1bd8485fe71b192fa1f05d6f2568e2cc46f1d7ccb9cf56dc6f7d648ef35eb58c"
     },
     {
       "source": "source\\host\\phoenix-host-config.h",

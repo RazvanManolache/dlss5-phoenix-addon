@@ -124,6 +124,7 @@ def main():
         ("screenshot_tests", "screenshot_tests.cpp"),
     ]
     software_tests = [("production_capture_tests", "production_capture_tests.cpp"),
+                      ("resize_methods_tests", "resize_methods_tests.cpp"),
                       ("resolution_bridge_tests", "resolution_bridge_tests.cpp"),
                       ("paired_screenshot_tests", "paired_screenshot_tests.cpp"),
                       ("completed_presentation_tests", "completed_presentation_tests.cpp"),

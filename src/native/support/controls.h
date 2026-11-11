@@ -109,6 +109,7 @@ struct ResolvedControls {
     uint64_t sampling = 0;
     bool recurrent = false;
     uint64_t control_mask_handle = 0;
+    uint64_t depth_handle = 0;
 };
 
 // HDR control override (looking, not measuring): the game may ask its
@@ -189,11 +190,13 @@ inline void patch_stem(uint8_t* bytes, size_t size, const ResolvedControls& cont
         put(bytes, 8, uint64_t(0));
         put(bytes, 16, uint64_t(0));
     }
-    put(bytes, 24, uint64_t(0));
+    // The stem takes the optional depth texture and its own image rectangle.
+    const uint64_t depth = controls.recurrent && controls.sampling != 0 ? controls.depth_handle : 0;
+    put(bytes, 24, depth);
     put(bytes, 32, controls.control_mask_handle);
     put(bytes, 40, controls.history);
     put(bytes, 64, controls.motion);
-    put(bytes, 88, Rectangle{});
+    put(bytes, 88, depth ? controls.color : Rectangle{});
     put(bytes, 112, controls.control_mask_handle ? controls.color : Rectangle{});
     put(bytes, 136, controls.color);
     put(bytes, 160, controls.motion_x);

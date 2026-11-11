@@ -1,6 +1,7 @@
 // One set of widgets for both addon bitnesses. Runtime adapters own actions;
 // this view consumes settings and plain metadata, with no inference ownership.
 #pragma once
+#include "widgets.h"
 #include <imgui.h>
 #include "../../native/support/comparison.h"
 #include "../../native/support/cpu_threads.h"
@@ -61,6 +62,8 @@ struct Context {
     bool native_chain_available = true, frame_services_available = false;
     bool motion_services_available = false;
     std::string motion_status;
+    bool legacy_depth_available = false, legacy_game_depth_available = false;
+    std::string legacy_depth_status;
     bool portable_gpu_budget = false;
     bool fixed_native_blocks = false;
     bool* processing_enabled = nullptr;
@@ -110,14 +113,14 @@ struct Context {
 // Retained timing rows are valuable comparison evidence. Clearing needs an
 // explicit confirmation; ordinary temporal-history resets remain immediate.
 inline bool confirm_clear_timing(const char* label) {
-    if (ImGui::Button(label)) ImGui::OpenPopup("Clear retained timings?");
+    if (phoenix_ui::button(label)) ImGui::OpenPopup("Clear retained timings?");
     bool confirmed = false;
     ImGui::SetNextWindowSizeConstraints(ImVec2(240, 0), ImVec2(std::max(240.f, ImGui::GetContentRegionAvail().x), FLT_MAX));
     if (ImGui::BeginPopupModal("Clear retained timings?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("Remove retained GPU and worker timing comparisons? Image history and settings are kept.");
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        if (phoenix_ui::button("Cancel")) ImGui::CloseCurrentPopup();
         ImGui::SameLine();
-        if (ImGui::Button("Clear timings")) { confirmed = true; ImGui::CloseCurrentPopup(); }
+        if (phoenix_ui::button("Clear timings")) { confirmed = true; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
     return confirmed;

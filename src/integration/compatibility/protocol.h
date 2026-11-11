@@ -11,7 +11,7 @@
 #include <cmath>
 
 #define FEED_IPC_MAGIC   0x35534C44u  // 'DLS5'
-#define FEED_IPC_VERSION 12u
+#define FEED_IPC_VERSION 13u
 #define FEED_IPC_MIN_VERSION 10u // Unchanged frame layout; older clients omit live tuning.
 #define FEED_SESSION_PIPE_FMT "\\\\.\\pipe\\dlss5-feed.%lu.%llu" // game PID and per-session nonce
 #define FEED_PIPE_FMT    "\\\\.\\pipe\\dlss5-feed.%lu"   // %lu = game PID
@@ -71,6 +71,10 @@ struct FeedFrameMsg     // game -> host, per frame
     uint32_t iterations;          // 1..10 evaluates of this frame before signaling output ready
     uint32_t eye_index;           // game_side_vr_split only: 0 = left eye, 1 = right eye
 };
+
+// Optional v13 'D' precedes its CPU 'F' packet. A native-size float plane
+// follows the serial, using conventional near=0, far=1 device depth.
+struct FeedCpuDepth { uint64_t frame; };
 
 struct FeedCpuFrameAck   // host -> game after a CPU-bridge frame
 {

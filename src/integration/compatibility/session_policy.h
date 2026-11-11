@@ -42,7 +42,7 @@ inline SettingsJson live_tuning_json(const Settings& settings) {
 inline void apply_live_tuning_patch(Settings& settings, const SettingsJson& patch) {
     using namespace phoenix_addon::phoenix;
     using phoenix_addon::check;
-    check(patch.is_object() && !patch.empty() && patch.size() <= 32, "Invalid live tuning patch");
+    check(patch.is_object() && !patch.empty() && patch.size() <= 64, "Invalid live tuning patch");
     auto next = settings;
     for (auto item = patch.begin(); item != patch.end(); ++item) {
         bool found = false;
@@ -61,6 +61,15 @@ inline void apply_live_tuning_patch(Settings& settings, const SettingsJson& patc
     copy_live_tuning(settings, next);
 }
 // Capability restrictions apply at every ingress, including old INIs/presets.
+inline bool normalize_final_frame_hook(Settings& settings) {
+    auto& processing=settings.processing;
+    if(!processing.enabled || (processing.hook!=1 && processing.hook!=2))return false;
+    // These stages were previously selectable on color-only frontends, which
+    // then returned without processing. Keep the user's color/canvas recipe
+    // and recover its only available insertion point instead of a dead route.
+    processing.hook=3;
+    return true;
+}
 inline bool normalize_capabilities(Settings& settings) {
     if (settings.budget_mode != 1) return false;
     settings.budget_mode = 0; // Companion GPU-time budget; not hidden-window FPS.

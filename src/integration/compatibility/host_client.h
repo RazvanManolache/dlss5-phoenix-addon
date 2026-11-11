@@ -131,6 +131,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
     FeedGuideState request_guides_{};
     int64_t queued_at_ns_=0;
     std::vector<uint8_t> input_, output_;
+    std::vector<float> depth_input_;
     // One returned CPU output buffer, transferred only under mutex_. The
     // render thread returns it after upload/screenshot copies are complete.
     std::vector<uint8_t> recycled_native_output_, recycled_native_input_;
@@ -680,6 +681,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                        {"direct_transfer", "srgb"},
                        {"color_domain", "game_nr_sdr_proxy"},
                        {"frame_limit", 4000000},
+                       {"legacy_depth_directory", settings.legacy_depth_directory},
                        {"weight_source", source.configuration()}};
         std::ofstream config_file(folder / "Phoenix.json");
         config_file << config.dump(2);
@@ -860,12 +862,22 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 const auto guides=request_guides_;
                 const auto frame_tuning_revision = applied_tuning_revision_;
                 auto pixels = std::move(input_);
+                auto depth = std::move(depth_input_);
                 auto fence = output_fence_;
                 lock.unlock();
                 auto started = std::chrono::steady_clock::now();
                 if(guides.engine_motion){
                     require(!build.cpu_bridge,"CPU color transport does not carry engine motion textures");
                     tag='G';transfer(&tag,1,true);auto message=guides;transfer(&message,sizeof(message),true);
+                }
+                if (!depth.empty()) {
+                    require(build.cpu_bridge && depth.size() == size_t(build.width) * build.height,
+                            "CPU depth extent differs from the color capture");
+                    tag = 'D';
+                    FeedCpuDepth message{request.n};
+                    transfer(&tag, 1, true);
+                    transfer(&message, sizeof(message), true);
+                    transfer(depth.data(), depth.size() * sizeof(float), true);
                 }
                 tag = 'F';
                 transfer(&tag, 1, true);
@@ -983,7 +995,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         phase_ = Phase::Ready;
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1, FeedGuideState guides = {}) {
+                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {}) {
         std::lock_guard lock(mutex_);
         if (phase() != Phase::Ready || iterations < 1 || iterations > 10)
             return false;
@@ -991,6 +1003,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         require(feed_guides_valid(guides),"Invalid engine motion declaration");
         request_guides_=guides;
         input_ = std::move(pixels);
+        depth_input_ = std::move(depth);
         const auto& pipeline=tuning_settings_.pipeline;
         queued_at_ns_=(pipeline.motion_enabled||pipeline.scene_detection||pipeline.monitoring)?
             std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count():0;
@@ -1036,8 +1049,11 @@ class HostState : public std::enable_shared_from_this<HostState> {
         const bool view_changed=(portable_||local_gpu_)&&phoenix_addon::phoenix::copy_live_selection(tuning_settings_,settings);
         const bool controls_changed=phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings);
         const bool helper=!portable_&&!native_&&!local_gpu_;
-        const bool motion_changed=(helper||native_||portable_)&&
-            copy_helper_motion(tuning_settings_.pipeline,settings.pipeline);
+        auto helper_options = settings.pipeline;
+        if (!helper)
+            legacy_depth_fields(helper_options) = legacy_depth_fields(tuning_settings_.pipeline);
+        const bool motion_changed = (helper || native_ || portable_) &&
+            copy_helper_motion(tuning_settings_.pipeline, helper_options);
         if (view_changed||controls_changed||motion_changed) {
             auto patch=live_tuning_json(tuning_settings_);
             if(helper)patch.update(helper_motion_json(tuning_settings_.pipeline));
@@ -1086,6 +1102,8 @@ class HostClient {
     bool portable_ = false;
     std::optional<NativeOptions> native_;
     bool local_gpu_ = false;
+    FeedBuild build_{};
+    uint64_t last_serial_=0;
 
   public:
     HostClient(HMODULE addon, const phoenix_model::WeightSource& source,
@@ -1093,7 +1111,7 @@ class HostClient {
                std::optional<PortableOptions> portable = std::nullopt,
                std::optional<NativeOptions> native = std::nullopt,
                std::optional<LocalGpuOptions> local = std::nullopt)
-        : state_(std::make_shared<HostState>(settings)), portable_(portable.has_value()),native_(native),local_gpu_(local.has_value()) {
+        : state_(std::make_shared<HostState>(settings)), portable_(portable.has_value()),native_(native),local_gpu_(local.has_value()),build_(build) {
         state_->start(addon, source, settings, build, portable,native,local);
     }
     ~HostClient() {
@@ -1104,6 +1122,15 @@ class HostClient {
     }
     bool in_process_portable() const { return portable_; }
     bool in_process() const {return portable_||native_.has_value()||local_gpu_;}
+    uint64_t last_serial() const {return last_serial_;}
+    bool reusable_cpu_build(const FeedBuild& value) const {
+        const auto fields=[](const auto& b){return std::tie(b.width,b.height,b.output_width,b.output_height,
+            b.color_fmt,b.output_fmt,b.hdr,b.depth_inverted,b.flags_override,b.transport,b.has_mask,
+            b.cpu_bridge,b.mv_scale_x,b.mv_scale_y,b.game_side_vr_split,b.present_width,b.present_height,b.adapter_luid);};
+        return !in_process()&&build_.cpu_bridge&&value.cpu_bridge&&
+            phase()!=Phase::Failed&&phase()!=Phase::Stopped&&fields(build_)==fields(value)&&
+            std::equal(std::begin(build_.tex),std::end(build_.tex),std::begin(value.tex));
+    }
     const char* native_execution() const {return local_gpu_?"in_process_staged":!native_?nullptr:native_->driver_host?"in_process_x86_driver":"in_process_x64_library";}
     Phase phase() const {
         return state_->phase();
@@ -1115,8 +1142,11 @@ class HostClient {
         state_->opened_fences(output);
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1, FeedGuideState guides = {}) {
-        return state_->submit(serial, reset, std::move(pixels), iterations,guides);
+                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {}) {
+        if (!depth.empty() && in_process()) return false;
+        const bool submitted=state_->submit(serial, reset, std::move(pixels), iterations, guides, std::move(depth));
+        if(submitted)last_serial_=serial;
+        return submitted;
     }
     std::vector<uint8_t> take() {
         return state_->take();

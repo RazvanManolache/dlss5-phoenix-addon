@@ -8,6 +8,7 @@
 // running ReShade's imgui version (SDK-paired).
 #define IMGUI_DISABLE_INCLUDE_IMCONFIG_H
 #include <imgui.h>
+#include "widgets.h"
 #include <reshade.hpp>
 #include <atomic>
 #include "comparison_hud.h"
@@ -110,6 +111,8 @@ struct State {
     std::array<uint64_t, 9> depth_frames{};
     phoenix::DepthBudget depth_budget;
     double present_fps = 0;
+    bool fresh_engine_output = false;
+    uint64_t last_presented_worker_result = 0;
     uint64_t budget_recorded = 0, budget_record_tick = 0;
     uint64_t routed_frames = 0, switches = 0, markers = 0;
     unsigned routing_test_period = 0;
@@ -3821,7 +3824,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
               "Direct provider input lacks fresh state or is explicitly deactivated");
         ID3D12Resource* worker_depth = nullptr;
         D3D12_RESOURCE_STATES worker_depth_state = D3D12_RESOURCE_STATE_COMMON;
-        if ((own_route && addon_state.panel.execution_device != "native") ||
+        if ((own_route && (addon_state.panel.execution_device != "native" || addon_state.direct_feeder)) ||
             (resolution.scaled() && addon_state.panel.upscaler != 0)) {
             worker_depth = parameter_resource(params, NVSDK_NGX_Parameter_Depth);
             if (!worker_depth)
@@ -3976,6 +3979,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                         addon_state.completed_retired += previous.completed();
                     });
                 check(replaced, "Executor replacement awaits its retirement fence");
+                addon_state.last_presented_worker_result = 0;
                 if (candidate_bundle) {
                     addon_state.bundle = std::move(candidate_bundle);
                     addon_state.candidates = std::move(candidate_kernels);
@@ -4422,6 +4426,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 "Native NR output (resolved) written back to the game DLSS output";
             addon_state.displayed = addon_state.panel;
             addon_state.displayed.mode = phoenix::nvidia;
+            addon_state.fresh_engine_output = true;
             addon_state.display_tick = GetTickCount64();
             return;
         }
@@ -4442,7 +4447,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
         recording = true;
         addon_state.direct_runner->record(cmd, color, motion, proof, controls, addon_state.panel,
                                           blocks, worker_depth, worker_depth_state,&developer_textures,appearance_generation,
-                                          addon_state.depth_budget.epoch());
+                                          addon_state.depth_budget.epoch(), addon_state.direct_feeder);
         addon_state.live_timing->upscaler_status(addon_state.direct_runner->upscale_status());
         addon_state.live_timing->end();
         const auto launches = addon_state.direct_runner->launches() - before;
@@ -4490,9 +4495,15 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                                                  " / " + std::to_string(color_description.Width) +
                                                  "x" + std::to_string(color_description.Height),
                                              execution);
-            if (status == "composing_reprojected_result" || status == "presenting_reprojected_result")
+            if (status == "composing_reprojected_result" || status == "presenting_reprojected_result") {
                 addon_state.direct_status =
                     "Phoenix DLSS5 worker result reprojected onto the current frame";
+                const auto result = execution.value("ready_frame", uint64_t(0));
+                if (result > addon_state.last_presented_worker_result) {
+                    addon_state.last_presented_worker_result = result;
+                    addon_state.fresh_engine_output = true;
+                }
+            }
             else if (status == "failed_input_preserved")
                 addon_state.direct_status =
                     "Worker failed: " + execution.value("error", std::string());
@@ -4502,6 +4513,9 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             else
                 addon_state.direct_status =
                     "Waiting for a fresh Phoenix DLSS5 worker result; game output preserved";
+        } else {
+            addon_state.fresh_engine_output = true;
+            addon_state.last_presented_worker_result = 0;
         }
         addon_state.displayed = addon_state.panel;
         addon_state.displayed.mode = addon_state.panel.mode;
@@ -4893,6 +4907,7 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
             return;
         if (!addon_state.terminal)
             install_native(nullptr);
+        bool fresh_backbuffer_output = false;
         if (!addon_state.terminal && addon_state.direct_game && !addon_state.direct_feeder &&
             addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3 &&
             addon_state.panel.uplift && addon_state.present_runtime && swapchain && queue &&
@@ -4910,7 +4925,8 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
                     addon_state.present_bridge.reset();
                 if (!addon_state.present_bridge)
                     addon_state.present_bridge = std::make_unique<phoenix_compat::D3D12Bridge>(runtime,desc);
-                addon_state.present_bridge->frame(back,addon_state.panel,true);
+                fresh_backbuffer_output = addon_state.present_bridge->frame(back, addon_state.panel, true) &&
+                    !addon_state.present_bridge->held_last_frame();
             } catch (const std::exception& e) {
                 addon_state.direct_status = std::string("Present deferred: ")+e.what();
                 addon_state.live.reset_requested=true;
@@ -4943,13 +4959,26 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
             addon_state.budget_record_tick = 0;
             addon_state.depth_budget.present(addon_state.last_transformer_blocks, 0, false);
         }
-        if (const auto sample = addon_state.presentation_timing.present(now,
-                addon_state.live_timing ? std::string_view(addon_state.live_timing->settings_key()) : std::string_view{},
-                reinterpret_cast<uintptr_t>(addon_state.live_timing.get()), addon_state.panel.mode)) {
-            addon_state.present_fps = sample->fps;
-            if (addon_state.live_timing && addon_state.last_mode == addon_state.panel.mode)
-                addon_state.presentation_timing.record_active(*sample, addon_state.live_timing->report(),
-                    addon_state.last_mode, addon_state.last_transformer_blocks);
+        auto* owner = addon_state.present_runtime ? addon_state.present_runtime : addon_state.guide_runtime;
+        if (!owner || (swapchain && queue && owner->get_hwnd() == swapchain->get_hwnd() &&
+                       owner->get_command_queue() == queue)) {
+            const auto& panel = addon_state.panel;
+            std::optional<bool> fresh_output;
+            if (addon_state.direct_game && !addon_state.direct_feeder && panel.uplift &&
+                panel.mode != phoenix::input && (!panel.processing.enabled || panel.processing.hook != 0)) {
+                fresh_output = panel.processing.enabled && panel.processing.hook == 3
+                    ? fresh_backbuffer_output
+                    : addon_state.fresh_engine_output && addon_state.last_mode == panel.mode;
+            }
+            addon_state.fresh_engine_output = false;
+            if (const auto sample = addon_state.presentation_timing.present(now,
+                    addon_state.live_timing ? std::string_view(addon_state.live_timing->settings_key()) : std::string_view{},
+                    reinterpret_cast<uintptr_t>(addon_state.live_timing.get()), panel.mode, fresh_output)) {
+                addon_state.present_fps = sample->fps;
+                if (addon_state.live_timing && addon_state.last_mode == panel.mode)
+                    addon_state.presentation_timing.record_active(*sample, addon_state.live_timing->report(),
+                        addon_state.last_mode, addon_state.last_transformer_blocks);
+            }
         }
         if (addon_state.live_timing)
             addon_state.live_timing->poll();
@@ -6040,7 +6069,7 @@ void draw_phoenix_overlay(reshade::api::effect_runtime* runtime) {
     ui.performance_details = [] { draw_native_performance_details(); };
 #if CNR_PHOENIX_DIAGNOSTIC
     ImGui::TextUnformatted("Paired DLL diagnostic | game controls locked");
-    if (ImGui::Button("Save configuration")) ui.save();
+    if (phoenix_ui::button("Save configuration")) ui.save();
     ImGui::TextWrapped("%s", ui.status.c_str());
     if (!ui.error.empty()) ImGui::TextWrapped("%s", ui.error.c_str());
     phoenix_ui::draw_timing(ui);

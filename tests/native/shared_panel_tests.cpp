@@ -140,6 +140,20 @@ int run_tests() {
         auto different_helper=helper;different_helper["presentation_scope"]="helper:20";
         if(fps.fps(different_helper))throw std::runtime_error("Separate helper routes shared FPS");
         fps.clear();if(fps.fps(row)||!fps.history().empty())throw std::runtime_error("FPS clear retained old samples");
+        fps.present(3000, "helper", 1, 3, false);
+        for (unsigned i = 1; i < 60; ++i)
+            fps.present(3000 + i * 1000 / 60, "helper", 1, 3, i % 3 == 0);
+        const auto mixed = fps.present(4000, "helper", 1, 3, true);
+        if (!mixed || mixed->fps != 60. || fps.processed_fps() != 20.)
+            throw std::runtime_error("Repeated presents inflated DLSS5 FPS");
+        fps.present(5000, "helper", 1, 3, false);
+        if (fps.processed_fps() != 0.) throw std::runtime_error("A stalled helper did not report zero DLSS5 FPS");
+        fps.present(5100, "helper", 2, 3, true);
+        if (fps.processed_fps()) throw std::runtime_error("DLSS5 FPS carried over to new settings");
+        fps.present(6100, "helper", 2, 3, true);
+        if (fps.processed_fps() != 1.) throw std::runtime_error("New settings did not accumulate DLSS5 FPS");
+        fps.present(6200, "helper", 2, 3);
+        if (fps.processed_fps()) throw std::runtime_error("DLSS5 FPS survived disable");
     }
     struct LibraryFixture {
         std::filesystem::path root = std::filesystem::absolute(std::filesystem::temp_directory_path() /
@@ -354,7 +368,7 @@ int run_tests() {
     ImGui::Render();
 
     unsigned widget_checks = 0, backend_selections = 0, source_selections = 0,
-             master_toggles = 0, strength_scenarios = 0, appearance_scenarios = 0;
+             master_toggles = 0, strength_scenarios = 0, appearance_scenarios = 0, tooltip_checks = 0;
     const auto require_widget = [&](bool condition, const std::string &message) {
         ++widget_checks;
         if (!condition)
@@ -436,6 +450,19 @@ int run_tests() {
             };
             const auto click = [&](const char *label) {
                 return click_at(widget_rect(label).GetCenter());
+            };
+            const auto hover_help = [&](const char* label) {
+                const auto rect=widget_rect(label);
+                // Hover the control itself, not its right-hand label.
+                io.AddMousePosEvent(rect.Min.x+12,rect.GetCenter().y);
+                frame(); frame();
+                bool rendered=false;
+                for(const auto* window:ImGui::GetCurrentContext()->Windows)
+                    rendered |= window->Active && (window->Flags&ImGuiWindowFlags_Tooltip) &&
+                        window->DrawList->VtxBuffer.Size>0;
+                require_widget(rendered,std::string("Hover did not render help: ")+label);
+                ++tooltip_checks;
+                io.AddMousePosEvent(-100,-100);frame();
             };
             const auto select = [&](const char *combo, const char *option) {
                 frame(); frame(); // Settle wrapping after the preceding selection.
@@ -523,18 +550,104 @@ int run_tests() {
                 frame();
                 click("Color and scaling"); frame();
                 require_widget(widget_disabled("Resolution scale"), "Legacy bridge must disable explicit scale");
+                hover_help("Resolution scale"); // Disabled controls still explain themselves.
                 const auto enabled_pipeline=click("Custom color and scaling");frame();
+                hover_help("Resolution scale");
+                hover_help("R##default.Resolution scale");
+                hover_help("Defaults##processing");
+                hover_help("Linear###choice.Scaling domain|Linear");
                 require_widget(enabled_pipeline.changed && settings.processing.enabled,
                                "Processing checkbox must update the shared runtime setting");
                 require_widget(!widget_disabled("Resolution scale"),"Explicit scaling must become editable");
                 select("Hook method","Present");
                 require_widget(settings.processing.hook==3,"Present hook selection");
+                interaction.final_frame_source = true;
+                frame();
+                const auto render="Render###choice.Hook method|Render (before upscaling)";
+                const auto upscaled="Upscaled###choice.Hook method|Upscaled";
+                const auto present="Present###choice.Hook method|Present";
+                const auto off="Off###choice.Hook method|Off";
+                require_widget(widget_disabled(render)&&widget_disabled(upscaled)&&
+                    !widget_disabled(present)&&!widget_disabled(off),"Final-frame source exposed unavailable engine stages");
+                hover_help(render);hover_help(upscaled);
+                require_widget(!click(render).changed&&!click(upscaled).changed&&settings.processing.hook==3,
+                    "Unavailable engine-stage clicks stopped final-frame processing");
+                select("Hook method","Off");require_widget(settings.processing.hook==0,"Final-frame Off unavailable");
+                select("Hook method","Present");require_widget(settings.processing.hook==3,"Final-frame Present unavailable");
+                interaction.legacy_depth_available = true;
+                interaction.legacy_game_depth_available = true;
+                frame();
+                require_widget(settings.pipeline.legacy_depth == 0, "Legacy depth did not default to Auto");
+                select("Depth source", "Game depth");
+                require_widget(settings.pipeline.legacy_depth == 4, "Game depth was not selected");
+                settings.pipeline.legacy_depth_strength = 1.75f;
+                frame();
+                require_widget(click("R##default.Depth strength").changed &&
+                    settings.pipeline.legacy_depth_strength == 1.f && settings.pipeline.legacy_depth == 4,
+                    "Depth strength reset changed the source");
+                require_widget(click("Invert depth").changed && settings.pipeline.legacy_depth_invert,
+                    "Depth invert did not activate");
+                require_widget(click("Fixed depth range").changed && settings.pipeline.legacy_depth_fixed_range,
+                    "Fixed depth range did not activate");
+                settings.pipeline.legacy_depth_near = .9f;
+                settings.pipeline.legacy_depth_far = .96f;
+                frame();
+                require_widget(click("R##default.Near depth").changed && settings.pipeline.legacy_depth_near == 0.f,
+                    "Near depth reset did not restore the near endpoint");
+                require_widget(click("R##default.Far depth").changed && settings.pipeline.legacy_depth_far == 1.f,
+                    "Far depth reset did not restore the far endpoint");
+                click("Fixed depth range");
+                click("Invert depth");
+                require_widget(click("Depth only").changed && settings.pipeline.legacy_depth_preview,
+                    "Depth-only preview did not activate");
+                require_widget(click("Depth only").changed && !settings.pipeline.legacy_depth_preview,
+                    "Depth-only preview did not return to the renderer");
+                select("Depth source", "None");
+                require_widget(settings.pipeline.legacy_depth == 3, "Legacy depth could not be disabled");
+                select("Depth source", "NVIDIA NvDepthAnythingV2");
+                require_widget(settings.pipeline.legacy_depth == 2, "NVIDIA depth was not selected");
+                select("Depth source", "Depth Anything V2 Small");
+                require_widget(settings.pipeline.legacy_depth == 1, "Small depth was not selected");
+                select("Depth source", "Auto");
+                require_widget(settings.pipeline.legacy_depth == 0, "Legacy depth could not return to Auto");
+                interaction.legacy_depth_available = false;
+                interaction.legacy_game_depth_available = false;
+                interaction.final_frame_source=false;frame();
+                require_widget(!widget_disabled(render)&&!widget_disabled(upscaled),"Engine stages lost their native path");
+                select("Hook method","Render (before upscaling)");require_widget(settings.processing.hook==1,"Native Render hook unavailable");
+                select("Hook method","Upscaled");require_widget(settings.processing.hook==2,"Native Upscaled hook unavailable");
+                select("Hook method","Present");
                 select("Present DLSS guide reuse","Required");
                 require_widget(settings.processing.reuse_guides==2,"Required guide policy selection");
                 select("Input encoding","HDR10");
                 require_widget(settings.processing.encoding==3,"Explicit HDR10 input selection");
                 select("NR signal encoding","Linear SDR");
                 require_widget(settings.processing.signal==2,"Explicit linear NR signal selection");
+                settings.processing.scale=96; settings.processing.exposure=3; frame();
+                const auto preserved_tone=settings.controls.tone;
+                require_widget(click("R##default.Exposure multiplier").changed && settings.processing.exposure==1 &&
+                    settings.controls.tone==preserved_tone && settings.processing.scale==96,
+                    "Slider reset must restore only its own default");
+                require_widget(click("R##default.Resolution scale").changed && settings.processing.scale==100 &&
+                    settings.processing.encoding==3 && settings.processing.signal==2,
+                    "Scale reset must preserve color settings");
+                settings.processing.scale=400;frame();
+                require_widget(settings.processing.scale==400&&settings.valid(),"UI clamped the supported 400 percent scale");
+                settings.pipeline.scaler=1;
+                select("Upscaling method","Auto (NIS when available)");frame();
+                require_widget(settings.processing.resize_method==1&&settings.pipeline.scaler==0&&
+                    widget_disabled("Downsample filter")&&widget_disabled("Upsample filter"),"Auto did not own resize selection");
+                select("Upscaling method","NVIDIA Image Scaling (NIS)");frame();
+                require_widget(settings.processing.resize_method==2&&!widget_disabled("NIS sharpness"),"NVIDIA NIS unavailable on the native route");
+                settings.processing.nis_sharpness=.8f;frame();
+                require_widget(click("R##default.NIS sharpness").changed&&settings.processing.nis_sharpness==.25f&&
+                    settings.processing.scale==400,"NIS sharpness reset changed the canvas");
+                for(const auto& option:std::array<std::pair<const char*,int>,3>{{{"Bilinear",3},{"Bicubic",4},{"Nearest (diagnostic)",5}}}) {
+                    select("Upscaling method",option.first);frame();
+                    require_widget(settings.processing.resize_method==option.second&&!widget_disabled("Downsample filter"),"Explicit enlargement method did not apply");
+                }
+                select("Upscaling method","Saved manual filters");frame();
+                require_widget(!widget_disabled("Downsample filter")&&!widget_disabled("Upsample filter"),"Manual filters not restored");
                 settings.processing.scale=96; frame();
                 require_widget(!widget_disabled("Resolution mode"), "Color controls disabled the resolution buttons");
                 select("Resolution mode","Normal"); frame();
@@ -777,7 +890,7 @@ int run_tests() {
                         require_widget(changed.changed == real_guides &&
                                            (settings.controls.motion_x != 1) == real_guides,
                                        "Motion control ignored guide availability");
-                        require_widget(click("R##s.live.skin").changed && settings.controls.skin == -1,
+                        require_widget(click("R##default.Skin structure").changed && settings.controls.skin == -1,
                                        "Skin reset did not restore follow-local-structure value");
                         require_widget(click("Automatic skin mask").changed && !settings.controls.auto_mask &&
                                            widget_disabled("Skin structure"),
@@ -937,6 +1050,7 @@ int run_tests() {
                                  {"runtime_actions_while_drawing", 0},
                                  {"policy_action_checks", policy_checks},
                                  {"real_widget_checks", widget_checks},
+                                 {"rendered_tooltip_checks", tooltip_checks},
                                  {"backend_selections", backend_selections},
                                  {"comparison_source_selections", source_selections},
                                  {"master_toggles", master_toggles},

@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,15 @@ def check_build_gates():
     """Negative packaging/exit-status checks require no compiler, game or GPU."""
     import build_compatibility as packaging
     checks = []
+    # Every production action/slider must use the shared help/reset widgets.
+    # Choice buttons have their own tooltip implementation.
+    direct_widgets = re.compile(r'ImGui::(?:Button|SmallButton|Slider\w*|VSlider\w*|ArrowButton|ImageButton|InvisibleButton)\s*\(')
+    for source in (ROOT / 'src/integration').rglob('*'):
+        if source.suffix not in ('.h','.cpp') or source.name in ('widgets.h','choice_buttons.h'):
+            continue
+        if direct_widgets.search(source.read_text(encoding='utf-8-sig')):
+            raise RuntimeError('Control bypasses shared tooltip/reset widgets: ' + str(source.relative_to(ROOT)))
+    checks.append('all_buttons_and_sliders_use_help_widgets')
     for passed in (False, True):
         result = subprocess.run([sys.executable, '-c',
             'from test_graphics_apis import report_exit_code; '

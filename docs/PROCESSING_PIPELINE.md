@@ -40,7 +40,9 @@ Existing profiles keep their legacy bridge. Open **Color and scaling** and enabl
 | --- | --- |
 | Hook method | Off bypasses processing; Render modifies the observed DLSS color input before SR/RR; Upscaled processes its output; Present processes the current swapchain image before ReShade effects/UI. Nested NGX wrappers are processed once. |
 | Present guide reuse | Never uses zero motion and resets history each frame. Optional uses captured current-frame motion/depth when available, otherwise the same spatial policy. Required withholds processing when those guides are absent. |
-| Resolution scale | 0–200% per axis, with a 16-pixel minimum canvas and the backend's maximum extent. NR itself always receives equal input/output dimensions. Minimum/clamped dimensions can change the working aspect; reconstruction restores the output extent. |
+| Resolution scale | 0–400% per axis, with a 16-pixel minimum canvas and the backend's maximum extent. Backend caps reduce both dimensions together to preserve aspect. The minimum canvas can still change very small working aspects. NR receives equal input/output dimensions; reconstruction restores the game output. 400% uses sixteen times the source pixels. |
+| Upscaling method | Saved manual filters preserve existing profiles. Auto selects real NVIDIA NIS for supported sRGB GPU enlargement and Area for reduction, with Bicubic enlargement on other signals/CPU routes. Explicit Bilinear, Bicubic, Nearest and NVIDIA NIS choices apply to the actual enlargement direction, before NR above 100% or after NR below 100%. |
+| NIS sharpness | 0–1, default 0.25. Applies only to actual NIS dispatches and updates without reloading the model. NIS uses up to 2x per axis per pass; larger enlargements use multiple passes. At 100% there is no resizing. |
 | Scaling domain | scRGB-nl, Signed PQ, or linear BT.709 filtering; source transfer and gamut are decoded before filtering. |
 | Downsample | Exact footprint area integration, bilinear, or nearest. |
 | Upsample | Bilinear, Catmull-Rom bicubic, or nearest. |
@@ -65,7 +67,16 @@ Auto encoding uses actual swapchain color space at game Present, the external fe
 
 ## Verification boundary
 
-Focused validation is recorded under `artifacts/current/processing`. It covers 32/64-bit settings and helper serialization, model/preset mappings, resolution bounds, signed transfer/gamut round trips, exposure edge cases, residual detail preservation, real ImGui widget interactions, shader compilation, addon compilation/linking and related CPU contracts. No game, graphics device, GPU inference, timing comparison or new visual parity test was run for this change. Earlier four-model parity receipts cover the earlier rendering recipe and are not evidence for every new option combination. Installed games, extracted research, model DLLs and the frozen reference were not replaced.
+The original processing-control checks are recorded under `artifacts/current/processing`.
+Current enlargement validation is recorded under
+`artifacts/current/scaling-appearance/resize-400`: 35 CPU suites, seven software
+D3D12 suites, and 32/64-bit real ImGui widget checks passed. GPU filter output
+was checked against an independent CPU reference; NIS dispatch counts, queued
+sharpness updates, identity residuals and original-alpha preservation were
+also checked. Twelve real-model cases cover Phoenix and NVIDIA, both Original
+and Lightweight FP8, at 400% NIS, 400% Bicubic and 50% NIS on the same saved
+512x512 SDR image. These exercise a maximum 2048x2048 working canvas; they
+are not a full-frame 400% game benchmark or a temporal-quality comparison.
 
 ## Optional ordered stages
 

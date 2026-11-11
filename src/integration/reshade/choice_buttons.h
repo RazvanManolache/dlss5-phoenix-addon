@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "choice_help.h"
 
 namespace phoenix_ui {
 // Small, fixed option sets take one click. Every option in a group has the
@@ -37,8 +38,21 @@ inline bool choice_buttons(const char* label,int* value,const char* const* items
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,selected?1.f:0.f);
         const auto id=display[i]+"###choice."+label+"|"+items[i];
         if(ImGui::Button(id.c_str(),ImVec2(width,height)) && !selected) {*value=i;changed=true;}
-        if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(enabled&&!enabled[i]?"%s\nUnavailable on the current route.":"%s",items[i]);
+        if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize()*28.f);
+            ImGui::TextUnformatted(items[i]);
+            if (const char* help=choice_help(label,i)) {
+                ImGui::Separator();
+                ImGui::TextUnformatted(help);
+            }
+            if (enabled&&!enabled[i]) {
+                ImGui::Separator();
+                ImGui::TextUnformatted("Unavailable on the current route.");
+            }
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
         ImGui::PopStyleVar();ImGui::PopStyleColor();ImGui::EndDisabled();
     }
     ImGui::PopID();

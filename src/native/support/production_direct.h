@@ -802,6 +802,8 @@ class Runner {
     std::unique_ptr<FrameDispatch> dispatch_;
     std::unique_ptr<NeuralExecutor> external_;
     std::unique_ptr<GuideAdapter> guides_;
+    ComPtr<ID3D12Resource> history_depth_;
+    std::unique_ptr<Pass> history_depth_copy_;
     std::string execution_device_ = "native", worker_engine_ = "auto";
     std::string native_kernel_style_ = "auto";
     int offload_age_frames_ = 4, offload_age_ms_ = 100, cpu_threads_ = 0;
@@ -990,6 +992,8 @@ class Runner {
                 "Portable custom chains currently require the existing scaler and fixed pipeline quality");
         }
         const bool additional=additional_pipeline_.chain_enabled&&additional_pipeline_.enabled[unsigned(phoenix_pipeline::Stage::Scale)]&&additional_pipeline_.scaler!=0;
+        check(!additional||!processing_.enabled||!processing_.resize_method,
+            "Choose the resize provider in Color and scaling or the processing chain, not both");
         check(!additional||!upscaler_method_,"Select one reconstruction provider; disable DLSS SR/XeSS before selecting NIS/tiny");
         if (geometry_.scaled() || resize_motion || additional)
             resolution_bridge_ =
@@ -1173,7 +1177,7 @@ class Runner {
             additional_pipeline_.enabled[unsigned(phoenix_pipeline::Stage::Scale)]!=settings.pipeline.enabled[unsigned(phoenix_pipeline::Stage::Scale)] ||
             additional_pipeline_.scaler!=settings.pipeline.scaler || additional_pipeline_.sharpness!=settings.pipeline.sharpness ||
             additional_library_path_!=settings.model_library_directory)return false;
-        if (processing_ != settings.processing || bridge_only_ != (settings.mode == nvidia) || upscaler_method_ != settings.upscaler ||
+        if (!same_processing_resources(processing_,settings.processing) || bridge_only_ != (settings.mode == nvidia) || upscaler_method_ != settings.upscaler ||
             resolution_mode_ != settings.resolution_mode ||
             resolution_quality_ != settings.resolution_quality ||
             resolution_aspect_ != settings.resolution_aspect ||
@@ -1215,6 +1219,13 @@ class Runner {
     const Resolution& resolution() const {
         return geometry_;
     }
+    bool update_frame_processing(const Processing& value) {
+        check(value.valid()&&same_processing_resources(processing_,value),
+            "Processing canvas changed; retire its resources before rebuilding");
+        const bool changed=copy_processing_color(processing_,value);
+        if(changed&&resolution_bridge_)resolution_bridge_->update_processing(value);
+        return changed;
+    }
     void copy_input(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source,
                     D3D12_RESOURCE_STATES state, ID3D12Resource* destination, bool motion = false) {
         if (resolution_bridge_ && (source->GetDesc().Width != destination->GetDesc().Width ||
@@ -1249,6 +1260,38 @@ class Runner {
             guides_ = std::make_unique<GuideAdapter>(device_.Get(), width_, height_,
                                                      allocation_lifetime_.generation, geometry_);
         return guides_->native_depth(cmd, motion_.Get(), depth, state);
+    }
+    void prepare_history_depth(ID3D12GraphicsCommandList* cmd, ID3D12Resource* source,
+                               D3D12_RESOURCE_STATES state, bool reversed) {
+        constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        if (!history_depth_copy_) {
+            history_depth_copy_ = std::make_unique<Pass>(device_.Get(), R"(
+Texture2D<float> source : register(t0);
+RWTexture2D<float> target : register(u0);
+cbuffer Params : register(b0) { uint width,height,left,top,image_width,image_height; float far_depth; };
+[numthreads(16,16,1)] void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= width || id.y >= height) return;
+    float depth = far_depth;
+    if (id.x >= left && id.y >= top && id.x - left < image_width && id.y - top < image_height) {
+        uint sw, sh;
+        source.GetDimensions(sw, sh);
+        uint2 pixel = min(uint2((float2(id.xy - uint2(left,top)) + .5) *
+                               float2(sw,sh) / float2(image_width,image_height)), uint2(sw-1,sh-1));
+        float value = source.Load(int3(pixel,0));
+        if (isfinite(value) && value >= 0 && value <= 1) depth = value;
+    }
+    target[id.xy] = depth;
+})", allocation_lifetime_.generation, 8);
+            history_depth_ = tracked_image(device_.Get(), width_, height_, DXGI_FORMAT_R32_FLOAT,
+                                           read);
+        }
+        phoenix_native::transition(cmd, source, state, read);
+        phoenix_native::transition(cmd, history_depth_.Get(), read, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        history_depth_copy_->record(cmd, {source, nullptr, nullptr}, history_depth_.Get(),
+            {width_, height_, geometry_.left, geometry_.top, geometry_.image_width, geometry_.image_height,
+             reversed ? 0.f : 1.f, 0, 0}, false, unsigned(submitted_ % 8));
+        phoenix_native::transition(cmd, history_depth_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
+        phoenix_native::transition(cmd, source, read, state);
     }
     void prepare_upscale(ID3D12GraphicsCommandList* cmd, const Controls& controls,
                          ID3D12Resource* depth, D3D12_RESOURCE_STATES state) {
@@ -1349,6 +1392,7 @@ class Runner {
                              D3D12_RESOURCE_STATES color_state, const Controls& controls,
                              const Settings& settings) {
         check(cmd && color, "Shared native feed contract missing");
+        const bool processing_reset=update_frame_processing(settings.processing);
         note_claimed(cmd, color);
         shared_native_ = true;
         copy_input(cmd, color, color_state, input_.Get());
@@ -1357,7 +1401,7 @@ class Runner {
         auto* old = native_exposure_[1 - native_slot_].Get();
         native_constants_ = {width_,
                              height_,
-                             unsigned(controls.reset || !native_prepared_) | (srgb_ ? 2u : 0u) |
+                             unsigned(controls.reset || processing_reset || !native_prepared_) | (srgb_ ? 2u : 0u) |
                                  (settings.host_bridge ? 4u : 0u),
                              0,
                              0,
@@ -1784,7 +1828,7 @@ class Runner {
                 unsigned blocks, ID3D12Resource* depth = nullptr,
                 D3D12_RESOURCE_STATES depth_state = D3D12_RESOURCE_STATE_COMMON,
                 const AppearanceTextures* developer=nullptr,uint32_t appearance_generation=0,
-                uint64_t budget_epoch=0) {
+                uint64_t budget_epoch=0, bool use_feeder_depth=false) {
         check((ready() || (pending_ == cmd && !failed_ && !network_recorded_)) && cmd && color &&
                   motion && evidence.states_verified && evidence.restore_bindings,
               "Direct frame contract missing");
@@ -1802,7 +1846,7 @@ class Runner {
                   "Direct resource layout unsupported");
         }
         check(color != motion, "Direct aliased inputs");
-        controls.reset = controls.reset || !submitted_;
+        controls.reset = update_frame_processing(settings.processing) || controls.reset || !submitted_;
         comparison_view_=phoenix_pipeline::comparison_view_bits(settings.pipeline);
         const AppearanceTextures textures=developer?*developer:AppearanceTextures{};
         check(!chain_||(!textures.mask&&!textures.ui&&!textures.alpha&&!textures.backbuffer&&!textures.field),
@@ -1859,6 +1903,13 @@ class Runner {
                 {{"mode",settings.mode},{"comparison",settings.comparison},{"source_a",settings.source_a},{"source_b",settings.source_b}});
             copy_input(cmd, color, evidence.color_state, input_.Get());
             copy_input(cmd, motion, evidence.motion_state, motion_.Get(), true);
+            // Feeder depth is a shader-readable scalar snapshot, including the
+            // R32_FLOAT copy made by the Present guide collector.
+            const bool use_history_depth = use_feeder_depth && depth && network_ && !chain_ &&
+                resolved.recurrent && resolved.sampling != 0 &&
+                depth->GetDesc().Format == DXGI_FORMAT_R32_FLOAT &&
+                !(depth->GetDesc().Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+            if (use_history_depth) prepare_history_depth(cmd, depth, depth_state, controls.inverted != 0);
             prepare_upscale(cmd, controls, depth, depth_state);
             if (cap_left_)
                 capture_inputs(cmd, controls, settings, blocks,textures,evidence,appearance_generation);
@@ -2007,6 +2058,7 @@ class Runner {
                     dispatch_->prepare_repeats(cmd);
                     auto* net = pass ? refinement_[pass - 1].get() : network_.get();
                     auto pass_resolved=resolved;pass_resolved.control_mask_handle=textures.mask?net->control_mask_handle:0;
+                    if (use_history_depth) pass_resolved.depth_handle = net->bind_history_depth(history_depth_.Get());
                     FrameDispatch::Scope scope(*dispatch_, cmd, pass_resolved, blocks);
                     result = net->record(cmd, !resolved.recurrent, 0, queue_.Get(), true);
                     scope.finish();

@@ -2,6 +2,7 @@
 #include "../../src/integration/compatibility/host_client.h"
 #include "../../src/integration/compatibility/host/retired_transfer_buffer.h"
 #include "../../src/integration/compatibility/host/phoenix-host-safety.h"
+#include "../../src/integration/compatibility/dx_depth_readback.h"
 #include <iostream>
 
 struct FakeResource {
@@ -32,6 +33,21 @@ int main() try {
                                      std::to_string(checks));
     };
     using namespace phoenix_compat;
+    {
+        const uint8_t depth16[]{0x00, 0x80};
+        const uint8_t depth24_stencil8[]{0x00, 0x00, 0x80, 0xff};
+        const uint8_t depth32_stencil8[]{0x00, 0x00, 0x80, 0x3e, 0xff, 0xff, 0xff, 0xff};
+        check(depth_pixel_bytes(DXGI_FORMAT_D16_UNORM) == sizeof(depth16));
+        check(depth_pixel_bytes(DXGI_FORMAT_D24_UNORM_S8_UINT) == sizeof(depth24_stencil8));
+        check(depth_pixel_bytes(DXGI_FORMAT_D32_FLOAT_S8X24_UINT) == sizeof(depth32_stencil8));
+        check(depth_staging_format(DXGI_FORMAT_D16_UNORM) == DXGI_FORMAT_R16_TYPELESS);
+        check(depth_staging_format(DXGI_FORMAT_D24_UNORM_S8_UINT) == DXGI_FORMAT_R24G8_TYPELESS);
+        check(depth_staging_format(DXGI_FORMAT_D32_FLOAT) == DXGI_FORMAT_R32_TYPELESS);
+        check(depth_staging_format(DXGI_FORMAT_D32_FLOAT_S8X24_UINT) == DXGI_FORMAT_R32G8X24_TYPELESS);
+        check(std::abs(unpack_device_depth(depth16, DXGI_FORMAT_D16_UNORM) - 0.5f) < 0.00001f);
+        check(std::abs(unpack_device_depth(depth24_stencil8, DXGI_FORMAT_D24_UNORM_S8_UINT) - 0.5f) < 0.00001f);
+        check(unpack_device_depth(depth32_stencil8, DXGI_FORMAT_D32_FLOAT_S8X24_UINT) == 0.25f);
+    }
     {
         // Force detach while a worker still owns callbacks. The provider may
         // neither disappear nor be replaced until its final cleanup callback.
@@ -73,7 +89,8 @@ int main() try {
     check(feed_protocol_compatible(10));
     check(feed_protocol_compatible(11));
     check(feed_protocol_compatible(12));
-    check(!feed_protocol_compatible(13));
+    check(feed_protocol_compatible(13));
+    check(!feed_protocol_compatible(14));
     FeedGuideState pending{1,1920.f,-1080.f};
     check(feed_guides_valid(pending));
     const auto declared=feed_take_guides(pending);

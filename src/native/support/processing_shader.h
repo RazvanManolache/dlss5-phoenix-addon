@@ -8,11 +8,12 @@ struct ProcessingConstants {
 inline ProcessingConstants processing_constants(const Processing& p, const Resolution& g,
                                                 unsigned operation, bool srgb,
                                                 float host_white = 100, float host_exposure = 1) {
-    return {operation == 3 ? g.output_width : g.width,
-            operation == 3 ? g.output_height : g.height,
+    return {operation >= 3 ? g.output_width : g.width,
+            operation >= 3 ? g.output_height : g.height,
             unsigned(p.input_encoding(srgb)) | unsigned(p.signal << 3) | unsigned(p.domain << 5) |
                 unsigned(p.downsample << 7) | unsigned(p.upsample << 9) |
-                unsigned(p.reconstruction << 11) | (operation << 12),
+                unsigned(p.reconstruction << 11) | (operation << 12) |
+                (p.resize_method ? (1u<<16) : 0u) | (unsigned(p.resize_method)<<17),
             g.left,
             g.top,
             g.image_width,
@@ -95,6 +96,14 @@ float4 tap(int2 p,int2 lo,int2 hi,bool residual) {
 float cubic(float x) {
  x=abs(x);return x<1?1.5*x*x*x-2.5*x*x+1:x<2?-.5*x*x*x+2.5*x*x-4*x+2:0;
 }
+uint selected_filter(bool down) {
+ uint method=(flags>>17)&7;
+ uint result=1;
+ if(down)result=method==1?0:((flags>>7)&3);
+ else if(method==3)result=0;
+ else if(method==5)result=2;
+ return result;
+}
 float4 sample_image(float2 position,float2 footprint,int2 lo,int2 hi,uint filter,bool residual,bool down) {
  float4 sum=0;float total=0;
  if(filter==2) {sum=tap(int2(floor(position+.5)),lo,hi,residual);total=1;}
@@ -123,6 +132,12 @@ float4 sample_image(float2 position,float2 footprint,int2 lo,int2 hi,uint filter
 [numthreads(16,16,1)]void main(uint3 tid:SV_DispatchThreadID) {
  uint2 p=tid.xy;if(p.x>=width||p.y>=height)return;
  uint operation=(flags>>12)&15;
+ if(operation==4) { // NIS has already reconstructed the image(s) at output size.
+  float4 original=Original.Load(int3(p,0));
+  float3 result=decode(Source.Load(int3(p,0)).rgb);
+  if(((flags>>11)&1)==0)result=decode(original.rgb)+result-decode(Baseline.Load(int3(p,0)).rgb);
+  Destination[p]=float4(encode(result),original.a);return;
+ }
  if(operation==0) { // Host transfer -> explicit NR signal.
   Destination[p]=float4(nr_encode(decode(Source.Load(int3(p,0)).rgb)*exposure),1);return;
  }
@@ -135,14 +150,19 @@ float4 sample_image(float2 position,float2 footprint,int2 lo,int2 hi,uint filter
   if(p.x<left||p.y<top||p.x>=left+image_width||p.y>=top+image_height) {Destination[p]=float4(0,0,0,1);return;}
   float2 footprint=float2(sw,sh)/float2(image_width,image_height);
   float2 position=(float2(p)-float2(left,top)+.5)*footprint-.5;
-  float4 v=sample_image(position,footprint,int2(0,0),int2(sw-1,sh-1),(flags>>7)&3,false,true);
+  bool down=(flags&(1u<<16))!=0?any(footprint>1):true;
+  uint filter=(flags&(1u<<16))!=0?selected_filter(down):(flags>>7)&3;
+  float4 v=sample_image(position,footprint,int2(0,0),int2(sw-1,sh-1),filter,false,down);
   Destination[p]=float4(encode(from_domain(v.rgb)),v.a);return;
  }
  // Upsample either the processed image or its linear RGB residual. Residual
  // mode preserves original high-frequency detail when NR runs below 100%.
  bool residual=((flags>>11)&1)==0;
  float2 position=float2(left,top)+(float2(p)+.5)*float2(image_width,image_height)/float2(width,height)-.5;
- float4 v=sample_image(position,1,int2(left,top),int2(left+image_width-1,top+image_height-1),(flags>>9)&3,residual,false);
+ float2 footprint=float2(image_width,image_height)/float2(width,height);
+ bool down=(flags&(1u<<16))!=0&&any(footprint>1);
+ uint filter=(flags&(1u<<16))!=0?selected_filter(down):(flags>>9)&3;
+ float4 v=sample_image(position,footprint,int2(left,top),int2(left+image_width-1,top+image_height-1),filter,residual,down);
  float4 original=Original.Load(int3(p,0));
  float3 result=residual?decode(original.rgb)+v.rgb:from_domain(v.rgb);
  Destination[p]=float4(encode(result),original.a);

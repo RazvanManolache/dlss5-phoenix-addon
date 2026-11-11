@@ -9,6 +9,24 @@ Choose a renderer and compatible model, start with Automatic execution, and comp
 *Native UI fixture renders, with synthetic status and no personal game captures.
 Dashes mean no measurement. [All controls and screenshots](USER_GUIDE.md#a-quick-look).*
 
+Every button and slider has hover help, including disabled choices. Sliders
+show their range and default, explain the tradeoff, and have an **R** button
+that restores only that value. Ctrl+click a slider to type an exact value.
+[Strong photorealistic tuning](REALISM_TUNING.md) gives a tested starting recipe.
+
+**Color and scaling → Resolution scale** allows up to 400% per dimension,
+subject to backend texture limits. This processes up to sixteen times the
+pixels; it enlarges the captured image without changing the game's render
+resolution. **Upscaling method** selects Auto, NVIDIA NIS, Bilinear, Bicubic or
+Nearest. Saved manual filters remain available to preserve existing profiles.
+The selection applies wherever enlargement is needed: before DLSS5 above 100%,
+or when restoring the output below 100%. Reduction has its own filter; Auto
+chooses Area. NIS supports sRGB native GPU/helper routes and uses multiple
+passes above 2x. Other signals/CPU routes use the stated Bicubic fallback.
+[NVIDIA Image Scaling](https://github.com/NVIDIAGameWorks/NVIDIAImageScaling)
+is a spatial scaler and sharpener. It does not require engine motion or depth
+buffers. This selection is separate from temporal DLSS Super Resolution.
+
 ## Playback stability and leaving comparison
 
 On helper/capture routes, **Image → Playback stability → Hold completed frames**
@@ -25,8 +43,70 @@ helper failures still require fresh resources. The operating system's fullscreen
 mode transition can itself blink; keeping the model warm avoids the additional
 model-loading blackout. Diagnostics expose `runtime_resumes` for this handoff.
 
+CPU-transfer helpers can also keep their worker and model through a temporary
+runtime reset, including a DX9 fullscreen focus transition. The addon releases
+the game's transfer textures, then rebuilds those textures when rendering
+resumes. It discards any pre-pause answer and resets history on the first fresh
+input. Closing the game, losing the graphics device or changing the transfer
+layout still releases the helper.
+
 **Exit comparison** returns to the processed comparison source in both the full
 and compact panels. The saved pair and divider remain available for next time.
+
+### Legacy depth
+
+Open **Image → Legacy depth** for Phoenix or NVIDIA DLSS5 on the external
+mono CPU capture helper. **Auto** prefers **Game depth**, which uses a
+depth attachment verified to match the captured color target. DX9 can
+use a readable ReShade INTZ surface or resolve a compatible multisampled depth
+surface on NVIDIA hardware. Phoenix tracks depth-writing draws and can preserve
+the surface before a clear. DX10.1 and DX11 can copy compatible
+single-sample depth attachments on the readback route. A missing, unreadable,
+or flat attachment causes Auto to try an estimator.
+
+Auto tries NVIDIA NvDepthAnythingV2 Large on the GPU, followed by Depth
+Anything V2 Small on the GPU or CPU. **Game depth**, **NVIDIA**, and
+**Small** select a source explicitly. **None** processes without a depth
+guide. The estimators infer relative depth from color and can misread HUD,
+transparency, and reflections. The panel reports the active source.
+
+**Depth strength** adjusts the map's contrast. **0x** disables depth,
+**1x** preserves contrast, and values up to **10x** increase separation in
+steps of **0.001x**. **R** restores 1x. **Invert depth** reverses near and
+far in the preview and the model guide. **Near depth** and **Far depth**
+select percentages of the current observed depth span. With **Fixed depth
+range** enabled, 0% to 100% uses the full observed span, and 0% to 50%
+allocates the full output range to its closer half. The source range
+readout shows the underlying normalized device depth or relative estimate.
+Phoenix normalizes the observed span before applying strength. The preview
+displays the adjusted values directly. The model guide returns
+the adjusted values to their original depth units.
+
+**Play → Compare → Compare and inspect → Depth only** shows the selected map
+in grayscale. Near surfaces are bright. When **Game depth** is selected,
+the preview uses the game buffer and shows black when it is unavailable.
+Use **Auto** to allow an estimated map when game depth is unavailable.
+Turn the preview off to resume neural rendering.
+
+The estimators use an optional x64 ONNX Runtime provider. Build it from an
+extracted [Windows x64 ONNX Runtime SDK](https://github.com/microsoft/onnxruntime/releases)
+using this command.
+
+```powershell
+python tools/build_legacy_depth.py --ort-sdk <extracted-sdk> --output <depth-folder>
+```
+
+Place the [Depth Anything V2 Small ONNX](https://huggingface.co/onnx-community/depth-anything-v2-small)
+as `depth-anything-v2-small.onnx` and the
+[NVIDIA deployable relative-depth ONNX](https://catalog.ngc.nvidia.com/orgs/nvidia/tao/models/nvdepthanythingv2/-)
+as `nvdepthanythingv2.onnx` in that folder. Set `LegacyDepthDirectory` in the
+game's `[Phoenix]` ReShade configuration to that absolute path. The optional
+`PHOENIX_LEGACY_DEPTH_DIR` environment variable overrides the per-game path.
+CUDA and DirectML are tried in that
+order when the installed ONNX Runtime supports them. Pass `--runtime-dir`
+to use a matching GPU runtime. For the DirectML NuGet runtime, also pass
+`--directml-dll` with the matching x64 DirectML DLL. The CPU-only SDK runs
+Small as Auto's fallback. Game depth needs no model or ONNX runtime.
 
 ### Motion and temporal stability
 
@@ -96,12 +176,23 @@ hardware-inference validation claim.
 
 ## Appearance Controls
 
-- Experimental Phoenix intensity and Default/Natural/Cinematic styles.
+- Shared Phoenix/NVIDIA intensity and Default/Natural/Cinematic styles.
 - Engine-fed surface maps, protected UI and distortion inputs. Per-surface editing
   requires engine-provided IDs/textures; final-color capture cannot invent them.
 - Tile-aligned native graphs, stale-layout rejection and graph/package checks.
 
 [Feature guide](NEURAL_CONTROLS.md) · [Installation](RELEASE_0.19.md) · [Native correctness](NATIVE_CORRECTNESS_0.82.md)
+
+In **Image → Color and scaling**, changing filter domain, resampling filters,
+reconstruction, input/signal encoding, diffuse white or exposure updates frame
+controls on the running native/helper path. It resets history for the new
+color convention without reloading model weights. Changing the model, working
+canvas, insertion hook or required transport can still need new resources.
+
+On a final-frame capture route, select **Present**. **Render** and **Upscaled**
+need observed D3D12 engine-feature buffers and are disabled when this source
+cannot supply them. Old final-frame profiles saved with either unavailable
+stage recover to Present while keeping their color and resolution settings.
 
 ## A quick look
 
@@ -125,7 +216,7 @@ has the detailed timings, memory measurements and limits.
 
 **Less hunting. More playing.** Source and Look controls get their own cards;
 model files, device choices and transport details live in Setup. Save and timing
-summaries stay visible while the body scrolls. All 136 saved settings are retained.
+summaries stay visible while the body scrolls. Existing saved settings are retained.
 
 <details>
 <summary>See the new cards, detailed controls and narrow-panel layout</summary>

@@ -4,6 +4,8 @@
 #include "host_client.h"
 #include "pixel_transport.h"
 #include "d3d9_compositor.h"
+#include "dx_depth_readback.h"
+#include "depth_freshness.h"
 #include "retirement_serial.h"
 #include "capture_retirement.h"
 #include "capture_queue.h"
@@ -18,19 +20,30 @@ class ReadbackBridge {
     mutable Json gpu_pair_status_=Json::object();
     reshade::api::fence retired_{};
     std::unique_ptr<HostClient> host_;
+    bool resumed_worker_=false,resume_pending_=false;
     std::unique_ptr<D3D9Compositor> compositor9_;
+    std::unique_ptr<DxDepthReadback> dx_depth_;
     unsigned width_, height_, row_pitch_;
     bool bgra_, rgb10_, upload_bgra_, buffer_readback_, flip_rows_, d3d9_upload_,
                                                                           delivered_image_ = false;
     CaptureQueue captures_;
     bool history_started_ = false;
+    bool depth_preview_ = false, preview_transition_ = false;
     uint64_t serial_ = 0, capture_serial_ = 0, upload_serial_ = 0, queued_signal_ = 0;
+    uint64_t worker_serial_ = 0;
     uint64_t capture_frame_ = 0, submitted_frame_ = 0, delivered_frame_ = 0;
     uint64_t delivered_ = 0, presented_ = 0;
     uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
     uint64_t capture_tick_ = 0, submitted_tick_ = 0, delivered_tick_ = 0;
     std::vector<uint8_t> submitted_pixels_;
     std::vector<uint8_t> queued_pixels_, upload_pixels_;
+    std::vector<float> queued_depth_;
+    DepthFreshness depth_freshness_;
+    uint64_t stale_depth_frames_ = 0;
+    bool capture_game_depth(const Settings& settings) const {
+        return (compositor9_ || dx_depth_) && host_ && !host_->in_process() && settings.pipeline.legacy_depth_strength > 0.f &&
+            (settings.pipeline.legacy_depth == 0 || settings.pipeline.legacy_depth == 4);
+    }
     const char* transfer_stage_="initialization";
     phoenix_pipeline::screenshots::CompletedPair screenshot_pair_;
     double capture_ms_ = 0, upload_ms_ = 0, compose_ms_ = 0;
@@ -122,6 +135,13 @@ class ReadbackBridge {
                         copy_pixel_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
                                         mapped.row_pitch, width_, height_, flip_rows_, bgra_);
                 }
+                if (compositor9_) compositor9_->readback_depth(capture->slot, queued_depth_);
+                else if (dx_depth_) dx_depth_->read(queued_depth_);
+                if (compositor9_ && !queued_depth_.empty() &&
+                    !depth_freshness_.accept(pixels, queued_depth_, width_, height_)) {
+                    queued_depth_.clear();
+                    ++stale_depth_frames_;
+                }
                 cpu_readback_ms_=elapsed_ms(cpu_readback_started);
                 capture->retired = true;
                 // Queue one retired capture without replacing the current worker's
@@ -138,7 +158,11 @@ class ReadbackBridge {
             transfer_stage_="screenshot input copy";
             screenshot_pair_.remember(capture->frame,queued_pixels_);
             transfer_stage_="capture worker submission";
-            if (host_->submit(capture->serial, !history_started_, std::move(queued_pixels_))) {
+            const auto worker_serial=gpu_transport_?capture->serial:worker_serial_+1;
+            if (!capture_game_depth(settings)) queued_depth_.clear();
+            if (host_->submit(worker_serial, !history_started_, std::move(queued_pixels_),
+                              1, {}, std::move(queued_depth_))) {
+                worker_serial_=worker_serial;
                 if(compositor9_)compositor9_->promote_submitted_capture(capture->slot);
                 if (after_present) ++post_present_submissions_;
                 history_started_ = true;
@@ -163,7 +187,8 @@ class ReadbackBridge {
                    const phoenix_addon::phoenix::Settings& settings,
                    std::optional<PortableOptions> portable = std::nullopt,
                    std::optional<NativeOptions> native = std::nullopt,
-                   std::optional<LocalGpuOptions> local = std::nullopt)
+                   std::optional<LocalGpuOptions> local = std::nullopt,
+                   std::unique_ptr<HostClient> retained = {})
         : device_(runtime->get_device()), queue_(runtime->get_command_queue()),
           width_(description.texture.width), height_(description.texture.height),
           row_pitch_(transfer_row_pitch(device_->get_api(), width_)),
@@ -298,6 +323,9 @@ class ReadbackBridge {
                     height_, native_description.Format);
                 captures_.capacity(compositor9_->capture_capacity());
             }
+            if (!gpu_transport_ && !portable && !native && !local &&
+                (device_->get_api() == device_api::d3d10 || device_->get_api() == device_api::d3d11))
+                dx_depth_ = std::make_unique<DxDepthReadback>(width_, height_);
             require(device_->create_fence(0, fence_flags::none, &retired_),
                     "API cannot provide transfer fencing");
             FeedBuild build{};
@@ -306,7 +334,15 @@ class ReadbackBridge {
             build.color_fmt = build.output_fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
             build.cpu_bridge = gpu_transport_?0:1;
             build.mv_scale_x = build.mv_scale_y = 1;
-            host_ = std::make_unique<HostClient>(addon, source, settings, build, portable,native,local);
+            if(retained&&!gpu_transport_&&!portable&&!native&&!local&&retained->reusable_cpu_build(build)) {
+                // CPU frame IDs survive; this new GPU fence must still start
+                // at one because DX9 scans consecutive query-ring values.
+                worker_serial_=retained->last_serial();
+                host_=std::move(retained);resumed_worker_=resume_pending_=true;
+            } else {
+                retained.reset();
+                host_ = std::make_unique<HostClient>(addon, source, settings, build, portable,native,local);
+            }
         } catch (...) {
             release();
             throw;
@@ -317,6 +353,7 @@ class ReadbackBridge {
         if (serial_ || presented_)
             queue_->wait_idle();
         compositor9_.reset();
+        dx_depth_.reset();
         if (retired_.handle)
             device_->destroy_fence(retired_);
         for (auto resource : {readback_, upload_, upload_buffer_,gpu_output_})
@@ -332,8 +369,17 @@ class ReadbackBridge {
     HostClient* host() const {
         return host_.get();
     }
+    bool resumed_worker() const {return resumed_worker_;}
+    bool can_park_worker() const {return !gpu_transport_&&host_&&!host_->in_process();}
+    std::unique_ptr<HostClient> park_worker() {
+        require(can_park_worker(),"Only a CPU-transfer helper can pause across this runtime reset");
+        return std::move(host_);
+    }
     uint64_t delivered() const {
         return delivered_;
+    }
+    uint64_t presented_output_frame(uint64_t frame) const {
+        return composed_at_frame_ == frame ? presented_output_frame_ : 0;
     }
     uint64_t presented() const {
         return presented_;
@@ -341,8 +387,20 @@ class ReadbackBridge {
     bool presents_current_frame() const {
         return compositor9_ != nullptr;
     }
+    D3D9Compositor* tracked_d3d9_depth() const {
+        return compositor9_ && compositor9_->tracking_depth() ? compositor9_.get() : nullptr;
+    }
+    void next_d3d9_depth_frame(reshade::api::resource back, const Settings& settings, bool enabled) {
+        if (!compositor9_) return;
+        const bool will_capture = enabled && capture_game_depth(settings);
+        if (!will_capture) depth_freshness_.reset();
+        compositor9_->next_depth_frame(will_capture
+            ? reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle)) : nullptr);
+    }
     Json transfer_timings() const {
         return {{"last_capture_ms", capture_ms_},
+                {"d3d9_depth_capture", compositor9_ ? compositor9_->depth_capture_status() : Json::object()},
+                {"stale_depth_frames", stale_depth_frames_},
                 {"last_cpu_readback_ms",cpu_readback_ms_},
                 {"readback_bytes",gpu_transport_?0:uint64_t(width_)*height_*4},
                 {"capture_pixel_transport",gpu_transport_?"shared-gpu-mailbox":"cpu-staging"},
@@ -396,12 +454,26 @@ class ReadbackBridge {
                uint64_t frame_number, const phoenix_addon::phoenix::Settings& settings,
                bool coherent_frames = false) {
         using namespace reshade::api;
+        const bool depth_preview = settings.pipeline.legacy_depth_preview && can_park_worker();
+        if (depth_preview != depth_preview_) {
+            depth_preview_ = depth_preview;
+            preview_transition_ = true;
+            delivered_image_ = false;
+        }
+        coherent_frames |= depth_preview;
         const auto frame_begin = std::chrono::steady_clock::now();
         if(preceding_frame_!=std::chrono::steady_clock::time_point{})
             frame_period_ms_=std::chrono::duration<double,std::milli>(frame_begin-preceding_frame_).count();
         preceding_frame_=frame_begin;
         require(command == queue_->get_immediate_command_list(),
                 "Image transport requires the runtime immediate queue");
+        if(resume_pending_) {
+            // The last pre-pause frame belongs to the old transfer buffers.
+            // Retire its CPU answer without presenting it over a newer image.
+            if(host_->phase()==Phase::Finished)host_->take();
+            if(host_->phase()!=Phase::Ready)return;
+            resume_pending_=false;history_started_=false;
+        }
         const auto completed = device_->get_completed_fence_value(retired_);
         require(completed != UINT64_MAX, "Readback graphics device was lost");
         last_pre_completed_=completed;
@@ -475,7 +547,8 @@ class ReadbackBridge {
                     {const_cast<uint8_t*>(native_pixels), width_ * 4, width_ * height_ * 4}, upload_, 0);
             }
             }
-            delivered_image_ = true;
+            delivered_image_ = !preview_transition_ || host_->tuning_current_output();
+            if (delivered_image_) preview_transition_ = false;
             if (compositor9_)
                 compositor9_->match_completed_input();
             delivered_frame_ = submitted_frame_;
@@ -495,9 +568,11 @@ class ReadbackBridge {
             settings.mode != phoenix_addon::phoenix::input) {
             transfer_stage_="GPU capture copy";
             const auto capture_begin = std::chrono::steady_clock::now();
-            if (compositor9_)
-                compositor9_->capture(reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle)),unsigned(capture_slot));
-            else {
+            if (compositor9_) {
+                auto* surface = reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle));
+                compositor9_->capture(surface, unsigned(capture_slot));
+                if (capture_game_depth(settings)) compositor9_->capture_depth(surface, unsigned(capture_slot));
+            } else {
                 command->barrier(back, resource_usage::present, resource_usage::copy_source);
                 if(gpu_transport_)command->barrier(readback_,resource_usage::general,resource_usage::copy_dest);
                 if (buffer_readback_)
@@ -508,6 +583,12 @@ class ReadbackBridge {
                 if(gpu_transport_)command->barrier(readback_,resource_usage::copy_dest,resource_usage::general);
                 command->barrier(back, resource_usage::copy_source, resource_usage::present);
             }
+            if (dx_depth_ && capture_game_depth(settings)) {
+                if (device_->get_api() == device_api::d3d10)
+                    dx_depth_->capture(reinterpret_cast<ID3D10Device*>(uintptr_t(device_->get_native())), back.handle);
+                else
+                    dx_depth_->capture(reinterpret_cast<ID3D11Device*>(uintptr_t(device_->get_native())), back.handle);
+            }
             ++capture_copies_;
             capture_serial_ = reserve_retirement_serial(serial_, queued_signal_);
             capture_frame_ = frame_number;
@@ -515,7 +596,14 @@ class ReadbackBridge {
             captures_.push({capture_serial_,capture_frame_,capture_tick_,unsigned(capture_slot),false});
             capture_ms_ = elapsed_ms(capture_begin);
         }
-        if (delivered_image_ && settings.mode != phoenix_addon::phoenix::input &&
+        // Depth diagnostics must expire independently of the game's processed
+        // frame hold setting. Old depth is misleading when the game moves.
+        const bool fresh_depth_preview = delivered_image_ && GetTickCount64() - delivered_tick_ <= 750;
+        if (depth_preview && !fresh_depth_preview && compositor9_ &&
+            settings.mode != phoenix_addon::phoenix::input) {
+            compositor9_->draw_depth_unavailable(reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle)));
+        } else if (delivered_image_ && (!depth_preview || fresh_depth_preview) &&
+            settings.mode != phoenix_addon::phoenix::input &&
             (coherent_frames ||
              (frame_number - delivered_frame_ <= uint64_t(settings.offload_age_frames) &&
               GetTickCount64() - delivered_tick_ <= uint64_t(settings.offload_age_ms)))) {

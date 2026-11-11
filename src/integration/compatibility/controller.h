@@ -1,4 +1,5 @@
 #pragma once
+#include "../reshade/widgets.h"
 #include "../../native/support/release_updates.h"
 #include "../../native/support/model_tools.h"
 #include "../reshade/shared_panel.h"
@@ -25,6 +26,7 @@ struct Session {
     int capture_hotkey = -1;
     uint64_t hotkey_deadline = 0, markers = 0;
     double present_fps = 0;
+    uint64_t last_presented_output_frame = 0;
     phoenix_addon::phoenix::PresentationTiming presentation_timing;
     bool settings_dirty = false;
     std::vector<phoenix_addon::phoenix::ExecutionDevice> execution_devices{
@@ -33,6 +35,7 @@ struct Session {
     Json previous_gpu_rows = Json::array(), previous_worker_rows = Json::array();
     std::unique_ptr<D3D11Bridge> bridge;
     std::unique_ptr<ReadbackBridge> readback;
+    std::unique_ptr<HostClient> paused_readback_host;
     std::unique_ptr<D3D12Bridge> local;
     ExecutionPreference execution = ExecutionPreference::Automatic;
     std::string execution_name = "auto", fallback_reason, processing_error;
@@ -256,7 +259,7 @@ inline void prune_runtime_continuity() {
     runtime_continuity.prune([](auto owner) { return IsWindow(reinterpret_cast<HWND>(owner.second)) != FALSE; });
 }
 inline bool same_helper_recipe(const Session& previous, const Session& current) try {
-    auto* host = previous.bridge ? previous.bridge->host() : nullptr;
+    auto* host = previous.bridge ? previous.bridge->host() : previous.paused_readback_host.get();
     return host && host->phase() != Phase::Failed && host->phase() != Phase::Stopped &&
         settings_json(previous.applied_settings) == settings_json(current.applied_settings) &&
         previous.configured.configuration() == current.configured.configuration() &&
@@ -303,6 +306,11 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
         });
         if (!entry->settings.valid())
             entry->settings = {};
+        if(normalize_final_frame_hook(entry->settings)) {
+            reshade::set_config_value(runtime,"Phoenix","HookStage",3);
+            reshade::log::message(reshade::log::level::info,
+                "Phoenix final-frame source: recovered unavailable Render/Upscaled selection to Present; color and scale retained.");
+        }
         // Frame-count limits from a synchronous DX12 profile are too small
         // for an asynchronous helper at high game FPS. Time still caps age.
         entry->settings.offload_age_frames = 60;
@@ -354,6 +362,7 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
             if (!preset.valid())
                 preset = {};
             normalize_capabilities(preset);
+            normalize_final_frame_hook(preset);
         }
         for (size_t index = 0; index < entry->hotkeys.size(); ++index) {
             auto key = "Hotkey" + std::to_string(index);
@@ -396,7 +405,7 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
             ++entry->runtime_resumes;
             entry->presentation_timing.clear();
             reshade::log::message(reshade::log::level::info,
-                "Phoenix resumed the same shared-GPU helper after runtime reset; model and completed frame retained.");
+                "Phoenix resumed its paused helper after runtime reset; model retained.");
         }
     }
     if (entry->control.folder().empty()) {
@@ -408,6 +417,7 @@ inline Session &session(reshade::api::effect_runtime *runtime) {
     return *entry;
 }
 inline void save(reshade::api::effect_runtime *runtime, Session &value, bool apply = true) {
+    normalize_final_frame_hook(value.settings);
     if(auto* host=value.bridge?value.bridge->host():value.readback?value.readback->host():nullptr) {
         const auto info=host->ui_snapshot();
         value.live_motion_services=info.value("helper_motion",Json::object()).value("supported",false)||
@@ -416,7 +426,10 @@ inline void save(reshade::api::effect_runtime *runtime, Session &value, bool app
     phoenix_addon::phoenix::normalize_direct_comparison(value.settings);
     if (normalize_capabilities(value.settings))
         value.ui_error = "FPS budgeting is unavailable in a companion; using GPU-time budget.";
-    for (auto& preset : value.presets) normalize_capabilities(preset);
+    for (auto& preset : value.presets) {
+        normalize_capabilities(preset);
+        normalize_final_frame_hook(preset);
+    }
     if (apply) migrate_processing_switch(value.enabled, value.settings);
     auto persisted_settings = apply ? value.settings : value.applied_settings;
     phoenix_addon::phoenix::visit_settings(persisted_settings, [&](const char *key, auto &field) {
@@ -695,6 +708,17 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     const bool native_motion=native_active(value)&&resident_runtime.value("pipeline_frame_services",false);
     value.live_motion_services=value.live_motion_services||native_motion;
     ui.motion_services_available=value.live_motion_services;
+    const auto legacy_depth = info.value("legacy_depth", Json::object());
+    ui.legacy_depth_available = host && !resident_active(value) && legacy_depth.value("supported", false);
+    const auto depth_api = runtime->get_device()->get_api();
+    ui.legacy_game_depth_available = ui.legacy_depth_available &&
+        (depth_api == reshade::api::device_api::d3d9 || depth_api == reshade::api::device_api::d3d10 ||
+         depth_api == reshade::api::device_api::d3d11);
+    ui.legacy_depth_status = legacy_depth.value("status", std::string{});
+    if (legacy_depth.value("source_frame", uint64_t(0)) != 0) {
+        ui.legacy_depth_status += " Source range " + std::to_string(legacy_depth.value("source_min", 0.f)) +
+            " to " + std::to_string(legacy_depth.value("source_max", 1.f)) + ".";
+    }
     if(ui.motion_services_available)ui.motion_status=native_motion?
         resident_runtime.value("motion_provider",std::string("Waiting for motion sample")):
         helper_motion.value("status",std::string());
@@ -951,7 +975,8 @@ inline void comparison_hud(reshade::api::effect_runtime* runtime) {
     auto found = sessions.find(runtime);
     if (found == sessions.end()) return;
     auto& value = *found->second;
-    if (value.enabled && value.displayed && value.presented_revision == value.selection_revision) {
+    if (value.enabled && value.displayed && value.presented_revision == value.selection_revision &&
+        !value.applied_settings.pipeline.legacy_depth_preview) {
         auto presentation=value.displayed_settings;
         presentation.comparison_labels=value.settings.comparison_labels;
         presentation.comparison_lines=value.settings.comparison_lines;
@@ -986,7 +1011,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
     }
     if (!saved_available) ImGui::TextWrapped("The saved execution mechanism is not available for this architecture, runtime or settings. Select Automatic to try eligible routes.");
     ImGui::TextWrapped("Automatic tries same-device native DX12, eligible x86 native routes, then portable processing. The x64 helper is last.");
-    if (ImGui::Button("Recheck runtimes / retry routes")) {
+    if (phoenix_ui::button("Recheck runtimes / retry routes")) {
         value.availability_probe.invalidate(); route_changed = true;
     }
     if (ImGui::TreeNode("Transport availability")) {
@@ -1045,7 +1070,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
             if (ImGui::Checkbox("Automatic portable CPU threads", &automatic_threads))
                 value.settings.cpu_threads = automatic_threads ? 0 : available;
             if (!automatic_threads)
-                ImGui::SliderInt("Portable CPU threads", &value.settings.cpu_threads, 1, available,
+                phoenix_ui::slider_int("Portable CPU threads", &value.settings.cpu_threads, 1, available, Settings{}.cpu_threads,
                                  "%d", ImGuiSliderFlags_AlwaysClamp);
         }
         route_changed |= ImGui::Checkbox("Allow devices without a validation entry", &value.portable_allow_unvalidated);
@@ -1060,7 +1085,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
             ImGui::TextWrapped("NVIDIA DLSS5 sources require the x64 library or helper; the Phoenix DLSS5 driver preference is retained.");
     }
     ImGui::Text("Active execution: %s",execution_mode(value));
-    if (!value.failed_routes.empty() && ImGui::Button("Retry preferred routes")) route_changed = true;
+    if (!value.failed_routes.empty() && phoenix_ui::button("Retry preferred routes")) route_changed = true;
     if (route_changed) {
         reset_route_failures(value);
         value.processing_error.clear();
@@ -1121,12 +1146,20 @@ inline void destroy(reshade::api::effect_runtime *runtime) {
     const auto found = sessions.find(runtime);
     if (found == sessions.end()) return;
     auto& value = *found->second;
-    auto* host = value.bridge ? value.bridge->host() : nullptr;
-    if (runtime->get_device()->get_api() == reshade::api::device_api::d3d11 && host &&
+    auto* host = value.bridge ? value.bridge->host() : value.readback ? value.readback->host() : nullptr;
+    const bool shared=value.bridge&&runtime->get_device()->get_api()==reshade::api::device_api::d3d11;
+    const bool readback=value.readback&&value.readback->can_park_worker();
+    if ((shared||readback) && host &&
         !host->in_process() && host->phase() != Phase::Failed && host->phase() != Phase::Stopped &&
         !value.restart && !value.deferred_destroy && value.processing_error.empty() &&
         IsWindow(reinterpret_cast<HWND>(runtime->get_hwnd()))) {
-        value.bridge->release_presentation_targets();
+        if(shared)value.bridge->release_presentation_targets();
+        if(readback) {
+            value.paused_readback_host=value.readback->park_worker();
+            // Default-pool game textures must be released before a D3D9 Reset.
+            // Only the independent CPU worker/model survives the focus pause.
+            value.readback.reset();
+        }
         value.screenshot.reset();
         runtime_continuity.park(runtime_owner(runtime), std::move(found->second));
     }
@@ -1177,16 +1210,6 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.recorded_mode = value.applied_settings.mode;
     }
     const auto now = GetTickCount64();
-    if (const auto sample=value.presentation_timing.present(now,std::to_string(value.helper_generation),
-            value.selection_revision,value.applied_settings.mode)) {
-        value.present_fps=sample->fps;
-        if(value.enabled && value.presented_revision==value.selection_revision) {
-            const auto info=processing_info(value);
-            if(info.value("last_mode",-1)==value.applied_settings.mode)
-                value.presentation_timing.record_active(*sample,info.value("gpu_timing",Json::object()),
-                    info.value("last_mode",-1),info.value("transformer_blocks",8u),presentation_scope(value));
-        }
-    }
     if (value.capture_hotkey >= 0) {
         if (now > value.hotkey_deadline)
             value.capture_hotkey = -1;
@@ -1432,9 +1455,9 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                         value.portable_device, value.portable_allow_unvalidated};
                     portable->gpu_transport=value.helper_transport!="readback";
                 }
-                ++value.helper_generation;
                 value.readback = std::make_unique<ReadbackBridge>(runtime, description, module,
-                                                                  selected, value.applied_settings, portable,native,local);
+                    selected, value.applied_settings, portable,native,local,std::move(value.paused_readback_host));
+                if(!value.readback->resumed_worker())++value.helper_generation;
                 value.message = std::string(api_name(device->get_api())) +
                                 (portable_attempt ? " readback / in-process portable Phoenix DLSS5. CPU pixel transfers add " :
                                 " readback / asynchronous 64-bit helper. CPU pixel transfers add ") +
@@ -1528,10 +1551,73 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.shared_unavailable = true;
     }
 }
+template<class Fn> inline void with_d3d9_depth(reshade::api::command_list* list, Fn&& fn) {
+    auto* device = list->get_device();
+    if (device->get_api() != reshade::api::device_api::d3d9) return;
+    // A draw callback may run under the driver's lock. Avoid waiting on a
+    // Present callback that might already be waiting for the game device.
+    std::unique_lock lock(sessions_mutex, std::try_to_lock);
+    if (!lock) return;
+    for (auto& [runtime, session] : sessions) {
+        if (runtime->get_device() != device || !session->readback) continue;
+        if (auto* depth = session->readback->tracked_d3d9_depth()) {
+            fn(*depth);
+            return;
+        }
+    }
+}
+inline void d3d9_depth_bind(reshade::api::command_list* list, uint32_t count,
+                            const reshade::api::resource_view* colors, reshade::api::resource_view depth) {
+    with_d3d9_depth(list, [&](D3D9Compositor& capture) {
+        capture.depth_bind(count && colors ? reinterpret_cast<IDirect3DSurface9*>(uintptr_t(colors[0].handle)) : nullptr,
+                           reinterpret_cast<IDirect3DSurface9*>(uintptr_t(depth.handle)));
+    });
+}
+inline bool d3d9_depth_draw(reshade::api::command_list* list, uint32_t vertices, uint32_t,
+                            uint32_t, uint32_t) {
+    with_d3d9_depth(list, [&](D3D9Compositor& capture) { capture.depth_draw(vertices); });
+    return false;
+}
+inline bool d3d9_depth_draw_indexed(reshade::api::command_list* list, uint32_t indices, uint32_t instances,
+                                    uint32_t first, int32_t, uint32_t first_instance) {
+    return d3d9_depth_draw(list, indices, instances, first, first_instance);
+}
+inline bool d3d9_depth_clear(reshade::api::command_list* list, reshade::api::resource_view depth,
+                             const float* value, const uint8_t*, uint32_t, const reshade::api::rect*) {
+    if (value)
+        with_d3d9_depth(list, [&](D3D9Compositor& capture) {
+            capture.depth_clear(reinterpret_cast<IDirect3DSurface9*>(uintptr_t(depth.handle)));
+        });
+    return false;
+}
+inline void d3d9_depth_state(reshade::api::command_list* list, uint32_t count,
+                             const reshade::api::dynamic_state* states, const uint32_t*) {
+    using reshade::api::dynamic_state;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (states[i] != dynamic_state::depth_enable && states[i] != dynamic_state::depth_write_mask &&
+            states[i] != dynamic_state::depth_func) continue;
+        with_d3d9_depth(list, [](D3D9Compositor& capture) { capture.depth_state_changed(); });
+        return;
+    }
+}
+inline void d3d9_depth_viewport(reshade::api::command_list* list, uint32_t, uint32_t,
+                                const reshade::api::viewport*) {
+    with_d3d9_depth(list, [](D3D9Compositor& capture) { capture.depth_state_changed(); });
+}
+inline bool d3d9_depth_events = false;
 inline void initialize(reshade::api::effect_runtime *runtime) {
     if (applies(runtime)) {
         std::lock_guard lock(sessions_mutex);
         auto& value = session(runtime);
+        if (!d3d9_depth_events && runtime->get_device()->get_api() == reshade::api::device_api::d3d9) {
+            reshade::register_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(d3d9_depth_bind);
+            reshade::register_event<reshade::addon_event::bind_pipeline_states>(d3d9_depth_state);
+            reshade::register_event<reshade::addon_event::bind_viewports>(d3d9_depth_viewport);
+            reshade::register_event<reshade::addon_event::draw>(d3d9_depth_draw);
+            reshade::register_event<reshade::addon_event::draw_indexed>(d3d9_depth_draw_indexed);
+            reshade::register_event<reshade::addon_event::clear_depth_stencil_view>(d3d9_depth_clear);
+            d3d9_depth_events = true;
+        }
         // Publish the control endpoint before the first usable presentation.
         // Otherwise queue/backbuffer rejection also hides its diagnostic status.
         poll_control(runtime, value);
@@ -1592,14 +1678,38 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
         // Present is independent of ReShade shader loading. Process before its
         // effects and overlay, so neither a dummy shader nor UI filtering is needed.
         const auto previous_presented = presented(*value);
+        const auto now = GetTickCount64();
         process(runtime, commands, back);
         // All processing exits converge here, including initialization errors,
         // required-guide refusals and route changes. A skipped inference must
         // never silently become an unprocessed display frame in coherent mode.
         const auto& settings = value->applied_settings;
-        const bool processing_requested = value->enabled && value->coherent_frames &&
-            settings.mode != phoenix_addon::phoenix::input &&
+        const bool processing_enabled = value->enabled && settings.mode != phoenix_addon::phoenix::input &&
             (!settings.processing.enabled || settings.processing.hook != 0);
+        if (value->readback) value->readback->next_d3d9_depth_frame(back, settings, processing_enabled);
+        const bool depth_preview = settings.pipeline.legacy_depth_preview &&
+            value->readback && value->readback->can_park_worker();
+        const bool processing_requested = processing_enabled && (value->coherent_frames || depth_preview);
+        std::optional<bool> fresh_output;
+        if (processing_enabled && !depth_preview) {
+            const uint64_t output_frame = value->local
+                ? (value->local_composed_frame == value->frames ? value->frames : 0)
+                : value->bridge ? value->bridge->presented_output_frame(value->frames)
+                : value->readback ? value->readback->presented_output_frame(value->frames) : 0;
+            fresh_output = value->displayed && value->presented_revision == value->selection_revision &&
+                output_frame > value->last_presented_output_frame;
+            if (*fresh_output) value->last_presented_output_frame = output_frame;
+        }
+        if (const auto sample = value->presentation_timing.present(now, std::to_string(value->helper_generation),
+                value->selection_revision, settings.mode, fresh_output)) {
+            value->present_fps = sample->fps;
+            if (processing_enabled && !depth_preview && value->presented_revision == value->selection_revision) {
+                const auto info = processing_info(*value);
+                if (info.value("last_mode", -1) == settings.mode)
+                    value->presentation_timing.record_active(*sample, info.value("gpu_timing", Json::object()),
+                        settings.mode, info.value("transformer_blocks", 8u), presentation_scope(*value));
+            }
+        }
         const bool composed = value->local ? value->local_composed_at_frame == value->frames :
             presented(*value) > previous_presented;
         if (processing_requested && !composed && queue->get_device()->get_api() == reshade::api::device_api::d3d12) {
@@ -1690,6 +1800,15 @@ inline void attach(HMODULE addon) {
     reshade::register_event<reshade::addon_event::destroy_device>(destroy_graphics_device);
 }
 inline void detach() {
+    if (d3d9_depth_events) {
+        reshade::unregister_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(d3d9_depth_bind);
+        reshade::unregister_event<reshade::addon_event::bind_pipeline_states>(d3d9_depth_state);
+        reshade::unregister_event<reshade::addon_event::bind_viewports>(d3d9_depth_viewport);
+        reshade::unregister_event<reshade::addon_event::draw>(d3d9_depth_draw);
+        reshade::unregister_event<reshade::addon_event::draw_indexed>(d3d9_depth_draw_indexed);
+        reshade::unregister_event<reshade::addon_event::clear_depth_stencil_view>(d3d9_depth_clear);
+        d3d9_depth_events = false;
+    }
     reshade::unregister_event<reshade::addon_event::create_swapchain>(prepare_swapchain);
     reshade::unregister_event<reshade::addon_event::init_effect_runtime>(initialize);
     reshade::unregister_event<reshade::addon_event::present>(present);

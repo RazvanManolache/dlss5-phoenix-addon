@@ -1,5 +1,6 @@
 // Task-focused renderers. Adapters retain settings, actions and route ownership.
 #pragma once
+#include "widgets.h"
 #include "panel_context.h"
 #include "panel_style.h"
 #include "pipeline_panel.h"
@@ -124,7 +125,7 @@ inline bool draw_resolution_controls(Context& addon_state) {
         }
         ImGui::EndDisabled();
         if (addon_state.portable_backbuffer && addon_state.panel.resolution_mode &&
-            ImGui::Button("Use normal resolution for portable processing")) {
+            phoenix_ui::button("Use normal resolution for portable processing")) {
             addon_state.panel.resolution_mode = 0;
             changed = true;
         }
@@ -136,7 +137,7 @@ inline bool draw_signal_controls(Context& addon_state) {
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game && ImGui::CollapsingHeader("Color and scaling")) {
         auto& p = addon_state.panel.processing;
-        if (ImGui::Button("Defaults##processing")) { p = {}; addon_state.panel.refinement_passes=1; changed = true; }
+        if (phoenix_ui::button("Defaults##processing")) { p = {}; addon_state.panel.refinement_passes=1; changed = true; }
         if (ImGui::Checkbox("Custom color and scaling", &p.enabled)) {
             if (p.enabled) {
                 addon_state.panel.upscaler = 0;
@@ -150,8 +151,10 @@ inline bool draw_signal_controls(Context& addon_state) {
         const char* stages[]{"Off", "Render (before upscaling)", "Upscaled", "Present"};
         ImGui::BeginDisabled(addon_state.host_controls_stage);
         uint8_t hook_available[4];
-        for(int stage=0;stage<4;++stage)hook_available[stage]=uint8_t(!(stage==3 && !addon_state.final_frame_source &&
-            phoenix::uses_ours(addon_state.panel.mode) && addon_state.panel.execution_device!="native"));
+        for(int stage=0;stage<4;++stage)hook_available[stage]=uint8_t(
+            !((stage==1||stage==2)&&addon_state.final_frame_source) &&
+            !(stage==3 && !addon_state.final_frame_source &&
+              phoenix::uses_ours(addon_state.panel.mode) && addon_state.panel.execution_device!="native"));
         const char* hook_captions[]{"Off","Render","Upscaled","Present"};
         changed |= choice_buttons("Hook method",&p.hook,stages,4,hook_captions,hook_available);
         if(!addon_state.final_frame_source && phoenix::uses_ours(addon_state.panel.mode) &&
@@ -160,23 +163,44 @@ inline bool draw_signal_controls(Context& addon_state) {
         ImGui::EndDisabled();
         if(addon_state.host_controls_stage)ImGui::TextWrapped("The external feeder chooses insertion timing; color and resolution controls apply to its supplied frame.");
         if (addon_state.final_frame_source)
-            ImGui::TextWrapped("This source is the final frame. Render and Upscaled hooks "
-                               "require a D3D12 game with an observed DLSS feature.");
+            ImGui::TextWrapped("Use Present for this final-frame source. Render and Upscaled "
+                               "require observed engine buffers and are unavailable here.");
         const char* reuse[]{"Never", "Optional", "Required"};
         ImGui::BeginDisabled(p.hook!=3 || addon_state.host_controls_stage);
         changed |= choice_buttons("Present DLSS guide reuse", &p.reuse_guides, reuse, 3);
         ImGui::EndDisabled();
-        changed |= ImGui::SliderFloat("Resolution scale", &p.scale, 0, 200, "%.0f%%",
+        changed |= phoenix_ui::slider_float("Resolution scale", &p.scale, 0, phoenix::kMaxProcessingScale, phoenix_addon::phoenix::Processing{}.scale, "%.0f%%",
                                        ImGuiSliderFlags_AlwaysClamp);
         ImGui::TextWrapped("0%% uses the minimum supported canvas. This resizes the NR working "
                            "image; NR input and output remain the same size.");
+        ImGui::TextWrapped("200%% processes four times as many pixels; 400%% processes sixteen times as many. Backend texture limits still apply.");
+        const char* resize_methods[]{"Saved manual filters","Auto (NIS when available)","NVIDIA Image Scaling (NIS)","Bilinear","Bicubic","Nearest (diagnostic)"};
+        const char* resize_captions[]{"Saved manual","Auto","NVIDIA NIS","Bilinear","Bicubic","Nearest"};
+        const uint8_t resize_available[]{1,1,uint8_t(!addon_state.portable_backbuffer&&
+            (!addon_state.portable_backend_selected||addon_state.panel.mode==phoenix::nvidia)),1,1,1};
+        if(choice_buttons("Upscaling method",&p.resize_method,resize_methods,6,resize_captions,resize_available)) {
+            // One owner selects reconstruction. Do not leave an inactive old
+            // chain scaler overriding the newly selected resize method.
+            if(p.resize_method)addon_state.panel.pipeline.scaler=0;
+            changed=true;
+        }
+        ImGui::TextWrapped(p.resize_method?
+            "The selected method handles enlargement before or after DLSS5, according to scale. Auto uses NIS for supported sRGB GPU images and Area for reduction. NIS enlarges up to 2x per pass and uses its own sRGB sampling; other signals/CPU use Bicubic. At 100%, no resize is needed.":
+            "Manual retains the existing stage filters: the first filter prepares the working canvas; the second restores the output.");
+        ImGui::BeginDisabled(p.resize_method!=1&&p.resize_method!=2);
+        changed |= phoenix_ui::slider_float("NIS sharpness",&p.nis_sharpness,0,1,phoenix::Processing{}.nis_sharpness,"%.2f");
+        ImGui::EndDisabled();
         const char* domains[]{"scRGB-nl", "Signed PQ", "Linear"};
         const char* down[]{"Area", "Bilinear", "Nearest"};
         const char* up[]{"Bilinear", "Bicubic", "Nearest"};
         const char* reconstruction[]{"RGB residual", "Processed image"};
         changed |= choice_buttons("Scaling domain", &p.domain, domains, 3);
+        ImGui::BeginDisabled(p.resize_method==1);
         changed |= choice_buttons("Downsample filter", &p.downsample, down, 3);
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(p.resize_method!=0);
         changed |= choice_buttons("Upsample filter", &p.upsample, up, 3);
+        ImGui::EndDisabled();
         changed |= choice_buttons("Scale reconstruction", &p.reconstruction, reconstruction, 2);
         const char* encodings[]{"Auto", "Linear BT.709", "sRGB", "HDR10", "scRGB", "scRGB-nl"};
         const char* signals[]{"sRGB", "PQ SDR", "Linear SDR"};
@@ -184,10 +208,10 @@ inline bool draw_signal_controls(Context& addon_state) {
         changed |= choice_buttons("NR signal encoding", &p.signal, signals, 3);
         changed |= ImGui::Checkbox("Override diffuse white", &p.white_override);
         ImGui::BeginDisabled(!p.white_override);
-        changed |= ImGui::SliderFloat("Diffuse white (nits)", &p.white_nits, 48, 500, "%.0f",
+        changed |= phoenix_ui::slider_float("Diffuse white (nits)", &p.white_nits, 48, 500, phoenix_addon::phoenix::Processing{}.white_nits, "%.0f",
                                        ImGuiSliderFlags_AlwaysClamp);
         ImGui::EndDisabled();
-        changed |= ImGui::SliderFloat("Exposure multiplier", &p.exposure, 0, 100, "%.2fx",
+        changed |= phoenix_ui::slider_float("Exposure multiplier", &p.exposure, 0, 100, phoenix_addon::phoenix::Processing{}.exposure, "%.2fx",
                                        ImGuiSliderFlags_AlwaysClamp);
         const char* exposure_modes[]{"Off", "On", "Inverse"};
         changed |= choice_buttons("Use exposure value", &p.exposure_mode, exposure_modes, 3);
@@ -273,7 +297,7 @@ inline bool draw_model_locations(Context& addon_state) {
     }
     if (ImGui::GetContentRegionAvail().x > 520.f) ImGui::SameLine();
     ImGui::BeginDisabled(library_pick.busy);
-    if (ImGui::Button("Browse...##nvidia_library"))
+    if (phoenix_ui::button("Browse...##nvidia_library"))
         addon_state.model_picker.browse(true, GetActiveWindow(),
             std::filesystem::u8path(addon_state.panel.nvidia_dll_folder), "dll_search_folder");
     ImGui::EndDisabled();
@@ -353,7 +377,7 @@ inline bool draw_model_locations(Context& addon_state) {
             }
             if (ImGui::GetContentRegionAvail().x > 520.f) ImGui::SameLine();
             ImGui::BeginDisabled(picked.busy);
-            if (ImGui::Button("Browse..."))
+            if (phoenix_ui::button("Browse..."))
                 addon_state.model_picker.browse(model_selection == 1, GetActiveWindow(),
                                                 std::filesystem::u8path(selected_path));
             ImGui::EndDisabled();
@@ -365,7 +389,7 @@ inline bool draw_model_locations(Context& addon_state) {
             ImGui::TextWrapped("Model: %s", phoenix_model::source_path_string(model_path).c_str());
         const auto validation = addon_state.model_validation.poll();
         ImGui::BeginDisabled(validation.busy);
-        if (ImGui::Button("Validate model")) {
+        if (phoenix_ui::button("Validate model")) {
             try {
                 addon_state.model_validation.validate(
                     phoenix_model_tools::selection(addon_state.panel, addon_state.configured_weight_source),
@@ -408,7 +432,7 @@ inline bool draw_model_locations(Context& addon_state) {
 inline bool draw_reference_reset(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
-    if (visible.neural() && ImGui::Button("Reset neural controls")) {
+    if (visible.neural() && phoenix_ui::button("Reset neural controls")) {
         phoenix::apply_nr_reference(addon_state.panel);
         addon_state.panel.host_bridge = 0;
         addon_state.panel.host_unjitter = false;
@@ -498,7 +522,7 @@ inline bool draw_device_controls(Context& addon_state) {
                     changed = true;
                 }
                 changed =
-                    ImGui::SliderInt("CPU threads", &addon_state.panel.cpu_threads, 1, available) ||
+                    phoenix_ui::slider_int("CPU threads", &addon_state.panel.cpu_threads, 1, available, phoenix_addon::phoenix::Settings{}.cpu_threads) ||
                     changed;
             }
             ImGui::Text("CPU workers: %u of %d available",
@@ -510,12 +534,12 @@ inline bool draw_device_controls(Context& addon_state) {
             ImGui::TextUnformatted(
                 "C++ runner: host preparation and resolve, selected-device network.");
         if (addon_state.panel.execution_device != "native") {
-            changed = ImGui::SliderInt("Maximum result age (frames)",
+            changed = phoenix_ui::slider_int("Maximum result age (frames)",
                                        &addon_state.panel.offload_age_frames, 1,
-                                       phoenix::kMaxOffloadAgeFrames) ||
+                                       phoenix::kMaxOffloadAgeFrames, phoenix_addon::phoenix::Settings{}.offload_age_frames) ||
                       changed;
-            changed = ImGui::SliderInt("Maximum result age (ms)", &addon_state.panel.offload_age_ms,
-                                       1, phoenix::kMaxOffloadAgeMs) ||
+            changed = phoenix_ui::slider_int("Maximum result age (ms)", &addon_state.panel.offload_age_ms,
+                                       1, phoenix::kMaxOffloadAgeMs, phoenix_addon::phoenix::Settings{}.offload_age_ms) ||
                       changed;
             ImGui::TextWrapped(
                 "Phoenix DLSS5 runs on the selected device. The NVIDIA DLSS5 DLL route remains on the "
@@ -526,7 +550,7 @@ inline bool draw_device_controls(Context& addon_state) {
     return changed;
 }
 inline bool draw_comparison_exit(Context& addon_state) {
-    if (addon_state.panel.mode != phoenix::split || !ImGui::Button("Exit comparison")) return false;
+    if (addon_state.panel.mode != phoenix::split || !phoenix_ui::button("Exit comparison")) return false;
     addon_state.panel.mode = phoenix::comparison_exit_mode(addon_state.panel);
     return true;
 }
@@ -547,7 +571,7 @@ inline bool draw_comparison_controls(Context& addon_state) {
         // or engine-specific controls are unavailable on the active route.
         if (draw_comparison_exit(addon_state)) return true;
         ImGui::BeginDisabled(!addon_state.comparison_views);
-        if (ImGui::Button("Defaults##comparison")) {
+        if (phoenix_ui::button("Defaults##comparison")) {
             phoenix::reset_comparison_section(addon_state.panel);
             changed = true;
         }
@@ -570,7 +594,7 @@ inline bool draw_comparison_controls(Context& addon_state) {
                 choice_buttons("Source A", &addon_state.panel.source_a, phoenix::source_names, 3);
             changed |=
                 choice_buttons("Source B", &addon_state.panel.source_b, phoenix::source_names, 3);
-            if (ImGui::Button("Swap A / B")) {
+            if (phoenix_ui::button("Swap A / B")) {
                 std::swap(addon_state.panel.source_a, addon_state.panel.source_b);
                 changed = true;
             }
@@ -585,11 +609,11 @@ inline bool draw_comparison_controls(Context& addon_state) {
             }
         }
         if (visible.divider())
-            changed |= ImGui::SliderFloat("Split position", &addon_state.panel.divider, .1f, .9f,
+            changed |= phoenix_ui::slider_float("Split position", &addon_state.panel.divider, .1f, .9f, phoenix_addon::phoenix::Settings{}.divider,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
         if (visible.difference_gain())
-            changed |= ImGui::SliderFloat(
-                "Difference gain", &addon_state.panel.difference_gain, 1.f, 64.f, "%.1fx",
+            changed |= phoenix_ui::slider_float(
+                "Difference gain", &addon_state.panel.difference_gain, 1.f, 64.f, phoenix_addon::phoenix::Settings{}.difference_gain, "%.1fx",
                 ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
         if (visible.divider())
             changed |= ImGui::Checkbox("Separator lines", &addon_state.panel.comparison_lines);
@@ -606,11 +630,11 @@ inline bool draw_preset_controls(Context& addon_state) {
     static int preset_slot = 0;
     const char *slots[]{"Preset 1", "Preset 2", "Preset 3", "Preset 4"};
     choice_buttons("Preset", &preset_slot, slots, 4);
-    if (ImGui::Button("Load preset")) {
+    if (phoenix_ui::button("Load preset")) {
         changed = load_preset(addon_state, unsigned(preset_slot)) || changed;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Save preset")) {
+    if (phoenix_ui::button("Save preset")) {
         store_preset(addon_state, unsigned(preset_slot));
     }
     ImGui::Separator();
@@ -623,9 +647,7 @@ inline bool draw_appearance_controls(Context& addon_state) {
         if(!addon_state.portable_backbuffer||addon_state.frame_services_available) {
             changed|=ImGui::Checkbox("Appearance overrides",&addon_state.live.appearance);
             ImGui::BeginDisabled(!addon_state.live.appearance);
-            changed|=ImGui::SliderFloat("Overall intensity",&addon_state.live.intensity,0.f,2.f,"%.2f",ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Overall blend reaches full strength at 1. Values above 1 retain the same full-strength result.");
+            changed|=phoenix_ui::slider_float("Overall intensity",&addon_state.live.intensity,0.f,2.f, phoenix_addon::PhoenixLiveControls{}.intensity,"%.2f",ImGuiSliderFlags_AlwaysClamp);
             const char* styles[]={"Default","Natural","Cinematic"};
             changed|=choice_buttons("Artistic style",&addon_state.live.style,styles,3);
             ImGui::EndDisabled();
@@ -634,20 +656,10 @@ inline bool draw_appearance_controls(Context& addon_state) {
         changed |= ImGui::Checkbox("Override strengths", &addon_state.live.enabled);
         ImGui::BeginDisabled(!visible.strengths());
         {
-            changed |= ImGui::SliderFloat("Local tone", &addon_state.live.tone, 0.f, 2.f, "%.2f",
+            changed |= phoenix_ui::slider_float("Local tone", &addon_state.live.tone, 0.f, 2.f, phoenix_addon::PhoenixLiveControls{}.tone, "%.2f",
                                           ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.tone")) {
-                addon_state.live.tone = 1;
-                changed = true;
-            }
-            changed |= ImGui::SliderFloat("Local structure", &addon_state.live.structure, 0.f, 2.f,
+            changed |= phoenix_ui::slider_float("Local structure", &addon_state.live.structure, 0.f, 2.f, phoenix_addon::PhoenixLiveControls{}.structure,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.structure")) {
-                addon_state.live.structure = 1;
-                changed = true;
-            }
         }
         ImGui::EndDisabled();
         if (ImGui::CollapsingHeader("Skin and automatic mask")) {
@@ -655,13 +667,8 @@ inline bool draw_appearance_controls(Context& addon_state) {
             ImGui::BeginDisabled(!visible.guides());
             changed |= ImGui::Checkbox("Automatic skin mask", &addon_state.live.auto_mask);
             ImGui::BeginDisabled(!addon_state.live.auto_mask);
-            changed |= ImGui::SliderFloat("Skin structure", &addon_state.live.skin, -1.f, 2.f,
+            changed |= phoenix_ui::slider_float("Skin structure", &addon_state.live.skin, -1.f, 2.f, phoenix_addon::PhoenixLiveControls{}.skin,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.skin")) {
-                addon_state.live.skin = -1;
-                changed = true;
-            }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Skin structure uses the automatic skin mask; -1 follows local structure.");
             ImGui::EndDisabled();
@@ -679,20 +686,10 @@ inline bool draw_guide_controls(Context& addon_state) {
             ImGui::TextWrapped("Enable Override skin and guides in Play to edit the engine guide overrides.");
         ImGui::BeginDisabled(!visible.guides());
             ImGui::BeginDisabled(!addon_state.real_guides);
-            changed |= ImGui::SliderFloat("Motion X scale", &addon_state.live.motion_x, -4.f, 4.f,
+            changed |= phoenix_ui::slider_float("Motion X scale", &addon_state.live.motion_x, -4.f, 4.f, phoenix_addon::PhoenixLiveControls{}.motion_x,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.motion_x")) {
-                addon_state.live.motion_x = 1;
-                changed = true;
-            }
-            changed |= ImGui::SliderFloat("Motion Y scale", &addon_state.live.motion_y, -4.f, 4.f,
+            changed |= phoenix_ui::slider_float("Motion Y scale", &addon_state.live.motion_y, -4.f, 4.f, phoenix_addon::PhoenixLiveControls{}.motion_y,
                                           "%.2f", ImGuiSliderFlags_AlwaysClamp);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("R##s.live.motion_y")) {
-                addon_state.live.motion_y = 1;
-                changed = true;
-            }
             int depth = addon_state.live.depth + 1;
             const char *depths[]{"Game depth", "Normal depth", "Inverted depth"};
             if (choice_buttons("Depth", &depth, depths, 3)) {
@@ -700,7 +697,7 @@ inline bool draw_guide_controls(Context& addon_state) {
                 changed = true;
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("R##live_depth")) {
+            if (phoenix_ui::small_button("R##live_depth")) {
                 addon_state.live.depth = -1;
                 changed = true;
             }
@@ -724,7 +721,7 @@ inline bool draw_advanced_appearance(Context& addon_state) {
             ImGui::TextDisabled("Experimental. Per-object strengths come from the engine's map.");
         }
         if (visible.native() && !addon_state.portable_backbuffer) {
-            if (ImGui::Button("Defaults##native")) {
+            if (phoenix_ui::button("Defaults##native")) {
                 phoenix::reset_native_section(addon_state.panel);
                 changed = true;
             }
@@ -732,17 +729,12 @@ inline bool draw_advanced_appearance(Context& addon_state) {
             if (visible.native_values()) {
                 if(addon_state.live.appearance)ImGui::TextWrapped("Appearance in Play overrides the legacy intensity and style below.");
                 ImGui::BeginDisabled(addon_state.live.appearance);
-                changed |= ImGui::SliderFloat("Intensity", &addon_state.panel.intensity, 0.f, 2.f,
+                changed |= phoenix_ui::slider_float("Intensity", &addon_state.panel.intensity, 0.f, 2.f, phoenix_addon::phoenix::Settings{}.intensity,
                                               "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.intensity")) {
-                    addon_state.panel.intensity = 1;
-                    changed = true;
-                }
                 const char *styles[]{"Default", "Natural", "Cinematic"};
                 changed |= choice_buttons("Style", &addon_state.panel.style, styles, 3);
                 ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_style")) {
+                if (phoenix_ui::small_button("R##nr_style")) {
                     addon_state.panel.style = 0;
                     changed = true;
                 }
@@ -754,41 +746,26 @@ inline bool draw_advanced_appearance(Context& addon_state) {
                     changed = true;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_uicorr")) {
+                if (phoenix_ui::small_button("R##nr_uicorr")) {
                     addon_state.panel.ui_correction = 0;
                     changed = true;
                 }
-                changed |= ImGui::SliderFloat("Host exposure", &addon_state.panel.host_exposure,
-                                              0.05f, 4.f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_exposure")) {
-                    addon_state.panel.host_exposure = 1;
-                    changed = true;
-                }
-                changed |= ImGui::SliderFloat("Host exposure scale",
-                                              &addon_state.panel.host_exposure_scale, 0.05f, 4.f,
+                changed |= phoenix_ui::slider_float("Host exposure", &addon_state.panel.host_exposure,
+                                              0.05f, 4.f, phoenix_addon::phoenix::Settings{}.host_exposure, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                changed |= phoenix_ui::slider_float("Host exposure scale",
+                                              &addon_state.panel.host_exposure_scale, 0.05f, 4.f, phoenix_addon::phoenix::Settings{}.host_exposure_scale,
                                               "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_exposure_scale")) {
-                    addon_state.panel.host_exposure_scale = 1;
-                    changed = true;
-                }
                 ImGui::EndDisabled();
                 changed |=
-                    ImGui::SliderFloat("Host global tone", &addon_state.panel.host_globaltone, 0.f,
-                                       2.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("R##s.panel.host_globaltone")) {
-                    addon_state.panel.host_globaltone = 1;
-                    changed = true;
-                }
+                    phoenix_ui::slider_float("Host global tone", &addon_state.panel.host_globaltone, 0.f,
+                                       2.f, phoenix_addon::phoenix::Settings{}.host_globaltone, "%.2f", ImGuiSliderFlags_AlwaysClamp);
                 bool host_jitter = addon_state.panel.host_jitter != 0;
                 if (ImGui::Checkbox("Host forward game jitter", &host_jitter)) {
                     addon_state.panel.host_jitter = host_jitter ? 1 : 0;
                     changed = true;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("R##nr_hjitter")) {
+                if (phoenix_ui::small_button("R##nr_hjitter")) {
                     addon_state.panel.host_jitter = 1;
                     changed = true;
                 }
@@ -808,7 +785,7 @@ inline bool draw_advanced_appearance(Context& addon_state) {
                 if (addon_state.panel.nr_feature != 18) {
                     ImGui::TextWrapped(
                         "Saved RR experiment is unavailable: it needs pre-denoise guide inputs.");
-                    if (ImGui::Button("Use native NR")) {
+                    if (phoenix_ui::button("Use native NR")) {
                         addon_state.panel.nr_feature = 18;
                         changed = true;
                     }
@@ -822,7 +799,7 @@ inline bool draw_history_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural()) {
-        if (ImGui::Button(addon_state.processing_enabled ? "Reset neural overrides" : "Restore game controls")) {
+        if (phoenix_ui::button(addon_state.processing_enabled ? "Reset neural overrides" : "Restore game controls")) {
             addon_state.live = {};
             addon_state.panel.native_options = false;
             if (!addon_state.processing_enabled) {
@@ -831,20 +808,20 @@ inline bool draw_history_controls(Context& addon_state) {
             }
             changed = true;
         }
-        if (ImGui::Button("Reset history"))
+        if (phoenix_ui::button("Reset history"))
             addon_state.action(Action::ResetHistory);
         {
             ImGui::BeginDisabled(!addon_state.temporal_history);
-            if (ImGui::Button("Defaults##history")) {
+            if (phoenix_ui::button("Defaults##history")) {
                 phoenix::reset_history_section(addon_state.panel);
                 changed = true;
             }
             changed |= ImGui::Checkbox("Force reset every frame", &addon_state.panel.force_reset);
             if (visible.history_cadence()) {
-                changed |= ImGui::SliderInt("Reset frames after switch",
-                                            &addon_state.panel.reset_after_switch, 1, 120);
-                changed |= ImGui::SliderInt("Reset every N frames (0 = off)",
-                                            &addon_state.panel.reset_every, 0, 600);
+                changed |= phoenix_ui::slider_int("Reset frames after switch",
+                                            &addon_state.panel.reset_after_switch, 1, 120, phoenix_addon::phoenix::Settings{}.reset_after_switch);
+                changed |= phoenix_ui::slider_int("Reset every N frames (0 = off)",
+                                            &addon_state.panel.reset_every, 0, 600, phoenix_addon::phoenix::Settings{}.reset_every);
             }
             ImGui::EndDisabled();
             if (!addon_state.temporal_history)
@@ -862,12 +839,12 @@ inline bool draw_neural_diagnostics(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural()) {
-        if (ImGui::Button("Defaults##neural")) {
+        if (phoenix_ui::button("Defaults##neural")) {
             phoenix::reset_neural_section(addon_state.panel);
             changed = true;
         }
         ImGui::BeginDisabled(!addon_state.input_capture);
-        if (ImGui::Button("Capture input burst"))
+        if (phoenix_ui::button("Capture input burst"))
             addon_state.capture(addon_state.panel.capture_burst > 0
                                     ? unsigned(addon_state.panel.capture_burst)
                                     : 8u);
@@ -880,8 +857,8 @@ inline bool draw_neural_diagnostics(Context& addon_state) {
 }
 inline bool draw_network_passes(Context& context) {
     if (!context.direct_game || !phoenix::PanelVisibility{context.panel}.neural()) return false;
-    return ImGui::SliderInt("Network passes per frame", &context.panel.refinement_passes,
-        1, 10, "%d", ImGuiSliderFlags_AlwaysClamp);
+    return phoenix_ui::slider_int("Network passes per frame", &context.panel.refinement_passes,
+        1, 10, phoenix_addon::phoenix::Settings{}.refinement_passes, "%d", ImGuiSliderFlags_AlwaysClamp);
 }
 inline bool draw_neural_budget(Context& addon_state) {
     bool changed = false;
@@ -905,13 +882,8 @@ inline bool draw_neural_budget(Context& addon_state) {
                     char label[32];
                     snprintf(label, sizeof(label), "Block %u repetitions", iteration_index + 1);
                     changed |=
-                        ImGui::SliderInt(label, &addon_state.panel.block_repeats[iteration_index],
-                                         0, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s learned block %u; each repetition uses 5 native neural launches.",
-                                          lightweight ? "Lightweight FP8" : "Original",
-                                          execution_profile.first_transformer + iteration_index);
-                    }
+                        phoenix_ui::slider_int(label, &addon_state.panel.block_repeats[iteration_index],
+                                         0, 4, phoenix_addon::phoenix::Settings{}.block_repeats[iteration_index], "%d", ImGuiSliderFlags_AlwaysClamp);
                 }
                 ImGui::TextWrapped(
                     "0 skips a block and passes its input forward; 1 is the trained default. "
@@ -920,7 +892,7 @@ inline bool draw_neural_budget(Context& addon_state) {
                 ImGui::EndDisabled();
                 ImGui::TreePop();
             }
-            if (ImGui::Button("Reset repetitions to defaults")) {
+            if (phoenix_ui::button("Reset repetitions to defaults")) {
                 addon_state.panel.refinement_passes = 1;
                 addon_state.panel.block_repeats.fill(1);
                 changed = true;
@@ -931,14 +903,14 @@ inline bool draw_neural_budget(Context& addon_state) {
         ImGui::EndDisabled();
         if(addon_state.fixed_native_blocks && (addon_state.panel.experimental ||
             std::any_of(addon_state.panel.block_repeats.begin(),addon_state.panel.block_repeats.end(),[](int n){return n!=1;}))) {
-            if(ImGui::Button("Use full network for native x86 driver")) {
+            if(phoenix_ui::button("Use full network for native x86 driver")) {
                 addon_state.panel.experimental=false;addon_state.panel.block_repeats.fill(1);changed=true;
             }
         }
         if (visible.depth()) {
             ImGui::BeginDisabled(addon_state.fixed_native_blocks);
-            changed |= ImGui::SliderInt("Transformer blocks", &addon_state.panel.transformer_blocks,
-                                        1, 8, "%d / 8", ImGuiSliderFlags_AlwaysClamp);
+            changed |= phoenix_ui::slider_int("Transformer blocks", &addon_state.panel.transformer_blocks,
+                                        1, 8, phoenix_addon::phoenix::Settings{}.transformer_blocks, "%d / 8", ImGuiSliderFlags_AlwaysClamp);
             ImGui::EndDisabled();
             addon_state.panel.minimum_blocks =
                 std::min(addon_state.panel.minimum_blocks, addon_state.panel.transformer_blocks);
@@ -947,7 +919,7 @@ inline bool draw_neural_budget(Context& addon_state) {
             changed |= ImGui::Checkbox("Adaptive blocks", &addon_state.panel.automatic_budget);
             ImGui::EndDisabled();
             if (!measured_budget && addon_state.panel.automatic_budget &&
-                ImGui::Button("Use fixed blocks for portable processing")) {
+                phoenix_ui::button("Use fixed blocks for portable processing")) {
                 addon_state.panel.automatic_budget = false;
                 changed = true;
             }
@@ -960,15 +932,15 @@ inline bool draw_neural_budget(Context& addon_state) {
                         "GPU-time adaptation is available. The helper cannot drive a whole-game "
                         "FPS target from its hidden window's presentation rate.");
                 if (addon_state.panel.budget_mode == 0) {
-                    changed |= ImGui::SliderFloat(
-                        "Phoenix DLSS5 GPU budget (ms)", &addon_state.panel.budget_ms, .1f, 100.f,
+                    changed |= phoenix_ui::slider_float(
+                        "Phoenix DLSS5 GPU budget (ms)", &addon_state.panel.budget_ms, .1f, 100.f, phoenix_addon::phoenix::Settings{}.budget_ms,
                         "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
                     ImGui::TextWrapped("Budget estimate: %.3f ms | target is not guaranteed",
                                        addon_state.depth_budget.ema());
                 } else {
                     changed |=
-                        ImGui::SliderFloat("Desired FPS", &addon_state.panel.desired_fps, 10.f,
-                                           360.f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                        phoenix_ui::slider_float("Desired FPS", &addon_state.panel.desired_fps, 10.f,
+                                           360.f, phoenix_addon::phoenix::Settings{}.desired_fps, "%.0f", ImGuiSliderFlags_AlwaysClamp);
                     ImGui::Text("Controller presentation rate: %.1f FPS",
                                 addon_state.depth_budget.ema() > 0
                                     ? 1000.0 / addon_state.depth_budget.ema()
@@ -978,8 +950,8 @@ inline bool draw_neural_budget(Context& addon_state) {
                         "while unfocused or inference is inactive. A frame cap or other game work "
                         "can prevent reaching the target.");
                 }
-                changed |= ImGui::SliderInt("Minimum blocks", &addon_state.panel.minimum_blocks, 1,
-                                            addon_state.panel.transformer_blocks, "%d",
+                changed |= phoenix_ui::slider_int("Minimum blocks", &addon_state.panel.minimum_blocks, 1,
+                                            addon_state.panel.transformer_blocks, phoenix_addon::phoenix::Settings{}.minimum_blocks, "%d",
                                             ImGuiSliderFlags_AlwaysClamp);
                 ImGui::TextWrapped(
                     "Adapts the selected model's transformer depth within these limits and keeps "
@@ -1003,7 +975,7 @@ inline bool draw_neural_budget(Context& addon_state) {
                 "Native neural work per pass: %u fixed launches plus 5 per retained repetition. "
                 "Launch counts describe the graph; timing is measured for this configuration.",
                 execution_profile.native_launches - 40);
-            if (ImGui::Button("Restore full network")) {
+            if (phoenix_ui::button("Restore full network")) {
                 addon_state.panel.experimental = false;
                 addon_state.panel.transformer_blocks = 8;
                 addon_state.panel.refinement_passes = 1;
@@ -1043,14 +1015,15 @@ inline bool draw_hotkey_controls(Context& addon_state, bool expanded = false) {
                 snprintf(label, sizeof(label), "Unbound");
             else
                 snprintf(label, sizeof(label), "Key %d", key);
-            if (ImGui::Button(label, ImVec2(112, 0))) {
+            if (phoenix_ui::button(label, ImVec2(112, 0),
+                "Click, then press the key to assign to this action. Escape cancels capture; Clear removes the assignment.")) {
                 addon_state.capture_hotkey = int(iteration_index);
                 addon_state.hotkey_deadline = GetTickCount64() + 10000;
             }
             ImGui::SameLine();
             ImGui::TextUnformatted(actions[iteration_index]);
             ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) {
+            if (phoenix_ui::small_button("Clear")) {
                 clear_binding(addon_state, iteration_index);
             }
             ImGui::PopID();
@@ -1066,15 +1039,15 @@ inline bool draw_diagnostic_controls(Context& addon_state) {
         changed |= choice_buttons("Log level", &addon_state.panel.log_level, log_levels, 3);
         ImGui::BeginDisabled(addon_state.portable_backbuffer);
         changed |=
-            ImGui::SliderInt("Capture burst frames", &addon_state.panel.capture_burst, 0, 64);
+            phoenix_ui::slider_int("Capture burst frames", &addon_state.panel.capture_burst, 0, 64, phoenix_addon::phoenix::Settings{}.capture_burst);
         changed |= ImGui::Checkbox("Live settings reload", &addon_state.panel.external_reload);
-        if (ImGui::Button("Reload overrides now"))
+        if (phoenix_ui::button("Reload overrides now"))
             addon_state.reload();
         ImGui::EndDisabled();
         ImGui::TextWrapped("%s", addon_state.override_status.c_str());
         ImGui::TextWrapped("%s",
                            phoenix_model::source_path_string(addon_state.overrides_path).c_str());
-        if (ImGui::Button("Log marker")) {
+        if (phoenix_ui::button("Log marker")) {
             ++addon_state.markers;
             addon_state.marker();
         }

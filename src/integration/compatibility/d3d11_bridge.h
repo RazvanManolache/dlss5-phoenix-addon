@@ -293,6 +293,9 @@ class D3D11Bridge {
     uint64_t delivered() const {
         return delivered_;
     }
+    uint64_t presented_output_frame(uint64_t frame) const {
+        return composed_at_frame_ == frame ? presented_output_frame_ : 0;
+    }
     uint64_t presented() const {
         return presented_;
     }

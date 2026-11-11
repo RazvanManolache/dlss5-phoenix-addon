@@ -375,6 +375,28 @@ class Network {
 
   public:
     uint64_t control_mask_handle = 0;
+
+    // The history-depth view is allocated once for this network and never
+    // rewritten while earlier command lists might still reference its handle.
+    uint64_t bind_history_depth(ID3D12Resource* image) {
+        if (history_depth_handle_) {
+            require(history_depth_.Get() == image, "History depth texture changed during a network generation");
+            return history_depth_handle_;
+        }
+        require(image && !pending_, "Invalid history depth binding");
+        const auto desc = image->GetDesc();
+        require(desc.Format == DXGI_FORMAT_R32_FLOAT && desc.Width == width && desc.Height == height,
+                "History depth must match the neural canvas");
+        history_depth_handle_ = texture_handle(image, 8, false);
+        history_depth_ = image;
+        return history_depth_handle_;
+    }
+
+  private:
+    ComPtr<ID3D12Resource> history_depth_;
+    uint64_t history_depth_handle_ = 0;
+
+  public:
     // Bind an owned stable texture before recording. The caller must retire
     // earlier submissions before changing this descriptor.
     void bind_control_mask(ID3D12Resource* control_mask) {
@@ -547,7 +569,7 @@ class Network {
                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             memory::resource(device, out.Get(), accounting, memory::Kind::history);
         }
-        D3D12_DESCRIPTOR_HEAP_DESC heap_description{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 8,
+        D3D12_DESCRIPTOR_HEAP_DESC heap_description{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 9,
                                                     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0};
         hr(device->CreateDescriptorHeap(&heap_description, IID_PPV_ARGS(&views_)));
         memory::track(views_.Get(), accounting, memory::Kind::views);
@@ -569,7 +591,7 @@ class Network {
         clear_gpu_.ptr +=
             6 * device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         heap_description.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        heap_description.NumDescriptors = 8;
+        heap_description.NumDescriptors = 9;
         heap_description.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr(device->CreateDescriptorHeap(&heap_description, IID_PPV_ARGS(&samplers_)));
         memory::track(samplers_.Get(), accounting, memory::Kind::samplers);

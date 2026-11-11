@@ -211,13 +211,19 @@ int main() {
         // passthrough; appearance, color conversion, scaling and writeback
         // execute their real shaders on WARP for both model selections.
         unsigned scaled_appearance_cases = 0;
+        unsigned live_color_cases = 0;
         for (const char* model : {"original", "small-fp8"})
-            for (unsigned recipe = 0; recipe < 4; ++recipe) {
+            for (unsigned recipe = 0; recipe < 8; ++recipe) {
                 auto scaled_settings = settings;
                 scaled_settings.model_id = model;
                 scaled_settings.resolution_mode = recipe == 0 ? 1 : 0;
                 scaled_settings.processing.enabled = recipe != 0;
                 scaled_settings.processing.scale = recipe == 1 ? 96.f : recipe == 2 ? 150.f : 100.f;
+                if(recipe>=4) {
+                    scaled_settings.processing.scale=recipe<6?400.f:50.f;
+                    scaled_settings.processing.resize_method=recipe%2?2:1;
+                    scaled_settings.processing.encoding=2;
+                }
                 const auto geometry = scaled_settings.processing.enabled
                     ? phoenix::processing_resolution(width, height, scaled_settings.processing, false)
                     : phoenix::choose_resolution(width, height, 1, 0, 0, 16, 9, false);
@@ -226,6 +232,17 @@ int main() {
                     DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, false, 1,
                     {{1,1,1,1,1,1,1,1}}, std::make_unique<PassthroughExecutor>(), &scaled_settings,
                     {}, true, width, height);
+                uint16_t first_red=0;
+                for(unsigned edit=0;edit<(recipe?2u:1u);++edit) {
+                if(edit) {
+                    scaled_settings.processing.signal=2;
+                    scaled_settings.processing.domain=2;
+                    scaled_settings.processing.exposure=.25f;
+                    scaled_settings.processing.reconstruction=1;
+                    check(scaled.architecture_matches(scaled_settings),"Color edit tried to recreate the runner");
+                    auto resized=scaled_settings;resized.processing.scale+=1;
+                    check(!scaled.architecture_matches(resized),"Canvas edit incorrectly reused resources");
+                }
                 phoenix_native::hr(allocator->Reset());
                 phoenix_native::hr(command->Reset(allocator.Get(), nullptr));
                 phoenix_native::transition(command.Get(), color.Get(), evidence.color_state, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -259,6 +276,11 @@ int main() {
                 const auto scaled_deadline=GetTickCount64()+10000;
                 while(scaled.completed()<scaled.submitted()&&GetTickCount64()<scaled_deadline) Sleep(1);
                 check(scaled.completed()==scaled.submitted(), "Scaled appearance fence did not retire");
+                if(recipe>=4) {
+                    const auto bridge=scaled.execution_status().at("resolution_bridge");
+                    check(bridge.at("nis_dispatches").get<unsigned>()>0,"NVIDIA selection bypassed real NIS dispatches");
+                    if(recipe<6)check(bridge.at("last_nis_passes")==2,"400 percent did not use two NIS enlargement passes");
+                }
                 void* mapped=nullptr; phoenix_native::hr(readback->Map(0,nullptr,&mapped));
                 const auto* pixel=reinterpret_cast<const uint16_t*>(static_cast<const uint8_t*>(mapped)+fp.Offset+
                     (height/2)*fp.Footprint.RowPitch+(width/2)*8);
@@ -269,7 +291,12 @@ int main() {
                         check((rgba[channel]&0x7c00)!=0x7c00, "Scaled appearance produced non-finite color");
                 }
                 check(pixel[0]!=0x3800, "Scaled appearance bypassed the Cinematic style");
+                if(edit) {
+                    check(pixel[0]!=first_red,"Live color edit did not reach the rendering shaders");
+                    ++live_color_cases;
+                } else first_red=pixel[0];
                 readback->Unmap(0,nullptr);
+                }
                 ++scaled_appearance_cases;
             }
         std::cout << Json({{"passed", true},
@@ -281,7 +308,8 @@ int main() {
                            {"capture_input_bytes_exact", true},
                            {"burst_readbacks_reused", true},
                            {"optional_snapshots_exact",true},{"producer_epochs_checked",true},
-                           {"scaled_appearance_cases",scaled_appearance_cases}})
+                           {"scaled_appearance_cases",scaled_appearance_cases},
+                           {"live_color_cases_without_recreation",live_color_cases}})
                          .dump()
                   << '\n';
         return 0;

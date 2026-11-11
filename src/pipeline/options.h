@@ -17,8 +17,14 @@ enum class Stage : int { Neural, Scale, Color, Fusion };
 // motion source preference: real engine vectors first, estimate missing vectors.
 // Additional monitoring and image-processing stages remain opt-in.
 struct Options {
+    static constexpr float maximum_depth_strength = 10.f;
     bool motion_enabled = true, scene_detection = false;
     int motion_source = 0, flow_height = 180, motion_view = 0;
+    int legacy_depth = 0; // Auto, Small, NVIDIA, None, Game depth.
+    float legacy_depth_strength = 1.f;
+    bool legacy_depth_preview = false;
+    bool legacy_depth_invert = false, legacy_depth_fixed_range = false;
+    float legacy_depth_near = 0.f, legacy_depth_far = 1.f;
     float flow_consistency = 1.5f, flow_cost = 100.f;
     int monitoring = 0, priority = 0, sample_interval = 30;
     float latency_ms = 50.f;
@@ -42,7 +48,11 @@ struct Options {
         auto finite = [](float v, float lo, float hi) { return std::isfinite(v) && v >= lo && v <= hi; };
         auto permutation = order;
         std::sort(permutation.begin(), permutation.end());
-        return motion_source >= 0 && motion_source <= 3 &&
+        return legacy_depth >= 0 && legacy_depth <= 4 &&
+            finite(legacy_depth_strength, 0.f, maximum_depth_strength) &&
+            finite(legacy_depth_near, 0.f, 1.f) && finite(legacy_depth_far, 0.f, 1.f) &&
+            legacy_depth_far - legacy_depth_near >= 0.00001f &&
+            motion_source >= 0 && motion_source <= 3 &&
             flow_height >= 64 && flow_height <= 2160 && motion_view >= 0 && motion_view <= 2 &&
             finite(flow_consistency, .1f, 20.f) && finite(flow_cost, 1.f, 1000.f) &&
             monitoring >= 0 && monitoring <= 2 && priority >= 0 && priority <= 2 &&
@@ -62,7 +72,17 @@ inline bool copy_comparison(Options& target,const Options& source){
     const bool changed=fields(target)!=fields(source);fields(target)=fields(source);return changed;
 }
 inline Options without_comparison(Options options){copy_comparison(options,Options{});return options;}
+template<class Visitor> void visit_depth_options(Options& p, Visitor&& visit) {
+    visit("LegacyDepth", p.legacy_depth);
+    visit("LegacyDepthStrength", p.legacy_depth_strength);
+    visit("LegacyDepthPreview", p.legacy_depth_preview);
+    visit("LegacyDepthInvert", p.legacy_depth_invert);
+    visit("LegacyDepthFixedRange", p.legacy_depth_fixed_range);
+    visit("LegacyDepthNear", p.legacy_depth_near);
+    visit("LegacyDepthFar", p.legacy_depth_far);
+}
 template<class Visitor> void visit_options(Options& p, Visitor visit) {
+    visit_depth_options(p, visit);
     visit("MotionEstimation", p.motion_enabled);
     visit("MotionProvider", p.motion_source);
     visit("FlowAnalysisHeight", p.flow_height);

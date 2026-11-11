@@ -1,4 +1,5 @@
 #pragma once
+#include "widgets.h"
 #include "panel_sections.h"
 
 namespace phoenix_ui {
@@ -33,22 +34,32 @@ inline QuickMeasurements quick_measurements(const Context& context) {
 }
 inline void draw_fact_tiles(const Context& context) {
     const auto measured = quick_measurements(context);
-    char neural[48] = "--", fps[48] = "--", canvas[48] = "--";
+    char neural[48] = "--", fps[48] = "--", processed_fps[48] = "--", canvas[48] = "--";
     if (measured.neural) snprintf(neural,sizeof neural,"%.2f ms",*measured.neural);
     else if (context.portable_wall_ms) snprintf(neural,sizeof neural,"%.1f ms",*context.portable_wall_ms);
     if (context.present_fps > 0) snprintf(fps,sizeof fps,"%.1f FPS",context.present_fps);
+    const bool enabled = context.processing_enabled ? *context.processing_enabled : context.panel.uplift;
+    if (enabled && context.panel.mode != phoenix::input && context.presentation_timing) {
+        if (const auto rate = context.presentation_timing->processed_fps())
+            snprintf(processed_fps, sizeof processed_fps, "%.1f FPS", *rate);
+    }
     if (context.direct_runner) {
         const auto& geometry = context.direct_runner->resolution();
         snprintf(canvas,sizeof canvas,"%ux%u",geometry.width,geometry.height);
     }
     const float gap = ImGui::GetStyle().ItemSpacing.x;
-    const float width = std::max(1.f,(ImGui::GetContentRegionAvail().x - 2*gap)/3);
+    const float available = ImGui::GetContentRegionAvail().x;
+    const int columns = available >= ImGui::GetFontSize() * 42.f ? 4 : 2;
+    const float width = std::max(1.f, (available - (columns - 1) * gap) / columns);
+    fact_tile("Game FPS", fps, width, mint,
+        "Game presentation rate, including repeats of the last processed image.");
+    ImGui::SameLine(0, gap);
+    fact_tile("DLSS5 FPS", processed_fps, width, mint,
+        "Game presentations with a fresh DLSS5 result per second. Held and reused results are excluded. -- means off, unavailable, or waiting for a full sample.");
+    if (columns == 4) ImGui::SameLine(0, gap);
     fact_tile(context.portable_wall_ms ? "Worker wall" : "Neural GPU", neural, width, blue,
         "Recent neural GPU interval for the active workload. Worker wall time includes host preparation/inference/resolve. Missing measurements are --.");
-    ImGui::SameLine(0,gap);
-    fact_tile("Game FPS",fps,width,mint,
-        "Game presentation rate, including repeated processed frames. This is separate from neural processing speed.");
-    ImGui::SameLine(0,gap);
+    ImGui::SameLine(0, gap);
     fact_tile(width < 145.f ? "Canvas" : "Processing canvas",canvas,width,violet,
         "Current loaded runner canvas, including internal padding. Output geometry is shown in the status card.");
     ImGui::Spacing();
@@ -80,7 +91,7 @@ inline bool draw_header(Context& context, bool& advanced) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
         ImGui::PushStyleColor(ImGuiCol_Text, rgb(mint));
         const std::string label = "Update available: " + context.update_available + "  -  Open GitHub";
-        if (ImGui::SmallButton(label.c_str()) && context.open_update) context.open_update();
+        if (phoenix_ui::small_button(label.c_str(),"Open the available Phoenix release page. Installing an update is a separate action.") && context.open_update) context.open_update();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the Phoenix releases page. Nothing is downloaded or installed automatically.");
         ImGui::PopStyleColor(2);
     }
@@ -88,7 +99,7 @@ inline bool draw_header(Context& context, bool& advanced) {
     if (available >= 420.f) ImGui::SameLine(std::max(150.f, available - 245.f));
     ImGui::PushStyleColor(ImGuiCol_Button,rgb(0x365b84));
     ImGui::PushStyleColor(ImGuiCol_Border,rgb(0x6f9fd1));
-    if (ImGui::Button("Save configuration")) {
+    if (phoenix_ui::button("Save configuration")) {
         if (context.save) context.save();
         ImGui::GetStateStorage()->SetFloat(ImGui::GetID("last_save"),float(ImGui::GetTime()));
     }
@@ -117,7 +128,7 @@ inline bool draw_header(Context& context, bool& advanced) {
             if (!context.route_notice.empty()) ImGui::TextWrapped("%s",context.route_notice.c_str());
             if (!context.error.empty()) ImGui::TextWrapped("%s",context.error.c_str());
             if (!context.model_switch_error.empty()) ImGui::TextWrapped("%s",context.model_switch_error.c_str());
-            if (failed && context.retry && ImGui::Button("Retry rendering")) context.retry();
+            if (failed && context.retry && phoenix_ui::button("Retry rendering")) context.retry();
         }
     }
     draw_fact_tiles(context);

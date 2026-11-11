@@ -23,6 +23,8 @@ PANEL_SOURCE_INPUTS = (
     'src/integration/reshade/panel_sections.h', 'src/integration/reshade/panel_chrome.h',
     'src/integration/reshade/panel_timing.h', 'src/integration/reshade/pipeline_panel.h',
     'src/integration/reshade/panel_style.h',
+    'src/integration/reshade/choice_buttons.h', 'src/integration/reshade/choice_help.h',
+    'src/integration/reshade/widgets.h',
     'src/integration/compatibility/controller.h', 'tests/native/shared_panel_tests.cpp',
     'tests/native/dashboard_tests.h',
 )

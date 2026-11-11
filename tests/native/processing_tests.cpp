@@ -5,6 +5,7 @@
 #include "../../src/integration/compatibility/session_policy.h"
 #include <iostream>
 #include <limits>
+#include <set>
 int main() {
     using namespace phoenix_addon;
     using namespace phoenix_addon::phoenix;
@@ -38,6 +39,13 @@ int main() {
         p.scale = 200;
         g = processing_resolution(1920, 1080, p, true);
         expect(g.width == 3840 && g.height == 2160, "200 percent scales both axes");
+        p.scale=400;
+        expect(s.valid(),"400 percent is a supported setting");
+        g=processing_resolution(1920,1080,p,true);
+        expect(g.width==7680&&g.height==4320,"400 percent scales both axes");
+        g=processing_resolution(3840,2160,p,false);
+        expect(g.width==8192&&g.height==4608,"Backend cap retains aspect ratio");
+        p.scale=401;expect(!s.valid(),"Above 400 percent refused");
         p.scale = std::numeric_limits<float>::quiet_NaN();
         expect(!s.valid(), "Nonfinite scale refused");
         p.scale = 63;
@@ -67,8 +75,28 @@ int main() {
         expect(settings_json(loaded) == json && loaded.valid(),
                "Full persistence and helper transport roundtrip");
         expect(helper_settings_changed(Settings{}, s), "Pipeline edits rebuild resource owners");
-        expect(!live_tuning_json(s).contains("Encoding"),
-               "Resource domain changes never race live tuning");
+        expect(live_tuning_json(s).contains("Encoding"),
+               "Color conventions travel as serialized frame controls");
+        auto live = s;
+        live.processing.domain = 2; live.processing.downsample = 2; live.processing.upsample = 1;
+        live.processing.reconstruction = 1; live.processing.encoding = 2; live.processing.signal = 1;
+        live.processing.white_override = false; live.processing.white_nits = 180;
+        live.processing.exposure = 1.3f; live.processing.exposure_mode = 1;
+        live.processing.nis_sharpness=.5f;
+        expect(!helper_settings_changed(s,live), "Color-only edits retain the model and helper");
+        auto applied = s;
+        apply_live_tuning_patch(applied,live_tuning_json(live));
+        expect(settings_json(applied)==settings_json(live), "All color edits reach the running helper atomically");
+        for (const char* key : {"ProcessingEnabled","ProcessingScale","HookStage","UiCorrectionMode","ResizeMethod"}) {
+            const auto before = settings_json(applied);
+            bool rejected = false;
+            try { apply_live_tuning_patch(applied,{{key,1}}); } catch (const std::exception&) { rejected=true; }
+            expect(rejected && settings_json(applied)==before,"Resource edits cannot enter a live frame patch");
+        }
+        live.processing.scale += 1;
+        expect(helper_settings_changed(s,live), "Canvas edits still rebuild resource owners");
+        std::set<std::string> fields;
+        visit_settings(s,[&](const char* key,auto&){expect(fields.insert(key).second,"Settings fields are serialized exactly once");});
         for (int encoding = 1; encoding <= 5; ++encoding)
             for (float white : {48.f, 100.f, 500.f}) {
                 pixels::RGB v{.002f, .1f, .8f};
@@ -109,6 +137,13 @@ int main() {
             options.encoding=0;options.scale=51;expect(!pixels::identity_transfer(35,23,options), "Actual resizing retains the processing pipeline");
         }
         expect(!pixels::identity_transfer(0,0,Processing{}), "Empty geometry is not an identity frame");
+        for(int method:{1,2,3,4,5})for(float scale:{50.f,400.f}) {
+            Processing options;options.enabled=true;options.resize_method=method;options.scale=scale;
+            pixels::Frame automatic(image,35,23,options);
+            const auto result=automatic.finish(automatic.encoded);
+            for(size_t i=0;i<image.size();++i)expect(std::abs(result[i]-image[i])<.002f,
+                "CPU Auto fallback preserves an identity neural residual in either resize direction");
+        }
         Processing pq_domain; pq_domain.domain=1;
         expect(!pixels::identity_transfer(35,23,pq_domain), "PQ filter-domain clipping must not be optimized away");
         for (int filter=0;filter<3;++filter)

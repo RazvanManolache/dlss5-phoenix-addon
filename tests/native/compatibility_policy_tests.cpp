@@ -14,6 +14,17 @@ int main() {
     };
     namespace control = phoenix_addon::phoenix::control_bridge;
     try {
+        for(bool enabled:{false,true})for(int hook:{0,1,2,3}) {
+            phoenix_compat::Settings loaded;loaded.processing.enabled=enabled;loaded.processing.hook=hook;
+            loaded.processing.scale=67;loaded.processing.encoding=2;loaded.processing.signal=1;
+            loaded.processing.exposure=.7f;loaded.controls.style=2;
+            const auto before=phoenix_compat::settings_json(loaded);
+            const bool repaired=phoenix_compat::normalize_final_frame_hook(loaded);
+            verify(repaired==(enabled&&(hook==1||hook==2)));
+            auto expected=before;if(repaired)expected["HookStage"]=3;
+            verify(phoenix_compat::settings_json(loaded)==expected);
+            verify(!phoenix_compat::normalize_final_frame_hook(loaded));
+        }
         {
             const std::string id="native-cuda:0123456789abcdef0123456789abcdef";
             verify(phoenix_addon::phoenix::valid_execution_device(id));
@@ -120,7 +131,7 @@ int main() {
             verify(phoenix_addon::phoenix::copy_live_tuning(running, view));
             verify(running.comparison == 1 && running.divider == .35f && running.difference_gain == 4);
             const auto live = phoenix_compat::live_tuning_json(view);
-            verify(live.size() <= 32 && live.at("Comparison") == 1 && live.at("DifferenceGain") == 4);
+            verify(live.size() <= 64 && live.at("Comparison") == 1 && live.at("DifferenceGain") == 4);
             phoenix_compat::apply_live_tuning_patch(running, live);
             verify(!phoenix_compat::helper_settings_changed(settings, running));
             view.mode = phoenix_addon::phoenix::split;

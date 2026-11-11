@@ -1,4 +1,5 @@
 #pragma once
+#include "widgets.h"
 #include <imgui.h>
 #include "choice_buttons.h"
 #include "../../pipeline/options.h"
@@ -11,7 +12,7 @@ enum class PipelineSection { Motion, Responsiveness, Chain, Inspection, Recovery
 inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
     const std::string& model_library = {}, bool native_chain = true,
     bool portable_chain = false, bool frame_services = true,
-    PipelineSection section = PipelineSection::All, bool motion_services = false) {
+    PipelineSection section = PipelineSection::All, bool motion_services = false,bool managed_resize=false) {
     if (section == PipelineSection::All &&
         !ImGui::CollapsingHeader("Motion, latency and processing chain")) return false;
     bool changed = false;
@@ -24,10 +25,10 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         changed |= choice_buttons("Motion source", &p.motion_source, providers, 4,provider_captions);
         const bool estimating=p.motion_enabled&&(p.motion_source==0||p.motion_source==2);
         ImGui::BeginDisabled(!estimating);
-        changed |= ImGui::SliderInt("Motion analysis height", &p.flow_height, 64, 2160);
+        changed |= phoenix_ui::slider_int("Motion analysis height", &p.flow_height, 64, 2160, phoenix_pipeline::Options{}.flow_height);
         ImGui::TextWrapped("Analysis preserves aspect ratio and never exceeds the input size. Lower heights reduce estimation work; neural output resolution is unchanged.");
-        changed |= ImGui::SliderFloat("Motion consistency tolerance (pixels)", &p.flow_consistency, .1f, 20.f);
-        changed |= ImGui::SliderFloat("Motion cost threshold (per mille)", &p.flow_cost, 1.f, 990.f);
+        changed |= phoenix_ui::slider_float("Motion consistency tolerance (pixels)", &p.flow_consistency, .1f, 20.f, phoenix_pipeline::Options{}.flow_consistency);
+        changed |= phoenix_ui::slider_float("Motion cost threshold (per mille)", &p.flow_cost, 1.f, 990.f, phoenix_pipeline::Options{}.flow_cost);
         const char* views[]{"Processed image", "Motion direction and magnitude", "Motion confidence"};
         changed |= choice_buttons("Motion diagnostic view", &p.motion_view, views, 3);
         ImGui::EndDisabled();
@@ -40,17 +41,17 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         const char* monitoring[]{"Off", "Basic (CPU counters)", "Detailed (sample GPU stages)"};
         changed |= choice_buttons("Pipeline monitoring", &p.monitoring, monitoring, 3);
         ImGui::BeginDisabled(!p.monitoring);
-        changed |= ImGui::SliderInt("GPU monitoring sample interval", &p.sample_interval, 1, 120);
+        changed |= phoenix_ui::slider_int("GPU monitoring sample interval", &p.sample_interval, 1, 120, phoenix_pipeline::Options{}.sample_interval);
         const char* priority[]{"Keep quality fixed", "Prefer responsiveness", "Prefer image quality"};
         changed |= choice_buttons("Adaptive priority", &p.priority, priority, 3);
-        changed |= ImGui::SliderFloat("Pipeline age budget (ms)", &p.latency_ms, 5.f, 250.f);
+        changed |= phoenix_ui::slider_float("Pipeline age budget (ms)", &p.latency_ms, 5.f, 250.f, phoenix_pipeline::Options{}.latency_ms);
         changed |= ImGui::Checkbox("Allow motion resolution adjustment", &p.adjust_flow);
-        changed |= ImGui::SliderInt("Minimum motion analysis height", &p.minimum_flow_height, 64, 1080);
+        changed |= phoenix_ui::slider_int("Minimum motion analysis height", &p.minimum_flow_height, 64, 1080, phoenix_pipeline::Options{}.minimum_flow_height);
         changed |= ImGui::Checkbox("Allow neural resolution adjustment", &p.adjust_scale);
-        changed |= ImGui::SliderFloat("Minimum neural scale", &p.minimum_scale, 10.f, 100.f, "%.0f%%");
+        changed |= phoenix_ui::slider_float("Minimum neural scale", &p.minimum_scale, 10.f, 100.f, phoenix_pipeline::Options{}.minimum_scale, "%.0f%%");
         changed |= ImGui::Checkbox("Allow central block adjustment", &p.adjust_blocks);
         changed |= ImGui::Checkbox("Allow network pass adjustment", &p.adjust_passes);
-        changed |= ImGui::SliderInt("Minimum network passes", &p.minimum_passes, 1, 10);
+        changed |= phoenix_ui::slider_int("Minimum network passes", &p.minimum_passes, 1, 10, phoenix_pipeline::Options{}.minimum_passes);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
     }
@@ -72,7 +73,7 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
             changed |= ImGui::Checkbox(names[stage], &p.enabled[unsigned(stage)]);
             ImGui::SameLine();
             ImGui::BeginDisabled(row == 0);
-            if (ImGui::SmallButton("Move up") && row) {
+            if (phoenix_ui::small_button("Move up") && row) {
                 std::swap(p.order[unsigned(row)], p.order[unsigned(row - 1)]); changed = true;
             }
             ImGui::EndDisabled();
@@ -80,41 +81,42 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         }
         ImGui::EndDisabled();
         const char* scalers[]{"Existing scaler", "NVIDIA Image Scaling", "RTX Video Super Resolution", "Tiny neural 2x"};
-        ImGui::BeginDisabled(!native_chain);
+        ImGui::BeginDisabled(!native_chain||managed_resize);
         const bool tiny_available=bool(phoenix_pipeline::find_tiny_model(std::filesystem::u8path(model_library)));
         const uint8_t scaler_available[]{1,uint8_t(!portable_chain||frame_services),0,
             uint8_t(tiny_available&&(!portable_chain||frame_services))};
         const char* scaler_captions[]{"Existing","NIS","RTX VSR","Tiny 2x"};
         changed |= choice_buttons("Additional upscaler",&p.scaler,scalers,4,scaler_captions,scaler_available);
+        if(managed_resize)ImGui::TextWrapped("Resize method is managed in Color and scaling. Choose Manual there to use this additional chain scaler.");
         if(p.scaler)ImGui::TextWrapped("NIS/tiny reconstruction currently uses explicit sRGB input encoding. Choose one reconstruction provider. Tiny models are installed through DLSS Everything.");
-        changed |= ImGui::SliderFloat("Scaling sharpness", &p.sharpness, 0.f, 1.f);
+        changed |= phoenix_ui::slider_float("Scaling sharpness", &p.sharpness, 0.f, 1.f, phoenix_pipeline::Options{}.sharpness);
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!native_chain||!p.enabled[unsigned(phoenix_pipeline::Stage::Color)]);
-        changed |= ImGui::SliderFloat("Chain brightness",&p.color_brightness,-2.f,2.f);
-        changed |= ImGui::SliderFloat("Chain contrast",&p.color_contrast,0.f,4.f);
-        changed |= ImGui::SliderFloat("Chain saturation",&p.color_saturation,0.f,2.f);
-        changed |= ImGui::SliderFloat("Chain gamma",&p.color_gamma,.1f,4.f);
+        changed |= phoenix_ui::slider_float("Chain brightness",&p.color_brightness,-2.f,2.f, phoenix_pipeline::Options{}.color_brightness);
+        changed |= phoenix_ui::slider_float("Chain contrast",&p.color_contrast,0.f,4.f, phoenix_pipeline::Options{}.color_contrast);
+        changed |= phoenix_ui::slider_float("Chain saturation",&p.color_saturation,0.f,2.f, phoenix_pipeline::Options{}.color_saturation);
+        changed |= phoenix_ui::slider_float("Chain gamma",&p.color_gamma,.1f,4.f, phoenix_pipeline::Options{}.color_gamma);
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!native_chain);
         changed |= ImGui::Checkbox("Experimental multiscale fusion", &p.fusion);
         ImGui::BeginDisabled(!p.fusion);
-        changed |= ImGui::SliderInt("Fusion layers", &p.fusion_layers, 2, 3);
-        changed |= ImGui::SliderFloat("Second layer scale", &p.fusion_second_scale, .1f, 1.f);
-        changed |= ImGui::SliderFloat("Third layer scale", &p.fusion_third_scale, .1f, 1.f);
+        changed |= phoenix_ui::slider_int("Fusion layers", &p.fusion_layers, 2, 3, phoenix_pipeline::Options{}.fusion_layers);
+        changed |= phoenix_ui::slider_float("Second layer scale", &p.fusion_second_scale, .1f, 1.f, phoenix_pipeline::Options{}.fusion_second_scale);
+        changed |= phoenix_ui::slider_float("Third layer scale", &p.fusion_third_scale, .1f, 1.f, phoenix_pipeline::Options{}.fusion_third_scale);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::EndDisabled();
     }
     if (section == PipelineSection::Inspection || section == PipelineSection::All) {
         changed |= ImGui::Checkbox("Comparison loupe", &p.loupe);
-        changed |= ImGui::SliderFloat("Comparison zoom", &p.compare_zoom, 1.f, 8.f);
-        changed |= ImGui::SliderFloat("Comparison focus X", &p.loupe_x, 0.f, 1.f);
-        changed |= ImGui::SliderFloat("Comparison focus Y", &p.loupe_y, 0.f, 1.f);
+        changed |= phoenix_ui::slider_float("Comparison zoom", &p.compare_zoom, 1.f, 8.f, phoenix_pipeline::Options{}.compare_zoom);
+        changed |= phoenix_ui::slider_float("Comparison focus X", &p.loupe_x, 0.f, 1.f, phoenix_pipeline::Options{}.loupe_x);
+        changed |= phoenix_ui::slider_float("Comparison focus Y", &p.loupe_y, 0.f, 1.f, phoenix_pipeline::Options{}.loupe_y);
         changed |= ImGui::Checkbox("Save screenshot settings receipt", &p.screenshot_receipt);
     }
     if (section == PipelineSection::Recovery || section == PipelineSection::All) {
         changed |= ImGui::Checkbox("Restore last working settings after initialization failure", &p.recovery);
-        if(ImGui::Button("Reset motion and pipeline options")){p={};changed=true;}
+        if(phoenix_ui::button("Reset motion and pipeline options")){p={};changed=true;}
     }
     return changed;
 }

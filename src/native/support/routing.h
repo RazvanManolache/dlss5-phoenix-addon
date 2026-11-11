@@ -53,6 +53,7 @@ struct Settings {
     int resolution_ratio_width = 16, resolution_ratio_height = 9;
     std::string model_source = "configured", model_folder, model_dll, model_id;
     std::string nvidia_dll_folder; // Optional shared DLL fallback; local selection wins.
+    std::string legacy_depth_directory; // Optional per-game x64 depth provider bundle.
     std::string model_library_directory; // Explicit shared native-model index root.
     PhoenixLiveControls controls;
     Processing processing;
@@ -136,6 +137,7 @@ struct Settings {
                model_folder.size() < 4096 && model_folder.find('\0') == std::string::npos &&
                model_dll.size() < 4096 && model_dll.find('\0') == std::string::npos &&
                nvidia_dll_folder.size() < 4096 && nvidia_dll_folder.find('\0') == std::string::npos &&
+               legacy_depth_directory.size() < 4096 && legacy_depth_directory.find('\0') == std::string::npos &&
                model_library_directory.size() < 4096 && model_library_directory.find('\0') == std::string::npos &&
                (worker_engine == "auto" || worker_engine == "portable" ||
                 worker_engine == "matrix" || worker_engine == "fp8") &&
@@ -230,6 +232,7 @@ template <class Visitor> void visit_live_tuning(Settings& settings, Visitor visi
     visit("Divider", settings.divider);
     visit("Comparison", settings.comparison);
     visit("DifferenceGain", settings.difference_gain);
+    visit_processing_color(settings.processing,visit);
 }
 inline bool copy_live_tuning(Settings& target, const Settings& source) {
     auto fields = [](auto& s) {
@@ -245,11 +248,11 @@ inline bool copy_live_tuning(Settings& target, const Settings& source) {
     };
     const bool changed = fields(target) != fields(source);
     fields(target) = fields(source);
-    return changed;
+    return copy_processing_color(target.processing,source.processing)||changed;
 }
 template <class Visitor> void visit_settings(Settings& settings, Visitor visit) {
     phoenix_pipeline::visit_options(settings.pipeline, visit);
-    visit_processing(settings.processing, visit);
+    visit_processing_resources(settings.processing, visit);
     visit("NvidiaModel", settings.nvidia_model);
     visit("ModelSource", settings.model_source);
     visit("ModelId", settings.model_id);
@@ -257,6 +260,7 @@ template <class Visitor> void visit_settings(Settings& settings, Visitor visit) 
     visit("ModelDll", settings.model_dll);
     visit("NvidiaDllFolder", settings.nvidia_dll_folder);
     visit("ModelLibraryDirectory", settings.model_library_directory);
+    visit("LegacyDepthDirectory", settings.legacy_depth_directory);
     visit("ExecutionDevice", settings.execution_device);
     visit("NativeKernelStyle", settings.native_kernel_style);
     visit("WorkerEngine", settings.worker_engine);

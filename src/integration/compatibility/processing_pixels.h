@@ -169,7 +169,9 @@ struct Frame {
         map(linear, [&](RGB v) {
             return domain(transfer(v, p.input_encoding(true), p.diffuse_white(), true), p, false);
         });
-        baseline = resample(linear, w, h, working_width, working_height, p.downsample, true);
+        const bool shrinking=working_width<w||working_height<h;
+        baseline = resample(linear, w, h, working_width, working_height,
+            p.resize_method?(shrinking?p.reduction_filter():p.enlargement_filter()):p.downsample,p.resize_method?shrinking:true);
         map(baseline, [&](RGB v) { return domain(v, p, true); });
         encoded = baseline;
         map(encoded, [&](RGB v) {
@@ -183,6 +185,9 @@ struct Frame {
             throw std::runtime_error("Processing output extent mismatch");
         if (identity) return result;
         const auto& p = options;
+        const bool shrinking=width<working_width||height<working_height;
+        const int filter=p.resize_method?(shrinking?p.reduction_filter():p.enlargement_filter()):p.upsample;
+        const bool down=p.resize_method&&shrinking;
         map(result, [&](RGB v) {
             v = signal(v, p, true);
             for (auto& c : v)
@@ -192,13 +197,13 @@ struct Frame {
         if (p.effective_exposure() == 0)
             return original;
         const auto expanded_baseline=reconstructed&&p.reconstruction==0?
-            resample(baseline,working_width,working_height,width,height,p.upsample,false):std::vector<float>{};
+            resample(baseline,working_width,working_height,width,height,filter,down):std::vector<float>{};
         if (p.reconstruction == 0)
             for (size_t i = 0; i < result.size(); ++i)
                 result[i] -= reconstructed?expanded_baseline[i]:baseline[i];
         else
             map(result, [&](RGB v) { return domain(v, p, false); });
-        if(!reconstructed)result = resample(result, working_width, working_height, width, height, p.upsample, false);
+        if(!reconstructed)result = resample(result, working_width, working_height, width, height, filter, down);
         if (p.reconstruction == 0) {
             auto decoded = original;
             map(decoded, [&](RGB v) {

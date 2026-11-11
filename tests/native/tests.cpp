@@ -214,6 +214,18 @@ static void controls_tests() {
     patch_stem(stem.data(), stem.size(), next);
     check(read_packed_value<uint64_t>(stem, 200) == next.sampling, "complete 64-bit counter patch");
     ++cases;
+    next.depth_handle = 0x123456789abcdef0ULL;
+    patch_stem(stem.data(), stem.size(), next);
+    check(read_packed_value<uint64_t>(stem, 24) == next.depth_handle &&
+              read_packed_value<Rectangle>(stem, 88) == next.color,
+          "native recurrent stem binds depth and its frame bounds");
+    ++cases;
+    next.sampling = 0;
+    patch_stem(stem.data(), stem.size(), next);
+    check(read_packed_value<uint64_t>(stem, 24) == 0 &&
+              read_packed_value<Rectangle>(stem, 88) == Rectangle{},
+          "first frame must suppress the optional history depth");
+    ++cases;
     rejected([&] { patch_stem(stem.data(), 263, next); });
     rejected([&] { patch_head(head.data(), 183, next); });
     auto bad = controls;

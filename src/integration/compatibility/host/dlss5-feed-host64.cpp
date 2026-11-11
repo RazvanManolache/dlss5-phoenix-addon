@@ -35,6 +35,7 @@
 #include "phoenix-format-adapter.h"
 #include "phoenix-host-safety.h"
 #include "phoenix-helper-motion.h"
+#include "legacy_depth.h"
 #include "retired_transfer_buffer.h"
 #include <reshade.hpp>
 #include <algorithm>
@@ -59,6 +60,7 @@ static uint64_t g_capture_sequence = 0;
 static bool g_reference_cpu = false;
 static bool g_native_motion_services = false;
 static PhoenixHelperMotion g_helper_motion;
+static std::filesystem::path g_legacy_depth_directory;
 static uint64_t g_transport_capture = 0, g_transport_sequence = 0;
 static FeedGuideState g_frame_guides{};
 static std::vector<ID3D12CommandQueue *> g_observed_queues;
@@ -76,6 +78,7 @@ static bool ConfigurePhoenixHost()
         nlohmann::json config;
         input >> config;
         g_phoenix_enabled = ValidatePhoenixHostConfig(config, directory);
+        g_legacy_depth_directory = std::filesystem::u8path(config.value("legacy_depth_directory", std::string{}));
         wchar_t selected_device[256]{};
         GetPrivateProfileStringW(L"Phoenix", L"ExecutionDevice", L"native", selected_device, 256,
                                  (directory / L"ReShade.ini").c_str());
@@ -1679,6 +1682,15 @@ static int Serve(DWORD game_pid)
 
     std::vector<BYTE> cpu_in;
     RgbaImage cpu_out{};
+    PhoenixLegacyDepth depth_estimator(g_legacy_depth_directory);
+    Microsoft::WRL::ComPtr<ID3D12Resource> estimated_depth;
+    std::vector<float> estimated_depth_pixels, game_depth_pixels;
+    uint64_t game_depth_frame = 0;
+    int applied_depth_method = 0;
+    bool depth_preview_active = false;
+    uint64_t depth_source_frame = 0;
+    float depth_source_min = 0.f, depth_source_max = 0.f;
+    uint64_t depth_ms = 0;
     bool transport_only = false;
     float mvsx = 1.0f, mvsy = 1.0f;
     FeedGuideState pending_guides{};
@@ -1713,7 +1725,22 @@ static int Serve(DWORD game_pid)
         }
         if (!tag_read) { Log("[host] pipe closed by the game"); break; }
 
-        if (tag == 'U') {
+        if (tag != 'F' && game_depth_frame) {
+            HostTerminal("Game depth was not followed by its color frame");
+            break;
+        }
+        if (tag == 'D') {
+            FeedCpuDepth request{};
+            if (hello.version < 13 || !h.feeder_ready || !h.cpu_bridge || h.split_eyes || h.game_side_vr_split ||
+                !ReadFull(pipe, &request, sizeof(request)) || !request.frame) {
+                HostTerminal("Invalid game depth frame");
+                break;
+            }
+            game_depth_pixels.resize(size_t(h.input_width) * h.input_height);
+            if (!ReadFull(pipe, game_depth_pixels.data(), game_depth_pixels.size() * sizeof(float))) break;
+            game_depth_frame = request.frame;
+        }
+        else if (tag == 'U') {
             using Query = uint32_t (WINAPI *)(char*, uint32_t);
             auto module = GetModuleHandleW(L"Phoenix.addon64");
             auto query = module ? reinterpret_cast<Query>(GetProcAddress(module, "CnrPHOENIXFeederUiJson")) : nullptr;
@@ -1730,8 +1757,21 @@ static int Serve(DWORD game_pid)
                     }
                 }
             }
-            try {auto snapshot=nlohmann::json::parse(text);snapshot["helper_motion"]=g_helper_motion.snapshot();text=snapshot.dump();}
-            catch(const std::exception&){text=nlohmann::json{{"helper_motion",g_helper_motion.snapshot()}}.dump();}
+            auto snapshot = nlohmann::json::parse(text, nullptr, false);
+            if (!snapshot.is_object()) snapshot = nlohmann::json::object();
+            snapshot["helper_motion"] = g_helper_motion.snapshot();
+            snapshot["legacy_depth"] = {
+                {"supported", h.feeder_ready && h.cpu_bridge && !h.split_eyes && !h.game_side_vr_split &&
+                    !transport_only && g_native_motion_services},
+                {"method", applied_depth_method}, {"milliseconds", depth_ms},
+                {"source_frame", depth_source_frame}, {"preview", depth_preview_active},
+                {"source_min", depth_source_min}, {"source_max", depth_source_max},
+                {"status", g_helper_motion.options().legacy_depth_strength == 0.f ? "Depth disabled by strength." :
+                    applied_depth_method == 4 ? "Game depth from the matching DirectX attachment." :
+                    g_helper_motion.options().legacy_depth == 4 ? "No usable current game depth." :
+                    depth_estimator.status()}
+            };
+            text = snapshot.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
             FeedUiReply reply{uint32_t(text.size())};
             if (!WriteFull(pipe, &reply, sizeof(reply)) || !WriteFull(pipe, text.data(), text.size())) break;
         }
@@ -1959,6 +1999,11 @@ static int Serve(DWORD game_pid)
         {
             FeedFrameMsg fm = {};
             if (!ReadFull(pipe, &fm, sizeof(fm))) break;
+            const auto depth_frame = std::exchange(game_depth_frame, 0);
+            if (depth_frame && depth_frame != fm.n) {
+                HostTerminal("Game depth and color frame IDs differ");
+                break;
+            }
             g_transport_capture=++g_transport_sequence;
             g_frame_guides=feed_take_guides(pending_guides);
             if (!h.feeder_ready) { HostTerminal("Frame arrived without an accepted build"); break; }
@@ -1980,10 +2025,84 @@ static int Serve(DWORD game_pid)
                 }
                 else
                 {
+                    const bool legacy_depth_route = g_native_motion_services && !h.split_eyes && !h.game_side_vr_split;
+                    auto* frame_depth = legacy_depth_route ? nullptr : h.local_tex[FEED_DEPTH];
+                    const auto& depth_options = g_helper_motion.options();
+                    const float depth_strength = depth_options.legacy_depth_strength;
+                    const bool preview = legacy_depth_route && depth_options.legacy_depth_preview &&
+                        fm.nr_enabled && g_phoenix_enabled;
+                    if (depth_preview_active != preview) fm.reset = 1;
+                    depth_preview_active = preview;
+                    const auto make_preview = [&](std::span<const float> depth, float low, float high) {
+                        cpu_out.width = h.input_width;
+                        cpu_out.height = h.input_height;
+                        cpu_out.pixels.resize(size_t(h.input_width) * h.input_height * 4);
+                        phoenix_compat::preview_legacy_depth(depth, low, high, cpu_out.pixels,
+                                                           depth_options.legacy_depth_invert);
+                    };
+                    int method = 0;
+                    depth_ms = 0;
+                    depth_source_frame = 0;
+                    if (legacy_depth_route && depth_strength > 0.f && fm.nr_enabled && g_phoenix_enabled) {
+                        const auto start = GetTickCount64();
+                        const int selection = depth_options.legacy_depth;
+                        const bool have_game_depth = (selection == 0 || selection == 4) && depth_frame &&
+                            std::all_of(game_depth_pixels.begin(), game_depth_pixels.end(),
+                                [](float z) { return std::isfinite(z) && z >= 0.f && z <= 1.f; });
+                        if (have_game_depth) method = 4;
+                        else {
+                            const auto luid = h.dev->GetAdapterLuid();
+                            uint64_t adapter = 0;
+                            std::memcpy(&adapter, &luid, sizeof(adapter));
+                            const int estimate_source = phoenix_compat::legacy_depth_estimator_selection(selection);
+                            method = depth_estimator.estimate(estimate_source, cpu_in.data(),
+                                h.input_width, h.input_height, adapter, estimated_depth_pixels);
+                        }
+                        if (method) {
+                            auto& depth_pixels = have_game_depth ? game_depth_pixels : estimated_depth_pixels;
+                            const auto [low, high] = std::minmax_element(depth_pixels.begin(), depth_pixels.end());
+                            depth_source_min = *low;
+                            depth_source_max = *high;
+                            if (!phoenix_compat::prepare_legacy_depth(depth_pixels, depth_source_min,
+                                    depth_source_max, depth_options, preview)) {
+                                method = 0;
+                            } else if (preview) {
+                                make_preview(depth_pixels, 0.f, 1.f);
+                            } else {
+                                if (!estimated_depth || estimated_depth->GetDesc().Width != h.input_width ||
+                                    estimated_depth->GetDesc().Height != h.input_height) {
+                                    estimated_depth.Reset();
+                                    estimated_depth.Attach(MakeTex(h.input_width, h.input_height, DXGI_FORMAT_R32_FLOAT, false));
+                                }
+                                if (estimated_depth) {
+                                    if (h.depth_inverted != depth_options.legacy_depth_invert)
+                                        for (auto& pixel : depth_pixels) pixel = 1.f - pixel;
+                                    if (!UploadRows(estimated_depth.Get(), DXGI_FORMAT_R32_FLOAT, h.input_width,
+                                            h.input_height, depth_pixels.data(), h.input_width * sizeof(float))) {
+                                        HostTerminal("Estimated depth upload failed");
+                                        break;
+                                    }
+                                    frame_depth = estimated_depth.Get();
+                                } else {
+                                    method = 0;
+                                }
+                            }
+                            if (method) depth_source_frame = fm.n;
+                        }
+                        depth_ms = GetTickCount64() - start;
+                    }
+                    if (method != applied_depth_method) {
+                        fm.reset = 1;
+                        applied_depth_method = method;
+                    }
                     uint32_t iterations = PhoenixHostIterations(fm.iterations, g_frame_iterations);
                     if (iterations < 1) iterations = 1;
                     if (iterations > 10) iterations = 10;
-                    if (h.split_eyes)
+                    if (preview) {
+                        if (cpu_out.pixels.empty()) make_preview({}, 0.f, 1.f);
+                        done = true;
+                    }
+                    else if (h.split_eyes)
                     {
                         done = UploadRows(h.local_tex[FEED_COLOR], DXGI_FORMAT_R8G8B8A8_UNORM,
                                           h.input_width, h.input_height, cpu_in.data(), h.input_width * 4u);
@@ -2003,7 +2122,7 @@ static int Serve(DWORD game_pid)
                                               h.input_width, h.input_height, input, h.input_width * 4u) &&
                                 EvaluateForStream(h.game_side_vr_split ? 1u + (fm.eye_index & 1u) : 0u,
                                     h.local_tex[FEED_COLOR], h.local_tex[FEED_OUTPUT],
-                                    h.local_tex[FEED_DEPTH], h.local_tex[FEED_MV], nullptr,
+                                    frame_depth, h.local_tex[FEED_MV], nullptr,
                                     h.input_width, h.input_height, (i == 0 && fm.reset) ? 1 : 0,
                                     fm.nr_enabled ? 1 : 0, mvsx, mvsy) &&
                                 DownloadRgba8(h.local_tex[FEED_OUTPUT], h.width, h.height, cpu_out);
@@ -2024,7 +2143,7 @@ static int Serve(DWORD game_pid)
                             auto* input = i == 0 ? h.local_tex[FEED_COLOR] : h.iter_scratch[(i - 1) & 1u];
                             auto* output = i + 1 == iterations ? h.local_tex[FEED_OUTPUT] : h.iter_scratch[i & 1u];
                             done = EvaluateForStream(h.game_side_vr_split ? 1u + (fm.eye_index & 1u) : 0u,
-                                       input, output, h.local_tex[FEED_DEPTH], h.local_tex[FEED_MV], nullptr,
+                                       input, output, frame_depth, h.local_tex[FEED_MV], nullptr,
                                        h.input_width, h.input_height, (i == 0 && fm.reset) ? 1 : 0,
                                        fm.nr_enabled ? 1 : 0, mvsx, mvsy);
                         }
@@ -2123,6 +2242,7 @@ static int Serve(DWORD game_pid)
         ExitProcess(1);
     }
     DisconnectNamedPipe(pipe);
+    estimated_depth.Reset();
     g_helper_motion.clear(); // Consumer fence retired above; provider teardown is now safe.
     CloseHandle(pipe);
     if (hout != nullptr) CloseHandle(hout);
