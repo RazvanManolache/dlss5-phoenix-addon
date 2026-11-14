@@ -8,7 +8,23 @@
 #include <tuple>
 
 namespace phoenix_pipeline {
-enum class MotionSource : int { Automatic, Engine, Nvidia, Zero };
+enum class MotionSource : int { Automatic, Engine, Nvidia, Zero, FidelityFX, DIS, Video, BlockMatch };
+inline constexpr bool alternative_motion(MotionSource source) {
+    return source == MotionSource::FidelityFX || source == MotionSource::DIS ||
+           source == MotionSource::Video || source == MotionSource::BlockMatch;
+}
+inline constexpr bool estimated_motion(MotionSource source) {
+    return source == MotionSource::Nvidia || alternative_motion(source);
+}
+inline constexpr const char* estimator_name(MotionSource source) {
+    switch (source) {
+    case MotionSource::FidelityFX: return "AMD FidelityFX Optical Flow";
+    case MotionSource::DIS: return "OpenCV DIS (CPU)";
+    case MotionSource::Video: return "D3D12 Video Motion Estimation";
+    case MotionSource::BlockMatch: return "Luma block matching";
+    default: return "NVIDIA Optical Flow";
+    }
+}
 enum class Monitoring : int { Off, Basic, Detailed };
 enum class Priority : int { Fixed, Responsiveness, Quality };
 enum class Stage : int { Neural, Scale, Color, Fusion };
@@ -25,6 +41,11 @@ struct Options {
     bool legacy_depth_preview = false;
     bool legacy_depth_invert = false, legacy_depth_fixed_range = false;
     float legacy_depth_near = 0.f, legacy_depth_far = 1.f;
+    // Capture-side depth handling: validation is optional (the helper also
+    // validates before accepting game depth); half-resolution capture is
+    // the measured-cheap transfer and is expanded back before the helper.
+    bool legacy_depth_validate = false;
+    bool legacy_depth_half_resolution = true;
     float flow_consistency = 1.5f, flow_cost = 100.f;
     int monitoring = 0, priority = 0, sample_interval = 30;
     float latency_ms = 50.f;
@@ -52,7 +73,7 @@ struct Options {
             finite(legacy_depth_strength, 0.f, maximum_depth_strength) &&
             finite(legacy_depth_near, 0.f, 1.f) && finite(legacy_depth_far, 0.f, 1.f) &&
             legacy_depth_far - legacy_depth_near >= 0.00001f &&
-            motion_source >= 0 && motion_source <= 3 &&
+            motion_source >= 0 && motion_source <= int(MotionSource::BlockMatch) &&
             flow_height >= 64 && flow_height <= 2160 && motion_view >= 0 && motion_view <= 2 &&
             finite(flow_consistency, .1f, 20.f) && finite(flow_cost, 1.f, 1000.f) &&
             monitoring >= 0 && monitoring <= 2 && priority >= 0 && priority <= 2 &&
@@ -80,6 +101,8 @@ template<class Visitor> void visit_depth_options(Options& p, Visitor&& visit) {
     visit("LegacyDepthFixedRange", p.legacy_depth_fixed_range);
     visit("LegacyDepthNear", p.legacy_depth_near);
     visit("LegacyDepthFar", p.legacy_depth_far);
+    visit("LegacyDepthValidate", p.legacy_depth_validate);
+    visit("LegacyDepthHalfResolution", p.legacy_depth_half_resolution);
 }
 template<class Visitor> void visit_options(Options& p, Visitor visit) {
     visit_depth_options(p, visit);
@@ -130,7 +153,8 @@ struct MotionChoice {
     MotionSource source = MotionSource::Zero;
     const char* reason = "No motion source";
 };
-inline MotionChoice choose_motion(const Options& p, bool engine_valid, bool nvidia_ready) {
+inline MotionChoice choose_motion(const Options& p, bool engine_valid, bool nvidia_ready,
+                                  bool alternative_ready = false) {
     const auto requested = MotionSource(p.motion_source);
     if (!p.motion_enabled)
         return engine_valid && (requested == MotionSource::Automatic || requested == MotionSource::Engine)
@@ -138,6 +162,10 @@ inline MotionChoice choose_motion(const Options& p, bool engine_valid, bool nvid
             : MotionChoice{MotionSource::Zero, "Motion estimation disabled or zero motion selected"};
     if ((requested == MotionSource::Automatic || requested == MotionSource::Engine) && engine_valid)
         return {MotionSource::Engine, "Engine vectors"};
+    if (alternative_ready && (requested == MotionSource::Automatic || alternative_motion(requested))) {
+        const auto source = requested == MotionSource::Automatic ? MotionSource::FidelityFX : requested;
+        return {source, estimator_name(source)};
+    }
     if ((requested == MotionSource::Automatic || requested == MotionSource::Nvidia) && nvidia_ready)
         return {MotionSource::Nvidia, "NVIDIA Optical Flow"};
     return {MotionSource::Zero, requested == MotionSource::Zero ? "Motion disabled" : "Requested motion source unavailable"};

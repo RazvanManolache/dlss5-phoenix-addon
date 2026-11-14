@@ -103,6 +103,9 @@ struct Context {
     double present_fps = 0;
     const phoenix::PresentationTiming* presentation_timing = nullptr;
     std::optional<double> portable_wall_ms;
+    std::optional<double> pipeline_roundtrip_ms;
+    std::string game_api;
+    bool x86_transport = false;
     std::optional<TimingView> live_timing;
     TimingView worker_timing;
     std::array<uint64_t, 4> mode_frames{}, mode_own{}, mode_native{};
@@ -110,6 +113,13 @@ struct Context {
     std::function<void(unsigned)> capture;
     std::function<void(Action)> action;
 };
+
+inline std::optional<double> fresh_dlss5_fps(const Context& context) {
+    const bool enabled = context.processing_enabled ? *context.processing_enabled : context.panel.uplift;
+    if (enabled && context.panel.mode != phoenix::input && context.presentation_timing)
+        return context.presentation_timing->processed_fps();
+    return std::nullopt;
+}
 // Retained timing rows are valuable comparison evidence. Clearing needs an
 // explicit confirmation; ordinary temporal-history resets remain immediate.
 inline bool confirm_clear_timing(const char* label) {

@@ -9,6 +9,9 @@ inline void draw_game_fps(const Context &addon_state) {
         ImGui::PlotLines("##game_fps",fps.data(),int(fps.size()),0,nullptr,0.f,FLT_MAX,ImVec2(0,70));
         ImGui::PopItemWidth();
     } else ImGui::TextDisabled("Waiting for a complete one-second FPS sample.");
+    if (const auto rate = fresh_dlss5_fps(addon_state))
+        ImGui::Text("Fresh DLSS5 FPS  %.1f", *rate);
+    else ImGui::TextDisabled("Fresh DLSS5 FPS  --");
     ImGui::TextWrapped("Game FPS includes repeated displayed frames. Retained FPS uses complete windows for the same workload; missing samples show --.");
 }
 inline void draw_timing(Context &addon_state) {

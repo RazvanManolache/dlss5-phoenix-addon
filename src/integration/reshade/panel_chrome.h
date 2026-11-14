@@ -34,34 +34,36 @@ inline QuickMeasurements quick_measurements(const Context& context) {
 }
 inline void draw_fact_tiles(const Context& context) {
     const auto measured = quick_measurements(context);
-    char neural[48] = "--", fps[48] = "--", processed_fps[48] = "--", canvas[48] = "--";
+    char neural[48] = "--", fps[48] = "--", processed_fps[48] = "--", canvas[48] = "--", roundtrip[48] = "--";
     if (measured.neural) snprintf(neural,sizeof neural,"%.2f ms",*measured.neural);
     else if (context.portable_wall_ms) snprintf(neural,sizeof neural,"%.1f ms",*context.portable_wall_ms);
     if (context.present_fps > 0) snprintf(fps,sizeof fps,"%.1f FPS",context.present_fps);
-    const bool enabled = context.processing_enabled ? *context.processing_enabled : context.panel.uplift;
-    if (enabled && context.panel.mode != phoenix::input && context.presentation_timing) {
-        if (const auto rate = context.presentation_timing->processed_fps())
-            snprintf(processed_fps, sizeof processed_fps, "%.1f FPS", *rate);
-    }
+    if (context.pipeline_roundtrip_ms)
+        snprintf(roundtrip, sizeof roundtrip, "%.1f ms", *context.pipeline_roundtrip_ms);
+    if (const auto rate = fresh_dlss5_fps(context))
+        snprintf(processed_fps, sizeof processed_fps, "%.1f FPS", *rate);
     if (context.direct_runner) {
         const auto& geometry = context.direct_runner->resolution();
         snprintf(canvas,sizeof canvas,"%ux%u",geometry.width,geometry.height);
     }
     const float gap = ImGui::GetStyle().ItemSpacing.x;
     const float available = ImGui::GetContentRegionAvail().x;
-    const int columns = available >= ImGui::GetFontSize() * 42.f ? 4 : 2;
+    const int columns = available >= ImGui::GetFontSize() * 60.f ? 5 : 2;
     const float width = std::max(1.f, (available - (columns - 1) * gap) / columns);
     fact_tile("Game FPS", fps, width, mint,
         "Game presentation rate, including repeats of the last processed image.");
     ImGui::SameLine(0, gap);
-    fact_tile("DLSS5 FPS", processed_fps, width, mint,
-        "Game presentations with a fresh DLSS5 result per second. Held and reused results are excluded. -- means off, unavailable, or waiting for a full sample.");
-    if (columns == 4) ImGui::SameLine(0, gap);
+    fact_tile("Fresh DLSS5 FPS", processed_fps, width, mint,
+        "Game presentations with a new DLSS5 result per second. Excludes held and reused results. -- means off, unavailable, or waiting for a full sample.");
+    if (columns == 5) ImGui::SameLine(0, gap);
     fact_tile(context.portable_wall_ms ? "Worker wall" : "Neural GPU", neural, width, blue,
         "Recent neural GPU interval for the active workload. Worker wall time includes host preparation/inference/resolve. Missing measurements are --.");
     ImGui::SameLine(0, gap);
     fact_tile(width < 145.f ? "Canvas" : "Processing canvas",canvas,width,violet,
         "Current loaded runner canvas, including internal padding. Output geometry is shown in the status card.");
+    if (columns == 5) ImGui::SameLine(0, gap);
+    fact_tile("Pipeline round trip", roundtrip, width, blue,
+        "Elapsed time from capture of the source frame through preparation, processing, transfers, and composition for presentation. Held frames are excluded. This does not measure display scanout.");
     ImGui::Spacing();
 }
 inline void draw_metrics(const Context& context) {
@@ -86,6 +88,8 @@ inline void draw_metrics(const Context& context) {
         "Worker wall time includes its host processing. Missing or stale measurements show --.");
 }
 inline bool draw_header(Context& context, bool& advanced) {
+    ImGui::TextDisabled("%s%s%s", context.game_api.c_str(), context.game_api.empty() ? "" : " / ",
+                        sizeof(void*) == 4 ? "x86 game" : "x64 game");
     const float available = ImGui::GetContentRegionAvail().x;
     if (!context.update_available.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));

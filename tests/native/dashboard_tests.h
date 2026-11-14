@@ -98,12 +98,12 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
                     "Local styling escaped the panel");
             ImGui::End();
             ImGui::Render();
-            const auto footer = std::find_if(widgets.begin(), widgets.end(), [](const Widget& item) {
-                return item.label.find("/metrics_") != std::string::npos;
+            const auto controls = std::find_if(widgets.begin(), widgets.end(), [](const Widget& item) {
+                return item.label.find("/controls_") != std::string::npos;
             });
-            const auto* footer_window = footer == widgets.end() ? nullptr : ImGui::FindWindowByName(footer->label.c_str());
-            require(footer_window && footer_window->Pos.y > 700 && footer_window->Pos.y + footer_window->Size.y <= 900,
-                "Timing footer escaped the visible parent window");
+            const auto* controls_window = controls == widgets.end() ? nullptr : ImGui::FindWindowByName(controls->label.c_str());
+            require(controls_window && controls_window->Pos.y + controls_window->Size.y <= 900,
+                "Controls escaped the visible parent window");
             require(!changed && snapshot() == initial, "Navigation changed rendering settings");
         };
         const auto bounds = [&](const char* name) {
@@ -130,10 +130,10 @@ inline nlohmann::json run_dashboard_tests(phoenix_ui::Context& context) {
             const bool fixed = std::strcmp(name,"Save configuration")==0 || std::strcmp(name,"Advanced details")==0 ||
                 std::strcmp(name,"Play")==0 || std::strcmp(name,"Image")==0 || std::strcmp(name,"Performance")==0 || std::strcmp(name,"Setup")==0 || std::strcmp(name,"Hotkeys")==0;
             if (!fixed) {
-                const float footer_top = width < 420 ? 755.f : 835.f;
-                for (int attempt=0; attempt<8 && (rect.Max.y > footer_top || rect.Min.y < 370); ++attempt) {
-                    io.AddMousePosEvent(float(width)*.75f,footer_top-60);
-                    io.AddMouseWheelEvent(0,rect.Max.y > footer_top ? -2.f : 2.f);
+                const float body_bottom = 880.f;
+                for (int attempt=0; attempt<8 && (rect.Max.y > body_bottom || rect.Min.y < 370); ++attempt) {
+                    io.AddMousePosEvent(float(width)*.75f,body_bottom-60);
+                    io.AddMouseWheelEvent(0,rect.Max.y > body_bottom ? -2.f : 2.f);
                     frame(); frame(); frame(); frame();
                     rect = bounds(name);
                 }

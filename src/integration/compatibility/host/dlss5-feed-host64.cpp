@@ -19,6 +19,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <dxgi1_6.h>
 #include <cstdio>
 #include <cstdarg>
@@ -28,6 +29,7 @@
 #include <cctype>
 #include <vector>
 #include <string>
+#include <chrono>
 #include <wincodec.h>
 
 #include "phoenix-host-config.h"
@@ -44,6 +46,10 @@
 #include "../../reshade/panel_contract.h"
 
 #include "../protocol.h"
+#include "../cpu_frame_mapping.h"
+#include "../cpu_frame_ring.h"
+#include "../pixel_transport.h"
+#include "phoenix-cpu-prefetch.h"
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -97,6 +103,9 @@ static bool ConfigurePhoenixHost()
             else if constexpr(std::is_integral_v<T>)value=std::stoi(text);
             else value=std::stof(text);
         });
+        motion.monitoring = GetPrivateProfileIntW(L"Phoenix", L"PipelineMonitoring", 0, ini.c_str());
+        if (motion.monitoring < 0 || motion.monitoring > int(phoenix_pipeline::Monitoring::Detailed))
+            motion.monitoring = 0;
         g_native_motion_services=std::wcscmp(selected_device,L"native")==0;
         g_helper_motion.configure(motion,g_native_motion_services);
         g_frame_iterations = GetPrivateProfileIntW(L"DLSS5_HOST", L"FrameIterations", 0, (directory / L"ReShade.ini").c_str());
@@ -363,15 +372,28 @@ static void CloseListGuarded()
     __try { h.list->Close(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-static void AbortCommands()   // discard failed/deferred recordings without submission
+static bool ObserveCommandList()
+{
+    if (!BeginCommands()) return false;
+    const auto submitted = EndCommands();
+    return submitted != kPhoenixFailedSubmission && WaitFenceValue(h.fence, submitted, 4000);
+}
+
+static void AbortCommands()
 {
     if (h.list == nullptr) return;
     CloseListGuarded();
     h.list->Release();
     h.list = nullptr;
+}
+
+static bool RecreateCommandListForRetry()
+{
+    AbortCommands();
     if (SUCCEEDED(h.dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, h.alloc[h.frame_slot], nullptr,
                                            __uuidof(ID3D12GraphicsCommandList), reinterpret_cast<void **>(&h.list))))
-        h.list->Close();
+        return SUCCEEDED(h.list->Close()) && ObserveCommandList();
+    return false;
 }
 
 static HRESULT SafeEvaluatePhoenix(const PhoenixFeederFrameV1 *frame, PhoenixFeederResultV1 *result, DWORD *code, uint64_t capture_token = 0)
@@ -725,16 +747,15 @@ static bool InitDisguise()
     if (!NativeHostList(h.list)) { Log("[host] exact native list was not observed by ReShade"); return false; }
     if (!NativeHostQueue(h.queue)) { Log("[host] exact native queue was not observed by ReShade"); return false; }
     // Establish Phoenix's exact-list queue ownership before the first feeder call.
-    if (!BeginCommands()) return false;
-    const auto seed = EndCommands();
-    if (!WaitFenceValue(h.fence, seed, 4000)) return false;
+    if (!ObserveCommandList()) return false;
     if (g_show_window) InitBanner();
     return true;
 }
 
 static int g_last_nr_enabled[3] = {-1, -1, -1};
 static bool g_last_evaluate_bypass = false;
-static bool CopyTextureCommon(ID3D12Resource *src, ID3D12Resource *dst);
+static bool CopyTextureCommon(ID3D12Resource *src, ID3D12Resource *dst, bool wait = true);
+static void RecordTextureCopyCommon(ID3D12Resource *src, ID3D12Resource *dst);
 
 static bool ReadPhoenixOutputSummary(nlohmann::json& summary)
 {
@@ -781,6 +802,24 @@ static bool ReadPhoenixOutputSummary(nlohmann::json& summary)
     } catch (const std::exception&) { return false; }
 }
 
+struct CpuEvaluateTiming {
+    double input_wait = 0, unpack = 0, motion = 0, seed = 0, record = 0;
+    double submit = 0, gpu_wait = 0, proof = 0, pack = 0, retry = 0;
+    unsigned attempts = 0;
+};
+static CpuEvaluateTiming g_eval_timing;
+struct EvaluateStage {
+    double& total;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~EvaluateStage() {
+        total += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    }
+};
+static bool TimedFence(double& total, uint64_t value, DWORD timeout) {
+    EvaluateStage stage{total};
+    return value != kPhoenixFailedSubmission && WaitFenceValue(h.fence, value, timeout);
+}
+
 static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12Resource *output,
                                 ID3D12Resource *depth, ID3D12Resource *mv, ID3D12Resource *mask,
                                 UINT input_w, UINT input_h, int reset, int nr_enabled, float mvsx, float mvsy)
@@ -802,7 +841,8 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     const bool nr_changed = g_last_nr_enabled[stream_id] != 1;
     g_last_nr_enabled[stream_id] = 1;
     nlohmann::json before, after;
-    bool summary_before_available = ReadPhoenixOutputSummary(before);
+    bool summary_before_available = false;
+    { EvaluateStage stage{g_eval_timing.proof}; summary_before_available = ReadPhoenixOutputSummary(before); }
     std::string last_deferred_status;
     // Retries poll the same captured input. Repeating its history reset would
     // invalidate the portable executor's pending readback on every retry.
@@ -810,6 +850,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     const auto capture_token = ++g_capture_sequence;
     PhoenixHelperMotion::Frame motion{mv,true,false};
     try {
+        EvaluateStage stage{g_eval_timing.motion};
         // OFA is a driver API: give it the actual observed device/queue, not
         // ReShade's COM proxies. Feeder recording below still uses the wrapper
         // so Phoenix observes the fresh resource/binding epoch.
@@ -829,7 +870,12 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
     const auto deadline = GetTickCount64() + wait_ms;
     do {
         // Reseed every retry from the untouched input, never from partial output.
-        if (!CopyTextureCommon(color, output) || !BeginCommands()) return false;
+        ++g_eval_timing.attempts;
+        {
+            EvaluateStage stage{g_eval_timing.seed};
+            if (!BeginCommands()) return false;
+            RecordTextureCopyCommon(color, output);
+        }
         PhoenixFeederFrameV1 frame;
         frame.command_list = NativeHostList(h.list);
         frame.queue = NativeHostQueue(h.queue);
@@ -866,7 +912,11 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
         // Use the ReShade wrapper so this epoch has an observed empty heap state.
         h.list->SetDescriptorHeaps(0, nullptr);
         DWORD ecode = 0;
-        const HRESULT hr = SafeEvaluatePhoenix(&frame, &result, &ecode, capture_token);
+        HRESULT hr;
+        {
+            EvaluateStage stage{g_eval_timing.record};
+            hr = SafeEvaluatePhoenix(&frame, &result, &ecode, capture_token);
+        }
         g_helper_motion.record_state(h.list,motion,false);
         if (ecode || !ValidFeederReply(hr, frame, result)) {
             AbortCommands();
@@ -887,7 +937,12 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             return false;
         }
         if (hr == S_FALSE && result.status == PhoenixFeederStatusV1::Deferred) {
-            AbortCommands();
+            // Discard the recording. The replacement must prove ownership on
+            // the actual queue before the next call into the feeder.
+            if (!RecreateCommandListForRetry()) {
+                HostTerminal("Could not establish GPU queue ownership for the helper retry");
+                return false;
+            }
             nlohmann::json deferred;
             if (ReadPhoenixOutputSummary(deferred)) {
                 const auto status = deferred.value("direct_game", nlohmann::json::object()).value("status", std::string());
@@ -900,7 +955,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
                     return false;
                 }
             }
-            PumpPresent(); Sleep(8);
+            { EvaluateStage stage{g_eval_timing.retry}; PumpPresent(); Sleep(8); }
             continue;
         }
         if (result.status == PhoenixFeederStatusV1::Recorded && !summary_before_available) {
@@ -908,9 +963,13 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             HostTerminal("Recorded Phoenix DLSS5 output lacks a baseline completion summary");
             return false;
         }
-        const auto submitted=EndCommands();
-        g_helper_motion.consumed(stream_id,submitted);
-        if (!WaitFenceValue(h.fence, submitted, 15000)) {
+        uint64_t submitted;
+        {
+            EvaluateStage stage{g_eval_timing.submit};
+            submitted = EndCommands();
+            g_helper_motion.consumed(stream_id,submitted);
+        }
+        if (!TimedFence(g_eval_timing.gpu_wait, submitted, 15000)) {
             HostTerminal("Direct feeder submission did not retire");
             return false;
         }
@@ -923,7 +982,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             // until a real processed image passes the completion proof below.
             if (!summary_before_available) summary_before_available = ReadPhoenixOutputSummary(before);
             Log("[host] initialization-only frame retired; retrying without publishing input");
-            PumpPresent(); Sleep(8);
+            { EvaluateStage stage{g_eval_timing.retry}; PumpPresent(); Sleep(8); }
             continue;
         }
         if (output_policy == PhoenixHelperOutput::Input) {
@@ -931,7 +990,12 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             g_last_nr_enabled[stream_id] = 0;
             return CopyTextureCommon(color, output);
         }
-        if (!ReadPhoenixOutputSummary(after) || after.value("terminal", true)) {
+        bool proven;
+        {
+            EvaluateStage stage{g_eval_timing.proof};
+            proven = ReadPhoenixOutputSummary(after) && !after.value("terminal", true);
+        }
+        if (!proven) {
             HostTerminal("Phoenix DLSS5 processing stopped before completion proof");
             return false;
         }
@@ -943,7 +1007,7 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
             }
             return true;
         }
-        PumpPresent(); Sleep(8);
+        { EvaluateStage stage{g_eval_timing.retry}; PumpPresent(); Sleep(8); }
     } while (GetTickCount64() < deadline);
     Log("[host] Last processing progress: %s", after.dump().c_str());
     Log("[host] Phoenix DLSS5 produced no proven processed output within %u ms", wait_ms);
@@ -952,7 +1016,8 @@ static bool EvaluateFloatForStream(uint32_t stream_id, ID3D12Resource *color, ID
 
 static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12Resource *output,
                                 ID3D12Resource *depth, ID3D12Resource *mv, ID3D12Resource *mask,
-                                UINT input_w, UINT input_h, int reset, int nr_enabled, float mvsx, float mvsy)
+                                UINT input_w, UINT input_h, int reset, int nr_enabled, float mvsx, float mvsy,
+                                bool* deferred_pack = nullptr)
 {
     if (stream_id > 2 || !color || !output || !mv) return false;
     const auto input = color->GetDesc(), destination = output->GetDesc();
@@ -974,7 +1039,7 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
         Log("[host] byte-format adapter requires shader-readable, single-sample 1:1 textures");
         return false;
     }
-    if (!WaitFenceValue(h.fence, h.fence_value, 15000)) return false;
+    if (!TimedFence(g_eval_timing.input_wait, h.fence_value, 15000)) return false;
     if (route == PhoenixColorRoute::DirectFloat && destination.Format != DXGI_FORMAT_R16G16B16A16_FLOAT) {
         Log("[host] direct feeder output requires FP16 or the RGBA8/BGRA8 adapter");
         return false;
@@ -982,9 +1047,12 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
     const auto adapter_format = PhoenixByteFormat(destination.Format) ? destination.Format : DXGI_FORMAT_R8G8B8A8_UNORM;
     const auto hr = g_format_adapter.Ensure(h.dev, static_cast<UINT>(input.Width), input.Height, adapter_format);
     if (FAILED(hr)) { Log("[host] Phoenix DLSS5 format adapter initialization failed 0x%08X", hr); return false; }
-    if (!BeginCommands()) return false;
-    g_format_adapter.RecordInput(h.dev, h.list, color);
-    if (!WaitFenceValue(h.fence, EndCommands(), 15000)) return false;
+    {
+        EvaluateStage stage{g_eval_timing.unpack};
+        if (!BeginCommands()) return false;
+        g_format_adapter.RecordInput(h.dev, h.list, color);
+        if (!WaitFenceValue(h.fence, EndCommands(), 15000)) return false;
+    }
     if (processing) {
         if (!EvaluateFloatForStream(stream_id, g_format_adapter.Color(), g_format_adapter.Output(), depth, mv, mask,
                                      input_w, input_h, reset, nr_enabled, mvsx, mvsy)) return false;
@@ -994,9 +1062,16 @@ static bool EvaluateForStream(uint32_t stream_id, ID3D12Resource *color, ID3D12R
     if (destination.Format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         return CopyTextureCommon(processing && !g_last_evaluate_bypass ? g_format_adapter.Output() : g_format_adapter.Color(), output);
     // Do not copy anything to the game until the real Phoenix completion gate passes.
+    if (deferred_pack && processing && destination.Format == DXGI_FORMAT_R8G8B8A8_UNORM) {
+        *deferred_pack = true;
+        return true;
+    }
+    EvaluateStage stage{g_eval_timing.pack};
     if (!BeginCommands()) return false;
     g_format_adapter.RecordOutput(h.dev, h.list, output, processing && !g_last_evaluate_bypass ? nullptr : g_format_adapter.Color());
-    const bool copied = WaitFenceValue(h.fence, EndCommands(), 15000);
+    const auto output_serial = EndCommands();
+    const bool copied = output_serial != kPhoenixFailedSubmission &&
+        WaitFenceValue(h.fence, output_serial, 15000);
     if (copied) Log("[host] byte-format writeback completed: Phoenix DLSS5=%d format=%u %ux%u",
                     processing && !g_last_evaluate_bypass ? 1 : 0, destination.Format, static_cast<UINT>(destination.Width), destination.Height);
     return copied;
@@ -1113,15 +1188,8 @@ static bool EnsureIterationScratch(uint32_t iterations)
     return true;
 }
 
-static bool CopyTextureCommon(ID3D12Resource *src, ID3D12Resource *dst)
+static void RecordTextureCopyCommon(ID3D12Resource *src, ID3D12Resource *dst)
 {
-    if (src == nullptr || dst == nullptr) return false;
-    if (src->GetDesc().Format != dst->GetDesc().Format) {
-        Log("[host] incompatible copy formats; conversion required");
-        return false;
-    }
-    if (!BeginCommands()) return false;
-
     D3D12_RESOURCE_BARRIER b[2] = {};
     b[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     b[0].Transition.pResource   = src;
@@ -1140,8 +1208,19 @@ static bool CopyTextureCommon(ID3D12Resource *src, ID3D12Resource *dst)
     b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     b[1].Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
     h.list->ResourceBarrier(2, b);
+}
+
+static bool CopyTextureCommon(ID3D12Resource *src, ID3D12Resource *dst, bool wait)
+{
+    if (src == nullptr || dst == nullptr) return false;
+    if (src->GetDesc().Format != dst->GetDesc().Format) {
+        Log("[host] incompatible copy formats; conversion required");
+        return false;
+    }
+    if (!BeginCommands()) return false;
+    RecordTextureCopyCommon(src, dst);
     const UINT64 v = EndCommands();
-    return WaitFenceValue(h.fence, v, 4000);
+    return v != kPhoenixFailedSubmission && (!wait || WaitFenceValue(h.fence, v, 4000));
 }
 
 static bool CopyTextureRegionCommon(ID3D12Resource *src, ID3D12Resource *dst,
@@ -1365,7 +1444,6 @@ static bool SaveImageRgba8(const wchar_t *path, const RgbaImage &img)
     return SUCCEEDED(hr);
 }
 
-static PhoenixRetiredTransferBuffer<ID3D12Resource> g_cpu_upload, g_cpu_readback;
 static bool EnsureCpuStaging(PhoenixRetiredTransferBuffer<ID3D12Resource>& buffer,
                              UINT64 bytes, D3D12_HEAP_TYPE type,
                              D3D12_RESOURCE_STATES state)
@@ -1394,19 +1472,98 @@ static bool RetireCpuTransfer(PhoenixRetiredTransferBuffer<ID3D12Resource>& buff
     return false;
 }
 
-static bool UploadRows(ID3D12Resource *tex, DXGI_FORMAT fmt, UINT w, UINT hgt, const void *data, UINT row_bytes)
-{
-    const UINT pitch = (row_bytes + 255) & ~255u;
-    if (!EnsureCpuStaging(g_cpu_upload, UINT64(pitch) * hgt,
-                           D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ)) return false;
-    auto* upload = g_cpu_upload.get();
+// Staging rings pair with the shared-mapping frame ring under one rule: a
+// slot carries the fence of its last GPU copy and is waited on only when it
+// comes back around, never right after submission. Upload callers return as
+// soon as their copy is queued (the GPU queue orders it before later work);
+// a download waits for its own copy because the CPU reads those bytes next.
+struct CpuStagingRing {
+    struct Slot {
+        PhoenixRetiredTransferBuffer<ID3D12Resource> buffer;
+        UINT64 fence = 0;
+        bool pending = false;
+        // Mapping stays valid for the lifetime of the buffer. GPU fences
+        // still guard every CPU read or reuse of its bytes.
+        void* mapping = nullptr;
+    };
+    std::array<Slot, 3> slots;
+    unsigned cursor = 0;
+    Slot* acquire(UINT64 bytes, D3D12_HEAP_TYPE type, D3D12_RESOURCE_STATES state) {
+        auto& slot = slots[cursor++ % unsigned(slots.size())];
+        if (slot.pending) {
+            if (!RetireCpuTransfer(slot.buffer, slot.fence)) return nullptr;
+            slot.pending = false;
+        }
+        auto* previous = slot.buffer.get();
+        if (!EnsureCpuStaging(slot.buffer, bytes, type, state)) return nullptr;
+        if (previous != slot.buffer.get()) slot.mapping = nullptr;
+        return &slot;
+    }
+    void submitted(Slot& slot, UINT64 fence) {
+        slot.buffer.submitted();
+        slot.fence = fence;
+        slot.pending = true;
+    }
+    bool retire(Slot& slot) {
+        const bool ok = RetireCpuTransfer(slot.buffer, slot.fence);
+        slot.pending = !ok;
+        return ok;
+    }
+    void release() { for (auto& slot : slots) slot.buffer.release(); }
+};
+static CpuStagingRing g_cpu_upload, g_cpu_readback;
 
-    BYTE *dst = nullptr;
-    if (FAILED(upload->Map(0, nullptr, reinterpret_cast<void **>(&dst)))) return false;
+struct CpuTransferTiming {
+    double upload_slot = 0, upload_cpu = 0, upload_submit = 0;
+    double download_slot = 0, download_submit = 0, download_wait = 0, download_cpu = 0;
+    bool fused_readback_used = false;
+};
+static CpuTransferTiming g_cpu_transfer_timing;
+static double TransferMilliseconds(std::chrono::steady_clock::time_point started) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+}
+// Last-frame stage timings, written by the single serve thread and read by
+// its 'U' snapshot handler. Evaluate is timed by the frame handler itself.
+static double g_timing_upload_ms = 0, g_timing_download_ms = 0, g_timing_evaluate_ms = 0;
+
+static bool UploadRows(ID3D12Resource *tex, DXGI_FORMAT fmt, UINT w, UINT hgt, const void *data, UINT row_bytes,
+                       bool invert_float = false)
+{
+    const auto timing_start = std::chrono::steady_clock::now();
+    struct TimingGuard {
+        std::chrono::steady_clock::time_point start;
+        ~TimingGuard() {
+            g_timing_upload_ms += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+        }
+    } timing_guard{timing_start};
+    const UINT pitch = (row_bytes + 255) & ~255u;
+    const auto bytes = UINT64(pitch) * hgt;
+    auto* slot = g_cpu_upload.acquire(bytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+    if (!slot) return false;
+    auto* upload = slot->buffer.get();
+    g_cpu_transfer_timing.upload_slot += TransferMilliseconds(timing_start);
+
+    const auto cpu_started = std::chrono::steady_clock::now();
+    const D3D12_RANGE no_read{};
+    if (!slot->mapping && FAILED(upload->Map(0, &no_read, &slot->mapping))) return false;
+    auto* dst = static_cast<BYTE*>(slot->mapping);
     const BYTE *src = static_cast<const BYTE *>(data);
-    for (UINT y = 0; y < hgt; ++y)
-        memcpy(dst + static_cast<size_t>(y) * pitch, src + static_cast<size_t>(y) * row_bytes, row_bytes);
-    upload->Unmap(0, nullptr);
+    if (!invert_float && pitch == row_bytes) {
+        memcpy(dst, src, SIZE_T(bytes));
+    } else for (UINT y = 0; y < hgt; ++y) {
+        auto* row = dst + static_cast<size_t>(y) * pitch;
+        const auto* source = src + static_cast<size_t>(y) * row_bytes;
+        if (invert_float) {
+            // Fold the 1-z depth inversion into the copy this upload already
+            // pays for, instead of a separate sweep over the source plane.
+            const auto* values = reinterpret_cast<const float*>(source);
+            auto* inverted = reinterpret_cast<float*>(row);
+            for (UINT x = 0; x < row_bytes / sizeof(float); ++x) inverted[x] = 1.f - values[x];
+        } else memcpy(row, source, row_bytes);
+    }
+    g_cpu_transfer_timing.upload_cpu += TransferMilliseconds(cpu_started);
+    const auto submit_started = std::chrono::steady_clock::now();
 
     bool ok = false;
     if (BeginCommands())
@@ -1434,81 +1591,248 @@ static bool UploadRows(ID3D12Resource *tex, DXGI_FORMAT fmt, UINT w, UINT hgt, c
         b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
         h.list->ResourceBarrier(1, &b);
-        g_cpu_upload.submitted();
         const UINT64 v = EndCommands();
-        ok = RetireCpuTransfer(g_cpu_upload, v);
+        if (v != kPhoenixFailedSubmission) { g_cpu_upload.submitted(*slot, v); ok = true; }
     }
+    g_cpu_transfer_timing.upload_submit += TransferMilliseconds(submit_started);
     return ok;
 }
 
-static bool DownloadRgba8(ID3D12Resource *tex, UINT w, UINT hgt, RgbaImage &img)
+static bool DownloadRgba8(ID3D12Resource *tex, UINT w, UINT hgt, RgbaImage &img, uint8_t *direct = nullptr,
+                          bool deferred_pack = false)
 {
+    const auto timing_start = std::chrono::steady_clock::now();
+    struct TimingGuard {
+        std::chrono::steady_clock::time_point start;
+        ~TimingGuard() {
+            g_timing_download_ms += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count();
+        }
+    } timing_guard{timing_start};
     const auto format = tex->GetDesc().Format;
     const bool half = format == DXGI_FORMAT_R16G16B16A16_FLOAT;
     if (!half && !PhoenixByteFormat(format)) return false;
     img.width = w;
     img.height = hgt;
-    img.pixels.assign(static_cast<size_t>(w) * hgt * 4, 0);
+    // A direct destination (a shared-mapping output plane) skips both the
+    // intermediate vector allocation and the extra full-frame copy into it.
+    if (!direct) img.pixels.assign(static_cast<size_t>(w) * hgt * 4, 0);
     const UINT row_bytes = w * (half ? 8 : 4);
     const UINT pitch = (row_bytes + 255) & ~255u;
-    if (!EnsureCpuStaging(g_cpu_readback, UINT64(pitch) * hgt,
-                           D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST)) return false;
-    auto* readback = g_cpu_readback.get();
+    auto* slot = g_cpu_readback.acquire(UINT64(pitch) * hgt,
+                                        D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (!slot) return false;
+    auto* readback = slot->buffer.get();
+    g_cpu_transfer_timing.download_slot += TransferMilliseconds(timing_start);
+    const auto submit_started = std::chrono::steady_clock::now();
 
     bool ok = false;
     if (BeginCommands())
     {
-        D3D12_RESOURCE_BARRIER b = {};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = tex;
-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        h.list->ResourceBarrier(1, &b);
+        if (deferred_pack) {
+            g_format_adapter.RecordOutput(h.dev, h.list, readback,
+                g_last_evaluate_bypass ? g_format_adapter.Color() : nullptr, true);
+            g_cpu_transfer_timing.fused_readback_used = true;
+        } else {
+            D3D12_RESOURCE_BARRIER b = {};
+            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource   = tex;
+            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            h.list->ResourceBarrier(1, &b);
 
-        D3D12_TEXTURE_COPY_LOCATION src_loc = {}, dst_loc = {};
-        src_loc.pResource = tex;
-        src_loc.Type      = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dst_loc.pResource = readback;
-        dst_loc.Type      = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        dst_loc.PlacedFootprint.Footprint.Format   = format;
-        dst_loc.PlacedFootprint.Footprint.Width    = w;
-        dst_loc.PlacedFootprint.Footprint.Height   = hgt;
-        dst_loc.PlacedFootprint.Footprint.Depth    = 1;
-        dst_loc.PlacedFootprint.Footprint.RowPitch = pitch;
-        h.list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, nullptr);
+            D3D12_TEXTURE_COPY_LOCATION src_loc = {}, dst_loc = {};
+            src_loc.pResource = tex;
+            src_loc.Type      = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dst_loc.pResource = readback;
+            dst_loc.Type      = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst_loc.PlacedFootprint.Footprint.Format   = format;
+            dst_loc.PlacedFootprint.Footprint.Width    = w;
+            dst_loc.PlacedFootprint.Footprint.Height   = hgt;
+            dst_loc.PlacedFootprint.Footprint.Depth    = 1;
+            dst_loc.PlacedFootprint.Footprint.RowPitch = pitch;
+            h.list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, nullptr);
 
-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
-        h.list->ResourceBarrier(1, &b);
-        g_cpu_readback.submitted();
+            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
+            h.list->ResourceBarrier(1, &b);
+        }
         const UINT64 v = EndCommands();
-        ok = RetireCpuTransfer(g_cpu_readback, v);
+        g_cpu_transfer_timing.download_submit += TransferMilliseconds(submit_started);
+        if (v != kPhoenixFailedSubmission) {
+            g_cpu_readback.submitted(*slot, v);
+            const auto wait_started = std::chrono::steady_clock::now();
+            ok = g_cpu_readback.retire(*slot); // CPU reads these bytes next.
+            g_cpu_transfer_timing.download_wait += TransferMilliseconds(wait_started);
+        }
     }
 
     if (ok)
     {
-        BYTE *src = nullptr;
-        if (SUCCEEDED(readback->Map(0, nullptr, reinterpret_cast<void **>(&src))))
+        const auto cpu_started = std::chrono::steady_clock::now();
+        const D3D12_RANGE read{0, SIZE_T(pitch) * hgt};
+        if (slot->mapping || SUCCEEDED(readback->Map(0, &read, &slot->mapping)))
         {
-            for (UINT y = 0; y < hgt; ++y) {
-                auto* destination = img.pixels.data() + static_cast<size_t>(y) * w * 4;
+            auto* src = static_cast<const BYTE*>(slot->mapping);
+            if (format == DXGI_FORMAT_R8G8B8A8_UNORM && pitch == row_bytes) {
+                memcpy(direct ? direct : img.pixels.data(), src, SIZE_T(row_bytes) * hgt);
+            } else for (UINT y = 0; y < hgt; ++y) {
+                auto* destination = (direct ? direct : img.pixels.data()) + static_cast<size_t>(y) * w * 4;
                 const auto* row = src + static_cast<size_t>(y) * pitch;
                 if (half) {
                     const auto* values = reinterpret_cast<const uint16_t*>(row);
                     for (UINT x = 0; x < w * 4; ++x) destination[x] = PhoenixProbeByte(values[x]);
+                } else if (format == DXGI_FORMAT_B8G8R8A8_UNORM) {
+                    phoenix_compat::swap_bgra_rows(destination, row, row_bytes);
                 } else {
                     memcpy(destination, row, row_bytes);
-                    if (format == DXGI_FORMAT_B8G8R8A8_UNORM)
-                        for (UINT x = 0; x < w; ++x) std::swap(destination[x * 4], destination[x * 4 + 2]);
                 }
             }
-            readback->Unmap(0, nullptr);
         }
         else ok = false;
+        g_cpu_transfer_timing.download_cpu += TransferMilliseconds(cpu_started);
     }
     return ok;
 }
+
+// GPU form of prepare_legacy_depth: the same per-texel math (remap, optional
+// window remap, strength adjustment about the remapped range center, return
+// to native Z, optional inversion) as one compute dispatch over the uploaded
+// raw plane, instead of multiple CPU sweeps over it. The remapped range is
+// exactly [0,1] before the window remap (the plane attains its own min/max),
+// and the window remap is monotonic, so its output range — and therefore the
+// adjustment center — is known analytically on the CPU. Falls back to the
+// CPU preparation when shader setup is unavailable.
+struct GpuDepthTransform {
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    bool failed = false;
+    bool ensure() {
+        if (pso) return true;
+        if (failed) return false;
+        static const char* source = R"(
+Texture2D<float> depth_in : register(t0);
+RWTexture2D<float> depth_out : register(u0);
+cbuffer Params : register(b0) {
+    float minimum, maximum, scale, window_scale, center, strength;
+    float near_depth, invert, windowed, width, height, reserved;
+};
+[numthreads(16, 16, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= uint(width) || id.y >= uint(height)) return;
+    float v = depth_in[id.xy];
+    v = clamp((v - minimum) * scale, 0.0, 1.0);
+    if (windowed > 0.5) v = clamp((v - near_depth) * window_scale, 0.0, 1.0);
+    float delta = v - center;
+    if (strength <= 1.0) v = center + strength * delta;
+    else if (delta != 0.0) {
+        float room = delta > 0.0 ? 1.0 - center : center;
+        float adjustment = strength / (1.0 + (strength - 1.0) * (abs(delta) / room));
+        v = clamp(center + adjustment * delta, 0.0, 1.0);
+    }
+    v = lerp(minimum, maximum, v);
+    if (invert > 0.5) v = 1.0 - v;
+    depth_out[id.xy] = v;
+})";
+        ID3DBlob* code = nullptr;
+        ID3DBlob* errors = nullptr;
+        if (FAILED(D3DCompile(source, std::strlen(source), nullptr, nullptr, nullptr, "main",
+                              "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors))) {
+            if (errors) errors->Release();
+            failed = true;
+            return false;
+        }
+        if (errors) errors->Release();
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = 1;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[1].NumDescriptors = 1;
+        ranges[1].OffsetInDescriptorsFromTableStart = 1;
+        D3D12_ROOT_PARAMETER params[2]{};
+        params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[0].DescriptorTable.NumDescriptorRanges = 2;
+        params[0].DescriptorTable.pDescriptorRanges = ranges;
+        params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[1].Constants.ShaderRegister = 0;
+        params[1].Constants.Num32BitValues = 12;
+        params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_SIGNATURE_DESC signature{};
+        signature.NumParameters = 2;
+        signature.pParameters = params;
+        signature.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+        ID3DBlob* serialized = nullptr;
+        bool ok = SUCCEEDED(D3D12SerializeRootSignature(&signature, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &errors));
+        if (errors) { errors->Release(); errors = nullptr; }
+        if (ok) ok = SUCCEEDED(h.dev->CreateRootSignature(0, serialized->GetBufferPointer(),
+                                                          serialized->GetBufferSize(), IID_PPV_ARGS(&root)));
+        if (serialized) serialized->Release();
+        if (ok) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+            desc.pRootSignature = root;
+            desc.CS = {code->GetBufferPointer(), code->GetBufferSize()};
+            ok = SUCCEEDED(h.dev->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso)));
+        }
+        if (ok) {
+            D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+            heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            heap_desc.NumDescriptors = 2;
+            heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            ok = SUCCEEDED(h.dev->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&heap)));
+        }
+        code->Release();
+        if (!ok) {
+            failed = true;
+            ReleasePtr(root);
+            ReleasePtr(pso);
+            ReleasePtr(heap);
+            return false;
+        }
+        return true;
+    }
+    bool apply(ID3D12Resource* texture, UINT width, UINT height, const float (&constants)[12]) {
+        if (!ensure()) return false;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.Format = DXGI_FORMAT_R32_FLOAT;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Texture2D.MipLevels = 1;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+        uav.Format = DXGI_FORMAT_R32_FLOAT;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        const auto cpu_heap = heap->GetCPUDescriptorHandleForHeapStart();
+        const auto increment = h.dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        h.dev->CreateShaderResourceView(texture, &srv, cpu_heap);
+        D3D12_CPU_DESCRIPTOR_HANDLE uav_cpu{cpu_heap.ptr + increment};
+        h.dev->CreateUnorderedAccessView(texture, nullptr, &uav, uav_cpu);
+        if (!BeginCommands()) return false;
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {texture, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS};
+        h.list->ResourceBarrier(1, &barrier);
+        h.list->SetComputeRootSignature(root);
+        h.list->SetPipelineState(pso);
+        ID3D12DescriptorHeap* heaps[]{heap};
+        h.list->SetDescriptorHeaps(1, heaps);
+        h.list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
+        h.list->SetComputeRoot32BitConstants(1, 12, constants, 0);
+        h.list->Dispatch((width + 15) / 16, (height + 15) / 16, 1);
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.Transition = {};
+        barrier.UAV.pResource = texture;
+        h.list->ResourceBarrier(1, &barrier);
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {texture, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON};
+        h.list->ResourceBarrier(1, &barrier);
+        return EndCommands() != kPhoenixFailedSubmission;
+    }
+};
+static GpuDepthTransform g_depth_transform;
 
 static int RunImage(const wchar_t *input_path, const wchar_t *output_path, int frames, DXGI_FORMAT format)
 {
@@ -1680,17 +2004,27 @@ static int Serve(DWORD game_pid)
         return true;
     };
 
+    phoenix_compat::CpuFrameMapping cpu_mapping;
+    std::unique_ptr<PhoenixCpuPrefetch> cpu_prefetch;
+    PhoenixCpuPrefetch::Frame prefetched;
+    uint64_t prefetch_frames = 0, prefetch_ready = 0, prefetched_depth_frames = 0;
     std::vector<BYTE> cpu_in;
     RgbaImage cpu_out{};
     PhoenixLegacyDepth depth_estimator(g_legacy_depth_directory);
     Microsoft::WRL::ComPtr<ID3D12Resource> estimated_depth;
-    std::vector<float> estimated_depth_pixels, game_depth_pixels;
+    Microsoft::WRL::ComPtr<ID3D12Resource> scaled_depth;
+    ID3D12Resource* uploaded_depth_resource = nullptr;
+    std::vector<float> estimated_depth_pixels, game_depth_pixels, feed_depth_scratch;
     uint64_t game_depth_frame = 0;
+    uint32_t game_depth_slot = 0;
+    uint32_t game_depth_dims = 0;
     int applied_depth_method = 0;
+    bool uploaded_game_depth = false; // estimated_depth currently holds game depth.
+    uint64_t uploaded_game_depth_frame = 0;
     bool depth_preview_active = false;
     uint64_t depth_source_frame = 0;
     float depth_source_min = 0.f, depth_source_max = 0.f;
-    uint64_t depth_ms = 0;
+    double depth_ms = 0;
     bool transport_only = false;
     float mvsx = 1.0f, mvsy = 1.0f;
     FeedGuideState pending_guides{};
@@ -1732,13 +2066,49 @@ static int Serve(DWORD game_pid)
         if (tag == 'D') {
             FeedCpuDepth request{};
             if (hello.version < 13 || !h.feeder_ready || !h.cpu_bridge || h.split_eyes || h.game_side_vr_split ||
-                !ReadFull(pipe, &request, sizeof(request)) || !request.frame) {
+                !ReadFull(pipe, &request, feed_cpu_depth_bytes(hello.version)) || !request.frame) {
                 HostTerminal("Invalid game depth frame");
                 break;
             }
-            game_depth_pixels.resize(size_t(h.input_width) * h.input_height);
-            if (!ReadFull(pipe, game_depth_pixels.data(), game_depth_pixels.size() * sizeof(float))) break;
+            if (!cpu_mapping) {
+                game_depth_pixels.resize(size_t(h.input_width) * h.input_height);
+                if (!ReadFull(pipe, game_depth_pixels.data(), game_depth_pixels.size() * sizeof(float))) break;
+            }
             game_depth_frame = request.frame;
+            game_depth_slot = request.slot;
+            game_depth_dims = request.depth_dims;
+        }
+        else if (tag == 'M') {
+            FeedCpuMapping request{};
+            if (hello.version < 14 || !h.feeder_ready || !h.cpu_bridge || cpu_mapping ||
+                !ReadFull(pipe, &request, feed_cpu_mapping_bytes(hello.version))) {
+                HostTerminal("Invalid shared CPU frame negotiation");
+                break;
+            }
+            const unsigned slots = hello.version >= 15 && request.slots ? request.slots : 1;
+            const bool shared_prefetch = hello.version >= 16 && request.reserved == FEED_CPU_PREFETCH && slots > 1;
+            const uint32_t accepted = cpu_mapping.open(hgame, request.handle, h.input_width, h.input_height,
+                                                       slots, shared_prefetch) ? 1u : 0u;
+            wchar_t disable_prefetch[4]{};
+            const bool disabled = GetEnvironmentVariableW(L"PHOENIX_DISABLE_CPU_PREFETCH",
+                                                           disable_prefetch, ARRAYSIZE(disable_prefetch)) != 0;
+            if (accepted && shared_prefetch && !disabled && !transport_only && !h.split_eyes &&
+                !h.game_side_vr_split && h.color_fmt == DXGI_FORMAT_R8G8B8A8_UNORM &&
+                h.output_fmt == DXGI_FORMAT_R8G8B8A8_UNORM) {
+                auto worker = std::make_unique<PhoenixCpuPrefetch>();
+                Microsoft::WRL::ComPtr<ID3D12Device> device;
+                auto* native_queue = NativeHostQueue(h.queue);
+                HANDLE wake = nullptr;
+                if (native_queue && SUCCEEDED(native_queue->GetDevice(IID_PPV_ARGS(&device))) &&
+                    request.wake_event == uintptr_t(request.wake_event) &&
+                    DuplicateHandle(hgame, reinterpret_cast<HANDLE>(uintptr_t(request.wake_event)),
+                                    GetCurrentProcess(), &wake, SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, 0) &&
+                    worker->start(device.Get(), cpu_mapping, h.input_width, h.input_height, h.depth_inverted, wake))
+                    cpu_prefetch = std::move(worker);
+            }
+            Log("[host] CPU frame transport: %s", accepted ? "shared memory" : "pipe (mapping unavailable)");
+            if (cpu_prefetch) Log("[host] Color and game depth use shared-slot prefetch");
+            if (!WriteFull(pipe, &accepted, sizeof(accepted))) break;
         }
         else if (tag == 'U') {
             using Query = uint32_t (WINAPI *)(char*, uint32_t);
@@ -1759,6 +2129,30 @@ static int Serve(DWORD game_pid)
             }
             auto snapshot = nlohmann::json::parse(text, nullptr, false);
             if (!snapshot.is_object()) snapshot = nlohmann::json::object();
+            if (h.cpu_bridge) snapshot["cpu_transport"] = cpu_mapping ? "shared_memory" : "pipe";
+            if (cpu_mapping) snapshot["cpu_ring_slots"] = cpu_mapping.slots();
+            snapshot["cpu_prefetch"] = {{"enabled", bool(cpu_prefetch)}, {"frames", prefetch_frames},
+                {"depth_frames", prefetched_depth_frames},
+                {"ready_at_arrival", prefetch_ready}, {"last_upload_ms", prefetched.upload_ms},
+                {"last_wait_ms", prefetched.wait_ms}, {"last_depth_validation_ms", prefetched.depth_ms}};
+            snapshot["helper_timing"] = {{"upload_ms", g_timing_upload_ms},
+                                         {"evaluate_ms", g_timing_evaluate_ms},
+                                         {"download_ms", g_timing_download_ms},
+                                         {"depth_ms", double(depth_ms)},
+                                         {"upload_slot_ms", g_cpu_transfer_timing.upload_slot},
+                                         {"upload_cpu_ms", g_cpu_transfer_timing.upload_cpu},
+                                         {"upload_submit_ms", g_cpu_transfer_timing.upload_submit},
+                                         {"download_slot_ms", g_cpu_transfer_timing.download_slot},
+                                         {"download_submit_ms", g_cpu_transfer_timing.download_submit},
+                                         {"download_wait_ms", g_cpu_transfer_timing.download_wait},
+                                         {"download_cpu_ms", g_cpu_transfer_timing.download_cpu},
+                                         {"fused_readback_used", g_cpu_transfer_timing.fused_readback_used}};
+            snapshot["evaluate_stages_ms"] = {{"input_wait", g_eval_timing.input_wait},
+                {"input_unpack", g_eval_timing.unpack}, {"motion", g_eval_timing.motion},
+                {"seed_copy", g_eval_timing.seed}, {"record", g_eval_timing.record},
+                {"submit", g_eval_timing.submit}, {"gpu_wait", g_eval_timing.gpu_wait},
+                {"completion_proof", g_eval_timing.proof}, {"output_pack", g_eval_timing.pack},
+                {"retry", g_eval_timing.retry}, {"attempts", g_eval_timing.attempts}};
             snapshot["helper_motion"] = g_helper_motion.snapshot();
             snapshot["legacy_depth"] = {
                 {"supported", h.feeder_ready && h.cpu_bridge && !h.split_eyes && !h.game_side_vr_split &&
@@ -1787,6 +2181,12 @@ static int Serve(DWORD game_pid)
             try {
                 auto core=nlohmann::json::parse(text);auto options=g_helper_motion.options();
                 phoenix_compat::split_helper_motion_patch(options,core);
+                if (const auto monitoring = core.find("PipelineMonitoring"); monitoring != core.end()) {
+                    if (!monitoring->is_number_integer() || *monitoring < 0 ||
+                        *monitoring > int(phoenix_pipeline::Monitoring::Detailed))
+                        throw std::invalid_argument("Invalid motion monitoring mode");
+                    options.monitoring = monitoring->get<int>();
+                }
                 const auto remaining=core.dump();
                 if(core.empty()||(apply&&apply(remaining.data(),uint32_t(remaining.size())))){
                     g_helper_motion.configure(options,g_native_motion_services);accepted=1;
@@ -1813,6 +2213,8 @@ static int Serve(DWORD game_pid)
         }
         else if (tag == 'B')
         {
+            cpu_prefetch.reset();
+            cpu_mapping.reset();
             pending_guides={};g_frame_guides={};
             FeedBuild b = {};
             if (!ReadFull(pipe, &b, sizeof(b))) break;
@@ -1837,7 +2239,7 @@ static int Serve(DWORD game_pid)
                     ReleasePtr(h.eye_scratch[eye][i]);
 
             // Open the game's textures (duplicate the handles out of the game) unless this
-            // is a CPU bridge, where frames arrive as pipe payloads.
+            // is a CPU bridge, where frames use pipe payloads or a mapping.
             bool ok = !b.hdr && b.width == b.output_width && b.height == b.output_height;
             if (!ok) Log("[host] Phoenix DLSS5 feeder currently requires SDR and 1:1 input/output; build rejected");
             if (!b.cpu_bridge && (hgame == nullptr || !ensure_shared_fences()))
@@ -1998,8 +2400,14 @@ static int Serve(DWORD game_pid)
         else if (tag == 'F')
         {
             FeedFrameMsg fm = {};
-            if (!ReadFull(pipe, &fm, sizeof(fm))) break;
+            if (!ReadFull(pipe, &fm, feed_frame_msg_bytes(hello.version))) break;
             const auto depth_frame = std::exchange(game_depth_frame, 0);
+            const auto depth_slot = std::exchange(game_depth_slot, 0);
+            const auto depth_dims = std::exchange(game_depth_dims, 0);
+            if (cpu_mapping && (fm.slot >= cpu_mapping.slots() || (depth_frame && depth_slot != fm.slot))) {
+                HostTerminal("CPU frame slot does not match its ring mapping");
+                break;
+            }
             if (depth_frame && depth_frame != fm.n) {
                 HostTerminal("Game depth and color frame IDs differ");
                 break;
@@ -2010,17 +2418,49 @@ static int Serve(DWORD game_pid)
             if (h.game_side_vr_split && fm.eye_index > 1u) { HostTerminal("Invalid feeder eye index"); break; }
             if (h.cpu_bridge)
             {
+                g_cpu_transfer_timing = {};
+                g_eval_timing = {};
+                g_timing_upload_ms = 0;
+                g_timing_download_ms = 0;
+                g_timing_evaluate_ms = 0;
                 const DWORD in_bytes = h.input_width * h.input_height * 4u;
-                cpu_in.resize(in_bytes);
-                if (!ReadFull(pipe, cpu_in.data(), in_bytes)) break;
+                if (cpu_mapping) {
+                    MemoryBarrier();
+                } else {
+                    cpu_in.resize(in_bytes);
+                    if (!ReadFull(pipe, cpu_in.data(), in_bytes)) break;
+                }
+                const BYTE* color = cpu_mapping ? cpu_mapping.input(fm.slot).data() : cpu_in.data();
+                const unsigned depth_w = depth_dims ? feed_depth_width(depth_dims) : h.input_width;
+                const unsigned depth_h = depth_dims ? feed_depth_height(depth_dims) : h.input_height;
+                if (depth_w > h.input_width || depth_h > h.input_height || !depth_w || !depth_h) {
+                    HostTerminal("CPU depth dimensions outside the color capture");
+                    break;
+                }
+                const auto captured_depth = depth_frame
+                    ? (cpu_mapping ? cpu_mapping.depth(fm.slot).first(size_t(depth_w) * depth_h)
+                                   : std::span<float>(game_depth_pixels))
+                    : std::span<float>{};
+                const bool depth_scaled = depth_w != h.input_width || depth_h != h.input_height;
+                prefetched = {};
+                if (cpu_prefetch) {
+                    prefetched = cpu_prefetch->take(fm.slot, fm.n);
+                    if (prefetched.texture) {
+                        ++prefetch_frames;
+                        if (prefetched.ready_at_arrival) ++prefetch_ready;
+                    } else {
+                        Log("[host] Color prefetch unavailable; using the direct upload path");
+                        cpu_prefetch.reset();
+                    }
+                }
 
                 bool done = false;
+                bool downloaded_in_slot = false;
                 cpu_out.pixels.clear();
                 if (transport_only)
                 {
                     cpu_out.width = h.input_width;
                     cpu_out.height = h.input_height;
-                    cpu_out.pixels = cpu_in;
                     done = true;
                 }
                 else
@@ -2044,52 +2484,139 @@ static int Serve(DWORD game_pid)
                     depth_ms = 0;
                     depth_source_frame = 0;
                     if (legacy_depth_route && depth_strength > 0.f && fm.nr_enabled && g_phoenix_enabled) {
-                        const auto start = GetTickCount64();
+                        const auto start = std::chrono::steady_clock::now();
                         const int selection = depth_options.legacy_depth;
-                        const bool have_game_depth = (selection == 0 || selection == 4) && depth_frame &&
-                            std::all_of(game_depth_pixels.begin(), game_depth_pixels.end(),
-                                [](float z) { return std::isfinite(z) && z >= 0.f && z <= 1.f; });
+                        // Single fused sweep: validity and observed range.
+                        const auto captured_stats = prefetched.texture ? prefetched.depth :
+                            phoenix_compat::depth_range_stats(captured_depth);
+                        const bool have_game_depth = (selection == 0 || selection == 4) && !captured_depth.empty() &&
+                            captured_stats.valid;
                         if (have_game_depth) method = 4;
                         else {
                             const auto luid = h.dev->GetAdapterLuid();
                             uint64_t adapter = 0;
                             std::memcpy(&adapter, &luid, sizeof(adapter));
                             const int estimate_source = phoenix_compat::legacy_depth_estimator_selection(selection);
-                            method = depth_estimator.estimate(estimate_source, cpu_in.data(),
+                            method = depth_estimator.estimate(estimate_source, color,
                                 h.input_width, h.input_height, adapter, estimated_depth_pixels);
                         }
-                        if (method) {
-                            auto& depth_pixels = have_game_depth ? game_depth_pixels : estimated_depth_pixels;
-                            const auto [low, high] = std::minmax_element(depth_pixels.begin(), depth_pixels.end());
-                            depth_source_min = *low;
-                            depth_source_max = *high;
-                            if (!phoenix_compat::prepare_legacy_depth(depth_pixels, depth_source_min,
-                                    depth_source_max, depth_options, preview)) {
+                        // No new depth plane this frame (the client reads
+                        // depth back at half rate): keep guiding from the
+                        // last uploaded game-depth texture instead of
+                        // dropping the guide and resetting history.
+                        const bool reuse_game_depth = !method && uploaded_game_depth &&
+                            (selection == 0 || selection == 4) && uploaded_depth_resource &&
+                            fm.n - uploaded_game_depth_frame <= 4;
+                        if (reuse_game_depth) {
+                            method = 4;
+                            frame_depth = uploaded_depth_resource;
+                            depth_source_frame = uploaded_game_depth_frame;
+                        }
+                        if (method && !reuse_game_depth) {
+                            std::span<float> depth_pixels = have_game_depth ? captured_depth : std::span<float>(estimated_depth_pixels);
+                            const auto stats = have_game_depth ? captured_stats
+                                                               : phoenix_compat::depth_range_stats(depth_pixels);
+                            depth_source_min = stats.minimum;
+                            depth_source_max = stats.maximum;
+                            const bool depth_windowed = depth_options.legacy_depth_fixed_range &&
+                                (depth_options.legacy_depth_near > 0.f || depth_options.legacy_depth_far < 1.f);
+                            const bool depth_transform = depth_windowed ||
+                                depth_options.legacy_depth_strength != 1.f;
+                            if (have_game_depth && depth_scaled && (preview || depth_transform)) {
+                                // Rare paths still work on a native-size plane;
+                                // expand here on the helper thread.
+                                feed_depth_scratch.resize(size_t(h.input_width) * h.input_height);
+                                for (unsigned y = 0; y < h.input_height; ++y)
+                                    for (unsigned x = 0; x < h.input_width; ++x)
+                                        feed_depth_scratch[size_t(y) * h.input_width + x] =
+                                            depth_pixels[size_t(y * depth_h / h.input_height) * depth_w +
+                                                         x * depth_w / h.input_width];
+                                depth_pixels = std::span<float>(feed_depth_scratch);
+                            }
+                            if (have_game_depth && (depth_scaled || prefetched.depth_texture) && !preview && !depth_transform &&
+                                depth_source_max - depth_source_min > 1e-6f) {
+                                // Retain this depth independently of the input slot so a
+                                // following frame can use it when capture skips depth.
+                                if (!scaled_depth || scaled_depth->GetDesc().Width != depth_w ||
+                                    scaled_depth->GetDesc().Height != depth_h) {
+                                    scaled_depth.Reset();
+                                    scaled_depth.Attach(MakeTex(depth_w, depth_h, DXGI_FORMAT_R32_FLOAT, false));
+                                }
+                                const bool invert_depth =
+                                    h.depth_inverted != depth_options.legacy_depth_invert;
+                                const bool use_prefetched_depth = prefetched.depth_texture && !depth_options.legacy_depth_invert;
+                                const bool uploaded = scaled_depth && (use_prefetched_depth
+                                    ? CopyTextureCommon(prefetched.depth_texture, scaled_depth.Get(), false)
+                                    : UploadRows(scaled_depth.Get(), DXGI_FORMAT_R32_FLOAT,
+                                                 depth_w, depth_h, depth_pixels.data(), depth_w * sizeof(float),
+                                                 invert_depth));
+                                if (uploaded) {
+                                    if (use_prefetched_depth) ++prefetched_depth_frames;
+                                    frame_depth = scaled_depth.Get();
+                                    uploaded_game_depth = true;
+                                    uploaded_game_depth_frame = fm.n;
+                                    uploaded_depth_resource = frame_depth;
+                                } else method = 0;
+                            } else if (depth_source_max - depth_source_min <= 1e-6f) {
                                 method = 0;
                             } else if (preview) {
-                                make_preview(depth_pixels, 0.f, 1.f);
+                                if (!phoenix_compat::prepare_legacy_depth(depth_pixels, depth_source_min,
+                                        depth_source_max, depth_options, preview)) method = 0;
+                                else make_preview(depth_pixels, 0.f, 1.f);
                             } else {
                                 if (!estimated_depth || estimated_depth->GetDesc().Width != h.input_width ||
                                     estimated_depth->GetDesc().Height != h.input_height) {
                                     estimated_depth.Reset();
-                                    estimated_depth.Attach(MakeTex(h.input_width, h.input_height, DXGI_FORMAT_R32_FLOAT, false));
+                                    estimated_depth.Attach(MakeTex(h.input_width, h.input_height, DXGI_FORMAT_R32_FLOAT, true));
                                 }
                                 if (estimated_depth) {
-                                    if (h.depth_inverted != depth_options.legacy_depth_invert)
-                                        for (auto& pixel : depth_pixels) pixel = 1.f - pixel;
-                                    if (!UploadRows(estimated_depth.Get(), DXGI_FORMAT_R32_FLOAT, h.input_width,
-                                            h.input_height, depth_pixels.data(), h.input_width * sizeof(float))) {
+                                    const bool invert_depth =
+                                        h.depth_inverted != depth_options.legacy_depth_invert;
+                                    bool uploaded = UploadRows(estimated_depth.Get(), DXGI_FORMAT_R32_FLOAT,
+                                        h.input_width, h.input_height, depth_pixels.data(),
+                                        h.input_width * sizeof(float),
+                                        depth_transform ? false : invert_depth);
+                                    if (uploaded && depth_transform) {
+                                        const float d_min = depth_source_min, d_max = depth_source_max;
+                                        const float w_scale = depth_windowed
+                                            ? 1.f / (depth_options.legacy_depth_far - depth_options.legacy_depth_near)
+                                            : 1.f;
+                                        const float r_min = depth_windowed
+                                            ? std::clamp((0.f - depth_options.legacy_depth_near) * w_scale, 0.f, 1.f) : 0.f;
+                                        const float r_max = depth_windowed
+                                            ? std::clamp((1.f - depth_options.legacy_depth_near) * w_scale, 0.f, 1.f) : 1.f;
+                                        const float constants[12] = {
+                                            d_min, d_max, 1.f / (d_max - d_min), w_scale,
+                                            (r_min + r_max) * .5f, depth_options.legacy_depth_strength,
+                                            depth_options.legacy_depth_near, invert_depth ? 1.f : 0.f,
+                                            depth_windowed ? 1.f : 0.f, float(h.input_width),
+                                            float(h.input_height), 0.f};
+                                        if (!g_depth_transform.apply(estimated_depth.Get(), h.input_width,
+                                                                     h.input_height, constants)) {
+                                            // GPU prep unavailable: prepare on
+                                            // the CPU and upload over the raw plane.
+                                            phoenix_compat::prepare_legacy_depth(
+                                                depth_pixels, d_min, d_max, depth_options, false);
+                                            uploaded = UploadRows(estimated_depth.Get(), DXGI_FORMAT_R32_FLOAT,
+                                                h.input_width, h.input_height, depth_pixels.data(),
+                                                h.input_width * sizeof(float), invert_depth);
+                                        }
+                                    }
+                                    if (!uploaded) {
                                         HostTerminal("Estimated depth upload failed");
                                         break;
                                     }
                                     frame_depth = estimated_depth.Get();
+                                    uploaded_depth_resource = frame_depth;
+                                    uploaded_game_depth = have_game_depth;
+                                    if (have_game_depth) uploaded_game_depth_frame = fm.n;
                                 } else {
                                     method = 0;
                                 }
                             }
                             if (method) depth_source_frame = fm.n;
                         }
-                        depth_ms = GetTickCount64() - start;
+                        depth_ms = TransferMilliseconds(start);
                     }
                     if (method != applied_depth_method) {
                         fm.reset = 1;
@@ -2098,6 +2625,7 @@ static int Serve(DWORD game_pid)
                     uint32_t iterations = PhoenixHostIterations(fm.iterations, g_frame_iterations);
                     if (iterations < 1) iterations = 1;
                     if (iterations > 10) iterations = 10;
+                    bool deferred_pack = false;
                     if (preview) {
                         if (cpu_out.pixels.empty()) make_preview({}, 0.f, 1.f);
                         done = true;
@@ -2105,7 +2633,7 @@ static int Serve(DWORD game_pid)
                     else if (h.split_eyes)
                     {
                         done = UploadRows(h.local_tex[FEED_COLOR], DXGI_FORMAT_R8G8B8A8_UNORM,
-                                          h.input_width, h.input_height, cpu_in.data(), h.input_width * 4u);
+                                          h.input_width, h.input_height, color, h.input_width * 4u);
                         if (done)
                             done = EnsureIterationScratch(iterations) && EvaluateSplitEyes(iterations, fm.reset ? 1 : 0, fm.nr_enabled ? 1 : 0, mvsx, mvsy);
                     }
@@ -2116,7 +2644,7 @@ static int Serve(DWORD game_pid)
                         // before the next pass. Direct UNORM scratch can round
                         // differently: preserve that uncommon exact contract.
                         std::vector<BYTE> quantized_input;
-                        const BYTE* input = cpu_in.data();
+                        const BYTE* input = color;
                         for (uint32_t i = 0; i < iterations; ++i) {
                             done = UploadRows(h.local_tex[FEED_COLOR], DXGI_FORMAT_R8G8B8A8_UNORM,
                                               h.input_width, h.input_height, input, h.input_width * 4u) &&
@@ -2137,27 +2665,47 @@ static int Serve(DWORD game_pid)
                     else
                     {
                         done = EnsureIterationScratch(iterations) &&
-                            UploadRows(h.local_tex[FEED_COLOR], DXGI_FORMAT_R8G8B8A8_UNORM,
-                                       h.input_width, h.input_height, cpu_in.data(), h.input_width * 4u);
+                            (prefetched.texture || UploadRows(h.local_tex[FEED_COLOR], DXGI_FORMAT_R8G8B8A8_UNORM,
+                                       h.input_width, h.input_height, color, h.input_width * 4u));
+                        const auto evaluate_start = std::chrono::steady_clock::now();
                         for (uint32_t i = 0; i < iterations && done; ++i) {
-                            auto* input = i == 0 ? h.local_tex[FEED_COLOR] : h.iter_scratch[(i - 1) & 1u];
+                            auto* input = i == 0 ? (prefetched.texture ? prefetched.texture : h.local_tex[FEED_COLOR])
+                                                 : h.iter_scratch[(i - 1) & 1u];
                             auto* output = i + 1 == iterations ? h.local_tex[FEED_OUTPUT] : h.iter_scratch[i & 1u];
                             done = EvaluateForStream(h.game_side_vr_split ? 1u + (fm.eye_index & 1u) : 0u,
                                        input, output, frame_depth, h.local_tex[FEED_MV], nullptr,
                                        h.input_width, h.input_height, (i == 0 && fm.reset) ? 1 : 0,
-                                       fm.nr_enabled ? 1 : 0, mvsx, mvsy);
+                                       fm.nr_enabled ? 1 : 0, mvsx, mvsy,
+                                       i + 1 == iterations ? &deferred_pack : nullptr);
                         }
+                        g_timing_evaluate_ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - evaluate_start).count();
                     }
-                    if (done && cpu_out.pixels.empty())
-                        done = DownloadRgba8(h.local_tex[FEED_OUTPUT], h.width, h.height, cpu_out);
+                    bool output_in_slot = false;
+                    if (done && cpu_out.pixels.empty()) {
+                        if (cpu_mapping) {
+                            done = DownloadRgba8(h.local_tex[FEED_OUTPUT], h.width, h.height, cpu_out,
+                                                 cpu_mapping.output(fm.slot).data(), deferred_pack);
+                            output_in_slot = done;
+                        } else done = DownloadRgba8(h.local_tex[FEED_OUTPUT], h.width, h.height, cpu_out,
+                                                       nullptr, deferred_pack);
+                    }
+                    downloaded_in_slot = output_in_slot;
                 }
 
                 FeedCpuFrameAck ca = {};
+                const auto output = transport_only ? std::span<const BYTE>(color, in_bytes)
+                                                   : std::span<const BYTE>(cpu_out.pixels);
+                done = done && (downloaded_in_slot || output.size() == size_t(h.width) * h.height * 4);
                 ca.ok = done ? 1 : 0;
                 ca.row_bytes = h.width * 4u;
-                WriteFull(pipe, &ca, sizeof(ca));
-                if (done)
-                    WriteFull(pipe, cpu_out.pixels.data(), static_cast<DWORD>(cpu_out.pixels.size()));
+                if (done && cpu_mapping && !downloaded_in_slot) {
+                    std::memcpy(cpu_mapping.output(fm.slot).data(), output.data(), output.size());
+                    MemoryBarrier();
+                }
+                if (done && downloaded_in_slot) MemoryBarrier();
+                if (!WriteFull(pipe, &ca, sizeof(ca))) break;
+                if (done && !cpu_mapping && !WriteFull(pipe, output.data(), static_cast<DWORD>(output.size()))) break;
                 if (!done) { HostTerminal("CPU frame processing or retirement failed"); break; }
 
                 if (fm.n <= 3 || (fm.n % 1800) == 0)

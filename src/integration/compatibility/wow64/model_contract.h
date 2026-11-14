@@ -53,6 +53,6 @@ inline bool valid_model_bootstrap_buffers(const ModelChannel& packet) {
     return (!model_channel_has_frame_services(packet.bytes)||packet.pixel_transport==0)&&
         valid_model_frame_buffers(packet);
 }
-static_assert(model_channel_legacy_bytes==48368 && sizeof(ModelChannel)==48384);
+static_assert(model_channel_legacy_bytes==48376 && sizeof(ModelChannel)==48392);
 static_assert(std::is_standard_layout_v<ModelChannel> && std::is_trivially_copyable_v<ModelChannel>);
 }

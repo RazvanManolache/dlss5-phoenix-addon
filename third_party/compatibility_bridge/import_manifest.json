@@ -4,10 +4,10 @@
   "files": [
     {
       "source": "source\\host\\dlss5-feed-host64.cpp",
-      "sha256": "85cade43fd1f8ac1d50c2808ed78727c47f99f3000b0688c924f9d34a87c6340",
+      "sha256": "73ad5d3d6a1b3a3374f361438ba6f85ee9674560105d434a6495ae72b7aa5fc9",
       "import_sha256": "5a51e7271c1c4199f11696c5d76311a6587052a96572a8cdec74949ce7acd060",
       "path": "src/integration/compatibility/host/dlss5-feed-host64.cpp",
-      "normalized_lf_sha256": "1bd8485fe71b192fa1f05d6f2568e2cc46f1d7ccb9cf56dc6f7d648ef35eb58c"
+      "normalized_lf_sha256": "023619259591488f588fa6cab4602d853530e4c156e6bc8c720fa33e9816ff6d"
     },
     {
       "source": "source\\host\\phoenix-host-config.h",
@@ -25,10 +25,10 @@
     },
     {
       "source": "source\\host\\phoenix-format-adapter.h",
-      "sha256": "0c37e6c071ad6f4c47cbe58c44650819277bebb18fe3095bf2e6e310b5317285",
+      "sha256": "5b7c263f5137ca1c4f8d5642286dd4e460634bbb4fbd19378e6475e57ab29814",
       "import_sha256": "df17ec4271da5e6f4ce62c1c8472b7c1a9ca20762877fff1e729780239e05e6a",
       "path": "src/integration/compatibility/host/phoenix-format-adapter.h",
-      "normalized_lf_sha256": "b2c5e3ad00b16aaded1399bf91e141a122e3077764773546ca7bc069d2cd7f4e"
+      "normalized_lf_sha256": "e1549ebde2197eb64e6f0f790855ab606c82d7bbaafd02e3f8692d850193b75c"
     },
     {
       "source": "source\\host\\phoenix-host-safety.h",

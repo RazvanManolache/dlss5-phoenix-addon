@@ -10,6 +10,7 @@
 #include "capture_retirement.h"
 #include "capture_queue.h"
 #include "../../pipeline/paired_screenshot.h"
+#include <deque>
 namespace phoenix_compat {
 class ReadbackBridge {
     reshade::api::device* device_;
@@ -31,13 +32,16 @@ class ReadbackBridge {
     bool depth_preview_ = false, preview_transition_ = false;
     uint64_t serial_ = 0, capture_serial_ = 0, upload_serial_ = 0, queued_signal_ = 0;
     uint64_t worker_serial_ = 0;
-    uint64_t capture_frame_ = 0, submitted_frame_ = 0, delivered_frame_ = 0;
+    uint64_t capture_frame_ = 0, delivered_frame_ = 0;
     uint64_t delivered_ = 0, presented_ = 0;
     uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
-    uint64_t capture_tick_ = 0, submitted_tick_ = 0, delivered_tick_ = 0;
-    std::vector<uint8_t> submitted_pixels_;
+    uint64_t capture_tick_ = 0, delivered_tick_ = 0;
+    std::deque<CaptureQueue::Entry> submitted_;
     std::vector<uint8_t> queued_pixels_, upload_pixels_;
     std::vector<float> queued_depth_;
+    std::optional<unsigned> queued_slot_; // Leased ring slot holding queued_pixels_ in place.
+    bool queued_depth_present_ = false;
+    uint32_t queued_depth_dims_ = 0;
     DepthFreshness depth_freshness_;
     uint64_t stale_depth_frames_ = 0;
     bool capture_game_depth(const Settings& settings) const {
@@ -48,6 +52,9 @@ class ReadbackBridge {
     phoenix_pipeline::screenshots::CompletedPair screenshot_pair_;
     double capture_ms_ = 0, upload_ms_ = 0, compose_ms_ = 0;
     double cpu_readback_ms_ = 0;
+    double color_map_ms_ = 0, color_copy_ms_ = 0, color_unmap_ms_ = 0;
+    uint64_t d3d9_staging_fence_ = 0, d3d9_color_map_busy_ = 0;
+    double depth_readback_ms_ = 0;
     double deferred_readback_ms_ = 0;
     uint64_t capture_copies_ = 0, deferred_readbacks_ = 0;
     uint64_t post_present_retirements_ = 0, post_present_submissions_ = 0, post_present_calls_=0;
@@ -94,7 +101,7 @@ class ReadbackBridge {
                 // 0.5ms. A busy neural worker cannot benefit, so never wait then.
                 const double budget_ms=std::min(.5,frame_period_ms_*.125);
                 completed=poll_capture_retirement(capture->serial,completed,
-                    host_->phase()==Phase::Ready && budget_ms>0,
+                    !compositor9_ && host_->phase()==Phase::Ready && budget_ms>0,
                     [&]{return device_->get_completed_fence_value(retired_);},
                     [&]{return elapsed_ms(begin)>=budget_ms;},[]{SwitchToThread();});
                 last_post_wait_ms_=elapsed_ms(begin);last_post_completed_=completed;
@@ -102,22 +109,65 @@ class ReadbackBridge {
             require(completed != UINT64_MAX, "Readback graphics device was lost");
             if(!after_present&&completed<capture->serial)++capture_not_ready_frames_;
             if (completed >= capture->serial) {
-                if(!gpu_transport_){
                 if (compositor9_) {
-                    const auto readback_begin = std::chrono::steady_clock::now();
-                    compositor9_->readback_completed_capture(
-                        reinterpret_cast<IDirect3DSurface9*>(uintptr_t(readback_.handle)),capture->slot);
-                    deferred_readback_ms_ = elapsed_ms(readback_begin);
-                    ++deferred_readbacks_;
+                    // The capture fence covers the render target. Give the
+                    // separate system-memory transfer its own retirement
+                    // query and yield to the game before trying to lock it.
+                    if (!d3d9_staging_fence_) {
+                        const auto begin = std::chrono::steady_clock::now();
+                        compositor9_->readback_completed_capture(
+                            reinterpret_cast<IDirect3DSurface9*>(uintptr_t(readback_.handle)), capture->slot);
+                        deferred_readback_ms_ = elapsed_ms(begin);
+                        ++deferred_readbacks_;
+                        if (capture_game_depth(settings)) compositor9_->stage_depth_readback(capture->slot);
+                        d3d9_staging_fence_ = reserve_retirement_serial(serial_, queued_signal_);
+                        break;
+                    }
+                    if (completed < d3d9_staging_fence_) break;
                 }
+                if(!gpu_transport_){
                 // Allocate before mapping so an allocation failure cannot leave a
                 // resource mapped while runtime teardown tries to release it.
                 transfer_stage_="capture CPU storage allocation";
+                // In-place path: copy readback straight into a leased ring
+                // slot instead of a CPU vector the worker would copy again.
+                auto input_lease = host_->acquire_cpu_input();
+                if (!input_lease && host_->uses_cpu_ring()) {
+                    ++worker_not_ready_frames_;
+                    break;
+                }
+                struct InputLeaseGuard {
+                    HostClient* host; bool active = true;
+                    ~InputLeaseGuard() { if (active && host) host->abandon_cpu_input(); }
+                } lease_guard{input_lease ? host_.get() : nullptr};
                 auto pixels=host_->take_recycled_input();
-                pixels.resize(size_t(width_) * height_ * 4);
+                uint8_t* destination = nullptr;
+                if (input_lease) {
+                    const auto span = host_->cpu_input_span(*input_lease);
+                    require(span.size() == size_t(width_) * height_ * 4, "Shared CPU slot size mismatch");
+                    destination = span.data();
+                } else {
+                    pixels.resize(size_t(width_) * height_ * 4);
+                    destination = pixels.data();
+                }
                 subresource_data mapped{};
                 const auto cpu_readback_started=std::chrono::steady_clock::now();
-                if (buffer_readback_) {
+                if (compositor9_) {
+                    // The snapshot fence covers the render target, not the
+                    // later transfer to system memory. A blocking LockRect
+                    // here puts the driver's transfer wait on the game thread.
+                    auto* surface = reinterpret_cast<IDirect3DSurface9*>(uintptr_t(readback_.handle));
+                    D3DLOCKED_RECT rect{};
+                    const auto result = surface->LockRect(&rect, nullptr, D3DLOCK_READONLY | D3DLOCK_DONOTWAIT);
+                    color_map_ms_ = elapsed_ms(cpu_readback_started);
+                    if (result == D3DERR_WASSTILLDRAWING) {
+                        ++d3d9_color_map_busy_;
+                        break;
+                    }
+                    require(SUCCEEDED(result), "Cannot lock D3D9 color staging surface");
+                    mapped.data = rect.pBits;
+                    mapped.row_pitch = rect.Pitch > 0 ? unsigned(rect.Pitch) : 0;
+                } else if (buffer_readback_) {
                     require(device_->map_buffer_region(readback_, 0, uint64_t(row_pitch_) * height_,
                                                        map_access::read_only, &mapped.data),
                             "Cannot map retired pixel buffer");
@@ -126,49 +176,109 @@ class ReadbackBridge {
                     require(device_->map_texture_region(readback_, 0, nullptr, map_access::read_only,
                                                         &mapped),
                             "Cannot map retired texture readback");
+                color_map_ms_ = elapsed_ms(cpu_readback_started);
+                const auto copy_started = std::chrono::steady_clock::now();
+                auto unmap_started = copy_started;
                 {
                     MappedResource mapping{device_, readback_, buffer_readback_};
                     if (rgb10_)
-                        copy_rgb10a2_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                        copy_rgb10a2_rows(destination, width_ * 4, static_cast<const uint8_t*>(mapped.data),
                                          mapped.row_pitch, width_, height_, true);
                     else
-                        copy_pixel_rows(pixels.data(), width_ * 4, static_cast<const uint8_t*>(mapped.data),
+                        copy_pixel_rows(destination, width_ * 4, static_cast<const uint8_t*>(mapped.data),
                                         mapped.row_pitch, width_, height_, flip_rows_, bgra_);
+                    unmap_started = std::chrono::steady_clock::now();
                 }
-                if (compositor9_) compositor9_->readback_depth(capture->slot, queued_depth_);
-                else if (dx_depth_) dx_depth_->read(queued_depth_);
-                if (compositor9_ && !queued_depth_.empty() &&
-                    !depth_freshness_.accept(pixels, queued_depth_, width_, height_)) {
+                color_copy_ms_ = std::chrono::duration<double, std::milli>(unmap_started - copy_started).count();
+                color_unmap_ms_ = elapsed_ms(unmap_started);
+                d3d9_staging_fence_ = 0;
+                bool depth_present = false;
+                uint32_t depth_dims = 0;
+                {
+                    // Depth is captured at its staged resolution (half by
+                    // default) and sent at that size; the runtime resamples
+                    // it onto the neural canvas inside the helper.
+                    const auto depth_begin = std::chrono::steady_clock::now();
                     queued_depth_.clear();
-                    ++stale_depth_frames_;
+                    if (input_lease && compositor9_ && capture_game_depth(settings)) {
+                        depth_present = compositor9_->readback_depth_into(
+                            capture->slot, host_->cpu_depth_span(*input_lease));
+                    } else {
+                        if (compositor9_ && capture_game_depth(settings)) compositor9_->readback_depth(capture->slot, queued_depth_);
+                        else if (dx_depth_) dx_depth_->read(queued_depth_);
+                        depth_present = !queued_depth_.empty();
+                    }
+                    if (depth_present && compositor9_) {
+                        const auto [width, height] = compositor9_->depth_plane_extent(capture->slot);
+                        depth_dims = feed_pack_depth_dims(width, height);
+                    }
+                    depth_readback_ms_ = elapsed_ms(depth_begin);
+                }
+                if (compositor9_ && depth_present) {
+                    const auto width = feed_depth_width(depth_dims);
+                    const auto height = feed_depth_height(depth_dims);
+                    const std::span<const uint8_t> color(destination, size_t(width_) * height_ * 4);
+                    const auto depth = (input_lease
+                        ? host_->cpu_depth_span(*input_lease) : std::span<const float>(queued_depth_))
+                        .first(size_t(width) * height);
+                    if (!depth_freshness_.accept(color, width_, height_, depth, width, height)) {
+                        depth_present = false;
+                        depth_dims = 0;
+                        queued_depth_.clear();
+                        ++stale_depth_frames_;
+                    }
                 }
                 cpu_readback_ms_=elapsed_ms(cpu_readback_started);
                 capture->retired = true;
                 // Queue one retired capture without replacing the current worker's
                 // screenshot input or its matched GPU snapshot.
-                queued_pixels_=std::move(pixels);
+                queued_depth_present_ = depth_present;
+                queued_depth_dims_ = depth_dims;
+                if (input_lease) {
+                    queued_slot_ = input_lease;
+                    lease_guard.active = false;
+                } else queued_pixels_=std::move(pixels);
                 }else capture->retired=true;
                 if (after_present) ++post_present_retirements_;
             } else break;
           }
-          if(host_->phase()!=Phase::Ready){++worker_not_ready_frames_;break;}
-          require(gpu_transport_||!queued_pixels_.empty(),"Retired capture lost its CPU pixels");
-            if (!gpu_transport_&&settings.mode == phoenix_addon::phoenix::split && !compositor9_)
-                submitted_pixels_ = queued_pixels_;
+          if(!queued_slot_ && host_->phase()!=Phase::Ready){++worker_not_ready_frames_;break;}
+          require(gpu_transport_||!queued_pixels_.empty()||queued_slot_.has_value(),"Retired capture lost its CPU pixels");
             transfer_stage_="screenshot input copy";
-            screenshot_pair_.remember(capture->frame,queued_pixels_);
+            if (queued_slot_ && screenshot_pair_.output.pending && !screenshot_pair_.frame) {
+                const auto span = host_->cpu_input_span(*queued_slot_);
+                screenshot_pair_.remember(capture->frame,
+                    std::vector<uint8_t>(span.begin(), span.end()));
+            } else screenshot_pair_.remember(capture->frame,queued_pixels_);
             transfer_stage_="capture worker submission";
             const auto worker_serial=gpu_transport_?capture->serial:worker_serial_+1;
-            if (!capture_game_depth(settings)) queued_depth_.clear();
-            if (host_->submit(worker_serial, !history_started_, std::move(queued_pixels_),
-                              1, {}, std::move(queued_depth_))) {
+            if (!capture_game_depth(settings)) { queued_depth_.clear(); queued_depth_present_=false; queued_depth_dims_=0; }
+            if (!queued_slot_ && queued_depth_present_ && queued_depth_dims_ &&
+                (feed_depth_width(queued_depth_dims_) != width_ || feed_depth_height(queued_depth_dims_) != height_)) {
+                // No shared mapping on this path: the pipe payload and the
+                // in-process routes still carry native-size depth.
+                std::vector<float> full(size_t(width_) * height_);
+                const unsigned dw = feed_depth_width(queued_depth_dims_), dh = feed_depth_height(queued_depth_dims_);
+                for (unsigned y = 0; y < height_; ++y)
+                    for (unsigned x = 0; x < width_; ++x)
+                        full[size_t(y) * width_ + x] = queued_depth_[size_t(y * dh / height_) * dw + x * dw / width_];
+                queued_depth_ = std::move(full);
+                queued_depth_dims_ = 0;
+            }
+            const bool submitted = queued_slot_
+                ? host_->submit_cpu_input(*queued_slot_, worker_serial, !history_started_,
+                                          queued_depth_present_, std::move(queued_depth_), queued_depth_dims_)
+                : host_->submit(worker_serial, !history_started_, std::move(queued_pixels_),
+                              1, {}, std::move(queued_depth_), queued_depth_dims_);
+            if (submitted) {
+                queued_slot_.reset();
+                queued_depth_present_=false;
+                queued_depth_dims_=0;
                 worker_serial_=worker_serial;
-                if(compositor9_)compositor9_->promote_submitted_capture(capture->slot);
                 if (after_present) ++post_present_submissions_;
                 history_started_ = true;
-                submitted_frame_ = capture->frame;
-                submitted_tick_ = capture->tick;
-                captures_.pop();
+                submitted_.push_back(*capture);
+                captures_.pop(bool(compositor9_));
             } else {
                 screenshot_pair_.rejected(capture->frame);
                 throw std::runtime_error("Worker rejected a retired capture");
@@ -373,6 +483,10 @@ class ReadbackBridge {
     bool can_park_worker() const {return !gpu_transport_&&host_&&!host_->in_process();}
     std::unique_ptr<HostClient> park_worker() {
         require(can_park_worker(),"Only a CPU-transfer helper can pause across this runtime reset");
+        if (queued_slot_) {
+            host_->abandon_cpu_input();
+            queued_slot_.reset();
+        }
         return std::move(host_);
     }
     uint64_t delivered() const {
@@ -402,6 +516,9 @@ class ReadbackBridge {
                 {"d3d9_depth_capture", compositor9_ ? compositor9_->depth_capture_status() : Json::object()},
                 {"stale_depth_frames", stale_depth_frames_},
                 {"last_cpu_readback_ms",cpu_readback_ms_},
+                {"last_color_map_ms", color_map_ms_}, {"last_color_copy_ms", color_copy_ms_},
+                {"last_color_unmap_ms", color_unmap_ms_}, {"d3d9_color_map_busy", d3d9_color_map_busy_},
+                {"last_depth_readback_ms",depth_readback_ms_},
                 {"readback_bytes",gpu_transport_?0:uint64_t(width_)*height_*4},
                 {"capture_pixel_transport",gpu_transport_?"shared-gpu-mailbox":"cpu-staging"},
                 {"capture_host_transfer_bytes",gpu_transport_?0:uint64_t(width_)*height_*8},
@@ -449,6 +566,7 @@ class ReadbackBridge {
     void retire_after_present(const phoenix_addon::phoenix::Settings& settings) {
         ++post_present_calls_;
         retire_and_submit(settings, true);
+        if (compositor9_) signal_after_present();
     }
     void frame(reshade::api::command_list* command, reshade::api::resource back,
                uint64_t frame_number, const phoenix_addon::phoenix::Settings& settings,
@@ -461,6 +579,8 @@ class ReadbackBridge {
             delivered_image_ = false;
         }
         coherent_frames |= depth_preview;
+        if (compositor9_) compositor9_->depth_capture_options(
+            settings.pipeline.legacy_depth_validate, settings.pipeline.legacy_depth_half_resolution);
         const auto frame_begin = std::chrono::steady_clock::now();
         if(preceding_frame_!=std::chrono::steady_clock::time_point{})
             frame_period_ms_=std::chrono::duration<double,std::milli>(frame_begin-preceding_frame_).count();
@@ -470,8 +590,11 @@ class ReadbackBridge {
         if(resume_pending_) {
             // The last pre-pause frame belongs to the old transfer buffers.
             // Retire its CPU answer without presenting it over a newer image.
-            if(host_->phase()==Phase::Finished)host_->take();
-            if(host_->phase()!=Phase::Ready)return;
+            while (host_->phase()==Phase::Finished) {
+                if (host_->lease_cpu_output()) host_->release_cpu_output();
+                else host_->take();
+            }
+            if(host_->phase()!=Phase::Ready || host_->has_pending_cpu_frames())return;
             resume_pending_=false;history_started_=false;
         }
         const auto completed = device_->get_completed_fence_value(retired_);
@@ -481,84 +604,103 @@ class ReadbackBridge {
         // A persistent upload buffer cannot be rewritten while the GPU reads it.
         if (host_->phase() == Phase::Finished && completed >= upload_serial_) {
             const auto upload_begin = std::chrono::steady_clock::now();
+            require(!submitted_.empty(), "Completed helper frame has no matching submission");
+            const auto submitted = submitted_.front();
             transfer_stage_="completed output acquisition";
-            auto pixels = host_->take();
-            if(gpu_transport_){
-                command->barrier(gpu_output_,resource_usage::general,resource_usage::copy_source);
-                command->barrier(upload_,resource_usage::copy_source,resource_usage::copy_dest);
-                command->copy_resource(gpu_output_,upload_);
-                command->barrier(upload_,resource_usage::copy_dest,resource_usage::copy_source);
-                command->barrier(gpu_output_,resource_usage::copy_source,resource_usage::general);
-                upload_serial_=reserve_retirement_serial(serial_,queued_signal_);
-            }else{
-            screenshot_pair_.complete(submitted_frame_,pixels,width_,height_);
-            require(pixels.size() == size_t(width_) * height_ * 4,
-                    "Helper returned an incomplete image");
-            if (buffer_readback_) {
-                void* mapped = nullptr;
-                require(device_->map_buffer_region(upload_buffer_, 0,
-                                                   uint64_t(row_pitch_) * height_,
-                                                   map_access::write_only, &mapped),
-                        "Cannot map upload pixel buffer");
-                {
-                    MappedResource mapping{device_, upload_buffer_, true};
-                    if (rgb10_)
-                        copy_rgb10a2_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixels.data(),
-                                         width_ * 4, width_, height_, false);
-                    else
-                        copy_pixel_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixels.data(),
-                                        width_ * 4, width_, height_, false, upload_bgra_);
-                }
-                // ReShade's texture-to-default-framebuffer blit already flips
-                // OpenGL Y. Upload textures therefore keep helper row order;
-                // only raw GL framebuffer readback needs the CPU row reversal.
-                command->barrier(upload_, resource_usage::copy_source, resource_usage::copy_dest);
-                command->copy_buffer_to_texture(upload_buffer_, 0, row_pitch_ / 4, height_, upload_,
-                                                0);
-                command->barrier(upload_, resource_usage::copy_dest, resource_usage::copy_source);
-                upload_serial_ = reserve_retirement_serial(serial_, queued_signal_);
-            } else if (d3d9_upload_) {
-                // ReShade's D3D9 update_texture_region swizzles 4-channel
-                // uploads to BGRA. Mapping the system surface avoids a second
-                // swizzle when our backbuffer already uses a BGRA format.
-                subresource_data mapped{};
-                require(device_->map_texture_region(upload_buffer_, 0, nullptr,
-                                                    map_access::write_only, &mapped),
-                        "Cannot map D3D9 upload surface");
-                {
-                    MappedResource mapping{device_, upload_buffer_, false};
-                    copy_pixel_rows(static_cast<uint8_t*>(mapped.data), mapped.row_pitch,
-                                    pixels.data(), width_ * 4, width_, height_, false, bgra_);
-                }
-                command->copy_resource(upload_buffer_, upload_);
-                upload_serial_ = reserve_retirement_serial(serial_, queued_signal_);
-            } else {
-                transfer_stage_="presentation CPU byte conversion";
-                const uint8_t* native_pixels=pixels.data();
-                if(rgb10_||bgra_) {
-                    upload_pixels_.resize(pixels.size());
-                    if(rgb10_)
-                        copy_rgb10a2_rows(upload_pixels_.data(),width_*4,pixels.data(),width_*4,width_,height_,false);
-                    else
-                        copy_pixel_rows(upload_pixels_.data(),width_*4,pixels.data(),width_*4,width_,height_,false,true);
-                    native_pixels=upload_pixels_.data();
-                }
-                device_->update_texture_region(
-                    {const_cast<uint8_t*>(native_pixels), width_ * 4, width_ * height_ * 4}, upload_, 0);
+            // In-place path: present straight out of the completed ring
+            // slot; take() (copy-out) remains the fallback for other routes.
+            auto output_lease = gpu_transport_ ? std::nullopt : host_->lease_cpu_output();
+            auto pixels = output_lease ? std::vector<uint8_t>{} : host_->take();
+            const uint8_t* pixel_bytes = output_lease ? output_lease->pixels.data() : pixels.data();
+            const size_t pixel_count = output_lease ? output_lease->pixels.size() : pixels.size();
+            const bool accept_output = !preview_transition_ ||
+                (output_lease ? output_lease->tuning_current : host_->tuning_current_output());
+            if (!accept_output) screenshot_pair_.rejected(submitted.frame);
+            if (compositor9_) {
+                if (accept_output) compositor9_->match_completed_input(submitted.slot);
+                captures_.release_snapshot(submitted.slot);
             }
+            submitted_.pop_front();
+            if (accept_output) {
+                if(gpu_transport_){
+                    command->barrier(gpu_output_,resource_usage::general,resource_usage::copy_source);
+                    command->barrier(upload_,resource_usage::copy_source,resource_usage::copy_dest);
+                    command->copy_resource(gpu_output_,upload_);
+                    command->barrier(upload_,resource_usage::copy_dest,resource_usage::copy_source);
+                    command->barrier(gpu_output_,resource_usage::copy_source,resource_usage::general);
+                    upload_serial_=reserve_retirement_serial(serial_,queued_signal_);
+                } else {
+                    if (output_lease && screenshot_pair_.frame == submitted.frame)
+                        screenshot_pair_.complete(submitted.frame,
+                            std::vector<uint8_t>(output_lease->pixels.begin(), output_lease->pixels.end()), width_, height_);
+                    else if (!output_lease) screenshot_pair_.complete(submitted.frame,pixels,width_,height_);
+                    require(pixel_count == size_t(width_) * height_ * 4,
+                            "Helper returned an incomplete image");
+                    if (buffer_readback_) {
+                        void* mapped = nullptr;
+                        require(device_->map_buffer_region(upload_buffer_, 0,
+                                                           uint64_t(row_pitch_) * height_,
+                                                           map_access::write_only, &mapped),
+                                "Cannot map upload pixel buffer");
+                        {
+                            MappedResource mapping{device_, upload_buffer_, true};
+                            if (rgb10_)
+                                copy_rgb10a2_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixel_bytes,
+                                                 width_ * 4, width_, height_, false);
+                            else
+                                copy_pixel_rows(static_cast<uint8_t*>(mapped), row_pitch_, pixel_bytes,
+                                                width_ * 4, width_, height_, false, upload_bgra_);
+                        }
+                        // ReShade's texture-to-default-framebuffer blit already flips
+                        // OpenGL Y. Upload textures therefore keep helper row order;
+                        // only raw GL framebuffer readback needs the CPU row reversal.
+                        command->barrier(upload_, resource_usage::copy_source, resource_usage::copy_dest);
+                        command->copy_buffer_to_texture(upload_buffer_, 0, row_pitch_ / 4, height_, upload_,
+                                                        0);
+                        command->barrier(upload_, resource_usage::copy_dest, resource_usage::copy_source);
+                        upload_serial_ = reserve_retirement_serial(serial_, queued_signal_);
+                    } else if (d3d9_upload_) {
+                        // ReShade's D3D9 update_texture_region swizzles 4-channel
+                        // uploads to BGRA. Mapping the system surface avoids a second
+                        // swizzle when our backbuffer already uses a BGRA format.
+                        subresource_data mapped{};
+                        require(device_->map_texture_region(upload_buffer_, 0, nullptr,
+                                                            map_access::write_only, &mapped),
+                                "Cannot map D3D9 upload surface");
+                        {
+                            MappedResource mapping{device_, upload_buffer_, false};
+                            copy_pixel_rows(static_cast<uint8_t*>(mapped.data), mapped.row_pitch,
+                                            pixel_bytes, width_ * 4, width_, height_, false, bgra_);
+                        }
+                        command->copy_resource(upload_buffer_, upload_);
+                        upload_serial_ = reserve_retirement_serial(serial_, queued_signal_);
+                    } else {
+                        transfer_stage_="presentation CPU byte conversion";
+                        const uint8_t* native_pixels=pixel_bytes;
+                        if(rgb10_||bgra_) {
+                            upload_pixels_.resize(pixel_count);
+                            if(rgb10_)
+                                copy_rgb10a2_rows(upload_pixels_.data(),width_*4,pixel_bytes,width_*4,width_,height_,false);
+                            else
+                                copy_pixel_rows(upload_pixels_.data(),width_*4,pixel_bytes,width_*4,width_,height_,false,true);
+                            native_pixels=upload_pixels_.data();
+                        }
+                        device_->update_texture_region(
+                            {const_cast<uint8_t*>(native_pixels), width_ * 4, width_ * height_ * 4}, upload_, 0);
+                    }
+                }
+                delivered_image_ = true;
+                preview_transition_ = false;
+                delivered_frame_ = submitted.frame;
+                delivered_tick_ = submitted.tick;
+                ++delivered_;
+                upload_ms_ = elapsed_ms(upload_begin);
             }
-            delivered_image_ = !preview_transition_ || host_->tuning_current_output();
-            if (delivered_image_) preview_transition_ = false;
-            if (compositor9_)
-                compositor9_->match_completed_input();
-            delivered_frame_ = submitted_frame_;
-            delivered_tick_ = submitted_tick_;
-            ++delivered_;
-            upload_ms_ = elapsed_ms(upload_begin);
             // Neither GPU staging nor the completed screenshot references the
-            // CPU vector now. Reuse it instead of clearing/allocating another
-            // full image on the native worker's next frame.
-            host_->recycle_output(std::move(pixels));
+            // output now. Release the leased slot, or recycle the CPU vector
+            // instead of clearing/allocating another full image next frame.
+            if (output_lease) host_->release_cpu_output();
+            else host_->recycle_output(std::move(pixels));
         }
         retire_and_submit(settings, false);
         const int capture_slot=captures_.free_slot();

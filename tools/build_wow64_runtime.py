@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -16,6 +17,17 @@ CURRENT=ROOT/'artifacts/current'
 
 def digest(path):
     with path.open('rb') as stream: return hashlib.file_digest(stream,'sha256').hexdigest()
+
+
+def channel_bytes(filename, name):
+    contract = (ROOT / 'src/integration/compatibility/wow64' / filename).read_text(encoding='utf-8')
+    match = re.search(rf'sizeof\({name}\)==(\d+)', contract)
+    if not match:
+        raise ValueError(f'{name} size is not pinned in {filename}')
+    return int(match.group(1))
+
+def model_channel_bytes():
+    return channel_bytes('model_contract.h', 'ModelChannel')
 
 
 def validate_native_bundle(bundle):
@@ -102,7 +114,8 @@ def main():
             profile=dict(schema='phoenix-wow64-bootstrap/3',ntdll_sha256=digest(ntdll),ntdll_timestamp=baseline['image_timestamp'],
                 initializer_rva=symbols['initializer_rva'],allocator_rva=symbols['allocator_rva'],appcompat_offsets=symbols['appcompat_offsets'],
                 dynamic_driver_validation=1,supported_models=args.supported_models,
-                library_frame_services=1,model_channel_bytes=48384,library_rgba8_transport=1,library_deferred_host_buffers=1,
+                driver_channel_bytes=channel_bytes('driver_contract.h', 'Channel'),
+                library_frame_services=1,model_channel_bytes=model_channel_bytes(),library_rgba8_transport=1,library_deferred_host_buffers=1,
                 library_batched_output=int({"phoenix_native_postprocess_contract","phoenix_native_frame_d3d12_postprocess"}.issubset(pe_exports(native))),
                 library_compact_frame_status=int("phoenix_native_frame_status" in pe_exports(native)),
                 library_direct_byte_upload=1,

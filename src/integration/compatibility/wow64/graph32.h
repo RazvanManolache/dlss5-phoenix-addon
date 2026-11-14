@@ -60,8 +60,6 @@ class FrameSession {
             phoenix_compat::validate_native_settings(settings,driver,frame_services_,
                 frame_services_ && profile.value("library_appearance_controls",0u)==1);
             if(driver) {
-                phoenix_bundle::require(source.model().id=="original",
-                    "Experimental x86 driver host requires Original; use the x64-library or helper for Lightweight FP8");
                 const auto image=reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
                 const auto dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
                 const auto pe=reinterpret_cast<const IMAGE_NT_HEADERS32*>(image+dos->e_lfanew);
@@ -93,7 +91,9 @@ class FrameSession {
                     specs.push_back({item.key(),row.at("binary"),row.at("binary_sha256"),row.at("entry"),row.at("parameter_bytes"),
                         block[0],block[1],block[2],row.value("large_input_entry",std::string()),row.value("large_input_min_pixels",uint64_t(0))});
                 }
-                kernels_=phoenix_kernel::load_catalog(specs); weights_=bundle_->load_weights();
+                kernels_=phoenix_kernel::load_catalog(specs);
+                phoenix_bundle::require(kernels_.size()<=phoenix_driver_probe::kernel_count,"Native driver kernel catalog exceeds packet capacity");
+                weights_=bundle_->load_weights();
                 plan_=bundle_->select_frame(width,height,[&](const Json& frame){phoenix_native::preflight(frame,kernels_);});
                 policy_=phoenix_native::preflight(plan_,kernels_);
                 c.weights=uint64_t(uintptr_t(weights_.data())); c.weight_bytes=weights_.size();
@@ -188,18 +188,31 @@ class FrameSession {
             const auto resolved=phoenix_addon::resolve_controls(controls,c.width,c.height,false,false,0);
             c.target=unsigned(frames_%2); c.frame_flags=0;
             const std::array<phoenix_launch_plan::Arena,2> arenas{{{c.workspace_address,c.workspace_bytes},{c.weights_address,c.weight_bytes}}};
-            for(unsigned i=0;i<154;++i) {
-                const auto& source=plan_.at("launches").at(i+1);
+            // Plan layout: index 0 clears counters, the last entry is the
+            // post-copy the driver performs itself; layers sit between.
+            const auto& plan_launches=plan_.at("launches");
+            phoenix_bundle::require(plan_launches.size()>=3,"Native driver plan has no layer launches");
+            const auto layer_count=unsigned(plan_launches.size())-2;
+            phoenix_bundle::require(layer_count<=phoenix_driver_probe::launch_count,"Native driver plan exceeds launch capacity");
+            c.launch_total=layer_count;
+            for(unsigned i=0;i<layer_count;++i) {
+                const auto& source=plan_launches.at(i+1);
                 auto launch=phoenix_bundle::launch(source,[&](const Json& binding)->uint64_t {
                     const auto role=binding.at("role").get<std::string>();
+                    const auto name=binding.at("binding").is_null()?"":binding.at("binding").get<std::string>();
                     if(role=="color") return c.color_texture;
-                    if(role=="motion"||role=="history_previous") return 0;
+                    if(role=="motion") return c.motion_texture;
+                    if(role=="history_previous") return c.history_texture[c.target^1];
                     if(role=="neural_output_surface") return c.surface[c.target];
-                    throw std::runtime_error("Unsupported native descriptor binding");
+                    // Optional guides the driver does not stage today map to
+                    // no texture; a scratch texture covers aux reads/writes.
+                    if(role=="depth_optional"||role=="aux_optional") return binding.at("binding").is_null()?0:c.aux_texture;
+                    if(name=="aux") return c.aux_texture;
+                    throw std::runtime_error("Unsupported native descriptor binding: role="+role+" binding="+name);
                 });
                 auto arguments=phoenix_launch_plan::materialize(launch,arenas);
                 if(i==0) phoenix_addon::patch_stem(arguments.data(),arguments.size(),resolved);
-                if(i==153) phoenix_addon::patch_head(arguments.data(),arguments.size(),resolved);
+                if(i==layer_count-1) phoenix_addon::patch_head(arguments.data(),arguments.size(),resolved);
                 auto& target=c.launches[i]; target={}; target.kernel=indices_.at(source.at("name").get<std::string>());
                 target.bytes=uint32_t(arguments.size()); target.barrier_after=policy_.barrier_after[i];
                 for(unsigned axis=0;axis<3;++axis) {target.grid[axis]=launch.grid[axis];target.block[axis]=launch.block[axis];}

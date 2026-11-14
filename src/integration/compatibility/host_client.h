@@ -8,6 +8,8 @@
 #include "session_policy.h"
 #include "../reshade/panel_contract.h"
 #include "protocol.h"
+#include "cpu_frame_mapping.h"
+#include "cpu_frame_ring.h"
 #include "owned_worker.h"
 #include "portable_policy.h"
 #include "processing_pixels.h"
@@ -129,6 +131,45 @@ class HostState : public std::enable_shared_from_this<HostState> {
     std::string native_mode_;
     FeedFrameMsg request_{};
     FeedGuideState request_guides_{};
+    // Shared-mapping ring (helper CPU route only). submit() queues frames and
+    // the pipe worker stages each into its ring slot before the prior ack, so
+    // the helper starts the next frame with no copy left on its wake path.
+    struct CpuQueuedFrame {
+        FeedFrameMsg request{};
+        std::vector<uint8_t> pixels;
+        std::vector<float> depth;
+        unsigned slot = 0;
+        bool depth_present = false;
+        uint32_t depth_dims = 0; // Packed captured depth size; 0 = color size.
+        uint64_t tuning_revision = 0;
+        std::chrono::steady_clock::time_point queued_at{};
+    };
+    struct CpuCompletedFrame {
+        unsigned slot = 0; // Output plane stays in the mapping until consumed.
+        uint64_t tuning_revision = 0;
+        double roundtrip_ms = 0;
+    };
+    // The mapping lives here (created by the pipe worker) so the render
+    // thread can lease a slot and copy readback straight into it, and copy a
+    // completed output straight out, instead of round-tripping CPU vectors.
+    CpuFrameMapping cpu_mapping_;
+    std::atomic<bool> cpu_mapping_ready_{false};
+    CpuRingSlots cpu_slots_;
+    std::optional<unsigned> cpu_input_lease_;
+    std::deque<CpuQueuedFrame> cpu_queue_;
+    std::deque<CpuCompletedFrame> cpu_outputs_;
+    CpuRingDepth cpu_ring_{1};
+    std::atomic<bool> cpu_ring_mode_{false};
+    std::atomic<Phase> cpu_phase_{Phase::Starting};
+    Handle cpu_prefetch_wake_;
+    unsigned cpu_held_ = 0; // Frames the pipe worker owns outside the queue.
+    void refresh_cpu_phase() {
+        const auto base = phase_.load();
+        if (base == Phase::Starting || base == Phase::OpenFences || base == Phase::Failed ||
+            base == Phase::Stopped) { cpu_phase_ = base; return; }
+        if (!cpu_outputs_.empty()) { cpu_phase_ = Phase::Finished; return; }
+        cpu_phase_ = cpu_ring_.admits(cpu_slots_.size()) ? Phase::Ready : Phase::Busy;
+    }
     int64_t queued_at_ns_=0;
     std::vector<uint8_t> input_, output_;
     std::vector<float> depth_input_;
@@ -642,6 +683,11 @@ class HostState : public std::enable_shared_from_this<HostState> {
         const auto session_folder = session_parent_ / fs::u8path(session_name_);
         require(fs::create_directory(session_folder), "Phoenix helper session already exists");
         folder = session_folder;
+        for (const wchar_t* name : {L"phoenix_motion_fidelityfx.dll", L"phoenix_motion_dis.dll"}) {
+            const auto original = cache.root / "motion" / name;
+            if (fs::is_regular_file(original) && !CreateHardLinkW((folder / name).c_str(), original.c_str(), nullptr))
+                fs::copy_file(original, folder / name);
+        }
         for (const wchar_t* name :
              {L"phoenix_graphics_host.exe", L"dxgi.dll", L"Phoenix.addon64"}) {
             require(!stopping_, "Graphics helper cancelled");
@@ -788,13 +834,43 @@ class HostState : public std::enable_shared_from_this<HostState> {
             transfer(&acknowledgement_, sizeof(acknowledgement_), false);
             require(acknowledgement_.ok == 1,
                     "64-bit helper rejected frame resources; see its log");
+            CpuFrameMapping& cpu_mapping = cpu_mapping_;
+            cpu_mapping_.reset();
+            cpu_mapping_ready_ = false;
+            if (build.cpu_bridge && build.width == build.output_width && build.height == build.output_height) {
+                for (unsigned slots : {4u, 2u, 1u})
+                    if (cpu_mapping.create(build.width, build.height, slots, slots > 1)) break;
+            }
+            if (cpu_mapping) {
+                tag = 'M';
+                if (cpu_mapping.slots() > 1)
+                    cpu_prefetch_wake_.value = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                FeedCpuMapping mapping{cpu_mapping.handle(), cpu_mapping.slots(),
+                    cpu_prefetch_wake_.value ? FEED_CPU_PREFETCH : 0u, uintptr_t(cpu_prefetch_wake_.value)};
+                uint32_t accepted = 0;
+                transfer(&tag, 1, true);
+                transfer(&mapping, sizeof(mapping), true);
+                transfer(&accepted, sizeof(accepted), false);
+                if (accepted != 1) cpu_mapping.reset();
+                else {
+                    cpu_mapping_ready_ = true;
+                    if (cpu_mapping.slots() > 1) {
+                        std::lock_guard lock(mutex_);
+                        cpu_ring_.reset(cpu_mapping.slots());
+                        cpu_ring_mode_ = true;
+                        refresh_cpu_phase();
+                    }
+                }
+            }
             phase_ = build.cpu_bridge ? Phase::Ready : Phase::OpenFences;
             stage = "frame processing";
             std::unique_lock lock(mutex_);
+            if (cpu_ring_mode_) refresh_cpu_phase();
             uint64_t ui_tick = 0;
             while (!stopping_) {
                 changed_.wait_for(lock, std::chrono::milliseconds(100), [&] {
-                    return stopping_ || phase_ == Phase::Busy || !ui_actions_.empty() || pending_tuning_;
+                    return stopping_ || phase_ == Phase::Busy || !cpu_queue_.empty() ||
+                           !ui_actions_.empty() || pending_tuning_;
                 });
                 if (stopping_)
                     break;
@@ -853,6 +929,116 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     ui_snapshot_ = std::move(snapshot);
                     ui_tick = GetTickCount64();
                 }
+                if (cpu_ring_mode_) {
+                    CpuQueuedFrame frame;
+                    if (cpu_queue_.empty()) {
+                        require(WaitForSingleObject(process_.value, 0) == WAIT_TIMEOUT,
+                                "Graphics helper exited");
+                        continue;
+                    }
+                    frame = std::move(cpu_queue_.front());
+                    cpu_queue_.pop_front();
+                    frame.tuning_revision = applied_tuning_revision_;
+                    cpu_held_ = 1;
+                    refresh_cpu_phase();
+                    lock.unlock();
+                    auto stage_frame = [&](CpuQueuedFrame& item, unsigned slot) {
+                        // Leased frames were copied into this slot by the
+                        // render thread during readback; only a depth vector
+                        // carried alongside (DX depth route) still needs staging.
+                        if (item.pixels.empty()) {
+                            if (!item.depth.empty()) {
+                                require(item.depth.size() == cpu_mapping.depth(slot).size(),
+                                        "Shared CPU depth size mismatch");
+                                std::memcpy(cpu_mapping.depth(slot).data(), item.depth.data(),
+                                            item.depth.size() * sizeof(float));
+                            }
+                            if (cpu_mapping.ready_frame(slot) != item.request.n)
+                                cpu_mapping.publish(slot, item.request.n, item.depth_present, item.depth_dims);
+                            if (cpu_prefetch_wake_.value) SetEvent(cpu_prefetch_wake_.value);
+                            MemoryBarrier();
+                            return;
+                        }
+                        require(item.pixels.size() == cpu_mapping.input(slot).size(),
+                                "Shared CPU color size mismatch");
+                        std::memcpy(cpu_mapping.input(slot).data(), item.pixels.data(), item.pixels.size());
+                        if (!item.depth.empty()) {
+                            require(item.depth.size() == cpu_mapping.depth(slot).size(),
+                                    "Shared CPU depth size mismatch");
+                            std::memcpy(cpu_mapping.depth(slot).data(), item.depth.data(),
+                                        item.depth.size() * sizeof(float));
+                        }
+                        cpu_mapping.publish(slot, item.request.n, item.depth_present, item.depth_dims);
+                        if (cpu_prefetch_wake_.value) SetEvent(cpu_prefetch_wake_.value);
+                        MemoryBarrier();
+                    };
+                    auto send_frame = [&](CpuQueuedFrame& item, unsigned slot) {
+                        if (item.depth_present) {
+                            tag = 'D';
+                            FeedCpuDepth message{item.request.n, slot, item.depth_dims};
+                            transfer(&tag, 1, true);
+                            transfer(&message, sizeof(message), true);
+                        }
+                        item.request.slot = slot;
+                        tag = 'F';
+                        transfer(&tag, 1, true);
+                        transfer(&item.request, sizeof(item.request), true);
+                    };
+                    unsigned slot = frame.slot;
+                    auto started = std::chrono::steady_clock::now();
+                    stage_frame(frame, slot);
+                    send_frame(frame, slot);
+                    while (true) {
+                        // Stage the next frame into its own slot while the
+                        // helper works on this one; the ack then costs only
+                        // the 'D'/'F' tags for an already-resident frame.
+                        std::optional<CpuQueuedFrame> next;
+                        unsigned next_slot = 0;
+                        {
+                            std::lock_guard queue_lock(mutex_);
+                            if (!cpu_queue_.empty() && !pending_tuning_ && ui_actions_.empty()) {
+                                next = std::move(cpu_queue_.front());
+                                cpu_queue_.pop_front();
+                                next->tuning_revision = applied_tuning_revision_;
+                                cpu_held_ = 2;
+                            } else if (cpu_queue_.empty()) cpu_ring_.starved();
+                        }
+                        if (next) {
+                            next_slot = next->slot;
+                            stage_frame(*next, next_slot);
+                        }
+                        FeedCpuFrameAck reply{};
+                        transfer(&reply, sizeof(reply), false);
+                        require(reply.ok == 1 && reply.row_bytes == build.output_width * 4,
+                                "Graphics helper rejected CPU frame");
+                        MemoryBarrier();
+                        const double roundtrip = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - started).count();
+                        {
+                            // Output stays in its slot; the consumer copies
+                            // it out under lease (or take() copies it here).
+                            std::lock_guard queue_lock(mutex_);
+                            cpu_outputs_.push_back({slot, frame.tuning_revision, roundtrip});
+                            cpu_held_ = next ? 1 : 0;
+                            refresh_cpu_phase();
+                        }
+                        changed_.notify_all();
+                        if (!next) break;
+                        const double waited = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - next->queued_at).count();
+                        if (roundtrip > 0 && waited > roundtrip * 2) {
+                            std::lock_guard queue_lock(mutex_);
+                            cpu_ring_.backlogged();
+                            refresh_cpu_phase();
+                        }
+                        frame = std::move(*next);
+                        slot = next_slot;
+                        started = std::chrono::steady_clock::now();
+                        send_frame(frame, slot);
+                    }
+                    lock.lock();
+                    continue;
+                }
                 if (phase_ != Phase::Busy) {
                     require(WaitForSingleObject(process_.value, 0) == WAIT_TIMEOUT,
                             "Graphics helper exited");
@@ -866,6 +1052,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 auto fence = output_fence_;
                 lock.unlock();
                 auto started = std::chrono::steady_clock::now();
+                if (cpu_mapping) {
+                    require(pixels.size() == cpu_mapping.input().size(), "Shared CPU color size mismatch");
+                    std::memcpy(cpu_mapping.input().data(), pixels.data(), pixels.size());
+                    if (!depth.empty()) {
+                        require(depth.size() == cpu_mapping.depth().size(), "Shared CPU depth size mismatch");
+                        std::memcpy(cpu_mapping.depth().data(), depth.data(), depth.size() * sizeof(float));
+                    }
+                    MemoryBarrier();
+                }
                 if(guides.engine_motion){
                     require(!build.cpu_bridge,"CPU color transport does not carry engine motion textures");
                     tag='G';transfer(&tag,1,true);auto message=guides;transfer(&message,sizeof(message),true);
@@ -877,20 +1072,26 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     FeedCpuDepth message{request.n};
                     transfer(&tag, 1, true);
                     transfer(&message, sizeof(message), true);
-                    transfer(depth.data(), depth.size() * sizeof(float), true);
+                    if (!cpu_mapping) transfer(depth.data(), depth.size() * sizeof(float), true);
                 }
                 tag = 'F';
                 transfer(&tag, 1, true);
                 transfer(&request, sizeof(request), true);
                 std::vector<uint8_t> result;
                 if (build.cpu_bridge) {
-                    transfer(pixels.data(), pixels.size(), true);
+                    if (!cpu_mapping) transfer(pixels.data(), pixels.size(), true);
                     FeedCpuFrameAck reply{};
                     transfer(&reply, sizeof(reply), false);
                     require(reply.ok == 1 && reply.row_bytes == build.output_width * 4,
                             "Graphics helper rejected CPU frame");
-                    result.resize(size_t(reply.row_bytes) * build.output_height);
-                    transfer(result.data(), result.size(), false);
+                    if (cpu_mapping) {
+                        MemoryBarrier();
+                        const auto output = cpu_mapping.output();
+                        result.assign(output.begin(), output.end());
+                    } else {
+                        result.resize(size_t(reply.row_bytes) * build.output_height);
+                        transfer(result.data(), result.size(), false);
+                    }
                 } else {
                     require(fence != nullptr, "Shared output fence not opened");
                     hr(fence->SetEventOnCompletion(request.n, fence_event_.value));
@@ -913,6 +1114,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 phase_ = Phase::Finished;
             }
         } catch (const std::exception& error) {
+            cpu_mapping_ready_ = false;
             std::lock_guard lock(mutex_);
             error_ = std::string(stage) + ": " + error.what();
             if (!folder.empty())
@@ -920,6 +1122,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                           phoenix_model::source_path_string(folder / "dlss5-feed-host.log");
             phase_ = stopping_ ? Phase::Stopped : Phase::Failed;
         }
+        cpu_mapping_ready_ = false;
         if (stopping_ && !capture_requested_ && process_.value &&
             WaitForSingleObject(process_.value, 0) == WAIT_OBJECT_0) {
             if (pipe_.value && pipe_.value != INVALID_HANDLE_VALUE) {
@@ -983,7 +1186,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
         return native_||local_gpu_?GetCurrentProcessId():child_pid_.load();
     }
     Phase phase() const {
-        return phase_.load();
+        const auto base = phase_.load();
+        return cpu_ring_mode_ && base == Phase::Ready ? cpu_phase_.load() : base;
     }
     FeedBuildAck fences() {
         require(phase() == Phase::OpenFences, "No shared fence handshake");
@@ -995,8 +1199,31 @@ class HostState : public std::enable_shared_from_this<HostState> {
         phase_ = Phase::Ready;
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {}) {
+                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {},
+                uint32_t depth_dims = 0) {
         std::lock_guard lock(mutex_);
+        if (cpu_ring_mode_) {
+            if (!cpu_mapping_ready_ || iterations < 1 || iterations > 10 || phase() == Phase::Failed ||
+                phase() == Phase::Stopped)
+                return false;
+            require(feed_guides_valid(guides), "Invalid engine motion declaration");
+            require(!guides.engine_motion, "CPU color transport does not carry engine motion textures");
+            if (!cpu_ring_.admits(cpu_slots_.size()))
+                return false;
+            CpuQueuedFrame frame;
+            frame.request = {serial, uint32_t(reset), uint32_t(model_enabled_), iterations, 0, 0};
+            frame.pixels = std::move(pixels);
+            frame.depth = std::move(depth);
+            frame.depth_present = !frame.depth.empty();
+            frame.depth_dims = depth_dims;
+            frame.slot = cpu_slots_.acquire(cpu_ring_.slots());
+            frame.tuning_revision = applied_tuning_revision_;
+            frame.queued_at = std::chrono::steady_clock::now();
+            cpu_queue_.push_back(std::move(frame));
+            refresh_cpu_phase();
+            changed_.notify_all();
+            return true;
+        }
         if (phase() != Phase::Ready || iterations < 1 || iterations > 10)
             return false;
         request_ = {serial, uint32_t(reset), uint32_t(model_enabled_), iterations, 0};
@@ -1011,8 +1238,99 @@ class HostState : public std::enable_shared_from_this<HostState> {
         changed_.notify_all();
         return true;
     }
+    // In-place slot leases (ring mode with a live mapping). The caller copies
+    // readback into the leased input planes, commits, later copies the output
+    // plane out and releases it. Slot reuse is bounded by the same admission
+    // accounting as queued frames, so a leased slot is never recycled early.
+    std::optional<unsigned> acquire_cpu_input() {
+        std::lock_guard lock(mutex_);
+        if (!cpu_ring_mode_ || !cpu_mapping_ready_ || cpu_input_lease_ ||
+            !cpu_ring_.admits(cpu_slots_.size())) return std::nullopt;
+        cpu_input_lease_ = cpu_slots_.acquire(cpu_ring_.slots());
+        refresh_cpu_phase();
+        return cpu_input_lease_;
+    }
+    void abandon_cpu_input() {
+        std::lock_guard lock(mutex_);
+        if (cpu_input_lease_) cpu_slots_.release(*cpu_input_lease_);
+        cpu_input_lease_.reset();
+        refresh_cpu_phase();
+        changed_.notify_all();
+    }
+    bool submit_cpu_input(unsigned slot, uint64_t serial, bool reset, bool depth_present,
+                          std::vector<float> depth = {}, uint32_t depth_dims = 0) {
+        std::lock_guard lock(mutex_);
+        if (!cpu_ring_mode_ || !cpu_mapping_ready_ || cpu_input_lease_ != slot) return false;
+        CpuQueuedFrame frame;
+        frame.request = {serial, uint32_t(reset), uint32_t(model_enabled_), 1, 0, 0};
+        frame.slot = slot;
+        frame.depth = std::move(depth);
+        frame.depth_present = depth_present;
+        frame.depth_dims = depth_dims;
+        frame.tuning_revision = applied_tuning_revision_;
+        frame.queued_at = std::chrono::steady_clock::now();
+        if (frame.depth.empty()) {
+            cpu_mapping_.publish(slot, serial, depth_present, depth_dims);
+            if (cpu_prefetch_wake_.value) SetEvent(cpu_prefetch_wake_.value);
+        }
+        cpu_input_lease_.reset();
+        cpu_queue_.push_back(std::move(frame));
+        refresh_cpu_phase();
+        changed_.notify_all();
+        return true;
+    }
+    std::span<uint8_t> cpu_input_span(unsigned slot) { return cpu_mapping_.input(slot); }
+    std::span<float> cpu_depth_span(unsigned slot) { return cpu_mapping_.depth(slot); }
+    bool uses_cpu_ring() const { return cpu_ring_mode_; }
+    bool has_pending_cpu_frames() {
+        std::lock_guard lock(mutex_);
+        return cpu_slots_.size() != 0;
+    }
+    // Peek the oldest completed output plane without copying it. The caller
+    // must call release_cpu_output() exactly once when done reading it.
+    struct CpuOutput {
+        std::span<const uint8_t> pixels;
+        bool tuning_current;
+    };
+    std::optional<CpuOutput> lease_cpu_output() {
+        std::lock_guard lock(mutex_);
+        if (!cpu_ring_mode_ || cpu_outputs_.empty())
+            return std::nullopt;
+        const auto& completed = cpu_outputs_.front();
+        return CpuOutput{cpu_mapping_.output(completed.slot),
+                         completed.tuning_revision == tuning_revision_};
+    }
+    void release_cpu_output() {
+        std::lock_guard lock(mutex_);
+        require(cpu_ring_mode_ && !cpu_outputs_.empty(),
+                "No leased CPU output to release");
+        auto done = std::move(cpu_outputs_.front());
+        cpu_outputs_.pop_front();
+        cpu_slots_.release(done.slot);
+        completed_tuning_revision_ = done.tuning_revision;
+        taken_tuning_revision_ = completed_tuning_revision_;
+        roundtrip_ms_ = done.roundtrip_ms;
+        completed_at_ = GetTickCount64();
+        refresh_cpu_phase();
+        changed_.notify_all();
+    }
     std::vector<uint8_t> take() {
         std::lock_guard lock(mutex_);
+        if (cpu_ring_mode_) {
+            require(!cpu_outputs_.empty(), "No completed graphics frame");
+            const auto done = cpu_outputs_.front();
+            const auto output = cpu_mapping_.output(done.slot);
+            std::vector<uint8_t> pixels(output.begin(), output.end());
+            cpu_outputs_.pop_front();
+            cpu_slots_.release(done.slot);
+            completed_tuning_revision_ = done.tuning_revision;
+            taken_tuning_revision_ = completed_tuning_revision_;
+            roundtrip_ms_ = done.roundtrip_ms;
+            completed_at_ = GetTickCount64();
+            refresh_cpu_phase();
+            changed_.notify_all();
+            return pixels;
+        }
         require(phase() == Phase::Finished, "No completed graphics frame");
         auto result = std::move(output_);
         taken_tuning_revision_ = completed_tuning_revision_;
@@ -1038,6 +1356,10 @@ class HostState : public std::enable_shared_from_this<HostState> {
         snapshot["live_tuning"] = {{"requested_revision", tuning_revision_},
             {"applied_revision", applied_tuning_revision_}, {"presented_revision", taken_tuning_revision_},
             {"pending", pending_tuning_.has_value()}};
+        if (cpu_ring_mode_)
+            snapshot["cpu_ring"] = {{"slots", cpu_ring_.slots()}, {"active_depth", cpu_ring_.limit()},
+                {"queued", cpu_queue_.size()}, {"held", cpu_held_},
+                {"outputs", cpu_outputs_.size()}};
         return snapshot;
     }
     bool update_tuning(const Settings& settings) {
@@ -1046,6 +1368,11 @@ class HostState : public std::enable_shared_from_this<HostState> {
         if (stopping_) return false;
         if (phase() == Phase::Failed || phase() == Phase::Stopped)
             return live_tuning_json(settings) == live_tuning_json(tuning_settings_);
+        // A staged native worker can replace its network transactionally on
+        // the same queue. Keep the game's capture resources and the private
+        // D3D12 device alive across model selections.
+        const bool staged_model_changed = local_gpu_ && tuning_settings_.model_id != settings.model_id;
+        if (staged_model_changed) tuning_settings_.model_id = settings.model_id;
         const bool view_changed=(portable_||local_gpu_)&&phoenix_addon::phoenix::copy_live_selection(tuning_settings_,settings);
         const bool controls_changed=phoenix_addon::phoenix::copy_live_tuning(tuning_settings_, settings);
         const bool helper=!portable_&&!native_&&!local_gpu_;
@@ -1054,7 +1381,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
             legacy_depth_fields(helper_options) = legacy_depth_fields(tuning_settings_.pipeline);
         const bool motion_changed = (helper || native_ || portable_) &&
             copy_helper_motion(tuning_settings_.pipeline, helper_options);
-        if (view_changed||controls_changed||motion_changed) {
+        if (view_changed||controls_changed||motion_changed||staged_model_changed) {
             auto patch=live_tuning_json(tuning_settings_);
             if(helper)patch.update(helper_motion_json(tuning_settings_.pipeline));
             pending_tuning_ = patch.dump();
@@ -1121,6 +1448,7 @@ class HostClient {
         return state_->process_id();
     }
     bool in_process_portable() const { return portable_; }
+    bool in_process_staged() const { return local_gpu_; }
     bool in_process() const {return portable_||native_.has_value()||local_gpu_;}
     uint64_t last_serial() const {return last_serial_;}
     bool reusable_cpu_build(const FeedBuild& value) const {
@@ -1142,12 +1470,27 @@ class HostClient {
         state_->opened_fences(output);
     }
     bool submit(uint64_t serial, bool reset, std::vector<uint8_t> pixels = {},
-                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {}) {
+                uint32_t iterations = 1, FeedGuideState guides = {}, std::vector<float> depth = {},
+                uint32_t depth_dims = 0) {
         if (!depth.empty() && in_process()) return false;
-        const bool submitted=state_->submit(serial, reset, std::move(pixels), iterations, guides, std::move(depth));
+        const bool submitted=state_->submit(serial, reset, std::move(pixels), iterations, guides, std::move(depth), depth_dims);
         if(submitted)last_serial_=serial;
         return submitted;
     }
+    std::optional<unsigned> acquire_cpu_input() { return state_->acquire_cpu_input(); }
+    void abandon_cpu_input() { state_->abandon_cpu_input(); }
+    bool submit_cpu_input(unsigned slot, uint64_t serial, bool reset, bool depth_present,
+                          std::vector<float> depth = {}, uint32_t depth_dims = 0) {
+        const bool submitted = state_->submit_cpu_input(slot, serial, reset, depth_present, std::move(depth), depth_dims);
+        if (submitted) last_serial_ = serial;
+        return submitted;
+    }
+    std::span<uint8_t> cpu_input_span(unsigned slot) { return state_->cpu_input_span(slot); }
+    std::span<float> cpu_depth_span(unsigned slot) { return state_->cpu_depth_span(slot); }
+    bool uses_cpu_ring() const { return state_->uses_cpu_ring(); }
+    bool has_pending_cpu_frames() { return state_->has_pending_cpu_frames(); }
+    std::optional<HostState::CpuOutput> lease_cpu_output() { return state_->lease_cpu_output(); }
+    void release_cpu_output() { state_->release_cpu_output(); }
     std::vector<uint8_t> take() {
         return state_->take();
     }

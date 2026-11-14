@@ -12,7 +12,8 @@ inline bool pipeline_group(Context& context, PipelineSection section) {
             context.panel.execution_device == "native" && context.panel.mode != phoenix::nvidia,
         context.portable_chain_available,
         context.frame_services_available && context.final_frame_source && context.panel.mode != phoenix::nvidia,
-        section,context.motion_services_available,context.panel.processing.enabled&&context.panel.processing.resize_method!=0);
+        section,context.motion_services_available,context.panel.processing.enabled&&context.panel.processing.resize_method!=0,
+        context.x86_transport);
 }
 // All exercises the real task renderers in CPU tests; it is not a visible tab.
 inline bool draw_sections(Context& context, PanelPage page, bool advanced = false) {
@@ -57,15 +58,6 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
                     edited = true;
                 }
                 edited |= draw_comparison_controls(context);
-                if (context.final_frame_source) {
-                    ImGui::BeginDisabled(!context.legacy_depth_available);
-                    edited |= ImGui::Checkbox("Depth only", &context.panel.pipeline.legacy_depth_preview);
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                        ImGui::SetTooltip("Show the selected depth source in grayscale while neural rendering is enabled. Near surfaces are bright. Game depth shows black when the current game buffer is unavailable.");
-                    if (context.panel.pipeline.legacy_depth_preview && !context.legacy_depth_status.empty())
-                        ImGui::TextWrapped("%s", context.legacy_depth_status.c_str());
-                }
                 edited |= pipeline_group(context,PipelineSection::Inspection);
             }
             ImGui::BeginDisabled(!context.screenshot_pair_available);
@@ -100,7 +92,14 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
             edited |= draw_advanced_appearance(context);
             edited |= draw_signal_controls(context);
             edited |= draw_guide_controls(context);
-            if (context.final_frame_source && (all || ImGui::CollapsingHeader("Legacy depth"))) {
+            edited |= draw_reference_reset(context);
+            if (all || ImGui::CollapsingHeader("Temporal history and resets")) edited |= draw_history_controls(context);
+            return edited;
+        });
+        if (context.final_frame_source)
+            changed |= section_card(all,"depth_card","Depth",
+                "Depth source and guide shaping for legacy games without engine depth.",mint,[&] {
+                bool edited = false;
                 constexpr std::array<int, 5> source_ids{0, 4, 2, 1, 3};
                 const char* methods[]{"Auto", "Game depth", "NVIDIA NvDepthAnythingV2", "Depth Anything V2 Small", "None"};
                 const char* captions[]{"Auto", "Game depth", "NVIDIA", "Small", "None"};
@@ -113,6 +112,12 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
                     pipeline.legacy_depth = source_ids.at(choice);
                     edited = true;
                 }
+                ImGui::BeginDisabled(!context.legacy_depth_available);
+                edited |= ImGui::Checkbox("Half-resolution capture", &pipeline.legacy_depth_half_resolution);
+                phoenix_ui::item_help("Capture and send the depth guide at half resolution in each axis; the runtime resamples it onto the model grid. Much cheaper to read back; depth edges get blockier.");
+                edited |= ImGui::Checkbox("Validate depth", &pipeline.legacy_depth_validate);
+                phoenix_ui::item_help("Reject captured depth that is non-finite, outside [0,1], or flat before sending it. The helper validates again before accepting game depth either way.");
+                ImGui::EndDisabled();
                 ImGui::BeginDisabled(!context.legacy_depth_available || pipeline.legacy_depth == 3);
                 edited |= phoenix_ui::slider_float("Depth strength", &pipeline.legacy_depth_strength,
                     0.f, phoenix_pipeline::Options::maximum_depth_strength,
@@ -137,15 +142,17 @@ inline bool draw_sections(Context& context, PanelPage page, bool advanced = fals
                     }
                 }
                 ImGui::EndDisabled();
+                ImGui::BeginDisabled(!context.legacy_depth_available);
+                edited |= ImGui::Checkbox("Depth only", &context.panel.pipeline.legacy_depth_preview);
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Show the selected depth source in grayscale while neural rendering is enabled. Near surfaces are bright. Game depth shows black when the current game buffer is unavailable.");
                 if (!context.legacy_depth_available)
                     help("Available for Phoenix and NVIDIA DLSS5 on the external mono CPU capture helper.");
                 else if (!context.legacy_depth_status.empty())
                     ImGui::TextWrapped("%s", context.legacy_depth_status.c_str());
-            }
-            edited |= draw_reference_reset(context);
-            if (all || ImGui::CollapsingHeader("Temporal history and resets")) edited |= draw_history_controls(context);
-            return edited;
-        });
+                return edited;
+            });
         if (context.coherent_frames)
             changed |= section_card(all,"playback_card","Playback stability",
                 "Keep the game from alternating between raw input and processed output.",blue,[&] {
@@ -231,14 +238,12 @@ inline bool draw_controls(Context& context) {
     // tab's content height (ImGui retains that height across tab switches).
     const auto content_origin = ImGui::GetCursorScreenPos();
     const float content_bottom = content_origin.y + ImGui::GetContentRegionAvail().y;
-    const float footer = ImGui::GetContentRegionAvail().x >= 420.f
-        ? ImGui::GetFrameHeightWithSpacing() * 1.6f : ImGui::GetFrameHeightWithSpacing() * 3.8f;
     if (ImGui::BeginTabBar("phoenix_pages", ImGuiTabBarFlags_FittingPolicyScroll)) {
         const char* names[]{"Play", "Image", "Performance", "Setup", "Hotkeys"};
         for (int index = 0; index < int(PanelPage::All); ++index) {
             const auto flags = requested_page && *requested_page == PanelPage(index) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
             if (!ImGui::BeginTabItem(names[index],nullptr,flags)) continue;
-            const float height = std::max(1.f, content_bottom - footer - ImGui::GetCursorScreenPos().y);
+            const float height = std::max(1.f, content_bottom - ImGui::GetCursorScreenPos().y);
             if (ImGui::BeginChild("controls", ImVec2(0, height), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar)) {
                 ImGui::PushItemWidth(std::max(110.f, ImGui::GetContentRegionAvail().x * .52f));
                 changed |= draw_sections(context, PanelPage(index), advanced);
@@ -249,10 +254,6 @@ inline bool draw_controls(Context& context) {
         }
         ImGui::EndTabBar();
     }
-    ImGui::SetCursorScreenPos(ImVec2(content_origin.x, content_bottom - footer));
-    if (ImGui::BeginChild("metrics", ImVec2(0, footer), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
-        draw_metrics(context);
-    ImGui::EndChild();
     if (context.requested_page) {
         storage->SetInt(navigation_id,int(*context.requested_page));
         context.requested_page.reset();

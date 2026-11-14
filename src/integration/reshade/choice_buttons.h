@@ -11,7 +11,8 @@ namespace phoenix_ui {
 // Small, fixed option sets take one click. Every option in a group has the
 // same hit area; narrow panels wrap rows without shrinking the targets.
 inline bool choice_buttons(const char* label,int* value,const char* const* items,int count,
-                           const char* const* captions=nullptr,const uint8_t* enabled=nullptr) {
+                           const char* const* captions=nullptr,const uint8_t* enabled=nullptr,
+                           const char* const* route_notes=nullptr) {
     if(count<=0)return false;
     ImGui::TextUnformatted(label);
     const auto& style=ImGui::GetStyle();
@@ -45,6 +46,10 @@ inline bool choice_buttons(const char* label,int* value,const char* const* items
             if (const char* help=choice_help(label,i)) {
                 ImGui::Separator();
                 ImGui::TextUnformatted(help);
+            }
+            if (route_notes && route_notes[i]) {
+                ImGui::Separator();
+                ImGui::TextUnformatted(route_notes[i]);
             }
             if (enabled&&!enabled[i]) {
                 ImGui::Separator();

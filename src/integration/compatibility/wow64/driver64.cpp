@@ -38,7 +38,7 @@ struct Driver {
     ComPtr<ID3D12Fence> fence;
     ComPtr<ID3D12DescriptorHeap> views,samplers,clear_cpu;
     ComPtr<ID3D12QueryHeap> queries;
-    ComPtr<ID3D12Resource> workspace,weights,color,motion,output[2],resolved,timestamps,upload,readback;
+    ComPtr<ID3D12Resource> workspace,weights,color,motion,output[2],resolved,timestamps,upload,readback,aux;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
     uint64_t plane_bytes=0,serial=0,frequency=0;
     unsigned width=0,height=0,clear_words=0,caller_bits=0;
@@ -171,7 +171,8 @@ struct Driver {
         color=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT); motion=image(c.width,c.height,DXGI_FORMAT_R16G16_FLOAT);
         for(auto& value:output) value=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT);
         resolved=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT);
-        D3D12_DESCRIPTOR_HEAP_DESC heap{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,7,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
+        aux=image(c.width,c.height,DXGI_FORMAT_R16G16B16A16_FLOAT);
+        D3D12_DESCRIPTOR_HEAP_DESC heap{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,9,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
         hr(device->CreateDescriptorHeap(&heap,IID_PPV_ARGS(&views)));
         heap.NumDescriptors=1; heap.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_NONE; hr(device->CreateDescriptorHeap(&heap,IID_PPV_ARGS(&clear_cpu)));
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format=DXGI_FORMAT_R32_UINT; uav.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;
@@ -181,9 +182,10 @@ struct Driver {
         device->CreateUnorderedAccessView(workspace.Get(),nullptr,&uav,clear_cpu->GetCPUDescriptorHandleForHeapStart());
         clear_gpu=views->GetGPUDescriptorHandleForHeapStart();
         clear_gpu.ptr+=6*device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        heap.Type=D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER; heap.NumDescriptors=4; heap.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        heap.Type=D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER; heap.NumDescriptors=8; heap.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr(device->CreateDescriptorHeap(&heap,IID_PPV_ARGS(&samplers)));
         c.color_texture=texture_handle(color.Get(),0,false); c.motion_texture=texture_handle(motion.Get(),1,false);
+        c.aux_texture=texture_handle(aux.Get(),7,false);
         for(unsigned i=0;i<2;++i) {
             c.history_texture[i]=texture_handle(output[i].Get(),2+i,true);
             auto view=views->GetCPUDescriptorHandleForHeapStart();
@@ -199,8 +201,8 @@ struct Driver {
     }
     void frame(bridge::Channel& c) {
         require(c.target<2&&c.width==width&&c.height==height&&c.clear_words==clear_words&&c.caller_bits==caller_bits&&
-            bridge::valid_initialize(c),"Invalid or changed frame resources");
-        for(const auto& launch:c.launches) require(bridge::valid_launch(launch),"Invalid dispatch packet");
+            bridge::valid_frame(c),"Invalid or changed frame resources");
+        for(unsigned i=0;i<c.launch_total;++i) require(bridge::valid_launch(c.launches[i]),"Invalid dispatch packet");
         void* data=nullptr; D3D12_RANGE empty{};
         D3D12_TEXTURE_COPY_LOCATION a{},b{};
         if(!(c.frame_flags&1)) {
@@ -232,7 +234,8 @@ struct Driver {
         ID3D12DescriptorHeap* heaps[]{views.Get(),samplers.Get()}; list->SetDescriptorHeaps(2,heaps);
         const UINT sentinel[4]{UINT_MAX,UINT_MAX,UINT_MAX,UINT_MAX}; barrier();
         list->ClearUnorderedAccessViewUint(clear_gpu,clear_cpu->GetCPUDescriptorHandleForHeapStart(),workspace.Get(),sentinel,0,nullptr); barrier();
-        for(const auto& launch:c.launches) {
+        for(unsigned i=0;i<c.launch_total;++i) {
+            const auto& launch=c.launches[i];
             NVAPI_CU_KERNEL_LAUNCH_PARAMS packet{}; packet.hFunction=functions[launch.kernel]; packet.paramSize=launch.bytes;
             packet.gridDim={launch.grid[0],launch.grid[1],launch.grid[2]}; packet.blockDim={launch.block[0],launch.block[1],launch.block[2]};
             packet.pParams=const_cast<uint8_t*>(launch.arguments); nv(dispatch(list.Get(),&packet,1));

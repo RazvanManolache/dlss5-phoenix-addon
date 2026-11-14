@@ -6,6 +6,11 @@
 #include <d3d9.h>
 #include <d3dcompiler.h>
 #include <nvapi.h>
+#include <chrono>
+#include <bit>
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+#include <immintrin.h>
+#endif
 namespace phoenix_compat {
 // D3D9 cannot sample a multisampled depth-stencil surface directly. NVIDIA's
 // extended copy can resolve it into an R32F texture without changing game AA.
@@ -70,10 +75,20 @@ class D3D9Compositor {
     Ptr<IDirect3DDevice9> device_;
     std::optional<D3D9NvapiDepthResolve> nvapi_depth_;
     Ptr<IDirect3DTexture9> current_, captured_, matched_input_;
-    std::array<Ptr<IDirect3DTexture9>,2> capture_slots_;
-    std::array<DepthImage, 2> depth_targets_;
-    std::array<bool, 2> depth_captured_{};
-    Ptr<IDirect3DSurface9> depth_readback_;
+    static constexpr unsigned max_capture_slots = 4;
+    std::array<Ptr<IDirect3DTexture9>, max_capture_slots> capture_slots_;
+    std::array<DepthImage, max_capture_slots> depth_targets_;
+    // Readback source per slot: a plain copy of the resolved depth made at
+    // capture time. Reading the NVAPI-resolved texture directly with
+    // GetRenderTargetData forces a full GPU sync on the render thread
+    // (~15 ms measured in TTW); a normal-path texture reads back like the
+    // color capture does, because the copy is already retired by then.
+    std::array<Ptr<IDirect3DTexture9>, max_capture_slots> depth_plain_;
+    // The bridge starts the system-memory transfer after the snapshot fence,
+    // then polls a second fence before locking color or depth.
+    std::array<Ptr<IDirect3DSurface9>, max_capture_slots> depth_sysmem_;
+    std::array<bool, max_capture_slots> depth_captured_{};
+    std::array<bool, max_capture_slots> depth_staged_{};
     Ptr<IDirect3DSurface9> depth_source_;
     DepthImage depth_snapshot_;
     IDirect3DSurface9* depth_back_ = nullptr;
@@ -82,9 +97,16 @@ class D3D9Compositor {
     bool depth_backbuffer_pass_ = false, best_depth_backbuffer_ = false;
     bool depth_state_known_ = false, depth_writing_ = false, depth_reversed_ = false;
     unsigned depth_width_ = 0, depth_height_ = 0;
-    std::array<bool, 2> depth_tracked_{};
+    std::array<bool, max_capture_slots> depth_tracked_{};
     bool retry_present_depth_ = false;
     uint64_t depth_draws_ = 0, tracked_depth_copies_ = 0, present_depth_copies_ = 0;
+    // Full-screen depth snapshots are bounded per frame: distant scenes end
+    // many depth passes that each beat the vertex bar, and copying every one
+    // puts several full-frame copies inside the game's own rendering. Two
+    // (first good pass + one better) keep the guide current at bounded cost.
+    unsigned depth_snapshots_frame_ = 0;
+    double depth_getdata_ms_ = 0, depth_copy_ms_ = 0, depth_lock_ms_ = 0, depth_memcpy_ms_ = 0;
+    static constexpr unsigned max_depth_snapshots_frame = 2;
     uint64_t depth_copy_attempts_ = 0, depth_copy_failures_ = 0, resolved_depth_copies_ = 0;
     uint64_t depth_bindings_ = 0, unreadable_depth_bindings_ = 0, depth_viewport_mismatches_ = 0;
     D3DSURFACE_DESC last_unreadable_depth_{};
@@ -109,13 +131,12 @@ class D3D9Compositor {
         for (auto* texture : {std::addressof(captured_), std::addressof(matched_input_)})
             hr(device_->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET, format,
                                       D3DPOOL_DEFAULT, texture->GetAddressOf(), nullptr));
-        // Optional extra snapshot overlaps capture with inference. Allocation
-        // failure retains the original single-snapshot path.
-        device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
-                               D3DPOOL_DEFAULT,&capture_slots_[0],nullptr);
-        if(capture_slots_[0])
-            device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
-                                   D3DPOOL_DEFAULT,&capture_slots_[1],nullptr);
+        // Optional extra snapshots overlap capture with inference and feed
+        // the frame ring. Allocation failure keeps however many succeeded.
+        for (auto& texture : capture_slots_) {
+            if (FAILED(device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
+                                              D3DPOOL_DEFAULT,&texture,nullptr))) break;
+        }
         const char* source = R"(
 sampler2D current_image : register(s0);
 sampler2D model_input : register(s1);
@@ -162,13 +183,17 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         hr(device_->GetRenderTargetData(source.Get(), staging));
     }
     bool prefetch_available() const {return bool(capture_slots_[0]);}
-    unsigned capture_capacity()const{return capture_slots_[1]?2:1;}
-    void promote_submitted_capture(unsigned slot=0) {
-        if(capture_slots_.at(slot))captured_.Swap(capture_slots_[slot]);
+    unsigned capture_capacity() const {
+        unsigned count = 0;
+        while (count < max_capture_slots && capture_slots_[count]) ++count;
+        return count ? count : 1;
     }
-    void match_completed_input() {
-        auto source = surface(captured_.Get()), destination = surface(matched_input_.Get());
-        hr(device_->StretchRect(source.Get(), nullptr, destination.Get(), nullptr, D3DTEXF_NONE));
+    void match_completed_input(unsigned slot) {
+        auto& snapshot = capture_slots_.at(slot);
+        // All capture and composition commands use the same D3D9 device.
+        // Reusing the previous display texture for the next capture preserves
+        // that command order while keeping this exact snapshot on display.
+        matched_input_.Swap(snapshot ? snapshot : captured_);
     }
     void draw(IDirect3DSurface9* back, IDirect3DTexture9* processed, int mode,
               bool coherent_frames = false) {
@@ -253,6 +278,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         depth_backbuffer_pass_ = false;
     }
     void next_depth_frame(IDirect3DSurface9* back) {
+        depth_snapshots_frame_ = 0;
         depth_source_.Reset();
         depth_color_ = nullptr;
         depth_vertices_ = best_depth_vertices_ = 0;
@@ -266,6 +292,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
     bool tracking_depth() const { return depth_back_ != nullptr; }
     void capture_depth(IDirect3DSurface9* back, unsigned slot) {
         depth_captured_.at(slot) = false;
+        depth_staged_.at(slot) = false;
         depth_tracked_.at(slot) = false;
         if (!depth_back_) return;
         snapshot_depth_pass();
@@ -273,17 +300,66 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         if ((!best_depth_vertices_ || retry_present) && capture_present_depth(back, depth_targets_.at(slot))) {
             ++present_depth_copies_;
             depth_captured_.at(slot) = true;
-            return;
-        }
-        if (best_depth_vertices_) {
+        } else if (best_depth_vertices_) {
             std::swap(depth_snapshot_, depth_targets_.at(slot));
             depth_captured_.at(slot) = true;
             depth_tracked_.at(slot) = true;
             ++tracked_depth_copies_;
         }
+        if (depth_captured_.at(slot)) prepare_depth_readback(slot);
+    }
+    // Copy the captured depth into its plain readback texture while the GPU
+    // is still working asynchronously; the retire-time readback then only
+    // touches a normal-path texture whose contents are already final. The
+    // staging texture is half resolution in each axis: the R32F system-memory
+    // transfer measured ~9 ms per full plane in TTW, while the depth guide
+    // tolerates point-sampled half resolution expanded back on the CPU.
+    bool depth_validate_ = false;
+    bool depth_half_resolution_ = true;
+    unsigned depth_readback_width() const { return depth_half_resolution_ ? (width_ + 1) / 2 : width_; }
+    unsigned depth_readback_height() const { return depth_half_resolution_ ? (height_ + 1) / 2 : height_; }
+    void prepare_depth_readback(unsigned slot) {
+        try {
+            auto& plain = depth_plain_.at(slot);
+            if (plain) {
+                D3DSURFACE_DESC existing{};
+                hr(plain->GetLevelDesc(0, &existing));
+                if (existing.Width != depth_readback_width() || existing.Height != depth_readback_height()) {
+                    plain.Reset();
+                    depth_sysmem_.at(slot).Reset();
+                }
+            }
+            if (!plain) hr(device_->CreateTexture(depth_readback_width(), depth_readback_height(), 1,
+                               D3DUSAGE_RENDERTARGET, D3DFMT_R32F, D3DPOOL_DEFAULT, &plain, nullptr));
+            auto source = surface(depth_targets_.at(slot).texture.Get());
+            auto destination = surface(plain.Get());
+            hr(device_->StretchRect(source.Get(), nullptr, destination.Get(), nullptr,
+                                    depth_half_resolution_ ? D3DTEXF_POINT : D3DTEXF_NONE));
+        } catch (...) {
+            depth_plain_.at(slot).Reset(); // Fall back to reading the resolved texture.
+            depth_sysmem_.at(slot).Reset();
+        }
+    }
+    void stage_depth_readback(unsigned slot) {
+        depth_getdata_ms_ = 0;
+        if (!depth_captured_.at(slot) || depth_staged_.at(slot)) return;
+        const auto begin = std::chrono::steady_clock::now();
+        const auto [w, h] = depth_plane_extent(slot);
+        auto& staging = depth_sysmem_.at(slot);
+        if (!staging && FAILED(device_->CreateOffscreenPlainSurface(
+                w, h, D3DFMT_R32F, D3DPOOL_SYSTEMMEM, &staging, nullptr))) return;
+        const auto& plain = depth_plain_.at(slot);
+        Ptr<IDirect3DSurface9> source;
+        if (SUCCEEDED((plain ? plain : depth_targets_.at(slot).texture)->GetSurfaceLevel(0, &source)))
+            depth_staged_.at(slot) = SUCCEEDED(device_->GetRenderTargetData(source.Get(), staging.Get()));
+        depth_getdata_ms_ = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - begin).count();
     }
     Json depth_capture_status() const {
         return {{"eligible_depth_draws", depth_draws_}, {"tracked_copies", tracked_depth_copies_},
+                {"depth_getdata_ms", depth_getdata_ms_}, {"depth_copy_ms", depth_copy_ms_},
+                {"depth_lock_ms", depth_lock_ms_},
+                {"snapshots_this_frame", depth_snapshots_frame_},
                 {"present_copies", present_depth_copies_}, {"tracked_copy_attempts", depth_copy_attempts_},
                 {"tracked_copy_failures", depth_copy_failures_}, {"last_copy_error", last_depth_copy_error_},
                 {"msaa_resolves", resolved_depth_copies_},
@@ -309,6 +385,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
         return bool(*nvapi_depth_);
     }
     bool copy_depth(IDirect3DSurface9* source, bool reversed, DepthImage& target) {
+        if (depth_snapshots_frame_ >= max_depth_snapshots_frame) return false;
         try {
             if (!target.texture) hr(device_->CreateTexture(width_, height_, 1, D3DUSAGE_RENDERTARGET,
                 D3DFMT_R32F, D3DPOOL_DEFAULT, &target.texture, nullptr));
@@ -322,6 +399,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
                 }
                 target.reversed = reversed;
                 ++resolved_depth_copies_;
+                ++depth_snapshots_frame_;
                 return true;
             }
             Ptr<IDirect3DTexture9> texture;
@@ -331,6 +409,7 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
             const float display[]{0, 0, float(width_), reversed ? -1.f : 1.f};
             draw_quad(surface(target.texture.Get()).Get(), images, display);
             target.reversed = false;
+            ++depth_snapshots_frame_;
             return true;
         } catch (const std::exception& error) {
             last_depth_copy_error_ = error.what();
@@ -363,44 +442,97 @@ float4 main(float2 uv : TEXCOORD0) : COLOR0 {
     }
 
   public:
-    void readback_depth(unsigned slot, std::vector<float>& pixels) {
-        pixels.clear();
-        if (!depth_captured_.at(slot)) return;
+    void depth_capture_options(bool validate, bool half_resolution) {
+        depth_validate_ = validate;
+        depth_half_resolution_ = half_resolution;
+    }
+    double depth_getdata_ms() const { return depth_getdata_ms_; }
+    double depth_copy_ms() const { return depth_copy_ms_; }
+    double depth_memcpy_ms() const { return depth_memcpy_ms_; }
+    // Read the extent of this slot's actual surface. The setting can change
+    // while a capture is pending, and staging failure leaves full-size depth.
+    std::pair<unsigned, unsigned> depth_plane_extent(unsigned slot) const {
+        const auto& plain = depth_plain_.at(slot);
+        D3DSURFACE_DESC description{};
+        if (plain && SUCCEEDED(plain->GetLevelDesc(0, &description)))
+            return {description.Width, description.Height};
+        return {width_, height_};
+    }
+    bool readback_depth_into(unsigned slot, std::span<float> out) {
+        if (!depth_captured_.at(slot)) return false;
         depth_captured_[slot] = false;
+        if (!std::exchange(depth_staged_.at(slot), false)) return false;
+        const auto [src_w, src_h] = depth_plane_extent(slot);
+        if (out.size() < size_t(src_w) * src_h) return false;
         // A copied pass may still be flat or unreadable. Try the exact
         // presentation attachment on the next eligible capture.
         retry_present_depth_ |= depth_tracked_.at(slot);
-        if (!depth_readback_ && FAILED(device_->CreateOffscreenPlainSurface(width_, height_,
-                D3DFMT_R32F, D3DPOOL_SYSTEMMEM, &depth_readback_, nullptr))) return;
         const auto& source = depth_targets_.at(slot);
-        Ptr<IDirect3DSurface9> resolved;
-        if (FAILED(source.texture->GetSurfaceLevel(0, &resolved)) ||
-            FAILED(device_->GetRenderTargetData(resolved.Get(), depth_readback_.Get()))) return;
-        pixels.resize(size_t(width_) * height_);
+        IDirect3DSurface9* readback_surface = depth_sysmem_.at(slot).Get();
+        const auto copy_begin = std::chrono::steady_clock::now();
         D3DLOCKED_RECT mapped{};
-        if (FAILED(depth_readback_->LockRect(&mapped, nullptr, D3DLOCK_READONLY))) {
-            pixels.clear();
-            return;
+        if (FAILED(readback_surface->LockRect(&mapped, nullptr, D3DLOCK_READONLY | D3DLOCK_DONOTWAIT))) return false;
+        depth_lock_ms_ = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - copy_begin).count();
+        if (!mapped.pBits || mapped.Pitch < int(src_w * sizeof(float))) {
+            readback_surface->UnlockRect();
+            return false;
         }
-        if (!mapped.pBits || mapped.Pitch < int(width_ * sizeof(float))) {
-            depth_readback_->UnlockRect();
-            pixels.clear();
-            return;
+        // Copy the captured plane at its own resolution; the helper feeds
+        // it to the runtime, which resamples depth onto the neural canvas.
+        // Optional validation shares this one sweep (range tracked on the
+        // original values before any are flipped).
+        bool valid = true;
+        float minimum = std::numeric_limits<float>::infinity();
+        float maximum = -std::numeric_limits<float>::infinity();
+        float* __restrict dest_all = out.data();
+        if (source.reversed) {
+            for (unsigned y = 0; y < src_h; ++y) {
+                const auto* row = reinterpret_cast<const float*>(
+                    static_cast<const uint8_t*>(mapped.pBits) + size_t(y) * mapped.Pitch);
+                float* __restrict destination = dest_all + size_t(y) * src_w;
+                for (unsigned x = 0; x < src_w; ++x) {
+                    const float value = row[x];
+                    if (depth_validate_) {
+                        valid &= (std::bit_cast<uint32_t>(value) & 0x7f800000u) != 0x7f800000u &&
+                                 value >= 0 && value <= 1;
+                        minimum = (std::min)(minimum, value);
+                        maximum = (std::max)(maximum, value);
+                    }
+                    destination[x] = 1.f - value;
+                }
+            }
+        } else {
+            for (unsigned y = 0; y < src_h; ++y)
+                std::memcpy(dest_all + size_t(y) * src_w,
+                            static_cast<const uint8_t*>(mapped.pBits) + size_t(y) * mapped.Pitch,
+                            size_t(src_w) * sizeof(float));
+            if (depth_validate_) {
+                const size_t count = size_t(src_w) * src_h;
+                for (size_t i = 0; i < count; ++i) {
+                    const float value = dest_all[i];
+                    valid &= (std::bit_cast<uint32_t>(value) & 0x7f800000u) != 0x7f800000u &&
+                             value >= 0 && value <= 1;
+                    minimum = (std::min)(minimum, value);
+                    maximum = (std::max)(maximum, value);
+                }
+            }
         }
-        for (unsigned y = 0; y < height_; ++y)
-            std::memcpy(pixels.data() + size_t(y) * width_,
-                        static_cast<const uint8_t*>(mapped.pBits) + size_t(y) * mapped.Pitch,
-                        size_t(width_) * sizeof(float));
-        depth_readback_->UnlockRect();
-        if (!std::all_of(pixels.begin(), pixels.end(), [](float z) { return std::isfinite(z) && z >= 0 && z <= 1; })) {
-            pixels.clear();
-            return;
-        }
-        if (source.reversed)
-            for (auto& pixel : pixels) pixel = 1.f - pixel;
-        const auto [minimum, maximum] = std::minmax_element(pixels.begin(), pixels.end());
-        if (*maximum - *minimum <= 1e-6f) pixels.clear();
-        else if (depth_tracked_.at(slot)) retry_present_depth_ = false;
+        readback_surface->UnlockRect();
+        depth_copy_ms_ = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - copy_begin).count();
+        depth_memcpy_ms_ = depth_copy_ms_;
+        if (depth_validate_ && !valid) return false;
+        if (depth_validate_ && maximum - minimum <= 1e-6f) return false;
+        if (depth_tracked_.at(slot)) retry_present_depth_ = false;
+        return true;
+    }
+    void readback_depth(unsigned slot, std::vector<float>& pixels) {
+        pixels.clear();
+        if (!depth_captured_.at(slot)) return;
+        const auto [width, height] = depth_plane_extent(slot);
+        pixels.resize(size_t(width) * height);
+        if (!readback_depth_into(slot, pixels)) pixels.clear();
     }
 
   private:

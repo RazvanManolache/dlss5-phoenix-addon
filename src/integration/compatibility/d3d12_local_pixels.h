@@ -68,7 +68,21 @@ public:
         auto& r=*resources_;
         if(software_test_device)r.device=software_test_device;
         else {
-            Com<IDXGIFactory6> factory;checked(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+            // A game-local DXGI proxy can enumerate Vulkan-backed adapters
+            // that the real D3D12 runtime cannot open. The staged device only
+            // exchanges pixels, so select an adapter through Windows DXGI.
+            wchar_t system[MAX_PATH]{};
+            const auto length = GetSystemDirectoryW(system, MAX_PATH);
+            if (!length || length >= MAX_PATH) throw std::runtime_error("Windows system directory is unavailable");
+            const auto path = std::filesystem::path(system) / L"dxgi.dll";
+            const auto system_dxgi = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            if (!system_dxgi) throw std::runtime_error("System DXGI is unavailable for local native inference");
+            struct ReleaseModule { HMODULE value; ~ReleaseModule() { FreeLibrary(value); } } dxgi{system_dxgi};
+            const auto create_factory = reinterpret_cast<decltype(&CreateDXGIFactory1)>(
+                GetProcAddress(system_dxgi, "CreateDXGIFactory1"));
+            if (!create_factory) throw std::runtime_error("System DXGI does not expose CreateDXGIFactory1");
+            Com<IDXGIFactory6> factory;
+            checked(create_factory(IID_PPV_ARGS(&factory)));
             for(UINT index=0;;++index) {
                 Com<IDXGIAdapter1> adapter;
                 const auto found = factory->EnumAdapterByGpuPreference(index,DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,

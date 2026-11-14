@@ -12,38 +12,58 @@ enum class PipelineSection { Motion, Responsiveness, Chain, Inspection, Recovery
 inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
     const std::string& model_library = {}, bool native_chain = true,
     bool portable_chain = false, bool frame_services = true,
-    PipelineSection section = PipelineSection::All, bool motion_services = false,bool managed_resize=false) {
+    PipelineSection section = PipelineSection::All, bool motion_services = false,bool managed_resize=false,
+    bool x86_transport = false) {
     if (section == PipelineSection::All &&
         !ImGui::CollapsingHeader("Motion, latency and processing chain")) return false;
     bool changed = false;
     if (section == PipelineSection::Motion || section == PipelineSection::All) {
         if(!frame_services&&!motion_services&&!portable_chain)ImGui::TextWrapped("Flow and scene analysis require a compatible final-frame bridge or Native RTX helper. Pipeline-age controls require the local bridge.");
-        ImGui::BeginDisabled(!frame_services&&!motion_services);
+        ImGui::BeginDisabled(!frame_services&&!motion_services&&!x86_transport);
         changed |= ImGui::Checkbox("Estimate motion when engine vectors are unavailable", &p.motion_enabled);
-        const char* providers[]{"Automatic (prefer engine vectors)", "Engine vectors", "NVIDIA Optical Flow", "Zero motion"};
-        const char* provider_captions[]{"Auto","Engine","Optical flow","Zero"};
-        changed |= choice_buttons("Motion source", &p.motion_source, providers, 4,provider_captions);
-        const bool estimating=p.motion_enabled&&(p.motion_source==0||p.motion_source==2);
+        const char* motion_route = "In x86 games this forces the external x64 helper if the installed in-process runtime cannot provide the requested motion services. This applies in Automatic and locks the execution selector while required.";
+        if (x86_transport && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", motion_route);
+        const char* providers[]{"Automatic (prefer engine vectors)", "Engine vectors", "NVIDIA Optical Flow", "Zero motion",
+            "AMD FidelityFX Optical Flow", "OpenCV DIS (CPU)", "D3D12 Video Motion Estimation", "Luma block matching"};
+        const char* provider_captions[]{"Auto","Engine","NVIDIA flow","Zero","FidelityFX","OpenCV DIS","D3D12 Video","Luma blocks"};
+        const char* route_notes[]{motion_route, motion_route, motion_route, motion_route,
+            motion_route, motion_route, motion_route, motion_route};
+        changed |= choice_buttons("Motion source", &p.motion_source, providers, int(std::size(providers)), provider_captions,
+            nullptr, x86_transport ? route_notes : nullptr);
+        const auto source = phoenix_pipeline::MotionSource(p.motion_source);
+        const bool nvidia = source == phoenix_pipeline::MotionSource::Automatic || source == phoenix_pipeline::MotionSource::Nvidia;
+        const bool estimating = p.motion_enabled && (nvidia || phoenix_pipeline::alternative_motion(source));
         ImGui::BeginDisabled(!estimating);
         changed |= phoenix_ui::slider_int("Motion analysis height", &p.flow_height, 64, 2160, phoenix_pipeline::Options{}.flow_height);
-        ImGui::TextWrapped("Analysis preserves aspect ratio and never exceeds the input size. Lower heights reduce estimation work; neural output resolution is unchanged.");
+        ImGui::TextWrapped("Analysis preserves aspect ratio. D3D12 Video uses even dimensions for NV12. Lower heights reduce estimation work; neural output resolution is unchanged.");
+        ImGui::BeginDisabled(!nvidia);
         changed |= phoenix_ui::slider_float("Motion consistency tolerance (pixels)", &p.flow_consistency, .1f, 20.f, phoenix_pipeline::Options{}.flow_consistency);
         changed |= phoenix_ui::slider_float("Motion cost threshold (per mille)", &p.flow_cost, 1.f, 990.f, phoenix_pipeline::Options{}.flow_cost);
         const char* views[]{"Processed image", "Motion direction and magnitude", "Motion confidence"};
         changed |= choice_buttons("Motion diagnostic view", &p.motion_view, views, 3);
         ImGui::EndDisabled();
-        ImGui::TextWrapped("Engine vectors require a real producer. Missing or rejected motion uses spatial processing with history reset. Confidence views and rejection thresholds apply to estimated motion.");
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("Engine vectors require a real producer. Missing or rejected motion uses spatial processing with history reset. Confidence views and rejection thresholds apply when NVIDIA Optical Flow is active.");
         changed |= ImGui::Checkbox("Detect scene changes and reset history", &p.scene_detection);
+        if (x86_transport && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", motion_route);
         ImGui::EndDisabled();
     }
     if (section == PipelineSection::Responsiveness || section == PipelineSection::All) {
-        ImGui::BeginDisabled(!frame_services);
+        ImGui::BeginDisabled(!frame_services && !x86_transport);
         const char* monitoring[]{"Off", "Basic (CPU counters)", "Detailed (sample GPU stages)"};
-        changed |= choice_buttons("Pipeline monitoring", &p.monitoring, monitoring, 3);
+        const char* monitoring_helper = "In an x86 game, this forces the external x64 helper when the installed in-process runtime lacks frame services.";
+        const char* monitoring_notes[]{nullptr, monitoring_helper, monitoring_helper};
+        changed |= choice_buttons("Pipeline monitoring", &p.monitoring, monitoring, 3, nullptr, nullptr,
+                                  x86_transport ? monitoring_notes : nullptr);
         ImGui::BeginDisabled(!p.monitoring);
         changed |= phoenix_ui::slider_int("GPU monitoring sample interval", &p.sample_interval, 1, 120, phoenix_pipeline::Options{}.sample_interval);
         const char* priority[]{"Keep quality fixed", "Prefer responsiveness", "Prefer image quality"};
-        changed |= choice_buttons("Adaptive priority", &p.priority, priority, 3);
+        const char* priority_helper = "Forces the external x64 helper in an x86 game, including in Automatic. Other execution mechanisms are locked while active.";
+        const char* priority_notes[]{nullptr, priority_helper, priority_helper};
+        changed |= choice_buttons("Adaptive priority", &p.priority, priority, 3, nullptr, nullptr,
+                                  x86_transport ? priority_notes : nullptr);
         changed |= phoenix_ui::slider_float("Pipeline age budget (ms)", &p.latency_ms, 5.f, 250.f, phoenix_pipeline::Options{}.latency_ms);
         changed |= ImGui::Checkbox("Allow motion resolution adjustment", &p.adjust_flow);
         changed |= phoenix_ui::slider_int("Minimum motion analysis height", &p.minimum_flow_height, 64, 1080, phoenix_pipeline::Options{}.minimum_flow_height);
@@ -56,8 +76,14 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         ImGui::EndDisabled();
     }
     if (section == PipelineSection::Chain || section == PipelineSection::All) {
+        const char* chain_route = "In x86 games, a non-default processing chain forces the external x64 helper if the installed in-process runtime cannot run it. This applies in Automatic and locks the execution mechanism while required.";
+        const auto show_chain_route = [&] {
+            if (x86_transport && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", chain_route);
+        };
         ImGui::BeginDisabled(!native_chain&&!portable_chain&&!p.chain_enabled);
         changed |= ImGui::Checkbox("Enable processing chain", &p.chain_enabled);
+        show_chain_route();
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!p.chain_enabled);
         if(portable_chain)ImGui::TextWrapped(frame_services?
@@ -71,11 +97,13 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
             ImGui::PushID(row);
             const int stage = p.order[unsigned(row)];
             changed |= ImGui::Checkbox(names[stage], &p.enabled[unsigned(stage)]);
+            show_chain_route();
             ImGui::SameLine();
             ImGui::BeginDisabled(row == 0);
             if (phoenix_ui::small_button("Move up") && row) {
                 std::swap(p.order[unsigned(row)], p.order[unsigned(row - 1)]); changed = true;
             }
+            show_chain_route();
             ImGui::EndDisabled();
             ImGui::PopID();
         }
@@ -86,7 +114,9 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         const uint8_t scaler_available[]{1,uint8_t(!portable_chain||frame_services),0,
             uint8_t(tiny_available&&(!portable_chain||frame_services))};
         const char* scaler_captions[]{"Existing","NIS","RTX VSR","Tiny 2x"};
-        changed |= choice_buttons("Additional upscaler",&p.scaler,scalers,4,scaler_captions,scaler_available);
+        const char* scaler_notes[]{nullptr, chain_route, nullptr, chain_route};
+        changed |= choice_buttons("Additional upscaler",&p.scaler,scalers,4,scaler_captions,scaler_available,
+            x86_transport ? scaler_notes : nullptr);
         if(managed_resize)ImGui::TextWrapped("Resize method is managed in Color and scaling. Choose Manual there to use this additional chain scaler.");
         if(p.scaler)ImGui::TextWrapped("NIS/tiny reconstruction currently uses explicit sRGB input encoding. Choose one reconstruction provider. Tiny models are installed through DLSS Everything.");
         changed |= phoenix_ui::slider_float("Scaling sharpness", &p.sharpness, 0.f, 1.f, phoenix_pipeline::Options{}.sharpness);
@@ -99,6 +129,7 @@ inline bool draw_pipeline_options(phoenix_pipeline::Options& p,
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!native_chain);
         changed |= ImGui::Checkbox("Experimental multiscale fusion", &p.fusion);
+        show_chain_route();
         ImGui::BeginDisabled(!p.fusion);
         changed |= phoenix_ui::slider_int("Fusion layers", &p.fusion_layers, 2, 3, phoenix_pipeline::Options{}.fusion_layers);
         changed |= phoenix_ui::slider_float("Second layer scale", &p.fusion_second_scale, .1f, 1.f, phoenix_pipeline::Options{}.fusion_second_scale);

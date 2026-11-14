@@ -25,7 +25,13 @@ inline bool draw_output_selection(Context& addon_state) {
     // All routes are always offered; an NVIDIA route without a live feature
     // defers honestly with the reason in status instead of hiding.
     const char* route_captions[]{"Input","NVIDIA","Compare","Phoenix"};
-    changed = choice_buttons("Output", &addon_state.panel.mode, route_labels, 4,route_captions) || changed;
+    const char* helper = "In an x86 game this forces the external x64 helper, including in Automatic. Other execution mechanisms are locked while required.";
+    const char* route_notes[]{nullptr, nullptr, nullptr, nullptr};
+    if (addon_state.x86_transport) {
+        route_notes[phoenix::nvidia] = helper;
+        route_notes[phoenix::split] = "A comparison that uses NVIDIA DLSS5 in an x86 game forces the external x64 helper, including in Automatic. Other execution mechanisms are locked while required.";
+    }
+    changed = choice_buttons("Output", &addon_state.panel.mode, route_labels, 4, route_captions, nullptr, route_notes) || changed;
     if (addon_state.direct_game)
         changed = phoenix::normalize_direct_comparison(addon_state.panel) || changed;
     if (addon_state.direct_game && !addon_state.direct_nr_ready &&
@@ -38,14 +44,16 @@ inline bool draw_resolution_controls(Context& addon_state) {
     bool changed = false;
     const phoenix::PanelVisibility visible{addon_state.panel};
     if (visible.neural() && addon_state.direct_game) {
-        ImGui::BeginDisabled(addon_state.portable_backbuffer);
+        ImGui::BeginDisabled(addon_state.portable_backbuffer && !addon_state.x86_transport);
         auto& processing = addon_state.panel.processing;
         constexpr float scales[]{100.f * 2.f / 3.f, 50.f, 100.f / 3.f};
         int resolution_mode = processing.enabled
             ? (processing.scale == 100.f ? 0 : processing.scale < 100.f ? 1 : -1)
             : addon_state.panel.resolution_mode;
         const char *modes[]{"Normal", "Super resolution"};
-        if (choice_buttons("Resolution mode", &resolution_mode, modes, 2)) {
+        const char* route_notes[]{nullptr, addon_state.x86_transport ?
+            "Forces the external x64 helper in x86 games, including in Automatic. Other execution mechanisms are locked while active." : nullptr};
+        if (choice_buttons("Resolution mode", &resolution_mode, modes, 2, nullptr, nullptr, route_notes)) {
             addon_state.panel.resolution_mode = resolution_mode;
             if (processing.enabled)
                 processing.scale = resolution_mode ? scales[std::clamp(addon_state.panel.resolution_quality, 0, 2)] : 100.f;
@@ -459,7 +467,10 @@ inline bool draw_kernel_style(Context& addon_state) {
             supported[index]=uint8_t(index==0 || (phoenix_kernel::style_supported(styles[index],architecture) &&
                 std::find(available.begin(),available.end(),styles[index])!=available.end()));
         }
-        if(choice_buttons("Native RTX kernel style",&selected_style,labels,4,nullptr,supported)) {
+        const char* helper = "Forces the external x64 helper in an x86 game, including in Automatic. Other execution mechanisms are locked while active.";
+        const char* route_notes[]{nullptr, helper, helper, helper};
+        if(choice_buttons("Native RTX kernel style",&selected_style,labels,4,nullptr,supported,
+                           addon_state.x86_transport ? route_notes : nullptr)) {
             addon_state.panel.native_kernel_style=styles[selected_style];changed=true;
         }
         if (metadata.contains("active"))
@@ -590,10 +601,14 @@ inline bool draw_comparison_controls(Context& addon_state) {
             changed |=
                 choice_buttons("View", &addon_state.panel.comparison, phoenix::comparison_names, 6);
         if (visible.pair_sources()) {
+            const char* route_notes[]{nullptr,
+                "Selecting NVIDIA DLSS5 in an x86 game forces the external x64 helper, including in Automatic. Other execution mechanisms are locked while required.", nullptr};
             changed |=
-                choice_buttons("Source A", &addon_state.panel.source_a, phoenix::source_names, 3);
+                choice_buttons("Source A", &addon_state.panel.source_a, phoenix::source_names, 3, nullptr, nullptr,
+                    addon_state.x86_transport ? route_notes : nullptr);
             changed |=
-                choice_buttons("Source B", &addon_state.panel.source_b, phoenix::source_names, 3);
+                choice_buttons("Source B", &addon_state.panel.source_b, phoenix::source_names, 3, nullptr, nullptr,
+                    addon_state.x86_transport ? route_notes : nullptr);
             if (phoenix_ui::button("Swap A / B")) {
                 std::swap(addon_state.panel.source_a, addon_state.panel.source_b);
                 changed = true;
@@ -646,6 +661,8 @@ inline bool draw_appearance_controls(Context& addon_state) {
     if (visible.neural()) {
         if(!addon_state.portable_backbuffer||addon_state.frame_services_available) {
             changed|=ImGui::Checkbox("Appearance overrides",&addon_state.live.appearance);
+            if (addon_state.x86_transport && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Enables the shared style and intensity controls. In x86 games this forces the external x64 helper if the installed in-process runtime lacks appearance support. The execution mechanism stays locked while required.");
             ImGui::BeginDisabled(!addon_state.live.appearance);
             changed|=phoenix_ui::slider_float("Overall intensity",&addon_state.live.intensity,0.f,2.f, phoenix_addon::PhoenixLiveControls{}.intensity,"%.2f",ImGuiSliderFlags_AlwaysClamp);
             const char* styles[]={"Default","Natural","Cinematic"};
@@ -745,6 +762,8 @@ inline bool draw_advanced_appearance(Context& addon_state) {
                     addon_state.panel.ui_correction = correction ? 1 : 0;
                     changed = true;
                 }
+                if (addon_state.x86_transport && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Enabling UI correction in an x86 game forces the external x64 helper, including in Automatic.");
                 ImGui::SameLine();
                 if (phoenix_ui::small_button("R##nr_uicorr")) {
                     addon_state.panel.ui_correction = 0;

@@ -1,10 +1,11 @@
 #include "../../src/native/support/model_tools.h"
 #include "../../src/native/support/routing.h"
 #include <iostream>
+#include <source_location>
 using Json = nlohmann::json;
-static void check(bool success) {
+static void check(bool success, std::source_location location = std::source_location::current()) {
     if (!success)
-        throw std::runtime_error("Model tools contract failed");
+        throw std::runtime_error("Model tools contract failed at line " + std::to_string(location.line()));
 }
 template <class F> static void rejects(F work) {
     bool failed = false;

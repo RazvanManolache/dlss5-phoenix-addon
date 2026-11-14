@@ -538,13 +538,12 @@ struct PhoenixNativeSession {
                 motion = estimated.motion;
                 motion_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
                 controls.reset = controls.reset || estimated.reset;
-                const bool valid=estimated.motion&&(estimated.source==phoenix_pipeline::MotionSource::Nvidia||
+                const bool valid=estimated.motion&&(phoenix_pipeline::estimated_motion(estimated.source)||
                     estimated.source==phoenix_pipeline::MotionSource::Engine);
                 ++motion_frames;
-                if(valid&&estimated.source==phoenix_pipeline::MotionSource::Nvidia)++estimated_motion_frames;
+                if(valid&&phoenix_pipeline::estimated_motion(estimated.source))++estimated_motion_frames;
                 if(controls.reset||!valid)++motion_resets;
-                const auto geometry=color->GetDesc();
-                const auto extent=phoenix_pipeline::flow_extent(unsigned(geometry.Width),geometry.Height,unsigned(pipeline.flow_height));
+                const auto extent=motion_provider->analysis_extent();
                 motion_report={int(estimated.source),valid,bool(controls.reset)||!valid,valid&&history&&!controls.reset,
                     extent[0],extent[1],motion_frames,estimated_motion_frames,motion_resets};
             } catch (...) {

@@ -17,6 +17,8 @@ def main():
     parser.add_argument('--experimental-native', action='store_true',
                         help='Build explicitly experimental multi-architecture kernels')
     parser.add_argument('--output', type=Path, help='Candidate directory under artifacts/current; default promotes the current package')
+    parser.add_argument('--motion-providers', type=Path,
+                        help='Directory produced by build_motion_providers.py')
     args = parser.parse_args()
     if args.output and not args.output.resolve().is_relative_to((ROOT/'artifacts/current').resolve()):
         parser.error('Candidate output must stay under artifacts/current')
@@ -36,7 +38,8 @@ def main():
                             *(['--experimental-native'] if args.experimental_native else [])], cwd=ROOT, check=True)
             subprocess.run([sys.executable, str(ROOT / 'tools/build_compatibility.py'), package.name,
                             '--core-build', str(core), '--reshade64', str(args.reshade64.resolve()),
-                            '--ngx-sdk', str(args.ngx_sdk.resolve())],
+                            '--ngx-sdk', str(args.ngx_sdk.resolve()),
+                            *(['--motion-providers', str(args.motion_providers.resolve())] if args.motion_providers else [])],
                            cwd=ROOT, check=True)
             report = json.loads((package / 'report.json').read_text())
             if report.get('passed') is not True:
@@ -46,6 +49,7 @@ def main():
             for name in ('Phoenix.addon32', 'Phoenix.addon64', 'phoenix_graphics_host.exe', 'report.json'):
                 shutil.copy2(package / name, current / name)
             shutil.copy2(core / 'report.json', current / 'core-build.json')
+            (current / 'BUILD_FAILURE.json').unlink(missing_ok=True)
             print('Promoted verified x86/x64 package to ' + str(current.relative_to(ROOT)), flush=True)
         except Exception:
             # Keep one compact failure receipt before disposable staging is

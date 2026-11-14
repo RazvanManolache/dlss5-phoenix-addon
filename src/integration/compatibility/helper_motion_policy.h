@@ -1,8 +1,12 @@
 #pragma once
 #include "../../pipeline/options.h"
 #include "../../../third_party/nlohmann/json.hpp"
+#include <cmath>
 #include <limits>
 #include <span>
+#if defined(_M_IX86) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
 
 namespace phoenix_compat {
 // A failed explicit game-depth capture never enables an estimator, including
@@ -60,22 +64,62 @@ inline void split_helper_motion_patch(phoenix_pipeline::Options& options,nlohman
     if(!next.valid())throw std::invalid_argument("Motion controls outside supported limits");
     options=next;core_patch=std::move(remaining);
 }
+// One sweep replacing the separate finite/range validation and min/max
+// passes callers used to run over every depth plane.
+struct DepthRange {
+    bool valid = false;
+    float minimum = 0.f, maximum = 0.f;
+};
+inline DepthRange depth_range_stats(std::span<const float> depth) {
+    if (depth.empty()) return {};
+    DepthRange result{true, std::numeric_limits<float>::infinity(),
+                      -std::numeric_limits<float>::infinity()};
+#if defined(_M_IX86) || defined(_M_X64)
+    const auto zero = _mm_setzero_ps(), one = _mm_set1_ps(1.f);
+    auto minimum = _mm_set1_ps(result.minimum), maximum = _mm_set1_ps(result.maximum);
+    auto valid = _mm_castsi128_ps(_mm_set1_epi32(-1));
+    size_t i = 0;
+    for (; i + 4 <= depth.size(); i += 4) {
+        const auto values = _mm_loadu_ps(depth.data() + i);
+        const auto in_range = _mm_and_ps(_mm_cmpge_ps(values, zero), _mm_cmple_ps(values, one));
+        valid = _mm_and_ps(valid, in_range);
+        // MINPS/MAXPS select the second operand if the sample is NaN.
+        minimum = _mm_min_ps(values, minimum);
+        maximum = _mm_max_ps(values, maximum);
+    }
+    if (i) {
+        alignas(16) float low[4], high[4];
+        _mm_store_ps(low, minimum);
+        _mm_store_ps(high, maximum);
+        result.minimum = *(std::min_element)(low, low + 4);
+        result.maximum = *(std::max_element)(high, high + 4);
+        result.valid = _mm_movemask_ps(valid) == 15;
+    }
+    depth = depth.subspan(i);
+#endif
+    for (const float value : depth) {
+        result.valid &= std::isfinite(value) && value >= 0.f && value <= 1.f;
+        result.minimum = (std::min)(result.minimum, value);
+        result.maximum = (std::max)(result.maximum, value);
+    }
+    return result;
+}
+
 // Input is conventional finite depth in [0,1]. Pivot at the center of the
 // observed range so hardware Z values clustered near 1 do not all clip.
+inline float adjust_depth_value(float value, float center, float strength) {
+    const float delta = value - center;
+    if (strength <= 1.f) return center + strength * delta;
+    if (delta == 0.f) return value;
+    const float room = delta > 0.f ? 1.f - center : center;
+    const float adjustment = strength / (1.f + (strength - 1.f) * (std::abs(delta) / room));
+    return std::clamp(center + adjustment * delta, 0.f, 1.f);
+}
 inline void adjust_legacy_depth(std::span<float> depth, float strength) {
     if (depth.empty() || strength == 1.f) return;
     const auto [minimum, maximum] = std::minmax_element(depth.begin(), depth.end());
     const float center = (*minimum + *maximum) * .5f;
-    for (auto& value : depth) {
-        const float delta = value - center;
-        if (strength <= 1.f) {
-            value = center + strength * delta;
-        } else if (delta != 0.f) {
-            const float room = delta > 0.f ? 1.f - center : center;
-            const float adjustment = strength / (1.f + (strength - 1.f) * (std::abs(delta) / room));
-            value = std::clamp(center + adjustment * delta, 0.f, 1.f);
-        }
-    }
+    for (auto& value : depth) value = adjust_depth_value(value, center, strength);
 }
 
 // Display near values as white using the source range before strength tuning.
@@ -96,14 +140,29 @@ inline bool prepare_legacy_depth(std::span<float> depth, float minimum, float ma
     if (!preview && !windowed && options.legacy_depth_strength == 1.f)
         return true;
 
-    remap_legacy_depth(depth, minimum, maximum);
-    if (windowed)
-        remap_legacy_depth(depth, options.legacy_depth_near, options.legacy_depth_far);
-    adjust_legacy_depth(depth, options.legacy_depth_strength);
-    // Preserve native Z units for the model guide. The preview
-    // displays the adjusted normalized map without stretching it a second time.
-    if (!preview)
-        for (auto& value : depth) value = std::lerp(minimum, maximum, value);
+    // Fused: both remaps in one sweep while tracking the remapped range,
+    // then strength adjustment and the return to native Z in a second sweep.
+    // This replaces the remap + min/max + adjust + lerp sequence value for
+    // value; the tracked range is the range adjust used to recompute.
+    const float scale = 1.f / (maximum - minimum);
+    const float window_scale = windowed ? 1.f / (options.legacy_depth_far - options.legacy_depth_near) : 1.f;
+    float remapped_minimum = std::numeric_limits<float>::infinity();
+    float remapped_maximum = -std::numeric_limits<float>::infinity();
+    for (auto& value : depth) {
+        value = std::clamp((value - minimum) * scale, 0.f, 1.f);
+        if (windowed)
+            value = std::clamp((value - options.legacy_depth_near) * window_scale, 0.f, 1.f);
+        remapped_minimum = (std::min)(remapped_minimum, value);
+        remapped_maximum = (std::max)(remapped_maximum, value);
+    }
+    const float center = (remapped_minimum + remapped_maximum) * .5f;
+    const float strength = options.legacy_depth_strength;
+    for (auto& value : depth) {
+        if (strength != 1.f) value = adjust_depth_value(value, center, strength);
+        // Preserve native Z units for the model guide. The preview
+        // displays the adjusted normalized map without stretching it again.
+        if (!preview) value = std::lerp(minimum, maximum, value);
+    }
     return true;
 }
 

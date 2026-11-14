@@ -85,8 +85,12 @@ inline phoenix_wow64::NativeDriverIdentity inspect_native_transport(const std::f
                                      const std::filesystem::path& native_system) {
     // Windows private offsets stay profile-bound; CUDA is discovered from the
     // installed driver and qualified by an isolated, content-keyed probe.
-    return phoenix_wow64::compatible_native_driver(root,
-        inspect_native_transport_package(root, native_system));
+    const auto profile = inspect_native_transport_package(root, native_system);
+    phoenix_bundle::require(phoenix_wow64::model_channel_has_frame_services(profile.value("model_channel_bytes", 0u)),
+        "WOW64 library packet does not match this add-on. Install the matching x86 runtime package.");
+    phoenix_bundle::require(profile.value("driver_channel_bytes", 0u) == sizeof(phoenix_driver_probe::Channel),
+        "WOW64 driver packet does not match this add-on. Install the matching x86 runtime package.");
+    return phoenix_wow64::compatible_native_driver(root, profile);
 }
 
 inline void inspect_driver_transport_graph(const std::filesystem::path& root) {

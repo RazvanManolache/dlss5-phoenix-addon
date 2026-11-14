@@ -3,6 +3,15 @@
 The [README](README.md) shows the latest dated release. Earlier highlights are
 kept here; each linked release note includes its validation details.
 
+## 1.2.0 — 2026-11-11
+
+- **Game depth for older DirectX games:** use compatible engine depth with Phoenix or NVIDIA DLSS5, including NVIDIA DX9 multisampled depth. Inspect it live in **Depth only**, or configure an optional estimator for games without usable depth.
+- **More control over scaling:** choose a resize filter, including NVIDIA Image Scaling on supported routes, and work at up to 400% resolution per dimension.
+- **Clearer controls and performance:** contextual tooltips, slider resets, and separate game and processed FPS readings.
+- **Less interruption while tuning:** live edits reuse the loaded model, and compatible helpers resume after focus-related resets.
+
+[1.2.0 release notes](docs/RELEASE_1.2.0.md).
+
 ## 1.1.6 — 2026-11-10
 
 - Fixed appearance with super resolution and custom processing scales.

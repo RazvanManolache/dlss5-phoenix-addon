@@ -27,6 +27,15 @@ int main() try {
     base.bits = 64; base.width = 2560; base.height = 1080;
     base.local_api = true; base.format = F::r8g8b8a8_unorm;
     base.native_library_available = base.native_driver_available = true;
+    auto forced = base;
+    forced.bits = 32;
+    forced.helper_required = "Selected options require the external x64 helper.";
+    forced.portable_available = true;
+    verify(choose_backbuffer_route(forced, automatic).route == BackbufferRoute::Helper);
+    verify(choose_backbuffer_route(forced, ExecutionPreference::NativeDriver).route == BackbufferRoute::Helper);
+    verify(available_execution_preferences(forced) == std::vector{ExecutionPreference::Helper});
+    forced.protected_resource = true;
+    verify(choose_backbuffer_route(forced, automatic).route == BackbufferRoute::Unsupported);
     for(auto api:{A::d3d9,A::d3d10,A::opengl}) {
         auto legacy=base;legacy.api=api;legacy.bits=32;legacy.format=F::b8g8r8x8_unorm;
         legacy.sdr=sdr_backbuffer(C::unknown,legacy.format);
@@ -58,6 +67,12 @@ int main() try {
         software.software_device = true;
         verify(choose_backbuffer_route(software, automatic).route == BackbufferRoute::Helper);
         verify(choose_backbuffer_route(software, ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
+        software.portable_available = true;
+        verify(choose_backbuffer_route(software, automatic).route == BackbufferRoute::Portable);
+        software.portable_frame_services_requested = true;
+        const bool dx10 = api == A::d3d10;
+        verify(choose_backbuffer_route(software, automatic).route == (dx10 ? BackbufferRoute::Helper : BackbufferRoute::Portable));
+        verify(choose_backbuffer_route(software, ExecutionPreference::Portable).route == (dx10 ? BackbufferRoute::Unsupported : BackbufferRoute::Portable));
     }
     for (auto format : {F::r8g8b8a8_unorm, F::r8g8b8a8_unorm_srgb, F::r8g8b8a8_typeless,
                        F::b8g8r8a8_unorm, F::b8g8r8a8_unorm_srgb, F::b8g8r8a8_typeless,
@@ -342,7 +357,7 @@ int main() try {
     verify(!*native_settings_unavailable_reason(native, true));
     native.model_id = "small-fp8";
     verify(!*native_settings_unavailable_reason(native, false));
-    verify(*native_settings_unavailable_reason(native, true));
+    verify(!*native_settings_unavailable_reason(native, true)); // Driver host accepts Lightweight FP8.
     native.model_id = "original"; native.block_repeats[0] = 2;
     verify(!*native_settings_unavailable_reason(native, false));
     verify(*native_settings_unavailable_reason(native, true));

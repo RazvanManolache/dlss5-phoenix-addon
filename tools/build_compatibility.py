@@ -129,6 +129,7 @@ def main():
     parser.add_argument("--core-build", type=Path, required=True)
     parser.add_argument("--reshade64", type=Path, required=True)
     parser.add_argument("--ngx-sdk", type=Path, required=True)
+    parser.add_argument("--motion-providers", type=Path, help="Directory produced by build_motion_providers.py")
     args = parser.parse_args()
     try:
         verify_manifest(ROOT)
@@ -164,6 +165,20 @@ def main():
     run("host", "64", f'cl /experimental:deterministic /pathmap:{ROOT}=PROJECT_SOURCE /nologo /std:c++20 /Zc:__cplusplus /O2 /EHsc /MT /DNOMINMAX {includes} '
         f'"{ROOT}/src/integration/compatibility/host/dlss5-feed-host64.cpp" /Fo:"{out}/host.obj" /Fe:"{out}/phoenix_graphics_host.exe" '
         '/link d3d12.lib dxgi.lib d3dcompiler.lib version.lib user32.lib gdi32.lib advapi32.lib ole32.lib windowscodecs.lib')
+    motion = {}
+    if args.motion_providers:
+        folder = args.motion_providers.resolve()
+        for name in ("phoenix_motion_fidelityfx.dll", "phoenix_motion_dis.dll"):
+            path = folder / name
+            required = {"PhoenixMotionCreateV1", "PhoenixMotionDestroyV1", "PhoenixMotionRunV1"}
+            if pe_machine(path) != 0x8664 or not required.issubset(pe_exports(path)):
+                parser.error("Invalid x64 motion-provider DLL " + name)
+            motion["motion/" + name] = path
+        for path in sorted(folder.glob("*.txt")):
+            motion["motion/" + path.name] = path
+        for name in ("FidelityFX-LICENSE.txt", "OpenCV-LICENSE.txt"):
+            if "motion/" + name not in motion:
+                parser.error("Missing motion-provider license " + name)
     original = json.loads((core / "embedded/manifest.json").read_text())
 
     def resources(arch):
@@ -180,6 +195,7 @@ def main():
                      "compatibility/ReShade-LICENSE.txt": ROOT / "third_party/compatibility_bridge/ReShade-LICENSE.txt",
                      "compatibility/Host-LICENSE.txt": ROOT / "third_party/compatibility_bridge/LICENSE",
                      "compatibility/Host-NOTICE.txt": ROOT / "third_party/compatibility_bridge/NOTICE"}
+        additions.update(motion)
         if arch == "32":
             additions["compatibility/Phoenix.addon64"] = core / "phoenix.addon64"
         for name, path in additions.items():
@@ -250,7 +266,8 @@ def main():
     (out / "report.json").write_text(json.dumps(dict(schema="phoenix-compatibility-build/1", passed=True,
         release_channel=channel,
         binaries=binaries, model_data_included=False, nvidia_dll_included=False,
-        gpu_inference_validated=False, core_source_build=str(core),
+        gpu_inference_validated=False,
+        motion_payload={name: file_sha256(path) for name, path in motion.items()}, core_source_build=str(core),
         link_inputs=linked_inputs, source_inputs=source_inputs,
         embedded_payload_verification=embedded_check,
         required_core_exports=sorted(CORE_ABI)), indent=2) + "\n")

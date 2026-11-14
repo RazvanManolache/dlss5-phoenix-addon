@@ -6,7 +6,11 @@ using Microsoft::WRL::ComPtr;
 using phoenix_native::hr;
 using phoenix_bundle::require;
 using Json=phoenix_bundle::Json;
-int main(){
+int main(int argc,char** argv){
+    const std::string mode = argc > 1 ? argv[1] : "";
+    const bool bench = mode == "block-match";
+    const auto providers = bench ? std::vector<int>{4,7} :
+        mode == "all" ? std::vector<int>{2,4,5,6,7} : std::vector<int>{2};
     try{
         ComPtr<ID3D12Debug> debug;hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
         ComPtr<IDXGIFactory6> factory;hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
@@ -23,7 +27,9 @@ int main(){
         auto submit=[&]{hr(command->Close());ID3D12CommandList* lists[]={command.Get()};queue->ExecuteCommandLists(1,lists);hr(queue->Signal(fence.Get(),++serial));
             HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);require(event!=nullptr,"Motion test event");hr(fence->SetEventOnCompletion(serial,event));
             const auto waited=WaitForSingleObject(event,30000);CloseHandle(event);require(waited==WAIT_OBJECT_0,"Motion test timeout");};
-        constexpr unsigned w=320,h=180;constexpr int dx=8,dy=4;
+        const unsigned w = bench ? 2560 : 320, h = bench ? 1080 : 180;
+        const int dx = bench ? 16 : 8, dy = bench ? 8 : 4;
+        const unsigned margin = bench ? 128 : 32;
         auto source=phoenix_native::image(device.Get(),w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,D3D12_RESOURCE_STATE_COMMON);
         const auto shape=source->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT upload_fp{};uint64_t upload_bytes=0;
         device->GetCopyableFootprints(&shape,0,1,0,&upload_fp,nullptr,nullptr,&upload_bytes);
@@ -40,43 +46,62 @@ int main(){
             buffer->Unmap(0,&empty);return result;
         };
         Json cases=Json::array();
-        for(int analysis_height:{180,90}){
+        for(int source_id : providers)
+        for(int analysis_height : (bench ? std::vector<int>{180,360,747} : std::vector<int>{180,90})){
             phoenix_pipeline::D3D12Motion provider(device.Get(),queue.Get(),fence.Get());
-            phoenix_pipeline::Options options;options.motion_enabled=true;options.motion_source=2;options.flow_height=analysis_height;
-            for(unsigned frame=0;frame<3;++frame){
+            phoenix_pipeline::Options options;options.motion_enabled=true;options.motion_source=source_id;options.flow_height=analysis_height;
+            std::vector<double> timings;
+            for(unsigned frame=0;frame<(bench?28u:source_id==4?9u:3u);++frame){
                 void* mapped=nullptr;D3D12_RANGE empty{};hr(upload->Map(0,&empty,&mapped));
                 for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){
                     auto* pixel=reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(mapped)+upload_fp.Footprint.RowPitch*y)+x*4;
                     // A known rigid translation of a nonperiodic textured plane.
                     const uint32_t sx=uint32_t(int(x)-int(frame)*dx+1024),sy=uint32_t(int(y)-int(frame)*dy+1024);
-                    uint32_t hash=(sx/3)*0x9e3779b9u+(sy/3)*0x85ebca6bu;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;
+                    const unsigned texture_scale = bench ? 9u : 3u;
+                    uint32_t hash=(sx/texture_scale)*0x9e3779b9u+(sy/texture_scale)*0x85ebca6bu;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;
                     for(unsigned c=0;c<3;++c)pixel[c]=DirectX::PackedVector::XMConvertFloatToHalf(.1f+float((hash>>(c*8))&255)/320.f);pixel[3]=0x3c00;
                 }upload->Unmap(0,nullptr);begin();
                 phoenix_native::transition(command.Get(),source.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
                 D3D12_TEXTURE_COPY_LOCATION from{upload.Get(),D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,upload_fp},to{source.Get(),D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,0};
                 command->CopyTextureRegion(&to,0,0,0,&from,nullptr);phoenix_native::transition(command.Get(),source.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);submit();
+                const auto started = std::chrono::steady_clock::now();
                 const auto estimated=provider.prepare(source.Get(),D3D12_RESOURCE_STATE_COMMON,nullptr,options,frame==0,int64_t(frame)*16666667,1,frame);
-                if(frame==0){require(estimated.reset&&estimated.motion==nullptr,"First frame did not prime history");continue;}
-                require(estimated.source==phoenix_pipeline::MotionSource::Nvidia&&estimated.motion&&estimated.rejection,"Hardware optical flow unavailable");
-                const auto vectors=read(provider.raw_motion()),gated=read(estimated.motion),rejection=read(estimated.rejection);provider.consumed(serial);
-                std::vector<float> errors;double mean_x=0,mean_y=0,trust=0;unsigned outside=0;
+                if(frame<(source_id==4?6u:1u)){require(estimated.reset&&estimated.motion==nullptr,"First frame did not prime history");continue;}
+                require(int(estimated.source)==source_id&&estimated.motion,provider.status().c_str());
+                if (bench && frame >= 8) timings.push_back(std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - started).count());
+                if (bench && frame != 27) { provider.consumed(serial); continue; }
+                const auto vectors=read(provider.raw_motion()),gated=read(estimated.motion),rejection=estimated.rejection?read(estimated.rejection):std::vector<uint8_t>(size_t(w)*h);provider.consumed(serial);
+                std::vector<float> errors;double mean_x=0,mean_y=0,trust=0;unsigned outside=0, interior=0;
                 for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){
                     uint16_t bits[2];memcpy(bits,vectors.data()+(size_t(y)*w+x)*4,4);
                     const float vx=DirectX::PackedVector::XMConvertHalfToFloat(bits[0]),vy=DirectX::PackedVector::XMConvertHalfToFloat(bits[1]);
                     uint16_t gate_bits[2];memcpy(gate_bits,gated.data()+(size_t(y)*w+x)*4,4);
                     const float gx=DirectX::PackedVector::XMConvertHalfToFloat(gate_bits[0]),gy=DirectX::PackedVector::XMConvertHalfToFloat(gate_bits[1]);
-                    if(rejection[size_t(y)*w+x]>=128)require(float(x)+gx>=w&&float(y)+gy>=h,"Rejected history still reaches neural reprojection");
+                    if(estimated.rejection&&rejection[size_t(y)*w+x]>=128)require(float(x)+gx>=w&&float(y)+gy>=h,"Rejected history still reaches neural reprojection");
                     else require(bits[0]==gate_bits[0]&&bits[1]==gate_bits[1],"Trusted motion changed at the history gate");
                     require(std::isfinite(vx)&&std::isfinite(vy),"Nonfinite optical flow");
-                    if(float(x)+vx<0||float(y)+vy<0||float(x)+vx>=w||float(y)+vy>=h){require(rejection[size_t(y)*w+x]==255,"Out-of-image history was trusted");++outside;}
-                    if(x>=32&&y>=32&&x<w-32&&y<h-32){errors.push_back(std::hypot(vx+dx,vy+dy));mean_x+=vx;mean_y+=vy;trust+=1.-rejection[size_t(y)*w+x]/255.;}
+                    if(float(x)+vx<0||float(y)+vy<0||float(x)+vx>=w||float(y)+vy>=h){if(estimated.rejection)require(rejection[size_t(y)*w+x]==255,"Out-of-image history was trusted");++outside;}
+                    if(x>=margin&&y>=margin&&x<w-margin&&y<h-margin){
+                        ++interior;
+                        if (source_id==7 && (gx>=2*w || gy>=2*h)) continue;
+                        errors.push_back(std::hypot(vx+dx,vy+dy));mean_x+=vx;mean_y+=vy;trust+=1.-rejection[size_t(y)*w+x]/255.;}
                 }
+                require(!errors.empty(), "No accepted interior motion");
                 std::sort(errors.begin(),errors.end());const float median=errors[errors.size()/2],p95=errors[errors.size()*95/100];
-                require(median<1.f&&p95<3.f,"Optical flow direction/scale does not match the known translation");
-                require(outside>100,"No disoccluded border was identified");
-                cases.push_back({{"analysis_height",analysis_height},{"frame",frame},{"expected_motion",{-dx,-dy}},
+                if (!bench && source_id == 7)
+                    require(double(errors.size()) / interior > .95 && outside > 100, "Block match coverage or border rejection regressed");
+                if (!bench) require(median<1.f&&p95<3.f,"Optical flow direction/scale does not match the known translation");
+                if(source_id==2)require(outside>100,"No disoccluded border was identified");
+                cases.push_back({{"provider",source_id},{"analysis_height",analysis_height},{"frame",frame},{"expected_motion",{-dx,-dy}},
                     {"mean_motion",{mean_x/errors.size(),mean_y/errors.size()}},{"endpoint_error_median",median},
-                    {"endpoint_error_p95",p95},{"interior_mean_confidence",trust/errors.size()},{"outside_rejected_pixels",outside},{"neural_history_rejection_verified",true}});
+                    {"endpoint_error_p95",p95},{"interior_coverage",double(errors.size())/interior},{"interior_mean_confidence",estimated.rejection?Json(trust/errors.size()):Json(nullptr)},{"outside_rejected_pixels",outside},{"neural_history_rejection_verified",estimated.rejection!=nullptr}});
+            }
+            if (!timings.empty()) {
+                std::sort(timings.begin(),timings.end());
+                cases.back()["motion_median_ms"] = timings[timings.size()/2];
+                cases.back()["motion_p95_ms"] = timings[(timings.size()*95-1)/100];
+                cases.back()["samples"] = timings.size();
             }
         }
         ComPtr<ID3D12InfoQueue> messages;hr(device.As(&messages));

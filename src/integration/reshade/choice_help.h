@@ -123,10 +123,14 @@ inline const char* choice_help(std::string_view group, int option) {
     if(group=="Depth")return "Choose the depth convention for real engine depth. Game depth follows the integration; the overrides supply a constant guide. Final-color capture has no geometry depth to adjust.";
     if(group=="Host HDR declare")return "Declare the signal convention used to create the NVIDIA feature. Match the actual host bridge; this is not an HDR enhancement effect. Changing a feature-create flag can reinitialize processing.";
     if(group=="Motion source") {
-        static constexpr const char* tips[]{"Recommended. Prefer real engine vectors, then estimate missing motion when a compatible provider is available. Missing or rejected guides reset history.",
+        static constexpr const char* tips[]{"Recommended. Prefer real engine vectors, then FidelityFX Optical Flow, then NVIDIA Optical Flow. Missing or rejected guides reset history.",
             "Use real engine-supplied vectors only. A final-color screenshot does not contain these guides; missing vectors fall back to spatial processing.",
             "Estimate motion with NVIDIA Optical Flow on supported hardware/routes. Estimation adds cost and can reject uncertain motion; inspect moving boundaries for ghosting.",
-            "Use no motion guides. Processing resets recurrence when trustworthy motion is absent. Useful as a spatial reference; it may show more frame-to-frame variation."};return pick(tips);
+            "Use no motion guides. Processing resets recurrence when trustworthy motion is absent. Useful as a spatial reference; it may show more frame-to-frame variation.",
+            "Estimate motion on the GPU with AMD FidelityFX shaders. Uses 8 x 8 blocks and works across GPU vendors on supported Direct3D 12 devices.",
+            "Estimate dense motion with OpenCV DIS UltraFast on the CPU. Analysis reads back grayscale pixels and uploads the resulting vectors.",
+            "Estimate motion on the Direct3D 12 video engine when the driver supports NV12 motion estimation at the selected analysis size.",
+            "Estimate motion with a lightweight GPU shader. Matches 8 x 8 luminance blocks against the previous frame and rejects uncertain matches. Fast movement, fine edges and flat regions can lose temporal detail."};return pick(tips);
     }
     if(group=="Motion diagnostic view")return "Switch between the processed image and estimated-motion diagnostics. Direction/magnitude and confidence views help find tracking failures; they do not increase enhancement quality.";
     if (group == "Depth source") {

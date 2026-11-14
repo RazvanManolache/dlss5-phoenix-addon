@@ -20,17 +20,24 @@ class DepthFreshness {
   public:
     void reset() { initialized_ = false; }
     bool accept(std::span<const uint8_t> rgba, std::span<const float> depth, unsigned width, unsigned height) {
-        const std::size_t pixels = std::size_t(width) * height;
-        if (!pixels || depth.size() != pixels || rgba.size() != pixels * 4) return false;
+        return accept(rgba, width, height, depth, width, height);
+    }
+    bool accept(std::span<const uint8_t> rgba, unsigned color_width, unsigned color_height,
+                std::span<const float> depth, unsigned depth_width, unsigned depth_height) {
+        if (!color_width || !color_height || !depth_width || !depth_height ||
+            depth.size() != std::size_t(depth_width) * depth_height ||
+            rgba.size() != std::size_t(color_width) * color_height * 4) return false;
         Signature color{};
         uint64_t signature = 14695981039346656037ull;
         for (unsigned y = 0; y < rows; ++y) {
             for (unsigned x = 0; x < columns; ++x) {
-                const std::size_t pixel = std::size_t((2 * y + 1) * height / (2 * rows)) * width +
-                    (2 * x + 1) * width / (2 * columns);
+                const std::size_t pixel = std::size_t((2 * y + 1) * color_height / (2 * rows)) * color_width +
+                    (2 * x + 1) * color_width / (2 * columns);
                 const auto* rgb = rgba.data() + pixel * 4;
                 color[y * columns + x] = (77 * rgb[0] + 150 * rgb[1] + 29 * rgb[2]) >> 8;
-                signature = (signature ^ std::bit_cast<uint32_t>(depth[pixel])) * 1099511628211ull;
+                const std::size_t depth_pixel = std::size_t((2 * y + 1) * depth_height / (2 * rows)) * depth_width +
+                    (2 * x + 1) * depth_width / (2 * columns);
+                signature = (signature ^ std::bit_cast<uint32_t>(depth[depth_pixel])) * 1099511628211ull;
             }
         }
         if (!initialized_ || signature != depth_signature_) {

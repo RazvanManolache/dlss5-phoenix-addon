@@ -22,6 +22,23 @@ int main() try {
                 estimate&&hardware&&(source==0||source==2)?MotionSource::Nvidia:MotionSource::Zero;
             check(result==expected);
         }
+    p = {};
+    check(choose_motion(p, true, true, true).source == MotionSource::Engine);
+    check(choose_motion(p, false, true, true).source == MotionSource::FidelityFX);
+    check(choose_motion(p, false, false, true).source == MotionSource::FidelityFX);
+    check(choose_motion(p, false, true, false).source == MotionSource::Nvidia);
+    check(choose_motion(p, false, false, false).source == MotionSource::Zero);
+    p.motion_enabled = false;
+    check(choose_motion(p, true, true, true).source == MotionSource::Engine);
+    check(choose_motion(p, false, true, true).source == MotionSource::Zero);
+    p.motion_enabled = true;
+    p.motion_source = int(MotionSource::Nvidia);
+    check(choose_motion(p, true, true, true).source == MotionSource::Nvidia);
+    p.motion_source = int(MotionSource::DIS);
+    check(choose_motion(p, true, true, true).source == MotionSource::DIS);
+    check(choose_motion(p, true, true, false).source == MotionSource::Zero);
+    p.motion_source = int(MotionSource::Zero);
+    check(choose_motion(p, true, true, true).source == MotionSource::Zero);
     for(bool explicit_reset:{false,true})for(bool first:{false,true})
         for(bool valid:{false,true})for(bool cut:{false,true})
             check(helper_history_reset(explicit_reset,first,valid,cut)==(explicit_reset||first||!valid||cut));
@@ -31,6 +48,13 @@ int main() try {
     }
     check(flow_extent(1920,1080,180)==std::array<unsigned,2>{320,180});
     check(flow_extent(2560,1080,360)==std::array<unsigned,2>{853,360});
+    for (auto source : {MotionSource::FidelityFX, MotionSource::DIS, MotionSource::Video, MotionSource::BlockMatch}) {
+        Options selected{};
+        nlohmann::json provider_patch{{"MotionProvider", int(source)}};
+        split_helper_motion_patch(selected, provider_patch);
+        check(provider_patch.empty());
+        check(selected.motion_source == int(source) && selected.valid());
+    }
     p={};check(p.legacy_depth==0);auto patch=nlohmann::json{{"MotionEstimation",true},{"MotionProvider",2},
         {"FlowAnalysisHeight",2160},{"FlowConsistencyPixels",2.5},{"FlowCostThreshold",200},
         {"MotionDiagnosticView",2},{"SceneDetection",true},{"LegacyDepth",4},{"ForceReset",false}};
@@ -48,6 +72,17 @@ int main() try {
     split_helper_motion_patch(p, max_strength);
     check(max_strength.empty() && p.legacy_depth_strength == 10.f);
     const std::array depth{.89f, .94f, .98f};
+    const std::array samples{.5f, .3f, .7f, .4f, .9f, .1f, .8f, .2f, 1.f};
+    auto range = depth_range_stats(samples);
+    check(range.valid && range.minimum == .1f && range.maximum == 1.f);
+    auto bad_samples = samples;
+    bad_samples[1] = std::numeric_limits<float>::quiet_NaN();
+    range = depth_range_stats(bad_samples);
+    check(!range.valid && range.minimum == .1f && range.maximum == 1.f);
+    bad_samples = samples;
+    bad_samples.back() = 1.1f;
+    check(!depth_range_stats(bad_samples).valid);
+    check(!depth_range_stats({}).valid);
     auto reduced = depth, amplified = depth, unchanged = depth;
     adjust_legacy_depth(reduced, .5f);
     adjust_legacy_depth(amplified, 2.f);
@@ -106,6 +141,7 @@ int main() try {
         }
     }
     check(freshness.accept(first, test_depth, test_width, test_height));
+    check(!freshness.accept(first, test_width, test_height, {}, 0, test_height));
     check(freshness.accept(lighter, test_depth, test_width, test_height));
     check(!freshness.accept(moved, test_depth, test_width, test_height));
     test_depth[0] += .01f;
@@ -124,7 +160,7 @@ int main() try {
     check(preview[0] == 0 && preview[4] == 0 && preview[8] == 0 && preview[11] == 255);
     const auto before=helper_motion_json(p);
     for(auto invalid:std::vector<nlohmann::json>{
-        {{"MotionEstimation",1}},{{"MotionProvider",4}},{{"MotionProvider",1.5}},
+        {{"MotionEstimation",1}},{{"MotionProvider",8}},{{"MotionProvider",1.5}},
         {{"MotionProvider",uint64_t(1)<<32}},
         {{"FlowAnalysisHeight",63}},{{"FlowAnalysisHeight",2161}},
         {{"FlowConsistencyPixels",0}},{{"FlowCostThreshold",1001}},
@@ -139,7 +175,19 @@ int main() try {
     check(feed_take_guides(pending).engine_motion==1);check(!feed_take_guides(pending).engine_motion);
     check(!feed_guides_valid({1,std::numeric_limits<float>::quiet_NaN(),1}));
     check(!feed_guides_valid({2,1,1}));
-    check(feed_protocol_compatible(10)&&feed_protocol_compatible(11)&&feed_protocol_compatible(12)&&feed_protocol_compatible(13)&&!feed_protocol_compatible(14));
+    check(feed_protocol_compatible(10)&&feed_protocol_compatible(11)&&feed_protocol_compatible(12)&&
+          feed_protocol_compatible(13)&&feed_protocol_compatible(14)&&feed_protocol_compatible(15)&&
+          feed_protocol_compatible(16) && !feed_protocol_compatible(17));
+    {
+        // Fused depth stats must match the validation/range they replaced.
+        const std::array sample{.25f, .5f, 1.f, 0.f};
+        const auto stats = depth_range_stats(sample);
+        check(stats.valid && stats.minimum == 0.f && stats.maximum == 1.f);
+        check(!depth_range_stats({}).valid);
+        check(!depth_range_stats(std::array{std::numeric_limits<float>::quiet_NaN()}).valid);
+        check(!depth_range_stats(std::array{1.5f}).valid);
+        check(!depth_range_stats(std::array{-0.5f}).valid);
+    }
     phoenix_addon::phoenix::Settings settings;
     apply_live_tuning_patch(settings,{{"ForceReset",true},{"ResetAfterSwitch",3},{"ResetEvery",7}});
     check(settings.force_reset&&settings.reset_after_switch==3&&settings.reset_every==7);

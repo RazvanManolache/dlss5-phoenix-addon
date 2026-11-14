@@ -1,9 +1,11 @@
 // CPU-only failure/ownership tests. No graphics device or game is created.
 #include "../../src/integration/compatibility/host_client.h"
+#include "../../src/integration/compatibility/pixel_transport.h"
 #include "../../src/integration/compatibility/host/retired_transfer_buffer.h"
 #include "../../src/integration/compatibility/host/phoenix-host-safety.h"
 #include "../../src/integration/compatibility/dx_depth_readback.h"
 #include <iostream>
+#include <source_location>
 
 struct FakeResource {
     unsigned& released;
@@ -26,11 +28,11 @@ static phoenix_compat::InProcessApi provider_callbacks() {
 }
 int main() try {
     unsigned checks = 0;
-    auto check = [&](bool value) {
+    auto check = [&](bool value, std::source_location location = std::source_location::current()) {
         ++checks;
         if (!value)
             throw std::runtime_error("IPC lifecycle contract failed at check " +
-                                     std::to_string(checks));
+                                     std::to_string(checks) + " (line " + std::to_string(location.line()) + ")");
     };
     using namespace phoenix_compat;
     {
@@ -90,7 +92,100 @@ int main() try {
     check(feed_protocol_compatible(11));
     check(feed_protocol_compatible(12));
     check(feed_protocol_compatible(13));
-    check(!feed_protocol_compatible(14));
+    check(feed_protocol_compatible(14));
+    check(feed_protocol_compatible(15));
+    check(feed_protocol_compatible(16) && !feed_protocol_compatible(17));
+    check(feed_frame_msg_bytes(14) == 24 && feed_frame_msg_bytes(15) == sizeof(FeedFrameMsg));
+    check(feed_cpu_depth_bytes(14) == 8 && feed_cpu_mapping_bytes(14) == 8);
+    {
+        CpuFrameMapping producer, consumer;
+        check(!producer.create(0, 1080) && !producer.create(8192, 8192));
+        check(producer.create(256, 128));
+        check(!consumer.open(GetCurrentProcess(), producer.handle(), 2560, 1080));
+        check(consumer.open(GetCurrentProcess(), producer.handle(), 256, 128));
+        producer.input().front() = 31;
+        producer.depth().back() = .375f;
+        consumer.output().back() = 209;
+        check(consumer.input().front() == 31 && consumer.depth().back() == .375f);
+        check(producer.output().back() == 209 && producer.output().front() == 0);
+        producer.reset();
+        check(consumer.input().front() == 31);
+    }
+    {
+        // Ring slots are isolated planes in one mapping, visible to the peer.
+        CpuFrameMapping producer, consumer;
+        check(!producer.create(64, 32, CpuFrameMapping::max_slots() + 1));
+        check(producer.create(64, 32, 3) && producer.slots() == 3);
+        check(consumer.open(GetCurrentProcess(), producer.handle(), 64, 32, 3));
+        producer.input(2).front() = 77;
+        producer.depth(1).back() = .25f;
+        consumer.output(0).front() = 55;
+        check(consumer.input(2).front() == 77 && consumer.input(0).front() == 0);
+        check(consumer.depth(1).back() == .25f && consumer.depth(2).back() == 0.f);
+        check(producer.output(0).front() == 55 && producer.output(2).front() == 0);
+        check(producer.input(3).empty() && producer.output(9).empty());
+    }
+    {
+        CpuFrameMapping producer, consumer;
+        check(producer.create(257, 255, 3, true));
+        check(consumer.open(GetCurrentProcess(), producer.handle(), 257, 255, 3, true));
+        producer.input(1).front() = 121;
+        producer.depth(1).front() = .42f;
+        producer.publish(1, 4294967297ull, true, feed_pack_depth_dims(128, 127));
+        check(consumer.ready_frame(0) == 0 && consumer.ready_frame(1) == 4294967297ull);
+        check(consumer.input(1).front() == 121 && consumer.depth(1).front() == .42f);
+        check(consumer.depth_ready(1) && consumer.depth_dims(1) == feed_pack_depth_dims(128, 127));
+        producer.publish(1, 4294967298ull, false, 0);
+        check(consumer.ready_frame(1) == 4294967298ull && !consumer.depth_ready(1));
+        check(feed_cpu_mapping_bytes(15) == 16 && feed_cpu_mapping_bytes(16) == sizeof(FeedCpuMapping));
+    }
+    {
+        // Adaptive ring depth: starts at two, grows only on starvation,
+        // shrinks only on backlog, and never leaves [2, slots].
+        CpuRingDepth depth(4);
+        check(depth.limit() == 2 && depth.admits(1) && !depth.admits(2));
+        depth.starved();
+        check(depth.limit() == 3);
+        depth.starved();
+        depth.starved();
+        check(depth.limit() == 4);
+        depth.backlogged();
+        check(depth.limit() == 3);
+        depth.backlogged();
+        depth.backlogged();
+        check(depth.limit() == 2);
+        CpuRingDepth single(1);
+        single.starved();
+        check(single.limit() == 1 && single.admits(0) && !single.admits(1));
+        CpuRingSlots slots;
+        const auto first = slots.acquire(4);
+        const auto abandoned = slots.acquire(4);
+        const auto last = slots.acquire(4);
+        slots.release(abandoned);
+        for (unsigned i = 0; i < 12; ++i) {
+            const auto next = slots.acquire(4);
+            check(next == abandoned && next != first && next != last);
+            slots.release(next);
+        }
+        check(slots.size() == 2);
+    }
+    {
+        // BGRA swap (SIMD where available) matches the scalar channel swap,
+        // including a width that leaves a scalar tail.
+        std::vector<uint8_t> source(7 * 2 * 4), swapped(7 * 2 * 4), expected(7 * 2 * 4);
+        for (size_t i = 0; i < source.size(); ++i) source[i] = uint8_t(i * 37 + 5);
+        for (size_t pixel = 0; pixel < expected.size() / 4; ++pixel) {
+            expected[pixel * 4] = source[pixel * 4 + 2];
+            expected[pixel * 4 + 1] = source[pixel * 4 + 1];
+            expected[pixel * 4 + 2] = source[pixel * 4];
+            expected[pixel * 4 + 3] = source[pixel * 4 + 3];
+        }
+        copy_pixel_rows(swapped.data(), 7 * 4, source.data(), 7 * 4, 7, 2, false, true);
+        check(swapped == expected);
+        std::vector<uint8_t> plain(16);
+        copy_pixel_rows(plain.data(), 8, source.data(), 8, 2, 2, false, false);
+        check(std::equal(plain.begin(), plain.end(), source.begin()));
+    }
     FeedGuideState pending{1,1920.f,-1080.f};
     check(feed_guides_valid(pending));
     const auto declared=feed_take_guides(pending);
@@ -257,9 +352,9 @@ int main() try {
     const auto data_root = fs::canonical(fs::current_path()) / L"central-storage";
     check(SetEnvironmentVariableW(L"PHOENIX_DATA_ROOT", data_root.c_str()));
     const auto [runtime, cleanup_parent] = prepare_helper_directories();
-    check(runtime == data_root / L"runtime");
+    check(fs::equivalent(runtime, data_root / L"runtime"));
     check(cleanup_parent == data_root / L"sessions");
-    check(phoenix_embedded::default_cache() == runtime);
+    check(fs::equivalent(phoenix_embedded::default_cache(), runtime));
     check(prepare_helper_directories().runtime == runtime);
     const std::string cleanup_name = "ipc-owned-session-" + std::to_string(GetCurrentProcessId());
     const auto cleanup_folder = cleanup_parent / cleanup_name;

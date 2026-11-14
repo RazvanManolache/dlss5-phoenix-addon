@@ -24,9 +24,10 @@ struct BackbufferCapabilities {
     bool native_tls_coordinated = false;
     bool discovery_pending = false;
     bool sdr = true, queue_matches = true, protected_resource = false;
-    bool software_device = false;
+    bool software_device = false, portable_frame_services_requested = false;
     reshade::api::format format = reshade::api::format::unknown;
     std::string native_library_reason, native_driver_reason, portable_reason;
+    std::string helper_required;
 };
 struct BackbufferDecision {
     BackbufferRoute route;
@@ -36,6 +37,14 @@ inline bool terminal_route_refusal(const BackbufferCapabilities& caps,const Back
     // Missing runtimes/unsupported settings are terminal after discovery.
     // Keep polling while the asynchronous package inspection is unfinished.
     return decision.route==BackbufferRoute::Unsupported && !caps.discovery_pending;
+}
+inline bool portable_software_frame_services_unavailable(const BackbufferCapabilities& caps) {
+    // D3D10 and 10.1 WARP under the DXGI proxy can corrupt the heap when the
+    // portable frame SDK destroys its D3D12 command queue. The basic portable
+    // renderer does not create that queue. Staged helper processing owns it
+    // in a separate process, outside the game's proxy.
+    return caps.api == reshade::api::device_api::d3d10 && caps.software_device &&
+        caps.portable_frame_services_requested;
 }
 inline bool local_color_format(reshade::api::format format) {
     using F = reshade::api::format;
@@ -77,6 +86,11 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         (!caps.sdr || !local_color_format(caps.format) || caps.samples != 1 ||
          caps.layers != 1 || caps.levels != 1))
         return {BackbufferRoute::Unsupported, "Standalone DX12 requires a single-sample SDR RGB8/RGB10A2 image; use engine input for other layouts."};
+    if (!caps.helper_required.empty() && preference != ExecutionPreference::Helper) {
+        auto decision = choose_backbuffer_route(caps, ExecutionPreference::Helper);
+        if (decision.route == BackbufferRoute::Helper) decision.reason = caps.helper_required;
+        return decision;
+    }
     if (preference == ExecutionPreference::Automatic) {
         // Keep frame transport inside the game whenever a compatible route is
         // installed. Rejected/failed routes are removed from the capabilities
@@ -126,6 +140,9 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
             preference==ExecutionPreference::NativeLibrary?"Experimental x64 renderer inside this x86 process.":"Experimental x86 Phoenix DLSS5 host with same-process native driver."};
     }
     if (preference == ExecutionPreference::Portable && !caps.nvidia_required) {
+        if (portable_software_frame_services_unavailable(caps))
+            return {BackbufferRoute::Unsupported,
+                "Portable motion and frame services are unavailable on Direct3D 10/10.1 software rendering. Use Automatic or the external helper, or disable the requested frame services."};
         if (!caps.portable_available)
             return {BackbufferRoute::Unsupported, caps.portable_reason.empty() ?
                 "A matching portable runtime/device is unavailable or failed for this setup." : caps.portable_reason};
@@ -237,6 +254,7 @@ inline const char* execution_preference_label(ExecutionPreference preference) {
     }
 }
 inline std::vector<ExecutionPreference> available_execution_preferences(const BackbufferCapabilities& caps) {
+    if (!caps.helper_required.empty()) return {ExecutionPreference::Helper};
     std::vector<ExecutionPreference> choices{ExecutionPreference::Automatic};
     for (auto preference : {ExecutionPreference::InProcess, ExecutionPreference::NativeLibrary,
                             ExecutionPreference::NativeDriver, ExecutionPreference::Portable,

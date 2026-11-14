@@ -113,13 +113,15 @@ inline fs::path create_data_directory(const fs::path& path) {
     return fs::canonical(path);
 }
 inline fs::path default_cache() {
-    wchar_t configured[32768]{};
-    const auto length = GetEnvironmentVariableW(L"PHOENIX_DATA_ROOT", configured, 32768);
+    std::wstring configured(32768, L'\0');
+    const auto length = GetEnvironmentVariableW(L"PHOENIX_DATA_ROOT", configured.data(),
+                                                static_cast<DWORD>(configured.size()));
     if (length) {
-        require(length < 32768, "PHOENIX_DATA_ROOT is too long");
+        require(length < configured.size(), "PHOENIX_DATA_ROOT is too long");
+        configured.resize(length);
         const fs::path root(configured);
         require(root.is_absolute(), "PHOENIX_DATA_ROOT must be an absolute directory");
-        return create_data_directory(create_data_directory(root) / L"runtime");
+        return fs::path(native_path(create_data_directory(create_data_directory(root) / L"runtime")));
     }
     PWSTR path = nullptr;
     require(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &path)),
@@ -149,6 +151,8 @@ inline fs::path default_cache() {
     return fs::path(native_path(fs::canonical(fs::path(physical).parent_path())));
 }
 inline const char* dependency_group(const std::string& path) {
+    if (path.rfind("motion/", 0) == 0)
+        return "motion";
     if (path.rfind("compatibility/", 0) == 0)
         return "compatibility";
     if (path == "runtime/amdhip64_7.dll" || path == "runtime/amd_comgr.dll" ||
@@ -200,9 +204,13 @@ inline Installation install(HMODULE module, fs::path cache = {},
         check_cancelled(cancelled);
         const auto name = entry.at("path").get<std::string>();
         const auto group = dependency_group(name);
-        if (backend == "compatibility" && std::strcmp(group, "compatibility") != 0)
+        if (backend == "compatibility" && std::strcmp(group, "motion") != 0 &&
+            std::strcmp(group, "compatibility") != 0)
             continue;
-        if (backend != "all" && std::strcmp(group, "core") != 0 && backend != group)
+        if (backend == "motion" && std::strcmp(group, "motion") != 0)
+            continue;
+        if (backend != "all" && !(backend == "compatibility" && std::strcmp(group, "motion") == 0) &&
+            std::strcmp(group, "core") != 0 && backend != group)
             continue;
         const auto relative = relative_path(name);
         require(names.insert(relative).second, "Duplicate embedded runtime file");

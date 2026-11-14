@@ -194,7 +194,7 @@ public:
         list->ResourceBarrier(2, barriers);
     }
     void RecordOutput(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* destination,
-                      ID3D12Resource* converted_input = nullptr) {
+                      ID3D12Resource* converted_input = nullptr, bool linear_readback = false) {
         auto* source = converted_input ? converted_input : output_.Get();
         if (format_ == DXGI_FORMAT_R16G16B16A16_FLOAT) {
             D3D12_RESOURCE_BARRIER copy[]{
@@ -212,6 +212,14 @@ public:
         barriers[0] = Barrier(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
         barriers[1] = Barrier(bytes_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(2, barriers);
+        if (linear_readback) {
+            // READBACK buffers stay in COPY_DEST. The pack shader already
+            // emits the same aligned linear rows the CPU expects.
+            list->CopyBufferRegion(destination, 0, bytes_.Get(), 0, UINT64(pitch_) * height_);
+            auto restore = Barrier(bytes_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+            list->ResourceBarrier(1, &restore);
+            return;
+        }
         auto to_copy = Barrier(destination, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
         list->ResourceBarrier(1, &to_copy);
         D3D12_TEXTURE_COPY_LOCATION src{}, dst{};

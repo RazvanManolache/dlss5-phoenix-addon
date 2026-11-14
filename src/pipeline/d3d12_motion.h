@@ -1,5 +1,6 @@
 #pragma once
 #include "session.h"
+#include "alternative_motion.h"
 #include "nvof/nvof-motion-provider.hpp"
 #include "../native/support/compute_pass.h"
 #include <memory>
@@ -37,6 +38,12 @@ class D3D12Motion {
     uint64_t preparation_value_ = 0;
     unsigned width_ = 0, height_ = 0, flow_height_ = 0;
     bool attempted_ = false;
+    using MotionDirectory = std::filesystem::path (*)();
+    MotionDirectory motion_directory_ = nullptr;
+    std::unique_ptr<AlternativeMotion> alternative_;
+    MotionSource selected_alternative_ = MotionSource::Zero;
+    std::string alternative_error_;
+    std::array<unsigned, 2> analysis_extent_{};
     MotionSource previous_source_ = MotionSource::Zero;
     std::string status_ = "Disabled";
     struct Timing {
@@ -61,7 +68,7 @@ class D3D12Motion {
     void begin() {
         // Ordered consumers normally retire this before the next frame. Keep
         // allocator reuse safe if a caller performs another preparation early.
-        if(gpu_ordered_)wait_for_conversion();
+        wait_for_conversion();
         check(allocator_->Reset());check(command_->Reset(allocator_.Get(),nullptr));
     }
     void finish(bool wait_cpu=true) {
@@ -72,8 +79,8 @@ class D3D12Motion {
         const auto submitted=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         if(wait_cpu)wait_for_conversion();
         if(detailed_){
-            timing_.conversion_submit=std::chrono::duration<double,std::milli>(submitted-started).count();
-            timing_.conversion_wait=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-submitted).count();
+            timing_.conversion_submit+=std::chrono::duration<double,std::milli>(submitted-started).count();
+            timing_.conversion_wait+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-submitted).count();
         }
     }
     std::vector<uint8_t> thumbnail(ID3D12Resource* source, D3D12_RESOURCE_STATES state) {
@@ -126,8 +133,9 @@ public:
     };
     // gpu_ordered is reserved for owners that retain all resources until a
     // later consumer fence on this SAME direct queue has retired, even on error.
-    D3D12Motion(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Fence* consumer,bool gpu_ordered=false)
-        : device_(device), queue_(queue), consumer_(consumer),gpu_ordered_(gpu_ordered) {
+    D3D12Motion(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12Fence* consumer,bool gpu_ordered=false,
+                MotionDirectory motion_directory=nullptr)
+        : device_(device), queue_(queue), consumer_(consumer),motion_directory_(motion_directory),gpu_ordered_(gpu_ordered) {
         check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_)));
         check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator_)));
         check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator_.Get(), nullptr, IID_PPV_ARGS(&command_)));
@@ -145,6 +153,7 @@ public:
         if (geometry_changed || flow_height_ != unsigned(p.flow_height)) {
             // This API is called only after the preceding consumer has retired.
             provider_.Shutdown(); attempted_ = false; reset = true;
+            alternative_.reset(); alternative_error_.clear(); selected_alternative_ = MotionSource::Zero;
             width_ = unsigned(desc.Width); height_ = desc.Height; flow_height_ = unsigned(p.flow_height);
             if(geometry_changed){history_motion_.Reset();zero_motion_.Reset();}
         }
@@ -154,6 +163,60 @@ public:
             reset, p.scene_detection, gray, gray.empty() ? 0 : 64, gray.empty() ? 0 : 36);
         reset = reset || discontinuity != ResetReason::None;
         if (reset) provider_.ResetHistory();
+        const auto requested = MotionSource(p.motion_source);
+        const auto preferred = choose_motion(p, engine_motion != nullptr, false, true).source;
+        const auto selected = alternative_motion(preferred) ? preferred : MotionSource::Zero;
+        analysis_extent_ = flow_extent(width_, height_, flow_height_);
+        if (selected != selected_alternative_) {
+            alternative_.reset();
+            alternative_error_.clear();
+            selected_alternative_ = selected;
+            reset = true;
+        }
+        const bool auto_fidelity = requested == MotionSource::Automatic && selected == MotionSource::FidelityFX;
+        if (alternative_motion(selected)) {
+            submission_ = {};
+            if (!alternative_ && alternative_error_.empty()) {
+                try {
+                    alternative_ = std::make_unique<AlternativeMotion>(device_.Get(), selected, width_, height_, analysis_extent_,
+                        (motion_directory_ && (selected == MotionSource::FidelityFX || selected == MotionSource::DIS))
+                            ? motion_directory_() : std::filesystem::path{});
+                } catch (const std::exception& error) {
+                    alternative_error_ = error.what();
+                }
+            }
+            status_ = estimator_name(selected);
+            if (alternative_) {
+                analysis_extent_ = alternative_->extent();
+                const auto before = detailed_ ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+                const bool ready = alternative_->prepare(command_.Get(), queue_.Get(), fence_.Get(), fence_value_,
+                    color, state, reset, p.scene_detection, gpu_ordered_, [this] { begin(); },
+                    [this](bool wait) { finish(wait); });
+                if (detailed_) {
+                    timing_.routing = std::chrono::duration<double, std::milli>(before - started).count();
+                    timing_.provider_submit = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - before).count()
+                        - timing_.conversion_submit - timing_.conversion_wait;
+                }
+                previous_source_ = selected;
+                if (ready) return {alternative_->output(), nullptr, false, selected};
+                if (alternative_->warming() || (reset && !auto_fidelity)) {
+                    status_ += ": priming history";
+                    return {nullptr, nullptr, true, MotionSource::Zero};
+                }
+                if (auto_fidelity) {
+                    // A failed FidelityFX dispatch retires its command list before returning.
+                    alternative_.reset();
+                    alternative_error_ = "Motion estimation failed";
+                    reset = true;
+                }
+            }
+            if (!auto_fidelity) {
+                status_ += ": " + (alternative_error_.empty() ? "Motion estimation failed" : alternative_error_);
+                previous_source_ = MotionSource::Zero;
+                return {nullptr, nullptr, true, MotionSource::Zero};
+            }
+        }
         const bool wants_hardware = p.motion_enabled &&
             (p.motion_source == int(MotionSource::Nvidia) ||
              (p.motion_source == int(MotionSource::Automatic) && !engine_motion));
@@ -172,6 +235,8 @@ public:
         previous_source_=choice.source;
         status_ = choice.reason;
         if(wants_hardware&&!provider_.IsReady())status_=provider_.Status();
+        const std::string fallback = auto_fidelity ? " (FidelityFX unavailable: " + alternative_error_ + ")" : "";
+        status_ += fallback;
         if (choice.source == MotionSource::Engine) {submission_={};return {engine_motion, nullptr, reset, choice.source};}
         if (choice.source != MotionSource::Nvidia) {submission_={};return {nullptr, nullptr, reset, MotionSource::Zero};}
         // Provider preparation command lists are COMPUTE lists. Establish both
@@ -185,7 +250,7 @@ public:
         check(compute_queue_->Signal(preparation_fence_.Get(), ++preparation_value_));
         check(queue_->Wait(preparation_fence_.Get(), preparation_value_));
         if (!submitted || !submission_.valid) {
-            status_ = provider_.Status(); return {nullptr, nullptr, true, MotionSource::Zero};
+            status_ = provider_.Status() + fallback; return {nullptr, nullptr, true, MotionSource::Zero};
         }
         check(queue_->Wait(provider_.CompletionFence(), submission_.completion_value));
         const auto conversion_started=detailed_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
@@ -248,7 +313,10 @@ cbuffer C:register(b0){uint W,H;uint unused[7];};
         return submission_.valid && provider_.RecordVisualization(command, submission_, output, mode, 1.f);
     }
     const std::string& status() const noexcept { return status_; }
-    ID3D12Resource* raw_motion()const noexcept{return submission_.motion;}
+    ID3D12Resource* raw_motion() const noexcept {
+        return alternative_ ? alternative_->output() : submission_.motion;
+    }
+    std::array<unsigned, 2> analysis_extent() const noexcept { return analysis_extent_; }
     bool gpu_ordered()const noexcept{return gpu_ordered_;}
     uint64_t cpu_waits()const noexcept{return cpu_waits_;}
     phoenix_bundle::Json timings()const {

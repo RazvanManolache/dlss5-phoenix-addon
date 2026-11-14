@@ -27,6 +27,13 @@ struct Session {
     uint64_t hotkey_deadline = 0, markers = 0;
     double present_fps = 0;
     uint64_t last_presented_output_frame = 0;
+    struct CaptureStamp {
+        uint64_t frame = 0;
+        std::chrono::steady_clock::time_point started;
+    };
+    std::array<CaptureStamp, 256> capture_stamps{};
+    std::optional<double> pipeline_roundtrip_ms;
+    uint64_t pipeline_roundtrip_tick = 0, pipeline_roundtrip_revision = 0;
     phoenix_addon::phoenix::PresentationTiming presentation_timing;
     bool settings_dirty = false;
     std::vector<phoenix_addon::phoenix::ExecutionDevice> execution_devices{
@@ -171,6 +178,7 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     }
     caps.portable_available = value.runtime_availability.portable &&
         settings.resolution_mode == 0 && !settings.host_unjitter && !caps.nvidia_required;
+    caps.portable_frame_services_requested = portable_frame_pipeline_requested(settings);
     value.portable_reason = value.runtime_availability.portable_reason;
     if (settings.resolution_mode != 0 || settings.host_unjitter)
         value.portable_reason = "Portable backbuffer execution requires normal resolution and no unjitter.";
@@ -182,6 +190,19 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     caps.native_library_reason=value.native_library_reason;
     caps.native_driver_reason=value.native_driver_reason;
     caps.portable_reason=value.portable_reason;
+    if (caps.bits == 32) {
+        if (caps.nvidia_required)
+            caps.helper_required = "NVIDIA DLSS5 and comparisons that use its DLL require the external x64 helper in a 32-bit game.";
+        else if (settings.resolution_mode != 0 || settings.host_unjitter)
+            caps.helper_required = "Super resolution and host unjitter require the external x64 helper in a 32-bit game.";
+        else if (settings.native_kernel_style != "auto")
+            caps.helper_required = "Selecting a native kernel style requires the external x64 helper in a 32-bit game.";
+        else if (settings.pipeline.priority || (settings.native_options && settings.ui_correction))
+            caps.helper_required = "Adaptive priority and UI correction require the external x64 helper in a 32-bit game.";
+        else if (portable_frame_pipeline_requested(settings) && !caps.discovery_pending &&
+                 !caps.native_library_available && !caps.native_driver_available)
+            caps.helper_required = "These motion, appearance or processing options need the external x64 helper with the installed x86 runtimes.";
+    }
     // Failure history controls Automatic's next attempt, while compatible
     // choices remain available for an explicit retry. Status reads use the
     // cached selection rather than starting discovery or mutating the session.
@@ -210,6 +231,24 @@ inline const char *api_name(reshade::api::device_api api) {
     default:
         return "Unknown graphics API";
     }
+}
+inline reshade::api::color_space presentation_color_space(reshade::api::swapchain* swapchain,
+                                                          reshade::api::device_api api) {
+    using S = reshade::api::color_space;
+    const auto reported = swapchain->get_color_space();
+    if (reported != S::unknown || api != reshade::api::device_api::d3d10) return reported;
+    // ReShade's D3D10 runtime always reports unknown. Its DXGI hook still
+    // records explicit SetColorSpace1 calls on the underlying swapchain.
+    constexpr GUID reshade_color_space{0x18b57e4,0x1493,0x4953,{0xad,0xf2,0xde,0x6d,0x99,0xcc,0x05,0xe5}};
+    auto* dxgi = reinterpret_cast<IDXGISwapChain*>(uintptr_t(swapchain->get_native()));
+    if (!dxgi) return S::unknown;
+    DXGI_COLOR_SPACE_TYPE space{};
+    UINT bytes = sizeof(space);
+    const auto result = dxgi->GetPrivateData(reshade_color_space, &bytes, &space);
+    if (result == DXGI_ERROR_NOT_FOUND ||
+        (SUCCEEDED(result) && bytes == sizeof(space) && space == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709))
+        return S::srgb_nonlinear;
+    return S::unknown;
 }
 inline void log_progress(Session &value) {
     auto *host = value.bridge ? value.bridge->host() : value.readback->host();
@@ -473,11 +512,15 @@ inline void save(reshade::api::effect_runtime *runtime, Session &value, bool app
         if (retry) reset_route_failures(value);
         auto previous=value.applied_settings;
         if(value.live_motion_services)copy_helper_motion(previous.pipeline,value.settings.pipeline);
+        const auto* readback_host = value.readback ? value.readback->host() : nullptr;
+        const bool staged_model_switch = readback_host && readback_host->in_process_staged() &&
+            previous.model_id != value.settings.model_id;
+        if (staged_model_switch) previous.model_id = value.settings.model_id;
         const bool changed = helper_settings_changed(previous, value.settings);
         auto tuning = value.applied_settings;
         const bool tuning_changed = phoenix_addon::phoenix::copy_live_tuning(tuning, value.settings) ||
             (value.live_motion_services&&helper_motion_json(value.applied_settings.pipeline)!=helper_motion_json(value.settings.pipeline));
-        if (changed || tuning_changed) ++value.selection_revision;
+        if (changed || tuning_changed || staged_model_switch) ++value.selection_revision;
         value.restart = value.restart || changed || retry;
         value.applied_settings = value.settings;
         value.settings_dirty = false;
@@ -513,6 +556,8 @@ inline void apply_ui_edits(reshade::api::effect_runtime* runtime, Session& value
         // the helper on every ordinary slider movement.
         if (live_edit_retries_failed_route(previous_selection,value.applied_settings,retry)) reset_route_failures(value);
         auto previous_resources = previous_selection;
+        if (view_host && view_host->in_process_staged())
+            previous_resources.model_id = value.applied_settings.model_id;
         if (value.live_motion_services)
             copy_helper_motion(previous_resources.pipeline, value.applied_settings.pipeline);
         // Selection contains live comparison layout as well as real resource
@@ -737,6 +782,10 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.status = value.message;
     ui.route_failed = !value.processing_error.empty();
     ui.processing_active = value.displayed && value.presented_revision == value.selection_revision;
+    ui.x86_transport = sizeof(void*) == 4;
+    ui.game_api = api_name(runtime->get_device()->get_api());
+    ui.pipeline_roundtrip_ms = value.pipeline_roundtrip_revision == value.selection_revision &&
+        GetTickCount64() - value.pipeline_roundtrip_tick < 2000 ? value.pipeline_roundtrip_ms : std::nullopt;
     const std::string actual = execution_mode(value);
     ui.active_route = actual == "in_process" ? "Native D3D12 / same-device processing"
         : actual == "in_process_d3d11" ? "Native DX11/DX12 / same-process GPU textures"
@@ -995,6 +1044,7 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
         "Automatic selects an eligible same-process GPU route first; the isolated helper remains a fallback.");
     bool route_changed = false;
     transport_capabilities(value,value.settings,value.capabilities);
+    const auto& required = value.selectable_capabilities.helper_required;
     const auto choices = available_execution_preferences(value.selectable_capabilities);
     const bool saved_available = std::find(choices.begin(), choices.end(), value.execution) != choices.end();
     std::vector<const char*> execution_labels;
@@ -1003,14 +1053,19 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
         if (choice == value.execution) selected_execution = int(execution_labels.size());
         execution_labels.push_back(execution_preference_label(choice));
     }
+    if (!required.empty()) {
+        selected_execution = 0;
+        ImGui::TextWrapped("%s Your saved preference returns when those settings are deselected.", required.c_str());
+    }
+    ImGui::BeginDisabled(!required.empty());
     if (phoenix_ui::choice_buttons("Execution mechanism", &selected_execution,
                                    execution_labels.data(), int(execution_labels.size()))) {
         value.execution = choices[selected_execution];
         value.execution_name = execution_preference_name(value.execution);
         route_changed = true;
     }
-    if (!saved_available) ImGui::TextWrapped("The saved execution mechanism is not available for this architecture, runtime or settings. Select Automatic to try eligible routes.");
-    ImGui::TextWrapped("Automatic tries same-device native DX12, eligible x86 native routes, then portable processing. The x64 helper is last.");
+    ImGui::EndDisabled();
+    if (required.empty() && !saved_available) ImGui::TextWrapped("The saved execution mechanism is not available for this architecture, runtime or settings. Select Automatic to try eligible routes.");
     if (phoenix_ui::button("Recheck runtimes / retry routes")) {
         value.availability_probe.invalidate(); route_changed = true;
     }
@@ -1649,10 +1704,10 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
             continue;
         }
         const auto presentation_format = queue->get_device()->get_resource_desc(back).texture.format;
-        value->color_space = swapchain->get_color_space();
+        value->color_space = presentation_color_space(swapchain, queue->get_device()->get_api());
         if ((presentation_format == reshade::api::format::r10g10b10a2_unorm ||
              presentation_format == reshade::api::format::r10g10b10a2_typeless) &&
-            swapchain->get_color_space() != reshade::api::color_space::srgb_nonlinear) {
+            value->color_space != reshade::api::color_space::srgb_nonlinear) {
             value->message = "RGB10A2 final-frame processing requires SDR sRGB; HDR output is not supported by this bridge.";
             poll_control(runtime, *value);
             return;
@@ -1679,6 +1734,9 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
         // effects and overlay, so neither a dummy shader nor UI filtering is needed.
         const auto previous_presented = presented(*value);
         const auto now = GetTickCount64();
+        const auto capture_begin = std::chrono::steady_clock::now();
+        const auto pending_frame = value->frames + 1;
+        value->capture_stamps[pending_frame % value->capture_stamps.size()] = {pending_frame, capture_begin};
         process(runtime, commands, back);
         // All processing exits converge here, including initialization errors,
         // required-guide refusals and route changes. A skipped inference must
@@ -1698,7 +1756,18 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
                 : value->readback ? value->readback->presented_output_frame(value->frames) : 0;
             fresh_output = value->displayed && value->presented_revision == value->selection_revision &&
                 output_frame > value->last_presented_output_frame;
-            if (*fresh_output) value->last_presented_output_frame = output_frame;
+            if (*fresh_output) {
+                value->last_presented_output_frame = output_frame;
+                const auto& source = value->capture_stamps[output_frame % value->capture_stamps.size()];
+                if (source.frame == output_frame) {
+                    value->pipeline_roundtrip_ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - source.started).count();
+                    value->pipeline_roundtrip_tick = GetTickCount64();
+                    value->pipeline_roundtrip_revision = value->selection_revision;
+                } else {
+                    value->pipeline_roundtrip_ms.reset();
+                }
+            }
         }
         if (const auto sample = value->presentation_timing.present(now, std::to_string(value->helper_generation),
                 value->selection_revision, settings.mode, fresh_output)) {

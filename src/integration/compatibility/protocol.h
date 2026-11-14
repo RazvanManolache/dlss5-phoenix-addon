@@ -4,14 +4,17 @@
 // are fixed-width values, never pointers to objects in another process.
 // The game submits one frame, then polls completion on a background worker.
 // No game-queue Wait is recorded against a helper that might exit.
-// Older graphics APIs use cpu_bridge and packed RGBA8 rows instead.
+// Older graphics APIs use cpu_bridge and packed RGBA8 rows instead. A v14
+// peer can negotiate a shared mapping for those rows and the optional depth.
+// A v15 mapping is a ring of frame slots; each frame names its slot so the
+// producer can stage the next frame while the helper processes the current.
 
 #pragma once
 #include <cstdint>
 #include <cmath>
 
 #define FEED_IPC_MAGIC   0x35534C44u  // 'DLS5'
-#define FEED_IPC_VERSION 13u
+#define FEED_IPC_VERSION 16u
 #define FEED_IPC_MIN_VERSION 10u // Unchanged frame layout; older clients omit live tuning.
 #define FEED_SESSION_PIPE_FMT "\\\\.\\pipe\\dlss5-feed.%lu.%llu" // game PID and per-session nonce
 #define FEED_PIPE_FMT    "\\\\.\\pipe\\dlss5-feed.%lu"   // %lu = game PID
@@ -70,11 +73,36 @@ struct FeedFrameMsg     // game -> host, per frame
     uint32_t nr_enabled;         // legacy field name: 1 = Phoenix (Backend=3), 0 = input bypass (Backend=0)
     uint32_t iterations;          // 1..10 evaluates of this frame before signaling output ready
     uint32_t eye_index;           // game_side_vr_split only: 0 = left eye, 1 = right eye
+    uint32_t slot;               // v15: ring slot in the shared CPU mapping; pre-v15 size excludes it
 };
+inline constexpr size_t feed_frame_msg_bytes(uint32_t version) {
+    return version >= 15 ? sizeof(FeedFrameMsg) : 24;
+}
 
 // Optional v13 'D' precedes its CPU 'F' packet. A native-size float plane
-// follows the serial, using conventional near=0, far=1 device depth.
-struct FeedCpuDepth { uint64_t frame; };
+// follows the serial, using conventional near=0, far=1 device depth. v15
+// packs the captured plane size into depth_dims as (width << 16) | height
+// when it differs from the color size (0 = color size); the mapping depth
+// plane then holds width*height floats at its start.
+struct FeedCpuDepth { uint64_t frame; uint32_t slot; uint32_t depth_dims; };
+inline constexpr uint32_t feed_pack_depth_dims(unsigned width, unsigned height) {
+    return (uint32_t(width) << 16) | uint32_t(height);
+}
+inline constexpr unsigned feed_depth_width(uint32_t packed) { return packed >> 16; }
+inline constexpr unsigned feed_depth_height(uint32_t packed) { return packed & 0xffffu; }
+inline constexpr size_t feed_cpu_depth_bytes(uint32_t version) {
+    return version >= 15 ? sizeof(FeedCpuDepth) : 8;
+}
+
+// Optional v14 'M' after an accepted CPU build. The host replies with a
+// uint32_t acceptance flag. Both peers retain pipe transport if refused.
+// v15 extends the request with the ring slot count (1 = the v14 layout).
+// v16 can append per-slot prefetch metadata after the v15 pixel planes.
+inline constexpr uint32_t FEED_CPU_PREFETCH = 1u;
+struct FeedCpuMapping { uint64_t handle; uint32_t slots; uint32_t reserved; uint64_t wake_event; };
+inline constexpr size_t feed_cpu_mapping_bytes(uint32_t version) {
+    return version >= 16 ? sizeof(FeedCpuMapping) : version >= 15 ? 16 : 8;
+}
 
 struct FeedCpuFrameAck   // host -> game after a CPU-bridge frame
 {
@@ -94,7 +122,9 @@ struct FeedGuideState { uint32_t engine_motion = 0; float scale_x = 1, scale_y =
 #pragma pack(pop)
 
 static_assert(sizeof(FeedBuild)==116);
-static_assert(sizeof(FeedFrameMsg)==24);
+static_assert(sizeof(FeedFrameMsg)==28);
+static_assert(sizeof(FeedCpuDepth)==16);
+static_assert(sizeof(FeedCpuMapping)==24);
 static_assert(sizeof(FeedBuildAck)==24);
 static_assert(sizeof(FeedGuideState)==12);
 

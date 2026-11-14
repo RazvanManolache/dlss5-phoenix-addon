@@ -27,7 +27,14 @@ int main() {
     channel.width=UINT32_MAX; if(bridge::valid_initialize(channel)) return 2; channel.width=640;
     channel.frame_flags=4; if(bridge::valid_initialize(channel)) return 2; channel.frame_flags=3;
     if(!bridge::valid_initialize(channel)) return 2; channel.frame_flags=0;
-    channel.reserved=1; if(bridge::valid_initialize(channel)) return 2; channel.reserved=0;
+    channel.launch_total=bridge::launch_count+1; if(bridge::valid_initialize(channel)) return 2;
+    channel.launch_total=bridge::launch_count; if(!bridge::valid_initialize(channel)) return 2; channel.launch_total=0;
+    channel.operation=bridge::frame;
+    if(bridge::valid_frame(channel)) return 2;
+    channel.launch_total=1; if(!bridge::valid_frame(channel)) return 2;
+    if(bridge::valid_initialize(channel)) return 2;
+    channel.operation=bridge::initialize; channel.launch_total=0;
+    if(bridge::valid_frame(channel)) return 2;
     channel.clear_words=UINT32_MAX; if(bridge::valid_initialize(channel)) return 2;
     std::printf("{\"event\":\"driver_packet_contract\",\"channel_bytes\":%u,\"launch_offset\":%u,\"pointer_bits\":%u}\n",
         unsigned(sizeof(bridge::Channel)),unsigned(offsetof(bridge::Channel,launches)),unsigned(sizeof(void*)*8));

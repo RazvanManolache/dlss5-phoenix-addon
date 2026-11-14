@@ -48,6 +48,158 @@ int main(int argc, char** argv) {
                 original[pixel + 2] = uint8_t(((column / 8) ^ (row / 8)) & 1 ? 180 : 70);
                 original[pixel + 3] = 255;
             }
+        if (mode == "cpu_motion") {
+            require(argc >= 8 && argc <= 11, "Motion benchmark requires frames, provider and analysis height");
+            const unsigned queue_depth = argc >= 9 ? unsigned(std::stoul(argv[8])) : 0;
+            require(argc == 8 || (queue_depth >= 1 && queue_depth <= 4), "Invalid benchmark queue depth");
+            const unsigned frames = std::stoul(argv[5]);
+            settings.pipeline.motion_source = std::stoi(argv[6]);
+            settings.pipeline.flow_height = std::stoi(argv[7]);
+            settings.pipeline.motion_enabled = true;
+            settings.pipeline.scene_detection = false;
+            settings.pipeline.monitoring = int(phoenix_pipeline::Monitoring::Detailed);
+            const bool full_depth = argc >= 10 && std::string_view(argv[9]) == "full-depth";
+            const bool game_depth = full_depth || (argc >= 10 && std::string_view(argv[9]) == "depth");
+            settings.pipeline.legacy_depth = game_depth ? 4 : 3;
+            settings.refinement_passes = argc == 11 ? std::stoi(argv[10]) : 2;
+            require(settings.pipeline.valid(), "Invalid motion benchmark settings");
+            require(frames >= 24 && frames <= 1000, "Invalid motion benchmark frame count");
+            FeedBuild build{};
+            build.width = build.output_width = width;
+            build.height = build.output_height = height;
+            build.color_fmt = build.output_fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
+            build.cpu_bridge = 1;
+            build.mv_scale_x = build.mv_scale_y = 1;
+            HostClient host(GetModuleHandleW(nullptr), source, settings, build);
+            // A textured background and a separately moving, opaque foreground
+            // provide changing history, motion boundaries and disocclusion.
+            auto pattern = [](unsigned x, unsigned y) {
+                uint32_t hash = (x / 5) * 0x9e3779b9u + (y / 5) * 0x85ebca6bu;
+                hash ^= hash >> 16; hash *= 0x7feb352du; hash ^= hash >> 15;
+                return hash;
+            };
+            std::vector<double> roundtrip;
+            std::vector<uint8_t> output;
+            unsigned submitted = 0, delivered = 0;
+            using Clock = std::chrono::steady_clock;
+            Handle poll_timer;
+            if (queue_depth) {
+                poll_timer.value = CreateWaitableTimerExW(nullptr, nullptr,
+                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
+                require(poll_timer.value != nullptr, "High-resolution ring benchmark timer unavailable");
+            }
+            struct Flight { Clock::time_point capture; };
+            std::deque<Flight> outstanding;
+            auto capture = [&](std::span<uint8_t> pixels, unsigned frame) {
+                const unsigned left = width / 4 + frame * 6 % (width / 3);
+                for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+                    const bool foreground = x >= left && x < left + width / 5 && y > height / 3 && y < 2 * height / 3;
+                    const auto hash = foreground ? pattern(x - left, y + 512) : pattern(x + frame * 3, y + frame);
+                    auto* rgba = pixels.data() + (size_t(y) * width + x) * 4;
+                    for (unsigned channel = 0; channel < 3; ++channel)
+                        rgba[channel] = uint8_t((foreground ? 105 : 38) + ((hash >> (channel * 8)) & 127));
+                    rgba[3] = 255;
+                }
+            };
+            auto milliseconds = [](Clock::duration elapsed) {
+                return std::chrono::duration<double, std::milli>(elapsed).count();
+            };
+            Json frame_trace = Json::array();
+            Clock::time_point window_start{};
+            unsigned staged_ahead = 0, maximum_outstanding = 0;
+            const auto deadline = GetTickCount64() + 180000;
+            while (delivered < frames && GetTickCount64() < deadline) {
+                if (host.phase() == Phase::Failed) throw std::runtime_error(host.error());
+                bool progressed = false;
+                if (queue_depth && submitted < frames && outstanding.size() < queue_depth && host.phase() == Phase::Ready) {
+                    if (auto slot = host.acquire_cpu_input()) {
+                        auto pixels = host.cpu_input_span(*slot);
+                        require(pixels.size() == original.size(), "Unexpected input plane size");
+                        const auto started = Clock::now();
+                        capture(pixels, ++submitted);
+                        // Ready/Busy with an older outstanding frame means it
+                        // had not been acknowledged when this capture finished.
+                        const bool ahead = !outstanding.empty() && host.phase() != Phase::Finished;
+                        const unsigned dw = full_depth ? width : width / 2;
+                        const unsigned dh = full_depth ? height : height / 2;
+                        if (game_depth) {
+                            auto depth = host.cpu_depth_span(*slot);
+                            for (unsigned y = 0; y < dh; ++y)
+                                for (unsigned x = 0; x < dw; ++x)
+                                    depth[size_t(y) * dw + x] = .1f + float((x + submitted) % dw) * .8f / dw;
+                        }
+                        require(host.submit_cpu_input(*slot, submitted, submitted == 1, game_depth, {},
+                            game_depth ? feed_pack_depth_dims(dw, dh) : 0), "Ring submit failed");
+                        if (ahead && submitted > 12) ++staged_ahead;
+                        outstanding.push_back({started});
+                        maximum_outstanding = std::max(maximum_outstanding, unsigned(outstanding.size()));
+                        progressed = true;
+                    }
+                } else if (!queue_depth && host.phase() == Phase::Ready && submitted == delivered) {
+                    capture(original, ++submitted);
+                    require(host.submit(submitted, submitted == 1, original), "Motion benchmark submission failed");
+                }
+                if (host.phase() == Phase::Finished) {
+                    if (queue_depth) {
+                        auto lease = host.lease_cpu_output();
+                        require(lease.has_value() && !outstanding.empty(), "Missing ring output");
+                        require(lease->pixels.size() == original.size(), "Unexpected output plane size");
+                        // Retain the final result for output verification. Normal
+                        // presentation consumes a leased slot without an owning vector.
+                        if (delivered + 1 == frames) output.assign(lease->pixels.begin(), lease->pixels.end());
+                        host.release_cpu_output();
+                        const auto now = Clock::now();
+                        if (delivered == 11) window_start = now;
+                        if (delivered >= 12)
+                            frame_trace.push_back({{"frame", delivered + 1},
+                                {"completion_ms", milliseconds(now - window_start)},
+                                {"capture_to_delivery_ms", milliseconds(now - outstanding.front().capture)},
+                                {"helper_roundtrip_ms", host.roundtrip()}});
+                        outstanding.pop_front();
+                        progressed = true;
+                    } else output = host.take();
+                    if (++delivered > 12) roundtrip.push_back(host.roundtrip());
+                }
+                if (!progressed && queue_depth) {
+                    LARGE_INTEGER interval{};
+                    interval.QuadPart = -1000; // 100 microseconds in 100 ns units.
+                    require(SetWaitableTimer(poll_timer.value, &interval, 0, nullptr, nullptr, FALSE) &&
+                        WaitForSingleObject(poll_timer.value, INFINITE) == WAIT_OBJECT_0,
+                        "Ring benchmark timer failed");
+                } else if (!progressed) Sleep(1);
+            }
+            if (queue_depth) capture(original, frames);
+            require(delivered == frames && output.size() == original.size() && output != original,
+                "Motion benchmark did not complete neural rendering");
+            require(host.ui_action(phoenix_ui::Action::Marker), "Unable to request final helper snapshot");
+            Json status;
+            for (const auto until = GetTickCount64() + 5000; GetTickCount64() < until; Sleep(5)) {
+                status = host.ui_snapshot();
+                if (status.value("markers", uint64_t(0)) > 0 && status.contains("helper_motion")) break;
+            }
+            const auto motion = status.at("helper_motion").at("streams").at(0);
+            require(motion.at("frames").get<unsigned>() == frames, "Final motion snapshot is stale");
+            require(motion.at("motion_source").get<int>() == settings.pipeline.motion_source, motion.dump().c_str());
+            require(settings.pipeline.motion_source == int(phoenix_pipeline::MotionSource::Zero) ||
+                motion.at("estimated_frames").get<unsigned>() >= frames - 8, motion.dump().c_str());
+            std::sort(roundtrip.begin(), roundtrip.end());
+            Json result{{"passed", true}, {"source", settings.pipeline.motion_source}, {"frames", delivered},
+                {"size", {width,height}}, {"analysis_height", settings.pipeline.flow_height}, {"client_bits", sizeof(void*) * 8},
+                {"motion", motion}, {"helper_timing", status.at("helper_timing")}, {"cpu_transport", status.at("cpu_transport")},
+                {"output_sha256", phoenix_model::weight_digest(output.data(), output.size())},
+                {"evaluate_stages_ms", status.value("evaluate_stages_ms", Json::object())},
+                {"cpu_prefetch", status.value("cpu_prefetch", Json::object())},
+                {"legacy_depth", status.value("legacy_depth", Json::object())},
+                {"gpu_timing", status.value("gpu_timing", Json::object())},
+                {"roundtrip_median_ms", roundtrip[roundtrip.size()/2]},
+                {"roundtrip_p95_ms", roundtrip[(roundtrip.size()*95-1)/100]}};
+            if (queue_depth) {
+                result["ring"] = {{"requested_depth", queue_depth}, {"max_outstanding", maximum_outstanding},
+                    {"staged_ahead", staged_ahead}, {"frames", std::move(frame_trace)}};
+            }
+            std::cout << result.dump() << '\n';
+            return 0;
+        }
         if (mode.rfind("cpu_", 0) == 0) {
             FeedBuild build{};
             build.width = build.output_width = width;

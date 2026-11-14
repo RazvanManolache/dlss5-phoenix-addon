@@ -19,6 +19,12 @@ import sys
 import configparser
 import io
 import argparse
+import unittest
+
+# This script opens a GPU fixture and is invoked explicitly with CLI flags.
+if __name__ != '__main__':
+    raise unittest.SkipTest('Run the museum GPU check explicitly with --background')
+
 import psutil
 import numpy as np
 from PIL import Image

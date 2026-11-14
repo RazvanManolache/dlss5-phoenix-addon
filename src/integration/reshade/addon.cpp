@@ -112,6 +112,9 @@ struct State {
     phoenix::DepthBudget depth_budget;
     double present_fps = 0;
     bool fresh_engine_output = false;
+    std::chrono::steady_clock::time_point engine_capture_begin;
+    std::optional<double> pipeline_roundtrip_ms;
+    uint64_t pipeline_roundtrip_tick = 0;
     uint64_t last_presented_worker_result = 0;
     uint64_t budget_recorded = 0, budget_record_tick = 0;
     uint64_t routed_frames = 0, switches = 0, markers = 0;
@@ -2874,31 +2877,34 @@ void configure() {
     if (addon_state.configured)
         return;
     addon_state.configured = true;
+    // ReShade can initialize a D3D12 command list on a game thread with a
+    // small stack. Reuse one heap buffer for long Windows paths.
+    std::vector<wchar_t> path(32768);
+    const auto capacity = static_cast<DWORD>(path.size());
 #if CNR_PHOENIX_DIAGNOSTIC
-    wchar_t path[32768]{};
     const auto config_path_length =
-        GetEnvironmentVariableW(L"CNR_PHOENIX_DIAGNOSTIC_CONFIG", path, 32768);
+        GetEnvironmentVariableW(L"CNR_PHOENIX_DIAGNOSTIC_CONFIG", path.data(), capacity);
 #else
-    wchar_t path[32768]{};
     const auto config_path_length =
-        GetEnvironmentVariableW(L"CNR_PHOENIX_GAME_CONFIG", path, 32768);
+        GetEnvironmentVariableW(L"CNR_PHOENIX_GAME_CONFIG", path.data(), capacity);
 #endif
-    if (config_path_length >= 32768)
+    if (config_path_length >= capacity)
         throw std::runtime_error("Phoenix DLSS5 configuration path is too long");
     if (!config_path_length) {
-        wchar_t module_path[32768]{};
-        check(GetModuleFileNameW(addon_state.self, module_path, 32768) != 0,
+        const auto length = GetModuleFileNameW(addon_state.self, path.data(), capacity);
+        check(length && length < capacity,
               "Phoenix DLSS5 addon location unavailable");
-        const auto sidecar = std::filesystem::path(module_path).parent_path() / "Phoenix.json";
+        const auto sidecar = std::filesystem::path(path.data()).parent_path() / "Phoenix.json";
         if (!std::filesystem::is_regular_file(sidecar)) {
             reshade::log::message(
                 reshade::log::level::warning,
                 "[Phoenix DLSS5] Not armed: no Phoenix.json beside addon and no launch configuration. Panel alone does not run inference.");
             return;
         }
-        check(wcscpy_s(path, sidecar.c_str()) == 0, "Phoenix DLSS5 sidecar path too long");
+        check(sidecar.native().size() < path.size(), "Phoenix DLSS5 sidecar path too long");
+        wcscpy_s(path.data(), path.size(), sidecar.c_str());
     }
-    auto config = phoenix_bundle::json_file(path);
+    auto config = phoenix_bundle::json_file(path.data());
     if (!addon_state.live_loaded)
         addon_state.panel.nvidia_dll_folder = config.value("nvidia_dll_folder", std::string());
     if (!addon_state.live_loaded)
@@ -2958,9 +2964,10 @@ void configure() {
     check(!addon_state.direct_game || (addon_state.interactive && !CNR_PHOENIX_DIAGNOSTIC),
           "Direct game provider requires live candidate build");
     addon_state.sandbox = std::filesystem::u8path(config.at("sandbox").get<std::string>());
-    wchar_t process[32768]{};
-    check(GetModuleFileNameW(nullptr, process, 32768) != 0,
+    const auto process_path_length = GetModuleFileNameW(nullptr, path.data(), capacity);
+    check(process_path_length && process_path_length < capacity,
           "phoenix cannot identify the running process");
+    const std::filesystem::path process(path.data());
     // By default a run must live in an owned sandbox copy, which is what keeps
     // an original installation read-only. Driving a game in place is a
     // deliberate, separate decision: the configuration has to name that exact
@@ -3728,6 +3735,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
     if (!addon_state.direct_game || !gpu_gate() || addon_state.terminal || !params)
         return;
     ++addon_state.direct_calls;
+    const auto capture_begin = std::chrono::steady_clock::now();
     bool recording = false;
     bool initializing = false;
     try {
@@ -4427,6 +4435,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
             addon_state.displayed = addon_state.panel;
             addon_state.displayed.mode = phoenix::nvidia;
             addon_state.fresh_engine_output = true;
+            addon_state.engine_capture_begin = capture_begin;
             addon_state.display_tick = GetTickCount64();
             return;
         }
@@ -4502,6 +4511,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                 if (result > addon_state.last_presented_worker_result) {
                     addon_state.last_presented_worker_result = result;
                     addon_state.fresh_engine_output = true;
+                    addon_state.engine_capture_begin = {};
                 }
             }
             else if (status == "failed_input_preserved")
@@ -4515,6 +4525,7 @@ void direct_game_frame(ID3D12GraphicsCommandList* supplied, const NVSDK_NGX_Hand
                     "Waiting for a fresh Phoenix DLSS5 worker result; game output preserved";
         } else {
             addon_state.fresh_engine_output = true;
+            addon_state.engine_capture_begin = capture_begin;
             addon_state.last_presented_worker_result = 0;
         }
         addon_state.displayed = addon_state.panel;
@@ -4908,6 +4919,7 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
         if (!addon_state.terminal)
             install_native(nullptr);
         bool fresh_backbuffer_output = false;
+        const auto backbuffer_capture_begin = std::chrono::steady_clock::now();
         if (!addon_state.terminal && addon_state.direct_game && !addon_state.direct_feeder &&
             addon_state.panel.processing.enabled && addon_state.panel.processing.hook == 3 &&
             addon_state.panel.uplift && addon_state.present_runtime && swapchain && queue &&
@@ -4971,6 +4983,15 @@ void present(reshade::api::command_queue* queue, reshade::api::swapchain* swapch
                     : addon_state.fresh_engine_output && addon_state.last_mode == panel.mode;
             }
             addon_state.fresh_engine_output = false;
+            if (fresh_output.value_or(false)) {
+                const auto begin = fresh_backbuffer_output ? backbuffer_capture_begin : addon_state.engine_capture_begin;
+                addon_state.pipeline_roundtrip_ms.reset();
+                if (begin != std::chrono::steady_clock::time_point{})
+                    addon_state.pipeline_roundtrip_ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - begin).count();
+                addon_state.pipeline_roundtrip_tick = now;
+            }
+            addon_state.engine_capture_begin = {};
             if (const auto sample = addon_state.presentation_timing.present(now,
                     addon_state.live_timing ? std::string_view(addon_state.live_timing->settings_key()) : std::string_view{},
                     reinterpret_cast<uintptr_t>(addon_state.live_timing.get()), panel.mode, fresh_output)) {
@@ -5816,13 +5837,21 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     ui.active_device = value.direct_runner && value.direct_runner->external()
         ? "Worker device (details in Performance)" : "Game graphics device";
     ui.direct_game = value.direct_game;
+    ui.game_api = "Direct3D 12";
+    if (value.panel.uplift && value.panel.mode != phoenix::input && value.panel.mode == value.last_mode &&
+        GetTickCount64() - value.pipeline_roundtrip_tick < 2000)
+        ui.pipeline_roundtrip_ms = value.pipeline_roundtrip_ms;
     ui.host_controls_stage = value.direct_feeder;
     ui.direct_nr_ready = value.direct_nr_ready;
     ui.nvidia_status = value.direct_nr_status;
     ui.native_kernel_styles = native_kernel_style_status();
     ui.update_available = phoenix_updates::service().poll();
     ui.open_update = phoenix_updates::open_releases;
-    ui.appearance=value.bridge_inputs.value("appearance",Json::object());
+    // Frame metadata is absent until the first evaluation, including when
+    // the player opens the overlay with neural rendering disabled.
+    if (const auto appearance = value.bridge_inputs.find("appearance");
+        appearance != value.bridge_inputs.end() && appearance->is_object())
+        ui.appearance = *appearance;
     ui.portable_backend_selected=value.panel.execution_device!="native";
     if(value.direct_runner&&value.direct_runner->external()){
         const auto execution=value.direct_runner->execution_status();
@@ -6199,11 +6228,15 @@ CnrPHOENIXFeederEvaluate(const PhoenixFeederFrameV1* frame, PhoenixFeederResultV
               "Phoenix DLSS5 feeder requires native-size float color and motion textures");
         if (frame->depth) {
             const auto depth = frame->depth->GetDesc();
+            // Any scalar R32_FLOAT plane up to the output size is accepted:
+            // the session resamples feeder depth onto the neural canvas
+            // (prepare_history_depth) before the network binds it.
             check(depth.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
                       depth.SampleDesc.Count == 1 && depth.DepthOrArraySize == 1 &&
-                      depth.MipLevels == 1 && depth.Width == output.Width &&
-                      depth.Height == output.Height && depth.Format == DXGI_FORMAT_R32_FLOAT,
-                  "Phoenix DLSS5 feeder depth requires native-size scalar R32_FLOAT");
+                      depth.MipLevels == 1 && depth.Width >= 1 && depth.Width <= output.Width &&
+                      depth.Height >= 1 && depth.Height <= output.Height &&
+                      depth.Format == DXGI_FORMAT_R32_FLOAT,
+                  "Phoenix DLSS5 feeder depth requires scalar R32_FLOAT no larger than the output");
         }
         ComPtr<ID3D12Device> device;
         phoenix_native::hr(cmd->GetDevice(IID_PPV_ARGS(&device)));
@@ -6507,6 +6540,12 @@ extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXInProcessGraphicsV2()
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXNativeTlsV3() {
     return CNR_PHOENIX_DIAGNOSTIC ? 0u : 3u;
+}
+// The installer reads these ABI sizes from the PE export name without executing it.
+static_assert(sizeof(phoenix_driver_probe::Channel) == 48328 &&
+              sizeof(phoenix_wow64::ModelChannel) == 48392);
+extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXWow64Packets_48328_48392() {
+    return CNR_PHOENIX_DIAGNOSTIC ? 0u : 1u;
 }
 extern "C" __declspec(dllexport) uint32_t WINAPI CnrPHOENIXFeederUiJson(char* destination,
                                                                     uint32_t capacity) {

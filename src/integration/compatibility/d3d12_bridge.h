@@ -11,6 +11,7 @@
 #include "../../pipeline/session.h"
 #if defined(_WIN64)
 #include "../../pipeline/d3d12_motion.h"
+#include "../../native/support/embedded_runtime.h"
 #endif
 
 namespace phoenix_compat {
@@ -386,7 +387,14 @@ public:
             submit();
             if (!r.estimated_motion)
                 r.estimated_motion = std::make_unique<phoenix_pipeline::D3D12Motion>(
-                    r.device.Get(), r.queue.Get(), r.fence.Get());
+                    r.device.Get(), r.queue.Get(), r.fence.Get(), false, []() -> fs::path {
+                        HMODULE addon = nullptr;
+                        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                reinterpret_cast<LPCWSTR>(&in_process_api), &addon)) return {};
+                        const auto bundle = phoenix_embedded::install(addon, {}, "motion");
+                        return bundle.root.empty() ? fs::path{} : bundle.root / "motion";
+                    });
             phoenix_pipeline::D3D12Motion::Result motion;
             try {
                 motion = r.estimated_motion->prepare(r.adapter.Color(), D3D12_RESOURCE_STATE_COMMON,
@@ -401,7 +409,7 @@ public:
             // The flow preparation retired the previous list. Establish an
             // explicit binding epoch on this fresh list before feeder capture.
             r.list->SetDescriptorHeaps(0, nullptr);
-            if (motion.source == phoenix_pipeline::MotionSource::Nvidia) {
+            if (phoenix_pipeline::estimated_motion(motion.source)) {
                 frame.motion = motion.motion; estimated = true; have_guides = true;
                 frame.motion_scale_x=frame.motion_scale_y=1.f;
                 auto barrier = transition(frame.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,

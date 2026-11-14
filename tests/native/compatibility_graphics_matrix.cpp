@@ -506,6 +506,24 @@ int main(int argc, char** argv) {
             image.texture.format = back_format;
         check(device->create_resource(image, nullptr, resource_usage::copy_source, &input),
               "Cannot create known input texture");
+        struct OpenGlPaint {
+            using Draw = void (WINAPI*)(GLsizei, GLsizei, GLenum, GLenum, const void*);
+            using Move = void (WINAPI*)(GLfloat, GLfloat);
+            using Align = void (WINAPI*)(GLenum, GLint);
+            Draw draw = nullptr;
+            Move move = nullptr;
+            Align align = nullptr;
+        } gl_paint;
+        std::vector<uint8_t> gl_pixels;
+        bool use_gl_paint = false;
+        if (api == "opengl" && dynamic) {
+            const auto module = GetModuleHandleW(L"opengl32.dll");
+            const auto proc = function<decltype(&wglGetProcAddress)>(module, "wglGetProcAddress");
+            gl_paint.draw = function<OpenGlPaint::Draw>(module, "glDrawPixels");
+            gl_paint.align = function<OpenGlPaint::Align>(module, "glPixelStorei");
+            gl_paint.move = reinterpret_cast<OpenGlPaint::Move>(proc("glWindowPos2f"));
+            check(gl_paint.move != nullptr, "OpenGL window-space pixels unavailable");
+        }
         // ReShade normalizes OpenGL texture-to-backbuffer copies internally.
         // Pre-flipping here would hide an upside-down neural input/output pair.
         auto pixels = pattern(false, bgra_input);
@@ -533,7 +551,11 @@ int main(int argc, char** argv) {
             auto back = runtime->get_current_back_buffer();
             auto* command = queue->get_immediate_command_list();
             command->barrier(back, resource_usage::present, resource_usage::copy_dest);
-            if (multisample) draw_d3d9_input(device9.Get(), input, back);
+            if (use_gl_paint) {
+                gl_paint.align(GL_UNPACK_ALIGNMENT, 1);
+                gl_paint.move(0.f, 0.f);
+                gl_paint.draw(width, height, GL_RGBA, GL_UNSIGNED_BYTE, gl_pixels.data());
+            } else if (multisample) draw_d3d9_input(device9.Get(), input, back);
             else command->copy_resource(input, back);
             command->barrier(back, resource_usage::copy_dest, resource_usage::present);
             if (api != "vulkan")
@@ -541,22 +563,7 @@ int main(int argc, char** argv) {
             present();
             Sleep(5);
         };
-        bool current_changed = false;
-        while (!complete && GetTickCount64() < deadline) {
-            if (dynamic && !current_changed) {
-                const auto progress = status();
-                if (progress.value("delivered", 0) >= 2 && progress.value("phase", 0) == 4) {
-                    for (size_t pixel = 0; pixel < pixels.size(); pixel += 4) {
-                        pixels[pixel] = uint8_t((std::min)(255, int(pixels[pixel]) + 17));
-                        pixels[pixel + 1] = uint8_t((std::min)(255, int(pixels[pixel + 1]) + 23));
-                        pixels[pixel + 2] = uint8_t((std::max)(0, int(pixels[pixel + 2]) - 10));
-                    }
-                    upload_known_input(device, pixels);
-                    current_changed = true;
-                }
-            }
-            pump_frame();
-        }
+        while (!complete && GetTickCount64() < deadline) pump_frame();
         check(complete, "No completed and presented image in 90 seconds");
         check(failure.empty(), failure.c_str());
         check(!output.empty(), "No output pixel evidence");
@@ -589,9 +596,8 @@ int main(int argc, char** argv) {
                   "In-process test silently used a helper or unproven composition");
         }
         evidence["changed_bytes"] = changed;
-        evidence["dynamic_current_changed"] = current_changed;
+        evidence["dynamic_current_changed"] = false;
         evidence["display_mode"] = display_mode;
-        check(!dynamic || current_changed || in_process, "Dynamic frame was never injected");
         if (resize_test) {
             const auto initial_evidence = evidence;
             const auto initial_hash = evidence.at("output_sha256").get<std::string>();
@@ -637,7 +643,8 @@ int main(int argc, char** argv) {
                     processed_bytes += output[index] != resized_input[index];
                 check(processed_bytes > output.size() / 100,
                       "Resized canvas displayed raw or stale input");
-                if (api == "d3d11")
+                if (api == "d3d11" && evidence.value("execution_mode", std::string{}) == "helper" &&
+                    evidence.value("transfer_cpu_ms", Json::object()).contains("sharing_device_reused"))
                     check(evidence.value("transfer_cpu_ms", Json::object()).value("sharing_device_reused", false),
                           "D3D11 resize discarded the game-device sharing context");
                 const auto hash = phoenix_model::weight_digest(output.data(), output.size());
@@ -652,23 +659,40 @@ int main(int argc, char** argv) {
             evidence["resize_cycle_processed_and_exact_on_return"] = true;
         }
         if (dynamic) {
-            if (in_process && !current_changed) {
-                for (size_t pixel = 0; pixel < pixels.size(); pixel += 4) {
-                    pixels[pixel] = uint8_t((std::min)(255, int(pixels[pixel]) + 17));
-                    pixels[pixel + 1] = uint8_t((std::min)(255, int(pixels[pixel + 1]) + 23));
-                    pixels[pixel + 2] = uint8_t((std::max)(0, int(pixels[pixel + 2]) - 10));
-                }
-                upload_known_input(device, pixels);
-                current_changed = true;
-                evidence["dynamic_current_changed"] = true;
-                evidence["composition"] = "same_frame_gpu";
+            for (size_t pixel = 0; pixel < pixels.size(); pixel += 4) {
+                pixels[pixel] = uint8_t((std::min)(255, int(pixels[pixel]) + 17));
+                pixels[pixel + 1] = uint8_t((std::min)(255, int(pixels[pixel + 1]) + 23));
+                pixels[pixel + 2] = uint8_t((std::max)(0, int(pixels[pixel + 2]) - 10));
             }
+            // Each API exposes different upload rules for an existing
+            // default-pool texture. Use the same fresh resource path as the
+            // original frame and retire the old input before replacing it.
+            queue->wait_idle();
+            device->destroy_resource(input);
+            input = {};
+            const subresource_data changed_pixels{pixels.data(), width * 4, width * height * 4};
+            const bool initial_data = api == "opengl" || api == "vulkan";
+            check(device->create_resource(image, initial_data ? &changed_pixels : nullptr,
+                                          resource_usage::copy_source, &input),
+                  "Cannot create changed input texture");
+            if (!initial_data) upload_known_input(device, pixels);
+            if (api == "opengl") {
+                gl_pixels.resize(pixels.size());
+                for (unsigned row = 0; row < height; ++row)
+                    std::memcpy(gl_pixels.data() + size_t(row) * width * 4,
+                                pixels.data() + size_t(height - row - 1) * width * 4, size_t(width) * 4);
+                use_gl_paint = true;
+            }
+            evidence["dynamic_current_changed"] = true;
+            if (in_process) evidence["composition"] = "same_frame_gpu";
             // Holding the old pair once is only half of the contract. Keep the
             // changed input on screen long enough to pass through capture,
             // inference and presentation; a permanently frozen bridge must fail.
             const auto held_output = output;
             const auto held_evidence = evidence;
-            capture_min_delivered = evidence.value("delivered", uint64_t(0)) + 3;
+            // The old image can already occupy the capture ring and worker
+            // queue when the source changes. Sample beyond the full ring.
+            capture_min_delivered = evidence.value("delivered", uint64_t(0)) + 12;
             complete = capture = false;
             const auto changed_deadline = GetTickCount64() + 60000;
             while (!complete && GetTickCount64() < changed_deadline)

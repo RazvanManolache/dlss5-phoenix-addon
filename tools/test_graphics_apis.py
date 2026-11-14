@@ -167,7 +167,10 @@ def main():
                     moving_env = environment.copy()
                     if api == 'vulkan':
                         moving_env['VK_LAYER_PATH'] = str(moving)
-                    result = subprocess.run([str(moving / f'api{bits}.exe'), api, '--dynamic'], cwd=moving,
+                    moving_command = [str(moving / f'api{bits}.exe'), api, '--dynamic']
+                    if api == 'd3d9' and args.d3d9_msaa:
+                        moving_command.append('--msaa')
+                    result = subprocess.run(moving_command, cwd=moving,
                                             capture_output=True, text=True, timeout=110, env=moving_env)
                     (moving / 'stdout.log').write_text(result.stdout)
                     (moving / 'stderr.log').write_text(result.stderr)
@@ -211,15 +214,30 @@ def main():
                     break
         successful = [case for case in report['cases'] if case['passed']]
         report['api_pixel_outputs_identical'] = bool(successful) and len({case['output_sha256'] for case in successful}) == 1
+        # Packed 10-bit direct textures and RGBA8 staging round at different
+        # points. Require byte identity within each transport for this format.
+        def identical_by_transport(cases, key):
+            groups = {}
+            for case in cases:
+                route = case.get('execution_mode', '')
+                transport = 'direct' if route in ('in_process', 'in_process_d3d11') else 'staged'
+                groups.setdefault(transport, set()).add(case.get(key))
+            return bool(groups) and all(len(values) == 1 and None not in values for values in groups.values())
+
+        packed = args.dxgi_rgb10 or args.d3d12_rgb10
+        report['api_pixels_identical_by_transport'] = identical_by_transport(successful, 'output_sha256')
         report['passed'] = (len(report['cases']) == len(args.bits) * len(args.apis) and
-                            all(case['passed'] for case in report['cases']) and report['api_pixel_outputs_identical'])
+                            all(case['passed'] for case in report['cases']) and
+                            (report['api_pixels_identical_by_transport'] if packed else report['api_pixel_outputs_identical']))
         if args.motion_checks:
             report['passed'] = (report['passed'] and len(report['motion_cases']) == len(report['cases']) and
                                 all(case['passed'] for case in report['motion_cases']))
         if args.motion_checks:
             hashes = [case.get('changed_output_sha256') for case in report['motion_cases']]
             report['changed_input_outputs_identical'] = bool(hashes) and None not in hashes and len(set(hashes)) == 1
-            report['passed'] = report['passed'] and report['changed_input_outputs_identical']
+            report['passed'] = report['passed'] and (
+                identical_by_transport(report['motion_cases'], 'changed_output_sha256')
+                if packed else report['changed_input_outputs_identical'])
         if args.control_checks:
             report['passed'] = (report['passed'] and len(report['control_cases']) == len(report['cases']) and
                                 all(case['passed'] for case in report['control_cases']))

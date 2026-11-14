@@ -1,28 +1,22 @@
 # Phoenix DLSS5
 
-My attempt at an open-source runner for NVIDIA DLSS5 neural rendering,
-packaged as a ReShade addon. Bring a compatible model, give a favourite game
-another look, and decide for yourself whether you like what it does.
+My attempt at an open-source runner for NVIDIA DLSS5 neural rendering, packaged as a ReShade addon. Bring a compatible model, give a favourite game another look, and decide for yourself whether you like what it does.
 
-I dislike how much of the software we add to our games is closed source. We
-rush for the best experience without being able to inspect what we're running.
-I'd rather let you look under the hood. Better pixels shouldn't require blind trust.
+I dislike how much of the software we add to our games is closed source. We rush for the best experience without being able to inspect what we're running. I'd rather let you look under the hood. Better pixels shouldn't require blind trust.
 
-I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what
-it can do for the games we already love—and, eventually, looks less interested
-in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
+I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what it can do for the games we already love—and, eventually, looks less interested in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.2.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.2.0) ·
+[Download 1.3.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.3.0) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
-## New in 1.2.0 — 2026-11-11
+## New in 1.3.0 — 2026-11-14
 
-- **Game depth for older DirectX games:** use compatible engine depth with Phoenix or NVIDIA DLSS5, including NVIDIA DX9 multisampled depth. Inspect it live in **Depth only**, or configure an optional estimator for games without usable depth.
-- **More control over scaling:** choose a resize filter, including NVIDIA Image Scaling on supported routes, and work at up to 400% resolution per dimension.
-- **Clearer controls and performance:** contextual tooltips, slider resets, and separate game and processed FPS readings.
-- **Less interruption while tuning:** live edits reuse the loaded model, and compatible helpers resume after focus-related resets.
+- **Faster frame delivery for older games.** Capture, helper processing, and display can overlap on supported routes. DX9 avoids waiting on busy captures and keeps each processed result paired with its source frame.
+- **Motion for games without engine vectors.** Choose FidelityFX, NVIDIA Optical Flow, OpenCV DIS, D3D12 Video Motion Estimation, or a built-in luma block matcher.
+- **More dependable game depth.** DX9 tracks fresh depth independently of color, helping keep the depth preview and guide current through camera movement and focus changes.
+- **Better Windows compatibility and diagnostics.** Matched WOW64 packages, improved helper startup, clearer x64 fallback, and a pipeline round-trip display next to game FPS and processed FPS.
 
-[1.2.0 release notes](docs/RELEASE_1.2.0.md) · [Earlier changes](CHANGELOG.md).
+[1.3.0 release notes](docs/RELEASE_1.3.0.md) · [Earlier changes](CHANGELOG.md).
 
 <table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix Play tab with model choices and separate game and processed FPS" width="420"></a></td><td><a href="docs/features/overlay-performance.png"><img src="docs/features/overlay-performance.png" alt="Phoenix timing and FPS comparisons" width="420"></a></td></tr></table>
 
@@ -30,15 +24,9 @@ in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
 ## The easiest way to try Phoenix
 
-DLSS5 Everything is a free, open-source Windows app that gets Phoenix running
-in your games. It finds installed games, detects their graphics API and whether
-they are 32-bit or 64-bit, and installs the matching Phoenix add-on and runtime
-components. You can verify or repair an installation, launch the game from the
-library, and restore backed-up files if you want to undo the setup.
+DLSS5 Everything is a free, open-source Windows app that gets Phoenix running in your games. It finds installed games, detects their graphics API and whether they are 32-bit or 64-bit, and installs the matching Phoenix add-on and runtime components. You can verify or repair an installation, launch the game from the library, and restore backed-up files if you want to undo the setup.
 
-It also gives you per-game model and effect settings and can use Phoenix on
-windows, the desktop or a webcam. Open the app, pick a game, choose **Install**,
-and then **Play**.
+It also gives you per-game model and effect settings and can use Phoenix on windows, the desktop or a webcam. Open the app, pick a game, choose **Install**, and then **Play**.
 
 [Download DLSS5 Everything](https://github.com/RazvanManolache/DLSS5-Everything/releases/latest) ·
 [Source code and setup guide](https://github.com/RazvanManolache/DLSS5-Everything)
@@ -62,27 +50,7 @@ Measured 2026-10-30; full graphs, one pass. Small margins vary between runs; hig
 
 ## See it in games
 
-From DOOM II to Gotham: give familiar worlds another look. These are matching input/output captures from reviewed gameplay replays; click an image for the full-resolution view.
-
-**Batman: Arkham Knight**
-
-| Original input | Phoenix DLSS5 |
-| --- | --- |
-| ![Batman: Arkham Knight: original input](docs/games/batman_arkham_knight-input.webp) | ![Batman: Arkham Knight: Phoenix DLSS5 output](docs/games/batman_arkham_knight-phoenix-dlss5.webp) |
-
-**Hitman: Absolution**
-
-| Original input | Phoenix DLSS5 |
-| --- | --- |
-| ![Hitman: Absolution: original input](docs/games/hitman_absolution_x86-input.webp) | ![Hitman: Absolution: Phoenix DLSS5 output](docs/games/hitman_absolution_x86-phoenix-dlss5.webp) |
-
-**DOOM II**
-
-| Original input | Phoenix DLSS5 |
-| --- | --- |
-| ![DOOM II: original input](docs/games/doom2_dos-input.webp) | ![DOOM II: Phoenix DLSS5 output](docs/games/doom2_dos-phoenix-dlss5.webp) |
-
-[Seven-game comparison gallery, routes and capture details](docs/GAME_GALLERY.md). These earlier captures illustrate the effect; they are not fresh 1.0 Beta game tests.
+[See the matching original and processed captures from seven games, including Batman: Arkham Knight, Hitman: Absolution and DOOM II](docs/GAME_GALLERY.md).
 
 ## Features
 
@@ -91,28 +59,23 @@ From DOOM II to Gotham: give familiar worlds another look. These are matching in
 - **Tune live:** tone, structure, skin, masks, intensity and appearance styles.
 - **32-bit and 64-bit games:** automatic execution choices with an x64 helper when needed.
 - **Stay in the game process when possible:** local D3D11/D3D12 bridges and experimental x86 library routes retain checked helper fallback.
-- **Steadier delivery:** bounded DX9 capture overlap, matching input/output frame pairing and continuity checks through focus and viewport changes.
-- **Motion you can control:** prefer engine vectors or estimate missing motion, with analysis-resolution and history controls on supported routes.
+- **Overlap capture and inference:** bounded frame queues keep older games responsive and preserve matching input/output frames.
+- **Recover motion and depth in older games:** estimate missing motion, use compatible game depth when available, and preview the live depth guide.
 - **Keep up with driver changes:** experimental x86 bridges discover and validate the installed NVIDIA driver, with results cached per driver and runtime package.
 - **Broad capture integration:** D3D9/10/11/12, OpenGL and Vulkan, with route-specific requirements.
 - **Build a processing chain:** scaling, color, optional multiscale fusion and motion estimation where supported.
-- **Keep comparisons honest:** matching original/modified screenshots, timing history and execution diagnostics.
+- **See where time goes:** separate game and processed FPS, neural timing, capture-to-presentation latency, and matching original/processed screenshots.
 - **Use it beyond ReShade:** a native SDK and file/framed-stream interfaces.
 
 [Full feature catalog](docs/FEATURES.md) · [Controls and screenshots](docs/USER_GUIDE.md)
 
-**Older RTX kernels exist; older-card validation is still needed.** RTX 20/30/40 paths
-are experimental. My NVIDIA hardware testing is on an RTX 5080. Portable CUDA,
-Vulkan, HIP, CPU, SYCL and Metal routes have separate limits and performance.
-[Compatibility and tested hardware](docs/COMPATIBILITY.md).
+Older RTX kernels are experimental. Hardware testing here uses an RTX 5080. [Compatibility and tested hardware](docs/COMPATIBILITY.md).
+
+Windows motion sources include NVIDIA Optical Flow, AMD FidelityFX, OpenCV DIS, and D3D12 Video Motion Estimation on compatible routes. [Provider requirements and benchmarks](docs/motion-providers.md).
 
 ## Manual installation
 
-**Native Linux preview:** a per-game Vulkan layer, relocatable model-free package
-and optional CUDA backends are available. The SM120 native CUDA executor reuses
-the production 154/78-launch model schedules, with bounded byte transport and
-explicit hardware validation. 0 A.D. gameplay, timings and remaining limits are
-recorded in the [Linux guide](docs/LINUX.md) and [native CUDA guide](docs/LINUX_NATIVE_CUDA.md).
+The native Linux preview provides a per-game Vulkan layer and optional CUDA backends. [Linux guide](docs/LINUX.md) · [Native CUDA guide](docs/LINUX_NATIVE_CUDA.md).
 
 1. [Choose and install the package](docs/INSTALLATION.md) with full-addon-support ReShade.
 2. Select a separately supplied compatible model in Setup.
@@ -132,6 +95,4 @@ recorded in the [Linux guide](docs/LINUX.md) and [native CUDA guide](docs/LINUX_
 
 ## License
 
-Original project code is [Apache 2.0](LICENSE). Third-party components retain their
-own terms: [THIRD_PARTY.md](THIRD_PARTY.md) · [NOTICE](NOTICE). Separately supplied
-NVIDIA models and runtimes retain their own licenses.
+Original project code is [Apache 2.0](LICENSE). Third-party components retain their own terms: [THIRD_PARTY.md](THIRD_PARTY.md) · [NOTICE](NOTICE). Separately supplied NVIDIA models and runtimes retain their own licenses.
