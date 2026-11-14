@@ -71,7 +71,7 @@ Measured 2026-10-30; full graphs, one pass. Small margins vary between runs; hig
 
 **GeForce RTX 20-series and newer:** the Windows RTX Compatibility package includes kernels for RTX 20, 30, 40, and 50 series cards. Physical testing used an RTX 5080. Older RTX generations remain experimental. [Compatibility and tested hardware](docs/COMPATIBILITY.md)
 
-**Other GPUs:** experimental Vulkan, HIP, SYCL, and Metal paths are available where the hardware and runtime support them. A CPU fallback is also available. These paths can be much slower, especially on integrated graphics or CPU, and may run well below playable frame rates. [Backend requirements and validation](docs/SUPPORT.md)
+**Vulkan, AMD, and Intel:** Phoenix can capture Vulkan games and run inference through an experimental portable Vulkan backend on compatible AMD and Intel GPUs. Integrated AMD Radeon has been tested. Intel GPUs still need device testing. Optional HIP, SYCL, Metal, and CPU paths broaden coverage. Performance varies and can fall well below playable frame rates. [Backend requirements and validation](docs/SUPPORT.md)
 
 Windows motion sources include NVIDIA Optical Flow, AMD FidelityFX, OpenCV DIS, and D3D12 Video Motion Estimation on compatible routes. [Provider requirements and benchmarks](docs/motion-providers.md).
 
