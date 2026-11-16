@@ -25,6 +25,11 @@ Virtual focus is off by default. Hooks are installed when the companion starts a
 {"focus_override": true, "virtual_pad": false}
 ```
 
+If a launcher and game both load the addon from the same directory, set
+`"target_executable": "Game.exe"` in that JSON file. Use the game's executable
+filename. Phoenix Input compares the name without regard to case and only starts
+its control session in the matching process.
+
 ## Local mailbox
 
 `PhoenixOutput/input/endpoint.json` appears beside the loaded addon and refreshes about once per second. It contains the current `session`, process, window and hook status. One local controller should own the mailbox at a time.

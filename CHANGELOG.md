@@ -3,6 +3,15 @@
 The [README](README.md) shows the latest dated release. Earlier highlights are
 kept here; each linked release note includes its validation details.
 
+## 1.3.0 — 2026-11-14
+
+- **Faster frame delivery for older games.** Capture, helper processing, and display can overlap on supported routes. DX9 avoids waiting on busy captures and keeps each processed result paired with its source frame.
+- **Motion for games without engine vectors.** Choose FidelityFX, NVIDIA Optical Flow, OpenCV DIS, D3D12 Video Motion Estimation, or a built-in luma block matcher.
+- **More dependable game depth.** DX9 tracks fresh depth independently of color, helping keep the depth preview and guide current through camera movement and focus changes.
+- **Better Windows compatibility and diagnostics.** Matched WOW64 packages, improved helper startup, clearer x64 fallback, and a pipeline round-trip display next to game FPS and processed FPS.
+
+[1.3.0 release notes](docs/RELEASE_1.3.0.md).
+
 ## 1.2.0 — 2026-11-11
 
 - **Game depth for older DirectX games:** use compatible engine depth with Phoenix or NVIDIA DLSS5, including NVIDIA DX9 multisampled depth. Inspect it live in **Depth only**, or configure an optional estimator for games without usable depth.

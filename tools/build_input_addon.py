@@ -23,6 +23,47 @@ def read_json(path, timeout=15):
     raise RuntimeError('Input companion mailbox timed out: ' + path.name)
 
 
+def check_shared_installation(host, addon, env):
+    fixture = host.parent / 'shared-installation'
+    fixture.mkdir()
+    game = fixture / host.name
+    launcher = fixture / 'launcher.exe'
+    shared_addon = fixture / addon.name
+    shutil.copy2(host, game)
+    shutil.copy2(host, launcher)
+    shutil.copy2(addon, shared_addon)
+    (fixture / 'PhoenixInput.json').write_text(json.dumps({'target_executable': game.name.upper()}))
+    mailbox = fixture / 'PhoenixOutput' / 'input'
+    processes = []
+    try:
+        for executable in (launcher, game):
+            processes.append(subprocess.Popen([str(executable), str(shared_addon)], cwd=fixture, env=env,
+                                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE, text=True))
+        endpoint = read_json(mailbox / 'endpoint.json')
+        assert endpoint['pid'] == processes[1].pid
+        # Both processes are alive across a complete endpoint publication interval.
+        time.sleep(1.2)
+        assert all(process.poll() is None for process in processes)
+        assert read_json(mailbox / 'endpoint.json')['session'] == endpoint['session']
+        request = dict(schema='phoenix-input/1', session=endpoint['session'], id='shared',
+                       ops=[dict(op='status')])
+        staged = mailbox / 'request.tmp'
+        staged.write_text(json.dumps(request))
+        staged.replace(mailbox / 'request.json')
+        response = read_json(mailbox / 'response.json')
+        assert response['id'] == 'shared' and response['ok'] is True and response['session'] == endpoint['session']
+        for process in processes:
+            _, error = process.communicate('stop\n', timeout=20)
+            if process.returncode:
+                raise RuntimeError('Shared input add-on unload failed: ' + error)
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/current/input-addon')
@@ -98,6 +139,8 @@ def main():
                 if process.poll() is None:
                     process.kill()
                     process.wait()
+            check_shared_installation(host, target, env)
+            results[str(bits)]['shared_installation_binds_game_executable'] = True
             binaries[target.name] = sha(target.read_bytes())
         for name, digest in bindings.items():
             assert sha((ROOT / name).read_bytes()) == digest, name

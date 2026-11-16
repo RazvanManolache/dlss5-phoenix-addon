@@ -6,17 +6,15 @@ I dislike how much of the software we add to our games is closed source. We rush
 
 I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what it can do for the games we already love—and, eventually, looks less interested in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.3.0](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.3.0) ·
+[Download 1.3.1](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.3.1) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
-## New in 1.3.0 — 2026-11-14
+## New in 1.3.1 — 2026-11-16
 
-- **Faster frame delivery for older games.** Capture, helper processing, and display can overlap on supported routes. DX9 avoids waiting on busy captures and keeps each processed result paired with its source frame.
-- **Motion for games without engine vectors.** Choose FidelityFX, NVIDIA Optical Flow, OpenCV DIS, D3D12 Video Motion Estimation, or a built-in luma block matcher.
-- **More dependable game depth.** DX9 tracks fresh depth independently of color, helping keep the depth preview and guide current through camera movement and focus changes.
-- **Better Windows compatibility and diagnostics.** Matched WOW64 packages, improved helper startup, clearer x64 fallback, and a pipeline round-trip display next to game FPS and processed FPS.
+- **Keep automation attached to the game.** The optional Phoenix Input companion can bind to a specific game executable in an install shared with its launcher.
+- **Follow viewport changes.** Phoenix Input follows the active game window and preserves each window’s original message handler.
 
-[1.3.0 release notes](docs/RELEASE_1.3.0.md) · [Earlier changes](CHANGELOG.md).
+[1.3.1 release notes](docs/RELEASE_1.3.1.md) · [Earlier changes](CHANGELOG.md).
 
 <table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix Play tab with model choices and separate game and processed FPS" width="420"></a></td><td><a href="docs/features/overlay-performance.png"><img src="docs/features/overlay-performance.png" alt="Phoenix timing and FPS comparisons" width="420"></a></td></tr></table>
 

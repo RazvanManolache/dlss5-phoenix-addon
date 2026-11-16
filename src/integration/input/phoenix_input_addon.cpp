@@ -60,6 +60,7 @@ namespace {
 HMODULE g_module = nullptr;
 std::recursive_mutex g_lock;
 std::atomic<HWND> g_hwnd{nullptr};
+std::atomic<HWND> g_reported_hwnd{nullptr};
 std::atomic<bool> g_focus{false};       // virtual focus / isolation enabled
 std::atomic<bool> g_pad_enabled{false}; // virtual XInput pad connected
 std::atomic<bool> g_stop{false};
@@ -126,9 +127,10 @@ std::vector<void*> g_hook_targets;
 bool g_minhook_owned = false;
 bool g_batch_install = false;
 std::vector<HMODULE> g_owned_libraries;
-WNDPROC o_wndproc = nullptr;
+struct WindowProcedure { WNDPROC original = nullptr; bool unicode = true; };
+std::map<HWND, WindowProcedure> g_window_procedures;
+std::mutex g_window_lock;
 HWND g_subclassed = nullptr;
-bool g_subclass_unicode = true;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -565,7 +567,7 @@ template <size_t Slot> DWORD WINAPI h_XInputGetState(DWORD index, XINPUT_STATE* 
 }
 
 LRESULT CALLBACK h_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-    if (g_focus.load()) {
+    if (g_focus.load() && hwnd == g_hwnd.load()) {
         switch (message) {
         case WM_ACTIVATEAPP:
             if (!wparam) { ++g_count.focus_swallowed; return 0; }
@@ -582,8 +584,17 @@ LRESULT CALLBACK h_WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
         default: break;
         }
     }
-    return g_subclass_unicode ? CallWindowProcW(o_wndproc, hwnd, message, wparam, lparam)
-                              : CallWindowProcA(o_wndproc, hwnd, message, wparam, lparam);
+    WindowProcedure saved;
+    {
+        std::lock_guard lock(g_window_lock);
+        if (const auto found = g_window_procedures.find(hwnd); found != g_window_procedures.end())
+            saved = found->second;
+    }
+    if (saved.original)
+        return saved.unicode ? CallWindowProcW(saved.original, hwnd, message, wparam, lparam)
+                             : CallWindowProcA(saved.original, hwnd, message, wparam, lparam);
+    return IsWindowUnicode(hwnd) ? DefWindowProcW(hwnd, message, wparam, lparam)
+                                 : DefWindowProcA(hwnd, message, wparam, lparam);
 }
 
 bool hook(void* target, void* detour, void** original) {
@@ -709,42 +720,70 @@ void install_hooks() {
 // ---------------------------------------------------------------------------
 // Window discovery / subclassing
 // ---------------------------------------------------------------------------
-BOOL CALLBACK find_window(HWND hwnd, LPARAM best) {
+uint64_t input_window_area(HWND hwnd, bool reported, bool require_visible = true) {
     DWORD pid = 0;
-    GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != GetCurrentProcessId() || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER)) return TRUE;
+    if (!hwnd || !GetWindowThreadProcessId(hwnd, &pid) || pid != GetCurrentProcessId() ||
+        (require_visible && !IsWindowVisible(hwnd)) || (!reported && GetWindow(hwnd, GW_OWNER)))
+        return 0;
     RECT rect{};
-    GetClientRect(hwnd, &rect);
-    if (rect.right - rect.left <= 1 || rect.bottom - rect.top <= 1) return TRUE;
-    const long area = (rect.right - rect.left) * (rect.bottom - rect.top);
-    auto* result = reinterpret_cast<std::pair<HWND, long>*>(best);
+    if (!GetClientRect(hwnd, &rect) || rect.right <= 1 || rect.bottom <= 1) return 0;
+    return uint64_t(rect.right) * uint64_t(rect.bottom);
+}
+BOOL CALLBACK find_window(HWND hwnd, LPARAM best) {
+    const auto area = input_window_area(hwnd, false);
+    auto* result = reinterpret_cast<std::pair<HWND, uint64_t>*>(best);
     if (area > result->second) *result = {hwnd, area};
     return TRUE;
 }
+void restore_procedure(HWND hwnd, const WindowProcedure& saved) {
+    if (!IsWindow(hwnd) || !saved.original) return;
+    const auto current = saved.unicode ? GetWindowLongPtrW(hwnd, GWLP_WNDPROC)
+                                       : GetWindowLongPtrA(hwnd, GWLP_WNDPROC);
+    if (current != reinterpret_cast<LONG_PTR>(&h_WndProc)) return;
+    if (saved.unicode) SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(saved.original));
+    else SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(saved.original));
+}
 void ensure_window() {
-    HWND hwnd = g_hwnd.load();
-    if (!hwnd || !IsWindow(hwnd)) {
-        std::pair<HWND, long> best{nullptr, 0};
-        EnumWindows(find_window, reinterpret_cast<LPARAM>(&best));
-        if (best.first) g_hwnd = hwnd = best.first;
+    HWND hwnd = g_reported_hwnd.load();
+    if (!input_window_area(hwnd, true)) {
+        hwnd = g_hwnd.load();
+        if (!input_window_area(hwnd, false)) {
+            std::pair<HWND, uint64_t> best{nullptr, 0};
+            EnumWindows(find_window, reinterpret_cast<LPARAM>(&best));
+            hwnd = best.first;
+        }
+    }
+    g_hwnd = hwnd;
+    std::lock_guard lock(g_window_lock);
+    if (g_subclassed && g_subclassed != hwnd) {
+        if (const auto found = g_window_procedures.find(g_subclassed); found != g_window_procedures.end())
+            restore_procedure(g_subclassed, found->second);
+        g_subclassed = nullptr;
     }
     if (hwnd && g_focus.load() && g_subclassed != hwnd) {
-        g_subclass_unicode = IsWindowUnicode(hwnd) != FALSE;
-        LONG_PTR previous = g_subclass_unicode
+        const bool unicode = IsWindowUnicode(hwnd) != FALSE;
+        const auto current = unicode ? GetWindowLongPtrW(hwnd, GWLP_WNDPROC)
+                                     : GetWindowLongPtrA(hwnd, GWLP_WNDPROC);
+        if (!current) return;
+        if (current == reinterpret_cast<LONG_PTR>(&h_WndProc)) {
+            if (g_window_procedures.contains(hwnd)) g_subclassed = hwnd;
+            return;
+        }
+        // Keep each HWND's forwarding target available before Windows can call
+        // our procedure, and after restoring it for any in-flight callback.
+        g_window_procedures[hwnd] = {reinterpret_cast<WNDPROC>(current), unicode};
+        const auto previous = unicode
             ? SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&h_WndProc))
             : SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&h_WndProc));
-        if (previous) { o_wndproc = reinterpret_cast<WNDPROC>(previous); g_subclassed = hwnd; }
+        if (previous) {
+            g_window_procedures[hwnd].original = reinterpret_cast<WNDPROC>(previous);
+            g_subclassed = hwnd;
+        }
     }
 }
 void restore_window() {
-    if (g_subclassed && IsWindow(g_subclassed) && o_wndproc) {
-        const auto current = g_subclass_unicode ? GetWindowLongPtrW(g_subclassed, GWLP_WNDPROC)
-                                                : GetWindowLongPtrA(g_subclassed, GWLP_WNDPROC);
-        if (current == reinterpret_cast<LONG_PTR>(&h_WndProc)) {
-            if (g_subclass_unicode) SetWindowLongPtrW(g_subclassed, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(o_wndproc));
-            else SetWindowLongPtrA(g_subclassed, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(o_wndproc));
-        }
-    }
+    std::lock_guard lock(g_window_lock);
+    for (const auto& [hwnd, saved] : g_window_procedures) restore_procedure(hwnd, saved);
     g_subclassed = nullptr;
 }
 
@@ -1001,21 +1040,37 @@ void run_due() {
         try { run(); } catch (const std::exception& failure) { g_last_error = failure.what(); }
     }
 }
-void load_startup_config() {
+bool load_startup_config() {
     // The harness may request virtual focus from the first frame, before the
     // game window can observe any focus change.
     try {
         std::ifstream file(g_folder.parent_path().parent_path() / "PhoenixInput.json");
-        if (!file) return;
+        if (!file) return true;
         const Json config = Json::parse(file);
+        // A launcher can load the same add-on as the game and otherwise claim
+        // its requests from the shared installation directory.
+        if (const auto target = config.find("target_executable"); target != config.end()) {
+            if (!target->is_string()) return false;
+            const auto& utf8 = target->get_ref<const std::string&>();
+            const fs::path expected(std::u8string(utf8.begin(), utf8.end()));
+            if (expected.empty() || expected != expected.filename()) return false;
+            constexpr DWORD path_capacity = 32768;
+            wchar_t path[path_capacity]{};
+            const auto length = GetModuleFileNameW(nullptr, path, path_capacity);
+            if (!length || length >= path_capacity) return false;
+            const auto image = fs::path(path, path + length).filename();
+            if (CompareStringOrdinal(image.c_str(), -1, expected.c_str(), -1, TRUE) != CSTR_EQUAL)
+                return false;
+        }
         g_focus = config.value("focus_override", false);
         g_pad_enabled = config.value("virtual_pad", false);
     } catch (const std::exception& failure) {
         g_last_error = std::string("PhoenixInput.json: ") + failure.what();
     }
+    return true;
 }
 void worker() {
-    load_startup_config();
+    if (!load_startup_config()) return;
     bool hooks_installed = false;
     ULONGLONG next_poll = 0, next_status = 0, next_scan = 0;
     while (!g_stop.load()) {
@@ -1067,7 +1122,12 @@ void on_init_swapchain(reshade::api::swapchain* swapchain, bool) {
         const auto description = swapchain->get_device()->get_resource_desc(back_buffer);
         if (description.texture.width <= 1 || description.texture.height <= 1) return;
     }
-    if (auto hwnd = static_cast<HWND>(swapchain->get_hwnd())) g_hwnd = hwnd;
+    const auto hwnd = static_cast<HWND>(swapchain->get_hwnd());
+    const auto area = input_window_area(hwnd, true, false);
+    HWND previous = g_reported_hwnd.load();
+    while (area && area >= input_window_area(previous, true, false)) {
+        if (g_reported_hwnd.compare_exchange_weak(previous, hwnd)) break;
+    }
 }
 
 bool g_attached = false;
@@ -1083,6 +1143,8 @@ bool attach(HMODULE module, HMODULE provider = nullptr) {
 #endif
     g_attached = true;
     g_module = module;
+    g_hwnd = nullptr;
+    g_reported_hwnd = nullptr;
     wchar_t path[32768]{};
     GetModuleFileNameW(module, path, 32768);
     g_folder = fs::path(path).parent_path() / L"PhoenixOutput" / L"input";

@@ -8,10 +8,16 @@ static HWND WINAPI test_GetForegroundWindow(){return test_foreground;}
 static BOOL WINAPI test_GetCursorPos(LPPOINT p){*p={900,901};return TRUE;}
 static BOOL WINAPI test_SetCursorPos(int,int){++cursor_writes;return TRUE;}
 static BOOL WINAPI test_ClipCursor(const RECT*){++clip_writes;return TRUE;}
+constexpr UINT forwarding_probe = WM_APP + 7;
 static LRESULT CALLBACK test_wndproc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
+    if(message==forwarding_probe)return 101;
     if(message==WM_CHAR)++test_chars;
     if(message==WM_KEYDOWN)++test_keys;
     return DefWindowProcW(hwnd,message,wp,lp);
+}
+static LRESULT CALLBACK alternate_wndproc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
+    if(message==forwarding_probe)return 202;
+    return DefWindowProcA(hwnd,message,wp,lp);
 }
 int main() {
     auto legacy=LoadLibraryW(L"dinput.dll");
@@ -46,6 +52,26 @@ int main() {
     if(!h_GetCursorPos(&actual)||actual.x!=900||actual.y!=901)return 26;
     if(!h_SetCursorPos(0,0)||cursor_writes!=1||!h_ClipCursor(&clip)||clip_writes!=2)return 27;
     o_GetForegroundWindow=nullptr;o_GetCursorPos=nullptr;o_SetCursorPos=nullptr;o_ClipCursor=nullptr;g_focus=true;
+    HWND next = CreateWindowExA(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, "STATIC", "Next viewport",
+        WS_POPUP, -30000, -30000, 64, 48, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!next) return 30;
+    SetWindowLongPtrA(next, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&alternate_wndproc));
+    SetWindowPos(hwnd, nullptr, -30000, -30000, 128, 96, SWP_NOACTIVATE | SWP_NOZORDER);
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    ShowWindow(next, SW_SHOWNOACTIVATE);
+    g_reported_hwnd = hwnd;
+    ensure_window();
+    if (g_subclassed != hwnd || SendMessageW(hwnd, forwarding_probe, 0, 0) != 101) return 31;
+    g_reported_hwnd = next;
+    ensure_window();
+    if (g_subclassed != next || SendMessageA(next, forwarding_probe, 0, 0) != 202) return 32;
+    if (GetWindowLongPtrW(hwnd, GWLP_WNDPROC) != reinterpret_cast<LONG_PTR>(&test_wndproc) ||
+        h_WndProc(hwnd, forwarding_probe, 0, 0) != 101) return 33;
+    restore_window();
+    DestroyWindow(next);
+    ShowWindow(hwnd, SW_HIDE);
+    g_reported_hwnd = nullptr;
+    g_hwnd = hwnd;
     if(MH_Initialize()!=MH_OK)return 5;
     install_dinput();
     unsigned checks=0;
@@ -127,6 +153,6 @@ int main() {
     }
     for(auto target:g_hook_targets)MH_DisableHook(target);
     MH_Uninitialize();DestroyWindow(hwnd);FreeLibrary(legacy);
-    std::cout<<"{\"passed\":true,\"directinput_checks\":"<<checks<<",\"gpu_used\":false,\"desktop_input_sent\":false}"<<std::endl;
+    std::cout<<"{\"passed\":true,\"directinput_checks\":"<<checks<<",\"window_switch_forwarding\":true,\"gpu_used\":false,\"desktop_input_sent\":false}"<<std::endl;
     return 0;
 }
