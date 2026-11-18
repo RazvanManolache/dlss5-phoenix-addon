@@ -41,6 +41,9 @@ struct TimingView {
     size_t history_offset() const { return 0; }
 };
 enum class PanelPage { Play, Image, Performance, Setup, Hotkeys, All };
+struct PipelineDiagnostics {
+    std::string render_gpu, inference_device, wait;
+};
 struct Context {
     Settings &panel;
     phoenix_addon::PhoenixLiveControls &live;
@@ -85,6 +88,7 @@ struct Context {
     bool screenshot_pair_available = false;
     std::string screenshot_pair_status;
     std::string active_route, active_device, route_notice;
+    PipelineDiagnostics pipeline_diagnostics;
     bool processing_active = false, route_failed = false;
     std::function<void()> setup_details, performance_details;
     std::function<void()> retry;

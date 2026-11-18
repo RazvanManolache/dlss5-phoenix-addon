@@ -3,6 +3,14 @@
 The [README](README.md) shows the latest dated release. Earlier highlights are
 kept here; each linked release note includes its validation details.
 
+## 1.3.2 — 2026-11-18
+
+- **Keep supported DX11 and DX12 games presenting while Phoenix works.** The optional in-process async worker overlaps final-color capture and processing in 64-bit games on Native RTX.
+- **Faster refinement in 32-bit games.** Compatible native routes keep intermediate passes on the GPU, reuse pixel buffers, and pace work around DX9 presentation.
+- **Recover when a 32-bit game runs short of address space.** Phoenix can move processing to the external x64 helper. Same-device routes also check which GPU renders the game.
+
+[1.3.2 release notes](docs/RELEASE_1.3.2.md).
+
 ## 1.3.1 — 2026-11-16
 
 - **Keep automation attached to the game.** The optional Phoenix Input companion can bind to a specific game executable in an install shared with its launcher.

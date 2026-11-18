@@ -34,7 +34,7 @@ inline QuickMeasurements quick_measurements(const Context& context) {
 }
 inline void draw_fact_tiles(const Context& context) {
     const auto measured = quick_measurements(context);
-    char neural[48] = "--", fps[48] = "--", processed_fps[48] = "--", canvas[48] = "--", roundtrip[48] = "--";
+    char neural[48] = "--", fps[48] = "--", processed_fps[48] = "--", roundtrip[48] = "--";
     if (measured.neural) snprintf(neural,sizeof neural,"%.2f ms",*measured.neural);
     else if (context.portable_wall_ms) snprintf(neural,sizeof neural,"%.1f ms",*context.portable_wall_ms);
     if (context.present_fps > 0) snprintf(fps,sizeof fps,"%.1f FPS",context.present_fps);
@@ -42,26 +42,20 @@ inline void draw_fact_tiles(const Context& context) {
         snprintf(roundtrip, sizeof roundtrip, "%.1f ms", *context.pipeline_roundtrip_ms);
     if (const auto rate = fresh_dlss5_fps(context))
         snprintf(processed_fps, sizeof processed_fps, "%.1f FPS", *rate);
-    if (context.direct_runner) {
-        const auto& geometry = context.direct_runner->resolution();
-        snprintf(canvas,sizeof canvas,"%ux%u",geometry.width,geometry.height);
-    }
     const float gap = ImGui::GetStyle().ItemSpacing.x;
     const float available = ImGui::GetContentRegionAvail().x;
-    const int columns = available >= ImGui::GetFontSize() * 60.f ? 5 : 2;
+    const float tile_min = ImGui::CalcTextSize("Pipeline round trip").x + 20.f;
+    const int columns = available >= 4 * tile_min + 3 * gap ? 4 : 2;
     const float width = std::max(1.f, (available - (columns - 1) * gap) / columns);
     fact_tile("Game FPS", fps, width, mint,
         "Game presentation rate, including repeats of the last processed image.");
     ImGui::SameLine(0, gap);
     fact_tile("Fresh DLSS5 FPS", processed_fps, width, mint,
         "Game presentations with a new DLSS5 result per second. Excludes held and reused results. -- means off, unavailable, or waiting for a full sample.");
-    if (columns == 5) ImGui::SameLine(0, gap);
+    if (columns == 4) ImGui::SameLine(0, gap);
     fact_tile(context.portable_wall_ms ? "Worker wall" : "Neural GPU", neural, width, blue,
         "Recent neural GPU interval for the active workload. Worker wall time includes host preparation/inference/resolve. Missing measurements are --.");
     ImGui::SameLine(0, gap);
-    fact_tile(width < 145.f ? "Canvas" : "Processing canvas",canvas,width,violet,
-        "Current loaded runner canvas, including internal padding. Output geometry is shown in the status card.");
-    if (columns == 5) ImGui::SameLine(0, gap);
     fact_tile("Pipeline round trip", roundtrip, width, blue,
         "Elapsed time from capture of the source frame through preparation, processing, transfers, and composition for presentation. Held frames are excluded. This does not measure display scanout.");
     ImGui::Spacing();
@@ -88,8 +82,6 @@ inline void draw_metrics(const Context& context) {
         "Worker wall time includes its host processing. Missing or stale measurements show --.");
 }
 inline bool draw_header(Context& context, bool& advanced) {
-    ImGui::TextDisabled("%s%s%s", context.game_api.c_str(), context.game_api.empty() ? "" : " / ",
-                        sizeof(void*) == 4 ? "x86 game" : "x64 game");
     const float available = ImGui::GetContentRegionAvail().x;
     if (!context.update_available.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
@@ -120,19 +112,53 @@ inline bool draw_header(Context& context, bool& advanced) {
         PanelCard status("status_card","",nullptr,failed ? amber : active ? mint : blue,
             failed ? 0x382c25 : active ? 0x1d302a : 0x222c38);
         if (status) {
+            const bool processing = enabled && context.panel.mode != phoenix::input;
+            const auto& pipeline = context.pipeline_diagnostics;
+            const ImVec2 spacing = ImGui::GetStyle().ItemSpacing;
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(spacing.x, 4.f));
+            ImGui::TextDisabled("%s%s%s", context.game_api.c_str(), context.game_api.empty() ? "" : " / ",
+                                sizeof(void*) == 4 ? "x86 game" : "x64 game");
             heading(state,failed ? amber : active ? mint : blue,1.15f);
-            if (available > 500.f) { ImGui::SameLine(); ImGui::TextDisabled("  /  %u-bit addon",unsigned(sizeof(void*)*8)); }
-            if (!context.active_route.empty()) ImGui::TextWrapped("%s",context.active_route.c_str());
+            if (processing && !context.active_route.empty()) {
+                if (ImGui::CalcTextSize(state).x * 1.15f + ImGui::CalcTextSize(context.active_route.c_str()).x + 34.f < ImGui::GetContentRegionAvail().x)
+                    ImGui::SameLine();
+                help(context.active_route.c_str());
+            }
+            const bool show_device = !context.active_device.empty() &&
+                (context.pipeline_diagnostics.render_gpu.empty() || advanced);
             if (!context.loaded_model_id.empty()) {
                 ImGui::TextColored(rgb(mint),"Loaded: %s",std::string(phoenix_model::definition(context.loaded_model_id).label).c_str());
-                if (available > 600.f && !context.active_device.empty()) ImGui::SameLine();
+                if (available > 600.f && show_device) ImGui::SameLine();
             }
-            if (!context.active_device.empty()) ImGui::TextDisabled("%s",context.active_device.c_str());
+            if (show_device)
+                ImGui::TextDisabled("%s",context.active_device.c_str());
+            if (context.direct_runner && !show_device && !context.loaded_model_id.empty() && available > ImGui::GetFontSize() * 48.f)
+                ImGui::SameLine();
             draw_geometry_summary(context);
-            if (!context.route_notice.empty()) ImGui::TextWrapped("%s",context.route_notice.c_str());
+            const char* render_gpu = pipeline.render_gpu.empty() ? "Unknown" : pipeline.render_gpu.c_str();
+            if (processing && !pipeline.render_gpu.empty() && pipeline.render_gpu == pipeline.inference_device) {
+                ImGui::TextWrapped("Game + inference GPU  %s", render_gpu);
+            } else {
+                const std::string game_gpu = std::string("Game GPU  ") + render_gpu;
+                ImGui::TextWrapped("%s", game_gpu.c_str());
+                if (processing) {
+                    const std::string inference = std::string("Inference device  ") +
+                        (pipeline.inference_device.empty() ? "Unreported" : pipeline.inference_device);
+                    if (ImGui::CalcTextSize(game_gpu.c_str()).x + spacing.x + ImGui::CalcTextSize(inference.c_str()).x <= ImGui::GetContentRegionAvail().x)
+                        ImGui::SameLine();
+                    ImGui::TextWrapped("%s", inference.c_str());
+                }
+            }
+            if (processing && !failed && !pipeline.wait.empty()) {
+                ImGui::PushTextWrapPos();
+                ImGui::TextColored(rgb(amber), "%s", pipeline.wait.c_str());
+                ImGui::PopTextWrapPos();
+            }
+            if (enabled && !context.route_notice.empty()) ImGui::TextWrapped("%s",context.route_notice.c_str());
             if (!context.error.empty()) ImGui::TextWrapped("%s",context.error.c_str());
             if (!context.model_switch_error.empty()) ImGui::TextWrapped("%s",context.model_switch_error.c_str());
             if (failed && context.retry && phoenix_ui::button("Retry rendering")) context.retry();
+            ImGui::PopStyleVar();
         }
     }
     draw_fact_tiles(context);

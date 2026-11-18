@@ -89,16 +89,16 @@ template <class Body> bool section_card(bool plain, const char* id, const char* 
 inline void fact_tile(const char* label, const char* value, float width, unsigned accent,
                       const char* tooltip) {
     const auto position = ImGui::GetCursorScreenPos();
-    const float height = ImGui::GetTextLineHeight() * 3.6f;
+    const float height = ImGui::GetTextLineHeight() * 2.7f;
     auto* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(position, ImVec2(position.x + width, position.y + height), ink(0x242c37), 6);
     draw->AddRect(position, ImVec2(position.x + width, position.y + height), ink(0x3a4655), 6);
-    draw->AddRectFilled(ImVec2(position.x,position.y + 8), ImVec2(position.x + 3,position.y + height - 8), ink(accent), 1);
+    draw->AddRectFilled(ImVec2(position.x,position.y + 6), ImVec2(position.x + 3,position.y + height - 6), ink(accent), 1);
     const ImVec4 clip(position.x+7,position.y,position.x+width-6,position.y+height);
     draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 1.2f,
-        ImVec2(position.x + 11, position.y + 7), ink(0xecf0f5), value,nullptr,0,&clip);
+        ImVec2(position.x + 11, position.y + 4), ink(0xecf0f5), value,nullptr,0,&clip);
     draw->AddText(ImGui::GetFont(), ImGui::GetFontSize() * .82f,
-        ImVec2(position.x + 11, position.y + height - ImGui::GetFontSize() - 5), ink(0xadb8c8), label,nullptr,0,&clip);
+        ImVec2(position.x + 11, position.y + height - ImGui::GetFontSize() - 3), ink(0xadb8c8), label,nullptr,0,&clip);
     ImGui::Dummy(ImVec2(width,height));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s",tooltip);
 }

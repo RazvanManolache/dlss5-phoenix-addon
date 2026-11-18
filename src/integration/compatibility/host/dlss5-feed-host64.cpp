@@ -30,6 +30,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <filesystem>
 #include <wincodec.h>
 
 #include "phoenix-host-config.h"
@@ -615,6 +616,7 @@ static void PumpPresent()
 }
 
 static uint64_t g_adapter_luid=0;
+static std::string g_inference_adapter;
 
 static bool InitDisguise()
 {
@@ -701,9 +703,12 @@ static bool InitDisguise()
     }
     if (selected_adapter) {
         DXGI_ADAPTER_DESC info{};
-        if (SUCCEEDED(selected_adapter->GetDesc(&info)))
+        if (SUCCEEDED(selected_adapter->GetDesc(&info))) {
+            const auto name = std::filesystem::path(info.Description).u8string();
+            g_inference_adapter.assign(name.begin(), name.end());
             Log("[host] Render adapter: %ls (vendor 0x%04X, device 0x%04X, explicit affinity %u)",
                 info.Description, info.VendorId, info.DeviceId, g_adapter_luid != 0);
+        }
         selected_adapter->Release();
     }
     if (FAILED(hr)) { Log("[host] D3D12CreateDevice failed 0x%08X", hr); return false; }
@@ -2129,6 +2134,9 @@ static int Serve(DWORD game_pid)
             }
             auto snapshot = nlohmann::json::parse(text, nullptr, false);
             if (!snapshot.is_object()) snapshot = nlohmann::json::object();
+            if (!g_inference_adapter.empty() &&
+                snapshot.value("execution", nlohmann::json::object()).value("kind", std::string()) == "native")
+                snapshot["inference_adapter"] = g_inference_adapter;
             if (h.cpu_bridge) snapshot["cpu_transport"] = cpu_mapping ? "shared_memory" : "pipe";
             if (cpu_mapping) snapshot["cpu_ring_slots"] = cpu_mapping.slots();
             snapshot["cpu_prefetch"] = {{"enabled", bool(cpu_prefetch)}, {"frames", prefetch_frames},

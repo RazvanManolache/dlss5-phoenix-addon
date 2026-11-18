@@ -34,6 +34,7 @@ class D3D12LocalPixels {
     std::unique_ptr<Resources> resources_ = std::make_unique<Resources>();
     std::unique_ptr<D3D12Bridge> bridge_;
     unsigned width_, height_;
+    std::string inference_adapter_;
     static void checked(HRESULT result) {
         if (FAILED(result)) throw std::runtime_error("Local native staging HRESULT " + std::to_string(uint32_t(result)));
     }
@@ -103,7 +104,10 @@ public:
                 checked(found);
                 DXGI_ADAPTER_DESC1 info{};checked(adapter->GetDesc1(&info));
                 if(info.VendorId!=0x10de||(info.Flags&DXGI_ADAPTER_FLAG_SOFTWARE))continue;
-                if(SUCCEEDED(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&r.device))))break;
+                if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&r.device)))) {
+                    inference_adapter_ = phoenix_model::source_path_string(std::filesystem::path(info.Description));
+                    break;
+                }
             }
             if(!r.device)throw std::runtime_error("No eligible NVIDIA adapter for local native inference");
         }
@@ -141,6 +145,7 @@ public:
         }
     }
     D3D12Bridge& bridge(){return *bridge_;}
+    const std::string& inference_adapter() const { return inference_adapter_; }
     void upload(std::span<const uint8_t> pixels) {
         if(pixels.size()!=size_t(width_)*height_*4)throw std::runtime_error("Local native pixel extent mismatch");
         auto& r=*resources_;void* data=nullptr;D3D12_RANGE empty{};checked(r.upload->Map(0,&empty,&data));

@@ -24,6 +24,7 @@ class CaptureQueue {
     unsigned size()const{return size_;}
     unsigned capacity()const{return capacity_;}
     Entry* front(){return size_?&entries_[0]:nullptr;}
+    const Entry* front()const{return size_?&entries_[0]:nullptr;}
     int free_slot()const {
         for(unsigned slot=0;slot<capacity_;++slot) {
             bool used=(submitted_slots_ & (1u << slot))!=0;

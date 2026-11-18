@@ -283,6 +283,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     output = bypass ? std::move(input) : renderer.download();
                 }
                 auto snapshot = renderer.bridge().ui_snapshot();
+                snapshot["inference_adapter"] = renderer.inference_adapter();
                 const auto wall = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
                 snapshot["processing_location"] = "in_process_staged";
                 snapshot["processing_host_pid"] = snapshot["inference_pid"] = GetCurrentProcessId();

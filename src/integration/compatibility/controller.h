@@ -17,6 +17,14 @@
 #include <map>
 
 namespace phoenix_compat {
+inline std::string render_gpu_name(const reshade::api::device* device) {
+    char description[256]{};
+    if (!device || !device->get_property(reshade::api::device_properties::description, description))
+        return {};
+    description[255] = '\0';
+    return description;
+}
+
 struct Session {
     phoenix_addon::phoenix::Settings settings;
     phoenix_addon::phoenix::Settings applied_settings;
@@ -625,6 +633,22 @@ inline Json processing_info(Session& value) {
     auto* host = active_host(value);
     return host ? host->ui_snapshot() : Json::object();
 }
+inline phoenix_ui::PipelineDiagnostics pipeline_diagnostics(reshade::api::effect_runtime* runtime,
+                                                             Session& value, const Json& info) {
+    phoenix_ui::PipelineDiagnostics result;
+    result.render_gpu = render_gpu_name(runtime->get_device());
+    if (!value.enabled || value.settings.mode == phoenix_addon::phoenix::input)
+        return result;
+    const std::string_view route = execution_mode(value);
+    result.inference_device = info.value("inference_adapter", std::string());
+    if (route == "in_process" || route == "in_process_d3d11")
+        result.inference_device = result.render_gpu;
+    if (route == "in_process_portable" && info.value("device", std::string()) == "cpu")
+        result.inference_device = "CPU";
+    if (value.readback && value.processing_error.empty())
+        result.wait = value.readback->pipeline_wait();
+    return result;
+}
 inline Json inference_processes(Session& value){
     auto* host=active_host(value);
     const auto fallback=value.local||resident_active(value)?GetCurrentProcessId():host?host->process_id():0;
@@ -809,6 +833,7 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
     ui.pipeline_roundtrip_ms = value.pipeline_roundtrip_revision == value.selection_revision &&
         GetTickCount64() - value.pipeline_roundtrip_tick < 2000 ? value.pipeline_roundtrip_ms : std::nullopt;
     const std::string actual = execution_mode(value);
+    ui.pipeline_diagnostics = pipeline_diagnostics(runtime, value, info);
     ui.active_route = actual == "in_process" ? "Native D3D12 / same-device processing"
         : actual == "in_process_d3d11" ? "Native DX11/DX12 / same-process GPU textures"
         : actual == "in_process_staged" ? "Native GPU / same-process worker, CPU pixel transfers"
@@ -904,6 +929,8 @@ inline phoenix_ui::Context panel_context(reshade::api::effect_runtime *runtime, 
 inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& value) {
     auto* host = active_host(value);
     const auto processes=inference_processes(value);
+    const auto info = processing_info(value);
+    const auto diagnostics = pipeline_diagnostics(runtime, value, info);
     const auto validation = value.validator.poll();
     Json transports = Json::array();
     // A failed attempt is excluded from Automatic until an explicit retry. It
@@ -942,6 +969,8 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"portable_runtime", value.portable_root}, {"portable_device", value.portable_device},
         {"helper_transport", value.helper_transport},
         {"render_adapter_vendor", value.capabilities.render_vendor},
+        {"pipeline_diagnostics", {{"render_gpu", diagnostics.render_gpu},
+            {"inference_device", diagnostics.inference_device}, {"wait", diagnostics.wait}}},
         {"helper_requirement", value.process_memory_exhausted ? "x86_address_space" :
             !value.capabilities.helper_required.empty() ? "x86_settings" : ""},
         {"portable_fallback", value.portable_fallback},
@@ -963,8 +992,8 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
         {"timing_provenance", timing_provenance(value)},
         {"model_validation", {{"busy", validation.busy}, {"passed", validation.passed},
                               {"key", validation.key}, {"message", validation.message}}},
-        {"helper", host && !resident_active(value) ? host->ui_snapshot() : Json::object()},
-        {"in_process", value.local || resident_active(value) ? processing_info(value) : Json::object()},
+        {"helper", host && !resident_active(value) ? info : Json::object()},
+        {"in_process", value.local || resident_active(value) ? info : Json::object()},
         {"present_fps", value.present_fps},
         {"presentation_timing", value.presentation_timing.report()},
         {"screenshot_pair",value.screenshot_pair},

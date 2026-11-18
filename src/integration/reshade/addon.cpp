@@ -5836,6 +5836,9 @@ phoenix_ui::Context make_panel_context(reshade::api::effect_runtime* runtime,
     if (value.direct_game) ui.status += " | " + value.direct_status;
     ui.active_device = value.direct_runner && value.direct_runner->external()
         ? "Worker device (details in Performance)" : "Game graphics device";
+    ui.pipeline_diagnostics.render_gpu = phoenix_compat::render_gpu_name(runtime->get_device());
+    if (ui.processing_active && (!value.direct_runner || !value.direct_runner->external()))
+        ui.pipeline_diagnostics.inference_device = ui.pipeline_diagnostics.render_gpu;
     ui.direct_game = value.direct_game;
     ui.game_api = "Direct3D 12";
     if (value.panel.uplift && value.panel.mode != phoenix::input && value.panel.mode == value.last_mode &&

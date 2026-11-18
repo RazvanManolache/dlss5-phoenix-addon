@@ -251,6 +251,54 @@ int run_tests() {
             }
     if (actions || validation_polls != 12)
         throw std::runtime_error("Drawing triggered a runtime action or omitted model controls");
+    {
+        settings = {};
+        settings.mode = phoenix_ui::phoenix::ours;
+        settings.uplift = true;
+        phoenix_ui::Context context{settings, settings.controls, presets, hotkeys, capture_key,
+                                    deadline, picker, devices, error, markers};
+        context.pipeline_diagnostics = {"AMD Radeon", "NVIDIA GeForce RTX 5080",
+                                        "Waiting on game-frame capture or readback."};
+        context.active_route = "External x64 helper";
+        const auto draw_status = [&] {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos({0, 0});
+            ImGui::SetNextWindowSize({1600, 1200});
+            ImGui::Begin("Pipeline diagnostics");
+            ImGui::LogToBuffer();
+            bool advanced = false;
+            phoenix_ui::draw_header(context, advanced);
+            const std::string visible = ImGui::GetCurrentContext()->LogBuffer.c_str();
+            ImGui::LogFinish();
+            ImGui::End();
+            ImGui::Render();
+            return visible;
+        };
+        const auto contains = [](const std::string& text, const char* value) {
+            return text.find(value) != std::string::npos;
+        };
+        const auto active = draw_status();
+        if (!contains(active, "AMD Radeon") || !contains(active, "NVIDIA GeForce RTX 5080") ||
+            !contains(active, "External x64 helper") || !contains(active, "Waiting on game-frame capture"))
+            throw std::runtime_error("Performance diagnostics omitted the active pipeline");
+        context.pipeline_diagnostics.render_gpu = context.pipeline_diagnostics.inference_device;
+        const auto same_device = draw_status();
+        if (!contains(same_device, "Game + inference GPU") ||
+            same_device.find("NVIDIA GeForce RTX 5080") != same_device.rfind("NVIDIA GeForce RTX 5080"))
+            throw std::runtime_error("Status repeated the same GPU for rendering and inference");
+        context.pipeline_diagnostics.inference_device.clear();
+        context.route_failed = true;
+        context.route_notice = "Processing route failed";
+        const auto failed = draw_status();
+        if (!contains(failed, "Unreported") || !contains(failed, "Processing route failed") ||
+            contains(failed, "Waiting on game-frame capture"))
+            throw std::runtime_error("Performance diagnostics attributed a failed route to an active wait");
+        settings.uplift = false;
+        const auto inactive = draw_status();
+        if (!contains(inactive, "Game GPU") || contains(inactive, "External x64 helper") ||
+            contains(inactive, "Inference device"))
+            throw std::runtime_error("Performance diagnostics displayed stale inference while disabled");
+    }
     // Policy and adapter actions are tested independently of a game. Passive
     // vertex generation cannot establish that Save merely persists a preset.
     unsigned policy_checks = 0, persisted = 0, applied = 0;

@@ -40,7 +40,11 @@ class ReadbackBridge {
     uint64_t delivered_ = 0, presented_ = 0;
     uint64_t presented_input_frame_ = 0, presented_output_frame_ = 0, composed_at_frame_ = 0;
     uint64_t capture_tick_ = 0, delivered_tick_ = 0;
-    std::deque<CaptureQueue::Entry> submitted_;
+    struct Submission {
+        CaptureQueue::Entry capture;
+        uint64_t enqueued_at;
+    };
+    std::deque<Submission> submitted_;
     std::vector<uint8_t> queued_pixels_, upload_pixels_;
     std::vector<float> queued_depth_;
     std::optional<unsigned> queued_slot_; // Leased ring slot holding queued_pixels_ in place.
@@ -305,7 +309,7 @@ class ReadbackBridge {
                 worker_serial_=worker_serial;
                 if (after_present) ++post_present_submissions_;
                 history_started_ = true;
-                submitted_.push_back(*capture);
+                submitted_.push_back({*capture, GetTickCount64()});
                 captures_.pop(bool(compositor9_));
             } else {
                 screenshot_pair_.rejected(capture->frame);
@@ -548,6 +552,23 @@ class ReadbackBridge {
         compositor9_->next_depth_frame(will_capture
             ? reinterpret_cast<IDirect3DSurface9*>(uintptr_t(back.handle)) : nullptr);
     }
+    const char* pipeline_wait() const {
+        // Ignore ordinary pipelining and stale state when the game stops presenting.
+        if (!host_ || std::chrono::steady_clock::now() - preceding_frame_ > std::chrono::seconds(2))
+            return "";
+        const auto now = GetTickCount64();
+        const double grace_ms = std::max(250.0, 3 * frame_period_ms_);
+        // An older submission can fill the worker ring and keep newer captures
+        // from retiring. Report that downstream wait before inspecting captures.
+        if (!submitted_.empty() && now - submitted_.front().enqueued_at >= grace_ms) {
+            if (host_->phase() == Phase::Finished)
+                return "Waiting to return the processed frame to the game.";
+            return "Waiting for the inference worker to return a frame.";
+        }
+        if (const auto* capture = captures_.front(); capture && !capture->retired && now - capture->tick >= grace_ms)
+            return "Waiting on game-frame capture or readback.";
+        return "";
+    }
     Json transfer_timings() const {
         return {{"last_capture_ms", capture_ms_},
                 {"d3d9_depth_capture", compositor9_ ? compositor9_->depth_capture_status() : Json::object()},
@@ -652,7 +673,7 @@ class ReadbackBridge {
         if (host_->phase() == Phase::Finished && completed >= upload_serial_) {
             const auto upload_begin = std::chrono::steady_clock::now();
             require(!submitted_.empty(), "Completed helper frame has no matching submission");
-            const auto submitted = submitted_.front();
+            const auto submitted = submitted_.front().capture;
             transfer_stage_="completed output acquisition";
             // In-place path: present straight out of the completed ring
             // slot; take() (copy-out) remains the fallback for other routes.
