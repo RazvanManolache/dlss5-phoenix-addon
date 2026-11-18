@@ -4,11 +4,13 @@
 #include "host_client.h"
 #include "pixel_transport.h"
 #include "d3d9_compositor.h"
+#include "transfer_event_queries.h"
 #include "dx_depth_readback.h"
 #include "depth_freshness.h"
 #include "retirement_serial.h"
 #include "capture_retirement.h"
 #include "capture_queue.h"
+#include "d3d9_inference_pacing.h"
 #include "../../pipeline/paired_screenshot.h"
 #include <deque>
 namespace phoenix_compat {
@@ -20,6 +22,8 @@ class ReadbackBridge {
     std::string gpu_fallback_;
     mutable Json gpu_pair_status_=Json::object();
     reshade::api::fence retired_{};
+    std::optional<D3D9TransferFence> retired9_;
+    std::optional<D3D11TransferFence> retired11_;
     std::unique_ptr<HostClient> host_;
     bool resumed_worker_=false,resume_pending_=false;
     std::unique_ptr<D3D9Compositor> compositor9_;
@@ -57,11 +61,13 @@ class ReadbackBridge {
     double depth_readback_ms_ = 0;
     double deferred_readback_ms_ = 0;
     uint64_t capture_copies_ = 0, deferred_readbacks_ = 0;
+    uint64_t superseded_captures_ = 0;
     uint64_t post_present_retirements_ = 0, post_present_submissions_ = 0, post_present_calls_=0;
     uint64_t capture_not_ready_frames_=0, upload_not_ready_frames_=0, worker_not_ready_frames_=0;
     uint64_t last_pre_completed_=0,last_post_completed_=0;
     double frame_period_ms_=0,last_post_wait_ms_=0;
     std::chrono::steady_clock::time_point preceding_frame_{};
+    D3D9InferencePacing native_pacing_;
     bool prefetch_available() const {
         // Non-DX9 routes retire directly into independent CPU input storage.
         // Only DX9 needs a second GPU snapshot: its compositor must retain the
@@ -71,6 +77,11 @@ class ReadbackBridge {
     static double elapsed_ms(std::chrono::steady_clock::time_point begin) {
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
             .count();
+    }
+    uint64_t completed_transfer() {
+        if (retired9_) return retired9_->completed();
+        if (retired11_) return retired11_->completed();
+        return device_->get_completed_fence_value(retired_);
     }
     struct MappedResource {
         reshade::api::device* device;
@@ -93,7 +104,7 @@ class ReadbackBridge {
         using namespace reshade::api;
         while(auto* capture=captures_.front()) {
           if (!capture->retired) {
-            auto completed = device_->get_completed_fence_value(retired_);
+            auto completed = completed_transfer();
             if(after_present) {
                 last_post_completed_=completed;
                 const auto begin=std::chrono::steady_clock::now();
@@ -102,11 +113,17 @@ class ReadbackBridge {
                 const double budget_ms=std::min(.5,frame_period_ms_*.125);
                 completed=poll_capture_retirement(capture->serial,completed,
                     !compositor9_ && host_->phase()==Phase::Ready && budget_ms>0,
-                    [&]{return device_->get_completed_fence_value(retired_);},
+                    [&]{return completed_transfer();},
                     [&]{return elapsed_ms(begin)>=budget_ms;},[]{SwitchToThread();});
                 last_post_wait_ms_=elapsed_ms(begin);last_post_completed_=completed;
             }
             require(completed != UINT64_MAX, "Readback graphics device was lost");
+            const bool prefer_latest = compositor9_ && host_->native_capture_ring() &&
+                !settings.pipeline.motion_enabled && !settings.pipeline.scene_detection;
+            if (prefer_latest && !d3d9_staging_fence_) {
+                superseded_captures_ += captures_.discard_superseded(completed);
+                capture = captures_.front();
+            }
             if(!after_present&&completed<capture->serial)++capture_not_ready_frames_;
             if (completed >= capture->serial) {
                 if (compositor9_) {
@@ -134,6 +151,17 @@ class ReadbackBridge {
                 auto input_lease = host_->acquire_cpu_input();
                 if (!input_lease && host_->uses_cpu_ring()) {
                     ++worker_not_ready_frames_;
+                    if (prefer_latest) {
+                        // The staging copy's fence is complete, and nobody
+                        // leased its CPU pixels. Refill it with a fresher
+                        // capture while the processing ring is still full.
+                        const auto discarded = captures_.discard_superseded(completed);
+                        if (discarded) {
+                            superseded_captures_ += discarded;
+                            d3d9_staging_fence_ = 0;
+                            continue;
+                        }
+                    }
                     break;
                 }
                 struct InputLeaseGuard {
@@ -298,7 +326,8 @@ class ReadbackBridge {
                    std::optional<PortableOptions> portable = std::nullopt,
                    std::optional<NativeOptions> native = std::nullopt,
                    std::optional<LocalGpuOptions> local = std::nullopt,
-                   std::unique_ptr<HostClient> retained = {})
+                   std::unique_ptr<HostClient> retained = {},
+                   bool low_address_space = false)
         : device_(runtime->get_device()), queue_(runtime->get_command_queue()),
           width_(description.texture.width), height_(description.texture.height),
           row_pitch_(transfer_row_pitch(device_->get_api(), width_)),
@@ -430,13 +459,20 @@ class ReadbackBridge {
                 hr(texture->GetLevelDesc(0, &native_description));
                 compositor9_ = std::make_unique<D3D9Compositor>(
                     reinterpret_cast<IDirect3DDevice9*>(uintptr_t(device_->get_native())), width_,
-                    height_, native_description.Format);
+                    height_, native_description.Format, !low_address_space);
                 captures_.capacity(compositor9_->capture_capacity());
             }
             if (!gpu_transport_ && !portable && !native && !local &&
                 (device_->get_api() == device_api::d3d10 || device_->get_api() == device_api::d3d11))
                 dx_depth_ = std::make_unique<DxDepthReadback>(width_, height_);
-            require(device_->create_fence(0, fence_flags::none, &retired_),
+            // Legacy DX9 with a local x64 GPU worker shares the game's GPU
+            // scheduling. Keep its established transfer cadence.
+            if (compositor9_ && !local)
+                retired9_.emplace(reinterpret_cast<IDirect3DDevice9*>(uintptr_t(device_->get_native())));
+            else if (local && local->frame_ring && device_->get_api() == device_api::d3d11)
+                retired11_.emplace(reinterpret_cast<ID3D11Device*>(uintptr_t(device_->get_native())),
+                    reinterpret_cast<ID3D11DeviceContext*>(uintptr_t(queue_->get_native())));
+            else require(device_->create_fence(0, fence_flags::none, &retired_),
                     "API cannot provide transfer fencing");
             FeedBuild build{};
             build.width = build.output_width = width_;
@@ -445,8 +481,7 @@ class ReadbackBridge {
             build.cpu_bridge = gpu_transport_?0:1;
             build.mv_scale_x = build.mv_scale_y = 1;
             if(retained&&!gpu_transport_&&!portable&&!native&&!local&&retained->reusable_cpu_build(build)) {
-                // CPU frame IDs survive; this new GPU fence must still start
-                // at one because DX9 scans consecutive query-ring values.
+                // CPU frame IDs survive while the new GPU fence starts at one.
                 worker_serial_=retained->last_serial();
                 host_=std::move(retained);resumed_worker_=resume_pending_=true;
             } else {
@@ -464,6 +499,8 @@ class ReadbackBridge {
             queue_->wait_idle();
         compositor9_.reset();
         dx_depth_.reset();
+        retired9_.reset();
+        retired11_.reset();
         if (retired_.handle)
             device_->destroy_fence(retired_);
         for (auto resource : {readback_, upload_, upload_buffer_,gpu_output_})
@@ -528,10 +565,13 @@ class ReadbackBridge {
                 {"last_compose_ms", compose_ms_},
                 {"last_deferred_readback_ms", deferred_readback_ms_},
                 {"capture_snapshot_copies", capture_copies_},
+                {"superseded_captures", superseded_captures_},
                 {"post_present_calls",post_present_calls_},
                 {"post_present_retirements", post_present_retirements_},
                 {"last_post_wait_ms",last_post_wait_ms_},
                 {"frame_period_ms",frame_period_ms_},
+                {"native_present_gap_ms",host_->native_library_dx9()?double(native_pacing_.gap_us())/1000:0},
+                {"native_driver_frame_budget_ms",host_->native_driver_dx9()?double(native_pacing_.frame_budget_us())/1000:0},
                 {"capture_not_ready_frames",capture_not_ready_frames_},
                 {"worker_not_ready_frames",worker_not_ready_frames_},
                 {"upload_not_ready_frames",upload_not_ready_frames_},
@@ -551,7 +591,8 @@ class ReadbackBridge {
         if (!queued_signal_)
             return;
         const auto begin = std::chrono::steady_clock::now();
-        require(queue_->signal(retired_, queued_signal_),
+        require(retired9_ ? retired9_->signal(queued_signal_) :
+                retired11_ ? retired11_->signal(queued_signal_) : queue_->signal(retired_, queued_signal_),
                 "Cannot signal graphics transfer completion");
         // DX11 can retain a signal in its immediate-context batch while an
         // occluded/background swapchain presents. Submit that batch without
@@ -585,6 +626,12 @@ class ReadbackBridge {
         if(preceding_frame_!=std::chrono::steady_clock::time_point{})
             frame_period_ms_=std::chrono::duration<double,std::milli>(frame_begin-preceding_frame_).count();
         preceding_frame_=frame_begin;
+        if (host_->native_library_dx9() || host_->native_driver_dx9()) {
+            native_pacing_.observe(frame_period_ms_, unsigned(settings.refinement_passes),
+                host_->phase()!=Phase::Starting);
+            if(host_->native_library_dx9())host_->set_native_present_gap(native_pacing_.gap_us());
+            else host_->set_native_frame_budget(native_pacing_.frame_budget_us());
+        }
         require(command == queue_->get_immediate_command_list(),
                 "Image transport requires the runtime immediate queue");
         if(resume_pending_) {
@@ -597,7 +644,7 @@ class ReadbackBridge {
             if(host_->phase()!=Phase::Ready || host_->has_pending_cpu_frames())return;
             resume_pending_=false;history_started_=false;
         }
-        const auto completed = device_->get_completed_fence_value(retired_);
+        const auto completed = completed_transfer();
         require(completed != UINT64_MAX, "Readback graphics device was lost");
         last_pre_completed_=completed;
         if(host_->phase()==Phase::Finished&&completed<upload_serial_)++upload_not_ready_frames_;

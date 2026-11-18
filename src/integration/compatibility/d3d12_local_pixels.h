@@ -4,6 +4,7 @@
 #include "d3d12_bridge.h"
 #include "local_d3d12_identity.h"
 #include <dxgi1_6.h>
+#include <span>
 
 namespace phoenix_compat {
 class D3D12LocalPixels {
@@ -59,6 +60,17 @@ class D3D12LocalPixels {
             throw std::runtime_error("Local native staging did not retire; helper fallback is unsafe");
         }
         r.retired=true;
+    }
+    void copy_readback(std::span<uint8_t> pixels) {
+        auto& r = *resources_;
+        void* data = nullptr;
+        D3D12_RANGE range{0, SIZE_T(r.bytes)}, empty{};
+        checked(r.readback->Map(0, &range, &data));
+        for (unsigned row = 0; row < height_; ++row)
+            memcpy(pixels.data() + size_t(row) * width_ * 4,
+                static_cast<const uint8_t*>(data) + r.footprint.Footprint.RowPitch * row,
+                size_t(width_) * 4);
+        r.readback->Unmap(0, &empty);
     }
 public:
     D3D12LocalPixels(reshade::api::effect_runtime* runtime,unsigned width,unsigned height,
@@ -129,7 +141,7 @@ public:
         }
     }
     D3D12Bridge& bridge(){return *bridge_;}
-    void upload(const std::vector<uint8_t>& pixels) {
+    void upload(std::span<const uint8_t> pixels) {
         if(pixels.size()!=size_t(width_)*height_*4)throw std::runtime_error("Local native pixel extent mismatch");
         auto& r=*resources_;void* data=nullptr;D3D12_RANGE empty{};checked(r.upload->Map(0,&empty,&data));
         for(unsigned row=0;row<height_;++row)memcpy(static_cast<uint8_t*>(data)+r.footprint.Footprint.RowPitch*row,
@@ -139,12 +151,17 @@ public:
     bool frame(const Settings& settings,bool apply) {
         return bridge_->frame({uint64_t(uintptr_t(resources_->color.Get()))},settings,apply,false);
     }
+    void download(std::span<uint8_t> pixels) {
+        if (pixels.size()!=size_t(width_)*height_*4)
+            throw std::runtime_error("Local native pixel extent mismatch");
+        transfer(false);
+        copy_readback(pixels);
+    }
     std::vector<uint8_t> download() {
-        transfer(false);auto& r=*resources_;void* data=nullptr;D3D12_RANGE range{0,SIZE_T(r.bytes)},empty{};
-        checked(r.readback->Map(0,&range,&data));std::vector<uint8_t> pixels(size_t(width_)*height_*4);
-        for(unsigned row=0;row<height_;++row)memcpy(pixels.data()+size_t(row)*width_*4,
-            static_cast<const uint8_t*>(data)+r.footprint.Footprint.RowPitch*row,size_t(width_)*4);
-        r.readback->Unmap(0,&empty);return pixels;
+        transfer(false);
+        std::vector<uint8_t> pixels(size_t(width_) * height_ * 4);
+        copy_readback(pixels);
+        return pixels;
     }
 };
 } // namespace phoenix_compat

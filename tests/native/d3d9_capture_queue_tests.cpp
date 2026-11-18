@@ -1,6 +1,7 @@
 // Isolated real-DX9 slot/pairing validation. No ReShade injection or game.
 #define NOMINMAX
 #include "../../src/integration/compatibility/d3d9_compositor.h"
+#include "../../src/integration/compatibility/transfer_event_queries.h"
 #include <iostream>
 int main()try {
     using namespace phoenix_compat;
@@ -52,5 +53,19 @@ int main()try {
     compositor.match_completed_input(0);
     compare(0xff00ff00,0xff808080);
     read(1,0xffffff00);
-    std::cout<<"{\"passed\":true,\"gpu_used\":true,\"models_run\":false,\"games_run\":false,\"slots\":2,\"paired_inputs\":3}\n";
+    D3D9TransferFence retirement(device.Get());
+    require(retirement.completed()==0 && !retirement.signal(2), "Unissued DX9 transfer reported complete");
+    for (uint64_t serial=1; serial<=16; ++serial) {
+        capture(0xff000000u | DWORD(serial),0);
+        require(retirement.signal(serial), "DX9 transfer query could not be reused");
+        const auto start=GetTickCount64();
+        do {
+            hr(device->Present(nullptr,nullptr,nullptr,nullptr));
+            if (retirement.completed()==serial) break;
+            Sleep(1);
+        } while (GetTickCount64()-start<2000);
+        require(retirement.completed()==serial, "DX9 transfer did not retire after Present");
+        read(0,0xff000000u | DWORD(serial));
+    }
+    std::cout<<"{\"passed\":true,\"gpu_used\":true,\"models_run\":false,\"games_run\":false,\"slots\":2,\"paired_inputs\":3,\"noflush_retirements\":16}\n";
 }catch(const std::exception& e){std::cerr<<e.what();return 1;}

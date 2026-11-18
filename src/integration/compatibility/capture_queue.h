@@ -46,6 +46,18 @@ class CaptureQueue {
         for(unsigned i=1;i<size_;++i)entries_[i-1]=entries_[i];
         entries_[--size_]={};
     }
+    // A spatial renderer can use the newest ready snapshot. Older copies can
+    // be reused only after their fence has completed, and a front entry that
+    // already owns staged CPU pixels must still be submitted normally.
+    unsigned discard_superseded(uint64_t completed) {
+        unsigned discarded = 0;
+        while (size_ > 1 && !entries_[0].retired && entries_[1].serial <= completed) {
+            entries_[0].retired = true;
+            pop();
+            ++discarded;
+        }
+        return discarded;
+    }
     void release_snapshot(unsigned slot) {
         if(slot>=capacity_ || !(submitted_slots_ & (1u << slot)))
             throw std::logic_error("Capture snapshot was not submitted");

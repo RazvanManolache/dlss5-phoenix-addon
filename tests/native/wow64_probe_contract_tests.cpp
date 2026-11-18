@@ -25,7 +25,7 @@ int main() {
     if(!bridge::valid_initialize(channel)) return 2;
     channel.struct_bytes--; if(bridge::valid_initialize(channel)) return 2; channel.struct_bytes++;
     channel.width=UINT32_MAX; if(bridge::valid_initialize(channel)) return 2; channel.width=640;
-    channel.frame_flags=4; if(bridge::valid_initialize(channel)) return 2; channel.frame_flags=3;
+    channel.frame_flags=8; if(bridge::valid_initialize(channel)) return 2; channel.frame_flags=3|bridge::gpu_output_seed;
     if(!bridge::valid_initialize(channel)) return 2; channel.frame_flags=0;
     channel.launch_total=bridge::launch_count+1; if(bridge::valid_initialize(channel)) return 2;
     channel.launch_total=bridge::launch_count; if(!bridge::valid_initialize(channel)) return 2; channel.launch_total=0;
@@ -33,6 +33,45 @@ int main() {
     if(bridge::valid_frame(channel)) return 2;
     channel.launch_total=1; if(!bridge::valid_frame(channel)) return 2;
     if(bridge::valid_initialize(channel)) return 2;
+    {
+        auto packed=channel;
+        packed.operation=bridge::initialize;
+        packed.launch_total=0;
+        packed.frame_flags=bridge::packed_rgba8;
+        packed.color=packed.output=packed.plane_bytes=0;
+        if(!bridge::valid_initialize(packed)) return 2;
+        packed.operation=bridge::frame;
+        packed.launch_total=1;
+        packed.plane_bytes=uint64_t(packed.width)*packed.height*4;
+        packed.frame_flags|=bridge::gpu_output_seed|bridge::skip_readback;
+        if(bridge::valid_frame(packed)) return 2; // First pass needs input.
+        packed.color=1;
+        if(!bridge::valid_frame(packed)) return 2;
+        packed.frame_flags|=bridge::reuse_refinement;
+        if(bridge::valid_frame(packed)) return 2; // Continuations have no host input.
+        packed.color=0;
+        if(!bridge::valid_frame(packed)) return 2;
+        packed.frame_flags&=~bridge::skip_readback;
+        if(bridge::valid_frame(packed)) return 2; // Final pass needs an output.
+        packed.output=1;
+        if(!bridge::valid_frame(packed)) return 2;
+        packed.frame_flags|=32;
+        if(bridge::valid_frame(packed)) return 2;
+        packed.color=1;
+        packed.frame_flags=bridge::packed_rgba8|bridge::gpu_output_seed|(2u<<bridge::packed_pass_shift);
+        if(bridge::valid_frame(packed)) return 2; // Both launch parities are required.
+        packed.launch_total=bridge::launch_count;
+        packed.alternate_launch_count=packed.launch_total;
+        packed.alternate_launches=1;
+        if(!bridge::valid_frame(packed)) return 2;
+        packed.alternate_launches=UINT32_MAX;
+        if(bridge::valid_frame(packed)) return 2;
+        packed.alternate_launches=1;
+        packed.frame_flags|=bridge::skip_readback;
+        if(bridge::valid_frame(packed)) return 2;
+        packed.frame_flags=bridge::packed_rgba8|bridge::gpu_output_seed|(11u<<bridge::packed_pass_shift);
+        if(bridge::valid_frame(packed)) return 2;
+    }
     channel.operation=bridge::initialize; channel.launch_total=0;
     if(bridge::valid_frame(channel)) return 2;
     channel.clear_words=UINT32_MAX; if(bridge::valid_initialize(channel)) return 2;

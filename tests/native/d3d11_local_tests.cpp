@@ -6,6 +6,7 @@
 #include "../../src/integration/compatibility/d3d12_local_pixels.h"
 #include "../../src/integration/compatibility/host_client.h"
 #include "../../src/integration/compatibility/d3d11_bridge.h"
+#include "../../src/integration/compatibility/transfer_event_queries.h"
 #include <iostream>
 #include <source_location>
 
@@ -118,6 +119,16 @@ int main() try {
         if(!ok)throw std::runtime_error("Local DX11 interop assertion failed at line "+std::to_string(location.line()));
     };
     {
+        D3D11TransferFence fence(game.Get(), context.Get());
+        for (uint64_t value = 1; value <= 12; value += 2) {
+            verify(fence.signal(value) && fence.signal(value + 1));
+            context->Flush();
+            const auto deadline = GetTickCount64() + 2000;
+            while (fence.completed() < value + 1 && GetTickCount64() < deadline) Sleep(1);
+            verify(fence.completed() == value + 1);
+        }
+    }
+    {
         int leases=0, acquired=0;
         in_process_api.local_queue_lifetime=[&](ID3D12CommandQueue* queue,bool created) {
             verify(queue!=nullptr); leases+=created?1:-1; acquired+=created?1:0;
@@ -210,7 +221,8 @@ int main() try {
         verify(!pixels.frame(settings,true)); behavior=2;
         verify(!pixels.frame(settings,false)); behavior=0;
         verify(pixels.frame(settings,false));
-        const auto output=pixels.download();
+        std::vector<uint8_t> output(input.size());
+        pixels.download(output);
         bool correct=output.size()==input.size()&&output!=input;
         for(size_t i=0;i<output.size();i+=4)
             correct &= output[i]==255&&output[i+1]==0&&output[i+2]==0&&output[i+3]==255;
@@ -224,13 +236,18 @@ int main() try {
         const auto deadline=GetTickCount64()+10000;
         while(client.phase()==Phase::Starting&&GetTickCount64()<deadline)Sleep(1);
         verify(client.phase()==Phase::Ready);
+        verify(!client.uses_cpu_ring());
         verify(client.in_process()&&client.process_id()==GetCurrentProcessId());
         verify(std::string(client.native_execution())=="in_process_staged");
+        const auto wait_for_result = [&] {
+            while ((client.phase() == Phase::Ready || client.phase() == Phase::Busy) &&
+                   GetTickCount64() < deadline) Sleep(1);
+            if (client.phase() == Phase::Failed) throw std::runtime_error(client.error());
+            verify(client.phase() == Phase::Finished);
+        };
         std::vector<uint8_t> input(17*9*4,0);for(size_t i=3;i<input.size();i+=4)input[i]=255;
         verify(client.submit(1,true,input));
-        while(client.phase()==Phase::Busy&&GetTickCount64()<deadline)Sleep(1);
-        if(client.phase()==Phase::Failed)throw std::runtime_error(client.error());
-        verify(client.phase()==Phase::Finished);
+        wait_for_result();
         const auto output=client.take();
         verify(output.size()==input.size()&&output!=input&&output[0]==255&&output[2]==0);
         verify(client.ui_snapshot().at("processing_location")=="in_process_staged");
@@ -238,10 +255,40 @@ int main() try {
         auto updated=settings;updated.intensity=0.5f;
         verify(client.update_tuning(updated));
         verify(client.submit(2,true,input));
-        while(client.phase()==Phase::Busy&&GetTickCount64()<deadline)Sleep(1);
-        verify(client.phase()==Phase::Finished);
+        wait_for_result();
         verify(client.take()==output);
         verify(client.tuning_current_output());
+    }
+    {
+        FeedBuild build{};
+        build.width = build.output_width = 17;
+        build.height = build.output_height = 9;
+        build.cpu_bridge = 1;
+        auto bypass = settings;
+        bypass.uplift = false;
+        HostClient client(GetModuleHandleW(nullptr), {}, bypass, build, std::nullopt, std::nullopt,
+            LocalGpuOptions{.software_test_device = gpu.device, .frame_ring = true});
+        const auto deadline = GetTickCount64() + 10000;
+        while (client.phase() == Phase::Starting && GetTickCount64() < deadline) Sleep(1);
+        verify(client.phase() == Phase::Ready && client.uses_cpu_ring());
+        for (unsigned serial = 1; serial <= 2; ++serial) {
+            const auto slot = client.acquire_cpu_input();
+            verify(slot.has_value());
+            const auto pixels = client.cpu_input_span(slot.value());
+            std::fill(pixels.begin(), pixels.end(), uint8_t(serial));
+            verify(client.submit_cpu_input(slot.value(), serial, serial == 1, false));
+        }
+        while (client.ui_snapshot().at("cpu_ring").value("outputs", 0) < 2 &&
+               client.phase() != Phase::Failed && GetTickCount64() < deadline) Sleep(1);
+        for (unsigned serial = 1; serial <= 2; ++serial) {
+            const auto result = client.lease_cpu_output();
+            verify(result.has_value());
+            const auto pixels = result.value().pixels;
+            verify(std::all_of(pixels.begin(), pixels.end(),
+                [serial](uint8_t byte) { return byte == serial; }));
+            client.release_cpu_output();
+        }
+        verify(!client.has_pending_cpu_frames() && client.phase() == Phase::Ready);
     }
     // The asynchronous lease must cancel and retire before another frontend can
     // own the singleton. This loop does not launch any helper or use hardware.

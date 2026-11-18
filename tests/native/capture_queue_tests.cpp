@@ -1,4 +1,5 @@
 #include "../../src/integration/compatibility/capture_queue.h"
+#include "../../src/integration/compatibility/d3d9_inference_pacing.h"
 #include <iostream>
 #include <stdexcept>
 using phoenix_compat::CaptureQueue;
@@ -56,6 +57,43 @@ int main()try {
         check(deep.size()==4&&deep.free_slot()==-1);
         for(unsigned i=0;i<4;++i){check(deep.front()->frame==200+i);deep.front()->retired=true;deep.pop();}
         check(!deep.front()&&deep.free_slot()==0);
+    }
+    {
+        CaptureQueue latest;
+        latest.capacity(4);
+        latest.push({1,10,100,0,true});
+        latest.pop(true);
+        for (unsigned i = 1; i <= 3; ++i) latest.push({1+i,10+i,100+i,i,false});
+        check(latest.discard_superseded(2)==0);
+        check(latest.discard_superseded(3)==1 && latest.front()->frame==12 && latest.free_slot()==1);
+        latest.front()->retired=true;
+        check(latest.discard_superseded(4)==0 && latest.front()->frame==12);
+        latest.pop(true);
+        check(latest.discard_superseded(4)==0 && latest.front()->slot==3);
+        latest.release_snapshot(0);
+        latest.release_snapshot(2);
+        check(latest.free_slot()==0);
+    }
+    {
+        phoenix_compat::D3D9InferencePacing pacing;
+        auto window = [&](double period, unsigned passes, bool started) {
+            for (unsigned i = 0; i < 24; ++i) pacing.observe(period, passes, started);
+        };
+        window(13.33, 2, false);
+        check(pacing.gap_us()==2000);
+        check(pacing.frame_budget_us()>=13320 && pacing.frame_budget_us()<=13340);
+        window(13.34, 2, true);
+        check(pacing.gap_us()==1750);
+        window(15.0, 2, true);
+        check(pacing.gap_us()==2750);
+        window(14.0, 2, true);
+        check(pacing.gap_us()==3250);
+        for (unsigned i=0;i<8;++i) window(16.0,2,true);
+        check(pacing.gap_us()==6500);
+        window(13.33, 1, true);
+        check(pacing.gap_us()==2000);
+        pacing.observe(400.0,1,true);
+        check(pacing.gap_us()==2000 && pacing.frame_budget_us()==0);
     }
     std::cout<<"{\"passed\":true,\"cpu_only\":true,\"checks\":"<<checks<<"}\n";
 }catch(const std::exception& e){std::cerr<<e.what();return 1;}

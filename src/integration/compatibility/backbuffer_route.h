@@ -5,11 +5,12 @@
 #include <vector>
 
 namespace phoenix_compat {
-enum class ExecutionPreference { Automatic, InProcess, Helper, Portable, NativeLibrary, NativeDriver, Invalid };
+enum class ExecutionPreference { Automatic, InProcess, Staged, Helper, Portable, NativeLibrary, NativeDriver, Invalid };
 enum class BackbufferRoute { InProcess, InProcessStaging, Helper, Portable, NativeLibrary, NativeDriver, Unsupported };
 inline ExecutionPreference execution_preference(const std::string& value) {
     if (value == "auto") return ExecutionPreference::Automatic;
     if (value == "in_process") return ExecutionPreference::InProcess;
+    if (value == "in_process_staged") return ExecutionPreference::Staged;
     if (value == "helper") return ExecutionPreference::Helper;
     if (value == "portable") return ExecutionPreference::Portable;
     if (value == "wow64_library") return ExecutionPreference::NativeLibrary;
@@ -25,6 +26,8 @@ struct BackbufferCapabilities {
     bool discovery_pending = false;
     bool sdr = true, queue_matches = true, protected_resource = false;
     bool software_device = false, portable_frame_services_requested = false;
+    bool staged_final_color = true;
+    unsigned render_vendor = 0;
     reshade::api::format format = reshade::api::format::unknown;
     std::string native_library_reason, native_driver_reason, portable_reason;
     std::string helper_required;
@@ -37,6 +40,9 @@ inline bool terminal_route_refusal(const BackbufferCapabilities& caps,const Back
     // Missing runtimes/unsupported settings are terminal after discovery.
     // Keep polling while the asynchronous package inspection is unfinished.
     return decision.route==BackbufferRoute::Unsupported && !caps.discovery_pending;
+}
+inline bool native_same_device_adapter(const BackbufferCapabilities& caps) {
+    return !caps.software_device && (!caps.render_vendor || caps.render_vendor == 0x10de);
 }
 inline bool portable_software_frame_services_unavailable(const BackbufferCapabilities& caps) {
     // D3D10 and 10.1 WARP under the DXGI proxy can corrupt the heap when the
@@ -73,7 +79,7 @@ inline bool sdr_backbuffer(reshade::api::color_space space,reshade::api::format 
 inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& caps,
                                                  ExecutionPreference preference) {
     if (preference == ExecutionPreference::Invalid)
-        return {BackbufferRoute::Unsupported, "Unknown graphics ExecutionMode; use auto, in_process, portable, helper, wow64_library or wow64_driver."};
+        return {BackbufferRoute::Unsupported, "Unknown graphics ExecutionMode; use auto, in_process, in_process_staged, portable, helper, wow64_library or wow64_driver."};
     if (caps.bits != 32 && caps.bits != 64)
         return {BackbufferRoute::Unsupported, "Unknown process architecture."};
     if (!caps.width || !caps.height || caps.width > 16384 || caps.height > 16384)
@@ -90,6 +96,24 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
         auto decision = choose_backbuffer_route(caps, ExecutionPreference::Helper);
         if (decision.route == BackbufferRoute::Helper) decision.reason = caps.helper_required;
         return decision;
+    }
+    if (preference == ExecutionPreference::Staged) {
+        using A = reshade::api::device_api;
+        using F = reshade::api::format;
+        if (caps.bits != 64 || (caps.api != A::d3d11 && caps.api != A::d3d12) ||
+            !caps.local_api || !caps.native_executor || !native_same_device_adapter(caps))
+            return {BackbufferRoute::Unsupported,
+                "The asynchronous native worker requires a hardware DX11 or DX12 game and the x64 Native RTX executor."};
+        if (!caps.staged_final_color || caps.nvidia_required)
+            return {BackbufferRoute::Unsupported,
+                "The asynchronous native worker processes Phoenix final color. Use the direct route for NVIDIA output or engine guides."};
+        if (!caps.sdr || !local_color_format(caps.format) || caps.format == F::r10g10b10a2_unorm ||
+            caps.format == F::r10g10b10a2_typeless || caps.samples != 1 || caps.layers != 1 ||
+            caps.levels != 1 || caps.width > 8192 || caps.height > 8192)
+            return {BackbufferRoute::Unsupported,
+                "The asynchronous native worker requires one single-sample 8-bit SDR canvas up to 8192 per axis."};
+        return {BackbufferRoute::InProcessStaging,
+            "Native RTX runs on an in-process worker. The game can present while inference is busy."};
     }
     if (preference == ExecutionPreference::Automatic) {
         // Keep frame transport inside the game whenever a compatible route is
@@ -165,6 +189,9 @@ inline BackbufferDecision choose_backbuffer_route(const BackbufferCapabilities& 
              (!caps.sdr || !local_color_format(caps.format) || caps.samples != 1 || caps.layers != 1 || caps.levels != 1))
         reason = "Native DX11 interop requires a single-sample SDR RGB8/RGB10A2 backbuffer.";
     else if (caps.software_device) reason = "Software render device requires staging to a hardware inference helper.";
+    else if ((caps.api == reshade::api::device_api::d3d11 ||
+              caps.api == reshade::api::device_api::d3d12) && !native_same_device_adapter(caps))
+        reason = "Same-device native processing requires an NVIDIA render adapter; use Automatic or the external helper.";
     else if (!caps.local_api) reason = "This add-on does not expose the in-process backbuffer API.";
     else if (!caps.native_executor) reason = "The selected executor currently uses the isolated helper.";
     if (preference == ExecutionPreference::Helper) reason = "External helper explicitly selected.";
@@ -209,7 +236,8 @@ inline BackbufferDecision choose_backbuffer_route_with_fallback(const Backbuffer
     // All in-process mechanisms share the x86 caller's address space. Once it
     // is exhausted, do not initialize another native/portable renderer there.
     // Helper selection still enforces protected-resource and queue ownership.
-    if ((preference == ExecutionPreference::Automatic || fallback_enabled) &&
+    if (caps.bits == 32 && preference != ExecutionPreference::Invalid &&
+        preference != ExecutionPreference::Helper &&
         (process_memory_exhausted || low_process_memory(caps.bits, decision.reason))) {
         auto recovery = choose_backbuffer_route(caps, ExecutionPreference::Helper);
         if (recovery.route == BackbufferRoute::Helper)
@@ -235,6 +263,7 @@ inline const char* execution_preference_name(ExecutionPreference preference) {
     switch (preference) {
     case ExecutionPreference::Automatic: return "auto";
     case ExecutionPreference::InProcess: return "in_process";
+    case ExecutionPreference::Staged: return "in_process_staged";
     case ExecutionPreference::NativeLibrary: return "wow64_library";
     case ExecutionPreference::NativeDriver: return "wow64_driver";
     case ExecutionPreference::Portable: return "portable";
@@ -246,6 +275,7 @@ inline const char* execution_preference_label(ExecutionPreference preference) {
     switch (preference) {
     case ExecutionPreference::Automatic: return "Automatic (same-process first)";
     case ExecutionPreference::InProcess: return "In-process native GPU";
+    case ExecutionPreference::Staged: return "In-process async worker";
     case ExecutionPreference::NativeLibrary: return "x64 library inside x86 (experimental)";
     case ExecutionPreference::NativeDriver: return "x86 Phoenix DLSS5 + native driver (experimental)";
     case ExecutionPreference::Portable: return "In-process portable (experimental)";
@@ -256,7 +286,7 @@ inline const char* execution_preference_label(ExecutionPreference preference) {
 inline std::vector<ExecutionPreference> available_execution_preferences(const BackbufferCapabilities& caps) {
     if (!caps.helper_required.empty()) return {ExecutionPreference::Helper};
     std::vector<ExecutionPreference> choices{ExecutionPreference::Automatic};
-    for (auto preference : {ExecutionPreference::InProcess, ExecutionPreference::NativeLibrary,
+    for (auto preference : {ExecutionPreference::InProcess, ExecutionPreference::Staged, ExecutionPreference::NativeLibrary,
                             ExecutionPreference::NativeDriver, ExecutionPreference::Portable,
                             ExecutionPreference::Helper}) {
         const auto route = choose_backbuffer_route(caps, preference).route;

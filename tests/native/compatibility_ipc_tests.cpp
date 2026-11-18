@@ -98,6 +98,21 @@ int main() try {
     check(feed_frame_msg_bytes(14) == 24 && feed_frame_msg_bytes(15) == sizeof(FeedFrameMsg));
     check(feed_cpu_depth_bytes(14) == 8 && feed_cpu_mapping_bytes(14) == 8);
     {
+        CpuFrameMapping local;
+        check(local.create(64, 32, 3, false, false));
+        for (unsigned slot = 0; slot < 3; ++slot) {
+            check(local.depth(slot).empty());
+            local.input(slot).back() = uint8_t(slot + 11);
+            local.output(slot).front() = uint8_t(slot + 21);
+        }
+        for (unsigned slot = 0; slot < 3; ++slot) {
+            check(local.input(slot).back() == slot + 11);
+            check(local.output(slot).front() == slot + 21);
+        }
+        check(local.create(64, 32, 2));
+        check(local.depth(1).size() == 64 * 32);
+    }
+    {
         CpuFrameMapping producer, consumer;
         check(!producer.create(0, 1080) && !producer.create(8192, 8192));
         check(producer.create(256, 128));

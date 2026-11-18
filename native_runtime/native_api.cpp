@@ -53,6 +53,12 @@ struct Plane {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
     uint64_t bytes = 0;
 };
+struct HostFrameInput {
+    const void* color;
+    size_t color_stride;
+    const void* motion;
+    size_t motion_stride;
+};
 void buffer_extent(const void* pointer, size_t capacity, size_t stride, unsigned width,
                    unsigned height, unsigned pixel_bytes) {
     const size_t row = size_t(width) * pixel_bytes;
@@ -427,7 +433,8 @@ struct PhoenixNativeSession {
                D3D12_RESOURCE_STATES motion_state, ID3D12Resource* output,
                D3D12_RESOURCE_STATES output_state, const PhoenixNativeControls* options,
                const PhoenixNativeFrameV2* extended=nullptr,
-               PhoenixNativePostprocess postprocess=nullptr,void* postprocess_context=nullptr) {
+               PhoenixNativePostprocess postprocess=nullptr,void* postprocess_context=nullptr,
+               const HostFrameInput* host_input=nullptr) {
         check_thread();
         require(!poisoned, "Native session failed; destroy and recreate it");
         using StageClock=std::chrono::steady_clock;
@@ -572,6 +579,11 @@ struct PhoenixNativeSession {
         try {
             const auto recording_started=stage_time();
             begin();
+            if (host_input) {
+                upload(host_color, host_input->color, host_input->color_stride, width * 8);
+                if (host_input->motion)
+                    upload(host_motion, host_input->motion, host_input->motion_stride, width * 4);
+            }
             if (resize)
                 resize->begin_frame(submitted, submitted + 1);
             const auto shader_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -705,6 +717,7 @@ struct PhoenixNativeSession {
             // timestamp range so the published model GPU time stays comparable.
             if(postprocess)require(postprocess(postprocess_context,command.Get())==0,
                 "Native output postprocess failed");
+            if (host_input) record_host_readback();
             const auto recording_finished=stage_time();
             submit();
             if (motion_provider) motion_provider->consumed(submitted);
@@ -797,6 +810,17 @@ struct PhoenixNativeSession {
         command->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
         phoenix_native::transition(command.Get(), plane.image.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    void record_host_readback() {
+        auto& plane = host_output;
+        const auto state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        const auto copy_source = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        phoenix_native::transition(command.Get(), plane.image.Get(), state, copy_source);
+        const D3D12_TEXTURE_COPY_LOCATION from{plane.image.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, 0};
+        const D3D12_TEXTURE_COPY_LOCATION to{
+            plane.transfer.Get(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, plane.footprint};
+        command->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+        phoenix_native::transition(command.Get(), plane.image.Get(), copy_source, state);
     }
 };
 
@@ -986,12 +1010,19 @@ static int frame_host_extended(PhoenixNativeSession* session, const void* color,
         const bool measure_call=session->measure_gpu||session->pipeline.monitoring!=0||session->neural_budget_enabled();
         const auto started = measure_call?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         try {
-            session->begin();
-            session->upload(session->host_color, color, color_stride, session->width * 8);
-            if (motion)
-                session->upload(session->host_motion, motion, motion_stride, session->width * 4);
-            session->submit();
-            session->wait(session->submitted);
+            // Motion preparation and other executors can consume the source
+            // before the direct executor begins recording its command list.
+            const bool batch = !session->portable_leaf && !session->graph_owner &&
+                !session->pipeline.motion_enabled && !session->pipeline.scene_detection;
+            const HostFrameInput input{color, color_stride, motion, motion_stride};
+            if (!batch) {
+                session->begin();
+                session->upload(session->host_color, color, color_stride, session->width * 8);
+                if (motion)
+                    session->upload(session->host_motion, motion, motion_stride, session->width * 4);
+                session->submit();
+                session->wait(session->submitted);
+            }
             const auto state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             PhoenixNativeFrameV2 extended{};
             extended.struct_bytes=sizeof(extended); extended.version=2;
@@ -1001,20 +1032,14 @@ static int frame_host_extended(PhoenixNativeSession* session, const void* color,
             session->frame(session->host_color.image.Get(), state,
                            motion ? session->host_motion.image.Get() : nullptr, state,
                            session->host_output.image.Get(), state, controls,
-                           appearance ? &extended : nullptr);
-            session->begin();
+                           appearance ? &extended : nullptr, nullptr, nullptr, batch ? &input : nullptr);
+            if (!batch) {
+                session->begin();
+                session->record_host_readback();
+                session->submit();
+                session->wait(session->submitted);
+            }
             auto& plane = session->host_output;
-            phoenix_native::transition(session->command.Get(), plane.image.Get(), state,
-                                       D3D12_RESOURCE_STATE_COPY_SOURCE);
-            D3D12_TEXTURE_COPY_LOCATION from{plane.image.Get(),
-                                             D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, 0};
-            D3D12_TEXTURE_COPY_LOCATION to{
-                plane.transfer.Get(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, plane.footprint};
-            session->command->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
-            phoenix_native::transition(session->command.Get(), plane.image.Get(),
-                                       D3D12_RESOURCE_STATE_COPY_SOURCE, state);
-            session->submit();
-            session->wait(session->submitted);
             void* mapped = nullptr;
             D3D12_RANGE range{0, size_t(plane.bytes)}, empty{};
             hr(plane.transfer->Map(0, &range, &mapped));

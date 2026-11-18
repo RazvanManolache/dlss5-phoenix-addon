@@ -58,7 +58,8 @@ struct Session {
     BackbufferCapabilities capabilities, selectable_capabilities;
     std::string native_library_reason, native_driver_reason, portable_reason;
     std::vector<std::string> failed_routes;
-    std::optional<bool> software_device;
+    std::optional<DXGI_ADAPTER_DESC1> render_adapter;
+    bool loading_view_unavailable = false;
     reshade::api::color_space color_space = reshade::api::color_space::srgb_nonlinear;
     phoenix_model_tools::Task picker, validator;
     fs::path output_directory;
@@ -106,16 +107,21 @@ inline void update_pair_result(Session& value,const Json& result) {
 inline void reset_route_failures(Session& value) {
     value.local_failed = value.portable_failed = value.native_library_failed = value.native_driver_failed = false;
     value.process_memory_exhausted = false;
+    value.loading_view_unavailable = false;
     value.failed_routes.clear(); value.fallback_reason.clear();
 }
-inline void reject_route(Session& value, BackbufferRoute route, const std::string& error) {
+inline bool x86_memory_pressure(const ProcessAddressSpace& space) {
+    return sizeof(void*) == 4 && space.queried && !in_process_address_space_safe(32, space);
+}
+inline void reject_route(Session& value, BackbufferRoute route, const std::string& error,
+                         bool caller_memory_pressure = false) {
     if (route == BackbufferRoute::InProcess || route == BackbufferRoute::InProcessStaging) value.local_failed = true;
     else if (route == BackbufferRoute::NativeLibrary) value.native_library_failed = true;
     else if (route == BackbufferRoute::NativeDriver) value.native_driver_failed = true;
     else if (route == BackbufferRoute::Portable) value.portable_failed = true;
     value.failed_routes.push_back(error);
     value.fallback_reason = error;
-    value.process_memory_exhausted |= in_process_memory_failure(sizeof(void*) * 8, route, error);
+    value.process_memory_exhausted |= caller_memory_pressure || in_process_memory_failure(sizeof(void*) * 8, route, error);
     value.message = error + (value.process_memory_exhausted ?
         "; switching to the external 64-bit helper to preserve game address space." :
         "; trying the next eligible route.");
@@ -143,6 +149,8 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     caps.local_api = in_process_api_available();
     caps.native_executor = in_process_settings(settings).execution_device == "native";
     caps.nvidia_required = needs_nvidia_dll(settings);
+    caps.staged_final_color = (!settings.processing.enabled || !settings.processing.reuse_guides) &&
+        !settings.pipeline.legacy_depth_preview;
     caps.native_library_available = value.runtime_availability.native;
     caps.native_driver_available = value.runtime_availability.native && value.runtime_availability.driver_graph;
     caps.native_tls_coordinated = value.runtime_availability.native;
@@ -156,6 +164,7 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     value.native_driver_reason = value.runtime_availability.native_reason;
     if (value.runtime_availability.native && !value.runtime_availability.driver_graph)
         value.native_driver_reason = value.runtime_availability.driver_reason;
+    bool selected_frame_services_need_helper = false;
     for (bool driver : {false, true}) {
         // Keep the concrete package/driver/bootstrap failure. Unsupported
         // settings must not disguise it as missing motion/TLS support.
@@ -172,6 +181,8 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
                 reason = "The x86 driver host requires a large-address-aware executable.";
         }
         if (*reason) {
+            if (value.execution == (driver ? ExecutionPreference::NativeDriver : ExecutionPreference::NativeLibrary))
+                selected_frame_services_need_helper = portable_frame_pipeline_requested(settings);
             (driver ? caps.native_driver_available : caps.native_library_available) = false;
             (driver ? value.native_driver_reason : value.native_library_reason) = reason;
         }
@@ -185,7 +196,11 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
     if (caps.nvidia_required) value.portable_reason = "Portable processing cannot evaluate the NVIDIA DLL.";
     if(caps.portable_available){
         const auto* reason=portable_frame_services_unavailable(settings,caps.bits);
-        if(*reason){caps.portable_available=false;value.portable_reason=reason;}
+        if (*reason) {
+            caps.portable_available = false;
+            value.portable_reason = reason;
+            if (value.execution == ExecutionPreference::Portable) selected_frame_services_need_helper = true;
+        }
     }
     caps.native_library_reason=value.native_library_reason;
     caps.native_driver_reason=value.native_driver_reason;
@@ -200,7 +215,7 @@ inline BackbufferCapabilities transport_capabilities(Session& value, const Setti
         else if (settings.pipeline.priority || (settings.native_options && settings.ui_correction))
             caps.helper_required = "Adaptive priority and UI correction require the external x64 helper in a 32-bit game.";
         else if (portable_frame_pipeline_requested(settings) && !caps.discovery_pending &&
-                 !caps.native_library_available && !caps.native_driver_available)
+                 (selected_frame_services_need_helper || (!caps.native_library_available && !caps.native_driver_available)))
             caps.helper_required = "These motion, appearance or processing options need the external x64 helper with the installed x86 runtimes.";
     }
     // Failure history controls Automatic's next attempt, while compatible
@@ -634,6 +649,13 @@ inline Phase processing_phase(Session& value) {
     if (value.restart) return Phase::Starting;
     if (value.local) return Phase::Ready;
     auto* host = active_host(value);
+    if (host && host->phase() == Phase::Failed) {
+        if (value.bridge && value.helper_transport == "auto")
+            return Phase::Starting; // Next Present switches to the staging helper.
+        if (value.readback && host->in_process() && sizeof(void*) == 4 &&
+            (low_process_memory(32, host->error()) || x86_memory_pressure(value.runtime_availability.address_space)))
+            return Phase::Starting; // Next Present releases the local worker before starting the helper.
+    }
     return host ? host->phase() : Phase::Starting;
 }
 inline std::string presentation_scope(Session& value) {
@@ -919,6 +941,9 @@ inline Json control_snapshot(reshade::api::effect_runtime* runtime, Session& val
                                     {"portable", value.portable_reason}}},
         {"portable_runtime", value.portable_root}, {"portable_device", value.portable_device},
         {"helper_transport", value.helper_transport},
+        {"render_adapter_vendor", value.capabilities.render_vendor},
+        {"helper_requirement", value.process_memory_exhausted ? "x86_address_space" :
+            !value.capabilities.helper_required.empty() ? "x86_settings" : ""},
         {"portable_fallback", value.portable_fallback},
         {"processing_host_pid",processes.at("processing_host_pid")},
         {"inference_pid",processes.at("inference_pid")},{"inference_pids",processes.at("inference_pids")},
@@ -1047,6 +1072,20 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
     const auto& required = value.selectable_capabilities.helper_required;
     const auto choices = available_execution_preferences(value.selectable_capabilities);
     const bool saved_available = std::find(choices.begin(), choices.end(), value.execution) != choices.end();
+    const bool can_toggle_direct =
+        std::find(choices.begin(), choices.end(), ExecutionPreference::Staged) != choices.end() &&
+        std::find(choices.begin(), choices.end(), ExecutionPreference::InProcess) != choices.end() &&
+        (value.execution == ExecutionPreference::Automatic ||
+         value.execution == ExecutionPreference::InProcess || value.execution == ExecutionPreference::Staged);
+    if (can_toggle_direct) {
+        bool direct = value.execution != ExecutionPreference::Staged;
+        if (ImGui::Checkbox("Use direct GPU path", &direct)) {
+            value.execution = direct ? ExecutionPreference::InProcess : ExecutionPreference::Staged;
+            value.execution_name = execution_preference_name(value.execution);
+            route_changed = true;
+        }
+        phoenix_ui::item_help("On keeps textures on the game's GPU path for higher fresh output FPS. Off uses the in-process async worker so the game can present while inference is busy.");
+    }
     std::vector<const char*> execution_labels;
     int selected_execution = -1;
     for (auto choice : choices) {
@@ -1130,12 +1169,14 @@ inline void draw_transport(reshade::api::effect_runtime* runtime, Session& value
         }
         route_changed |= ImGui::Checkbox("Allow devices without a validation entry", &value.portable_allow_unvalidated);
         route_changed |= ImGui::Checkbox("Use helper if portable processing fails", &value.portable_fallback);
+        phoenix_ui::item_help("Allows helper fallback for other portable failures. A 32-bit game with low address space always tries the external x64 helper.");
     }
     if(value.execution==ExecutionPreference::NativeLibrary||value.execution==ExecutionPreference::NativeDriver) {
         char root[4096]{};strncpy_s(root,value.native_root.c_str(),_TRUNCATE);
         if(ImGui::InputText("Native runtime folder",root,sizeof(root))) value.native_root=root;
         route_changed|=ImGui::IsItemDeactivatedAfterEdit();
         route_changed|=ImGui::Checkbox("Use helper if native processing fails",&value.native_fallback);
+        phoenix_ui::item_help("Allows helper fallback for other native failures. A 32-bit game with low address space always tries the external x64 helper.");
         if(value.execution==ExecutionPreference::NativeDriver&&needs_nvidia_dll(value.settings))
             ImGui::TextWrapped("NVIDIA DLSS5 sources require the x64 library or helper; the Phoenix DLSS5 driver preference is retained.");
     }
@@ -1225,15 +1266,14 @@ inline void destroy_graphics_device(reshade::api::device *device) {
     runtime_continuity.destroy_device(reinterpret_cast<uintptr_t>(device));
     sharing_devices.erase(device);
 }
-inline bool is_software_render_device(reshade::api::device* device) {
-    // The render adapter and inference adapter need not be the same for CPU
-    // transport. WARP cannot execute the native CUDA/NVAPI network or share its
-    // textures with a hardware helper; detect it before attempting either route.
+inline DXGI_ADAPTER_DESC1 describe_render_adapter(reshade::api::device* device) {
+    // CPU staging can run inference on a different adapter. Native same-device
+    // inference and the shared-fence helper use the game's adapter.
     const auto api = device->get_api();
     if (api != reshade::api::device_api::d3d10 && api != reshade::api::device_api::d3d11 &&
-        api != reshade::api::device_api::d3d12) return false;
+        api != reshade::api::device_api::d3d12) return {};
     auto* native = reinterpret_cast<IUnknown*>(uintptr_t(device->get_native()));
-    if (!native) return false;
+    if (!native) return {};
     Ptr<IDXGIAdapter> adapter;
     Ptr<IDXGIDevice> dxgi;
     if (SUCCEEDED(native->QueryInterface(IID_PPV_ARGS(&dxgi)))) dxgi->GetAdapter(&adapter);
@@ -1246,9 +1286,9 @@ inline bool is_software_render_device(reshade::api::device* device) {
     }
     Ptr<IDXGIAdapter1> adapter1;
     DXGI_ADAPTER_DESC1 description{};
-    return adapter && SUCCEEDED(adapter.As(&adapter1)) &&
-        SUCCEEDED(adapter1->GetDesc1(&description)) &&
-        (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+    if (adapter && SUCCEEDED(adapter.As(&adapter1)) && SUCCEEDED(adapter1->GetDesc1(&description)))
+        return description;
+    return {};
 }
 inline void process(reshade::api::effect_runtime *runtime, reshade::api::command_list *command,
                     reshade::api::resource back_resource) {
@@ -1336,8 +1376,9 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
     const auto description = device->get_resource_desc(back_resource);
     BackbufferCapabilities detected;
     detected.api = device->get_api(); detected.width = description.texture.width;
-    if (!value.software_device) value.software_device = is_software_render_device(device);
-    detected.software_device = *value.software_device;
+    if (!value.render_adapter) value.render_adapter = describe_render_adapter(device);
+    detected.software_device = (value.render_adapter->Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+    detected.render_vendor = value.render_adapter->VendorId;
     detected.height = description.texture.height; detected.format = description.texture.format;
     detected.samples = description.texture.samples; detected.layers = description.texture.depth_or_layers;
     detected.levels = description.texture.levels;
@@ -1380,6 +1421,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         return;
     }
     auto capabilities = value.capabilities;
+    if (!value.readback && !value.bridge && x86_memory_pressure(value.runtime_availability.address_space))
+        value.process_memory_exhausted = true;
     auto decision = choose_backbuffer_route_with_fallback(capabilities, value.execution,
         value.native_fallback, value.portable_fallback, value.process_memory_exhausted);
     if (!value.process_memory_exhausted &&
@@ -1468,14 +1511,15 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         value.restart = false;
         value.logged_outputs = 0;
     }
-    if (decision.route == BackbufferRoute::Helper && value.helper_transport == "shared" &&
-        (device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable || capabilities.software_device)) {
-        value.message = "Shared helper transfer requires working D3D11 shared textures and fences. Select staging or automatic.";
+    const bool can_share_with_helper = device->get_api() == reshade::api::device_api::d3d11 &&
+        !value.shared_unavailable && native_same_device_adapter(capabilities);
+    if (decision.route == BackbufferRoute::Helper && value.helper_transport == "shared" && !can_share_with_helper) {
+        value.message = "Shared helper transfer requires a D3D11 NVIDIA render adapter with shared textures and fences. Select staging or automatic.";
         value.processing_error = value.message;
         return;
     }
     if (local_staging_attempt || portable_attempt || native_attempt || value.helper_transport == "readback" ||
-        device->get_api() != reshade::api::device_api::d3d11 || value.shared_unavailable || capabilities.software_device) {
+        !can_share_with_helper || (value.process_memory_exhausted && value.helper_transport == "auto")) {
         try {
             const auto back = back_resource;
             const auto description = device->get_resource_desc(back);
@@ -1499,10 +1543,15 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 std::optional<PortableOptions> portable;
                 std::optional<NativeOptions> native;
                 std::optional<LocalGpuOptions> local;
-                if (local_staging_attempt) local = LocalGpuOptions{};
+                // The legacy worker's single outstanding frame limits GPU
+                // contention with the game. Queue ahead on the new DX11/DX12
+                // route, where we can retire the captures without that stall.
+                if (local_staging_attempt)
+                    local = LocalGpuOptions{.frame_ring = value.execution == ExecutionPreference::Staged};
                 if(native_attempt) {
                     native = NativeOptions{runtime_path(value.native_root, "PhoenixRuntime/wow64"),
-                                           decision.route == BackbufferRoute::NativeDriver};
+                                           decision.route == BackbufferRoute::NativeDriver,
+                                           device->get_api() == reshade::api::device_api::d3d9};
                 }
                 if (portable_attempt) {
                     portable = PortableOptions{runtime_path(value.portable_root,
@@ -1511,7 +1560,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                     portable->gpu_transport=value.helper_transport!="readback";
                 }
                 value.readback = std::make_unique<ReadbackBridge>(runtime, description, module,
-                    selected, value.applied_settings, portable,native,local,std::move(value.paused_readback_host));
+                    selected, value.applied_settings, portable,native,local,std::move(value.paused_readback_host),
+                    decision.route == BackbufferRoute::Helper && value.process_memory_exhausted);
                 if(!value.readback->resumed_worker())++value.helper_generation;
                 value.message = std::string(api_name(device->get_api())) +
                                 (portable_attempt ? " readback / in-process portable Phoenix DLSS5. CPU pixel transfers add " :
@@ -1521,14 +1571,15 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
                 if(native_attempt || local_staging_attempt) value.message=decision.reason+" Fenced CPU capture/return.";
                 reshade::log::message(reshade::log::level::info, value.message.c_str());
             }
-            if (portable_attempt && value.readback->host()->phase() == Phase::Failed &&
-                (value.portable_fallback || value.execution == ExecutionPreference::Automatic)) {
-                reject_route(value, decision.route, value.readback->host()->error());
-                return; // Retire any queued Vulkan presentation before changing the transport.
-            }
-            if(native_attempt && value.readback->host()->phase() == Phase::Failed &&
-               (value.native_fallback || value.execution == ExecutionPreference::Automatic)) {
-                reject_route(value, decision.route, value.readback->host()->error()); return;
+            if ((native_attempt || portable_attempt) && value.readback->host()->phase() == Phase::Failed) {
+                const auto error = value.readback->host()->error();
+                const bool memory_pressure = x86_memory_pressure(process_address_space());
+                const bool fallback = native_attempt ? value.native_fallback : value.portable_fallback;
+                if (memory_pressure || low_process_memory(capabilities.bits, error) || fallback ||
+                    value.execution == ExecutionPreference::Automatic) {
+                    reject_route(value, decision.route, error, memory_pressure);
+                    return; // Retire any queued Vulkan presentation before changing the transport.
+                }
             }
             if (local_staging_attempt && value.readback->host()->phase() == Phase::Failed &&
                 value.execution == ExecutionPreference::Automatic) {
@@ -1543,12 +1594,17 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             log_progress(value);
         } catch (const std::exception &error) {
             value.message=std::string(value.readback?value.readback->transfer_stage():"readback transport construction")+": "+error.what();
-            if(std::string_view(error.what()).find("alloc")!=std::string_view::npos)
-                value.message+="; "+in_process_address_space_reason(process_address_space());
-            if ((local_staging_attempt && value.execution == ExecutionPreference::Automatic && !in_process_gpu_uncertain) ||
+            const auto address_space = process_address_space();
+            const bool memory_pressure = x86_memory_pressure(address_space);
+            if (memory_pressure && !low_process_memory(capabilities.bits, error.what()))
+                value.message += "; " + in_process_address_space_reason(address_space);
+            const bool recovering_memory = (native_attempt || portable_attempt) &&
+                (memory_pressure || low_process_memory(capabilities.bits, error.what()));
+            if (recovering_memory ||
+                (local_staging_attempt && value.execution == ExecutionPreference::Automatic && !in_process_gpu_uncertain) ||
                 (native_attempt && (value.native_fallback || value.execution == ExecutionPreference::Automatic)) ||
                 (portable_attempt && (value.portable_fallback || value.execution == ExecutionPreference::Automatic))) {
-                reject_route(value, decision.route, value.message);
+                reject_route(value, decision.route, value.message, recovering_memory);
             } else value.processing_error = value.message;
             reshade::log::message(reshade::log::level::error, value.message.c_str());
             if (device->get_api() == reshade::api::device_api::vulkan)
@@ -1591,6 +1647,8 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
             value.bridge->start(module, selected, value.applied_settings);
             value.message = "D3D11 shared GPU textures / asynchronous 64-bit D3D12 helper (SDR).";
         }
+        if (value.bridge->host()->phase() == Phase::Failed)
+            throw std::runtime_error(value.bridge->host()->error());
         require(value.bridge->host()->update_tuning(value.applied_settings), "Helper refused live tuning");
         prepare_pair_request(value,value.bridge.get());
         value.bridge->frame(back.Get(), value.frames, value.applied_settings,
@@ -1604,6 +1662,7 @@ inline void process(reshade::api::effect_runtime *runtime, reshade::api::command
         // Windows/driver versions without D3D11 shared NT fences still have
         // the staging route; lack of sharing is not an unsupported game API.
         value.shared_unavailable = true;
+        if (value.helper_transport == "shared") value.processing_error = value.message;
     }
 }
 template<class Fn> inline void with_d3d9_depth(reshade::api::command_list* list, Fn&& fn) {
@@ -1798,20 +1857,27 @@ inline void present(reshade::api::command_queue *queue, reshade::api::swapchain 
         }
         if (processing_requested && !composed && queue->get_device()->get_api() == reshade::api::device_api::d3d11) {
             auto* texture = reinterpret_cast<ID3D11Texture2D*>(uintptr_t(back.handle));
-            const bool local_held = value->local && value->local->safe_to_fallback() &&
-                value->local->matches(queue->get_device()->get_resource_desc(back)) &&
-                value->local->protect_presentation(back);
-            if (local_held || (value->bridge && value->bridge->protect_presentation(texture, value->frames, settings))) {
-                ++value->presentation_holds;
-                if (local_held) value->local_composed_at_frame = value->frames;
-                append_status_notice(value->message, " Holding completed output.");
-            } else {
-                // A bridge without a snapshot has drawn its loading gate. An
-                // early exit before bridge creation needs that same protection.
-                if (!value->bridge)
-                    d3d11_record_loading(reinterpret_cast<ID3D11Device*>(uintptr_t(queue->get_device()->get_native())), texture);
-                ++value->loading_presentations;
-                append_status_notice(value->message, " Waiting for processed output; raw game image hidden.");
+            if (!value->loading_view_unavailable) {
+                try {
+                    const bool local_held = value->local && value->local->safe_to_fallback() &&
+                        value->local->matches(queue->get_device()->get_resource_desc(back)) &&
+                        value->local->protect_presentation(back);
+                    if (local_held || (value->bridge && value->bridge->protect_presentation(texture, value->frames, settings))) {
+                        ++value->presentation_holds;
+                        if (local_held) value->local_composed_at_frame = value->frames;
+                        append_status_notice(value->message, " Holding completed output.");
+                    } else if (texture && d3d11_record_loading(
+                            reinterpret_cast<ID3D11Device*>(uintptr_t(queue->get_device()->get_native())), texture)) {
+                        ++value->loading_presentations;
+                        append_status_notice(value->message, " Waiting for processed output; raw game image hidden.");
+                    } else {
+                        value->loading_view_unavailable = true;
+                        reshade::log::message(reshade::log::level::warning, "Cannot create the D3D11 loading presentation view; showing the game while processing recovers.");
+                    }
+                } catch (const std::exception& error) {
+                    value->loading_view_unavailable = true;
+                    reshade::log::message(reshade::log::level::warning, error.what());
+                }
             }
         }
         record_screenshot(runtime, *value, commands, back);

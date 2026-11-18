@@ -53,15 +53,41 @@ int main()try {
         decoded->Unmap(0,&decoded_empty);if(!mismatch.empty())throw std::runtime_error("GPU input half conversion differs: "+mismatch);
         std::vector<uint16_t> halves(pixels*4);
         for(size_t p=0;p<pixels;++p){auto value=uint16_t(p);if((value&0x7c00)==0x7c00)value=0;for(unsigned c=0;c<3;++c)halves[p*4+c]=value;halves[p*4+3]=0x7c01;}
-        auto seed=[&]{void* data=nullptr;D3D12_RANGE empty{};check(upload->Map(0,&empty,&data));for(unsigned y=0;y<height;++y)std::memcpy(static_cast<char*>(data)+fp.Offset+size_t(y)*fp.Footprint.RowPitch,halves.data()+size_t(y)*width*4,size_t(width)*8);upload->Unmap(0,nullptr);
+        auto seed=[&](bool pack=true){void* data=nullptr;D3D12_RANGE empty{};check(upload->Map(0,&empty,&data));for(unsigned y=0;y<height;++y)std::memcpy(static_cast<char*>(data)+fp.Offset+size_t(y)*fp.Footprint.RowPitch,halves.data()+size_t(y)*width*4,size_t(width)*8);upload->Unmap(0,nullptr);
             b.Transition={transport.output(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST};list->ResourceBarrier(1,&b);
             D3D12_TEXTURE_COPY_LOCATION to{},from{};to.pResource=transport.output();to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;from.pResource=upload.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
-            std::swap(b.Transition.StateBefore,b.Transition.StateAfter);list->ResourceBarrier(1,&b);transport.record_output(list.Get());submit();};
+            std::swap(b.Transition.StateBefore,b.Transition.StateAfter);list->ResourceBarrier(1,&b);
+            if(pack)transport.record_output(list.Get());submit();};
         seed();transport.read_output(output.data());
         for(size_t p=0;p<pixels;++p){for(unsigned c=0;c<3;++c){auto expected=phoenix_compat::cpu_color::unorm8(DirectX::PackedVector::XMConvertHalfToFloat(halves[p*4+c]));if(output[p*4+c]!=expected)throw std::runtime_error("GPU half quantization differs");++checks;}if(output[p*4+3]!=input[p*4+3])throw std::runtime_error("GPU alpha changed");++checks;}
         halves[0]=0x7c00;seed();std::fill(output.begin(),output.end(),77);bool rejected=false;try{transport.read_output(output.data());}catch(const std::runtime_error&){rejected=true;}
         if(!rejected||!std::all_of(output.begin(),output.end(),[](uint8_t b){return b==77;}))throw std::runtime_error("Nonfinite GPU RGB was published");++checks;
         halves[0]=0;seed();transport.read_output(output.data());++checks; // Error word must reset on the next frame.
+        const auto expected_refined=output;
+        transport.record_input(list.Get(),input.data(),true);submit();
+        seed(false);
+        transport.record_refinement(list.Get());
+        D3D12_RESOURCE_BARRIER copy[]{
+            b,b};
+        copy[0].Transition={transport.color(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+            D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE};
+        copy[1].Transition={transport.output(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+            D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST};
+        list->ResourceBarrier(2,copy);
+        list->CopyResource(transport.output(),transport.color());
+        for(auto& entry:copy)std::swap(entry.Transition.StateBefore,entry.Transition.StateAfter);
+        list->ResourceBarrier(2,copy);
+        transport.record_output(list.Get());submit();transport.read_output(output.data());
+        if(output!=expected_refined)throw std::runtime_error("GPU refinement changes RGB quantization or source alpha");
+        ++checks;
+        transport.record_input(list.Get(),input.data(),true);submit();
+        halves[0]=0x7c00;seed(false);
+        transport.record_refinement(list.Get());submit();
+        halves[0]=0;seed();
+        rejected=false;
+        try{transport.read_output(output.data());}catch(const std::runtime_error&){rejected=true;}
+        if(!rejected)throw std::runtime_error("Final output hid a nonfinite intermediate refinement");
+        ++checks;
     }
     if(info)for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T bytes=0;check(info->GetMessage(i,nullptr,&bytes));std::vector<uint8_t> storage(bytes);auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data());check(info->GetMessage(i,message,&bytes));if(message->Severity<=D3D12_MESSAGE_SEVERITY_ERROR)throw std::runtime_error(message->pDescription);}
     std::cout<<"{\"passed\":true,\"gpu_used\":true,\"checks\":"<<checks<<"}\n";

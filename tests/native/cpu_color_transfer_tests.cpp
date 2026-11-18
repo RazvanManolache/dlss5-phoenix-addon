@@ -30,7 +30,16 @@ int main() try {
             verify(color::finite(expected));
             verify(color::unorm8(expected)==uint8_t(std::lround(std::clamp(expected,0.f,1.f)*255.f)));
         }
-        std::vector<uint8_t> original{1,2,3,73},packed_bytes;
+        std::vector<uint8_t> original{1,2,3,73},packed_bytes(original.size());
+        auto intermediate = rgba;
+        bool refinement_threw=false;
+        try{color::prepare_half_refinement(intermediate,original);}catch(const std::runtime_error&){refinement_threw=true;}
+        verify(refinement_threw!=finite);
+        if(finite) {
+            for(unsigned channel=0;channel<3;++channel)
+                verify(intermediate[channel]==DirectX::PackedVector::XMConvertFloatToHalf(rgb[channel]));
+            verify(intermediate[3]==color::byte_half_table()[73]);
+        }
         bool packed_threw=false;try{color::half_rgba_to_rgba8(rgba,original,packed_bytes);}catch(const std::runtime_error&){packed_threw=true;}
         verify(packed_threw!=finite);
         if(finite) {
@@ -40,7 +49,7 @@ int main() try {
             verify(packed_bytes[3]==73);
         }
         std::vector<uint16_t> pair{uint16_t(h),uint16_t(h),uint16_t(h),0x7c01,uint16_t(h),uint16_t(h),uint16_t(h),0xfc00};
-        std::vector<uint8_t> pair_input{1,2,3,73,4,5,6,19},pair_output;
+        std::vector<uint8_t> pair_input{1,2,3,73,4,5,6,19},pair_output(pair_input.size());
         bool pair_threw=false;try{color::half_rgba_to_rgba8(pair,pair_input,pair_output);}catch(const std::runtime_error&){pair_threw=true;}
         verify(pair_threw!=finite);
         if(finite) {
@@ -48,6 +57,25 @@ int main() try {
                 for(unsigned channel=0;channel<3;++channel)verify(pair_output[pixel*4+channel]==color::unorm8(rgb[channel]));
                 verify(pair_output[pixel*4+3]==pair_input[pixel*4+3]);
             }
+        }
+    }
+    {
+        const std::vector<uint8_t> original{0,0,0,0, 0,0,0,127, 0,0,0,255};
+        const std::vector<uint16_t> input{0x8000,0x3800,0x7bff,0x7e00,
+            0x0001,0x3c00,0xfbff,0x7e00, 0x3c00,0x0001,0x8001,0x7e00};
+        auto actual = input;
+        color::prepare_half_refinement(actual, original);
+        auto expected = input;
+        for (size_t i = 3; i < expected.size(); i += 4)
+            expected[i] = color::byte_half_table()[original[i]];
+        verify(actual == expected);
+        for (size_t i : {size_t(0), size_t(6), size_t(10)}) {
+            actual = input;
+            actual[i] = 0x7e00;
+            bool rejected = false;
+            try { color::prepare_half_refinement(actual, original); }
+            catch (const std::runtime_error&) { rejected = true; }
+            verify(rejected);
         }
     }
     // Exercise both adjacent floats around every quantization midpoint; adding

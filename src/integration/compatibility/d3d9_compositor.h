@@ -123,7 +123,8 @@ class D3D9Compositor {
     }
 
   public:
-    D3D9Compositor(IDirect3DDevice9* device, unsigned width, unsigned height, D3DFORMAT format)
+    D3D9Compositor(IDirect3DDevice9* device, unsigned width, unsigned height, D3DFORMAT format,
+                   bool prefetch = true)
         : device_(device), width_(width), height_(height), format_(format) {
         D3DCAPS9 caps{};
         hr(device_->GetDeviceCaps(&caps));
@@ -134,6 +135,7 @@ class D3D9Compositor {
         // Optional extra snapshots overlap capture with inference and feed
         // the frame ring. Allocation failure keeps however many succeeded.
         for (auto& texture : capture_slots_) {
+            if (!prefetch) break;
             if (FAILED(device_->CreateTexture(width,height,1,D3DUSAGE_RENDERTARGET,format,
                                               D3DPOOL_DEFAULT,&texture,nullptr))) break;
         }

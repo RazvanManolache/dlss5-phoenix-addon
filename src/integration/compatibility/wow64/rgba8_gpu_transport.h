@@ -10,17 +10,20 @@ namespace phoenix_wow64 {
 class Rgba8GpuTransport {
     // Output table: model SRV, original-half SRV, packed UAV. Input table:
     // unused SRV plus uploaded-byte SRV, with a separate half-image UAV.
-    enum Descriptor : unsigned {Enhanced=0,Original=1,Packed=2,HalfInput=3,InputTable=4,UploadBytes=5,DescriptorCount=6};
+    enum Descriptor : unsigned {Enhanced=0,Original=1,Packed=2,HalfInput=3,InputTable=4,UploadBytes=5,Validation=6,
+        AlternateEnhanced=7,AlternateOriginal=8,AlternateInputTable=9,AlternateUpload=10,DescriptorCount=11};
     template<class T> using Ptr=Microsoft::WRL::ComPtr<T>;
     Ptr<ID3D12Device> device_;
-    Ptr<ID3D12Resource> color_,output_,upload_,packed_,readback_,zero_;
+    Ptr<ID3D12Resource> color_,output_,alternate_output_,upload_,packed_,readback_,zero_;
     Ptr<ID3D12RootSignature> root_;
-    Ptr<ID3D12PipelineState> pipeline_,input_pipeline_;
+    Ptr<ID3D12PipelineState> pipeline_,input_pipeline_,refinement_pipeline_;
     Ptr<ID3D12DescriptorHeap> descriptors_;
     unsigned width_,height_,increment_=0;
     uint64_t image_bytes_;
     void* mapped_upload_=nullptr;
     void* mapped_readback_=nullptr;
+    bool refining_=false;
+    bool gpu_upload_=false;
 
     static void check(HRESULT result) {
         if(FAILED(result))throw std::runtime_error("RGBA8 native GPU transport HRESULT="+std::to_string(uint32_t(result)));
@@ -33,7 +36,7 @@ class Rgba8GpuTransport {
         D3D12_HEAP_PROPERTIES properties{};properties.Type=heap;
         D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;
         d.Height=d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;d.Flags=flags;
-        const auto state=heap==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:
+        const auto state=heap==D3D12_HEAP_TYPE_UPLOAD||heap==D3D12_HEAP_TYPE_GPU_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:
             heap==D3D12_HEAP_TYPE_READBACK?D3D12_RESOURCE_STATE_COPY_DEST:D3D12_RESOURCE_STATE_COMMON;
         Ptr<ID3D12Resource> out;check(device_->CreateCommittedResource(&properties,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_PPV_ARGS(&out)));return out;
     }
@@ -72,11 +75,30 @@ cbuffer Shape:register(b0){uint width,height;};
  uint4 half_bits=(rounded>>13)-(112u<<10);
  color[p.xy]=f16tof32(value==0?0:half_bits);
 })";
-        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,0}};
-        D3D12_ROOT_PARAMETER parameters[3]{};
+        static constexpr char refinement_shader[]=R"(
+Texture2D<float4> prior:register(t0);
+ByteAddressBuffer original:register(t1);
+RWTexture2D<float4> color:register(u0);
+RWByteAddressBuffer validation:register(u1);
+cbuffer Shape:register(b0){uint width,height;};
+[numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){
+ if(p.x>=width||p.y>=height)return;
+ float3 rgb=prior.Load(int3(p.xy,0)).rgb;
+ if(!all(isfinite(rgb))) { validation.InterlockedOr(width*height*4,1); rgb=0; }
+ uint word=original.Load((p.y*width+p.x)*4);
+ precise float alpha=float(word>>24)/255.0;
+ uint bits=asuint(alpha);
+ uint rounded=bits+4095u+((bits>>13)&1u);
+ color[p.xy]=float4(rgb,f16tof32(alpha==0?0:(rounded>>13)-(112u<<10)));
+})";
+        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0},
+            {D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,1,0,0}};
+        D3D12_ROOT_PARAMETER parameters[4]{};
         for(unsigned i=0;i<2;++i){parameters[i].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;parameters[i].DescriptorTable={1,&ranges[i]};}
         parameters[2].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;parameters[2].Constants={0,0,2};
-        D3D12_ROOT_SIGNATURE_DESC desc{3,parameters,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};
+        parameters[3].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[3].DescriptorTable={1,&ranges[2]};
+        D3D12_ROOT_SIGNATURE_DESC desc{4,parameters,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};
         Ptr<ID3DBlob> blob,errors;
         check(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&errors));
         check(device_->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root_)));
@@ -88,6 +110,10 @@ cbuffer Shape:register(b0){uint width,height;};
             D3DCOMPILE_OPTIMIZATION_LEVEL3|D3DCOMPILE_IEEE_STRICTNESS,0,&blob,&errors));
         pso.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
         check(device_->CreateComputePipelineState(&pso,IID_PPV_ARGS(&input_pipeline_)));
+        check(phoenix_shader::compile(refinement_shader,sizeof(refinement_shader)-1,"phoenix-rgba8-refinement",nullptr,nullptr,
+            "main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3|D3DCOMPILE_IEEE_STRICTNESS,0,&blob,&errors));
+        pso.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
+        check(device_->CreateComputePipelineState(&pso,IID_PPV_ARGS(&refinement_pipeline_)));
         D3D12_DESCRIPTOR_HEAP_DESC heap{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,DescriptorCount,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
         check(device_->CreateDescriptorHeap(&heap,IID_PPV_ARGS(&descriptors_)));
         increment_=device_->GetDescriptorHandleIncrementSize(heap.Type);
@@ -106,21 +132,44 @@ cbuffer Shape:register(b0){uint width,height;};
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;uav.Format=DXGI_FORMAT_R32_TYPELESS;
         uav.Buffer.NumElements=UINT(image_bytes_/4+1);uav.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;
         device_->CreateUnorderedAccessView(packed_.Get(),nullptr,&uav,cpu);
+        auto validation=cpu;validation.ptr+=(Validation-Packed)*increment_;
+        device_->CreateUnorderedAccessView(packed_.Get(),nullptr,&uav,validation);
         cpu.ptr+=increment_;uav={};uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;uav.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
         device_->CreateUnorderedAccessView(color_.Get(),nullptr,&uav,cpu);
         cpu.ptr+=increment_;device_->CreateShaderResourceView(output_.Get(),&original,cpu);
         cpu.ptr+=increment_;device_->CreateShaderResourceView(upload_.Get(),&source,cpu);
+        if(alternate_output_) {
+            const auto first=descriptors_->GetCPUDescriptorHandleForHeapStart().ptr;
+            device_->CreateShaderResourceView(alternate_output_.Get(),&original,{first+AlternateEnhanced*increment_});
+            device_->CreateShaderResourceView(color_.Get(),&original,{first+AlternateOriginal*increment_});
+            device_->CreateShaderResourceView(alternate_output_.Get(),&original,{first+AlternateInputTable*increment_});
+            device_->CreateShaderResourceView(upload_.Get(),&source,{first+AlternateUpload*increment_});
+        }
     }
   public:
-    Rgba8GpuTransport(ID3D12Device* device,unsigned width,unsigned height):device_(device),width_(width),height_(height),image_bytes_(uint64_t(width)*height*4) {
+    Rgba8GpuTransport(ID3D12Device* device,unsigned width,unsigned height,ID3D12Resource* color=nullptr,
+        ID3D12Resource* output=nullptr,ID3D12Resource* alternate=nullptr):
+        device_(device),color_(color),output_(output),alternate_output_(alternate),
+        width_(width),height_(height),image_bytes_(uint64_t(width)*height*4) {
         if(!width||!height||width>8192||height>8192)throw std::runtime_error("Invalid RGBA8 native transport extent");
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=width;d.Height=height;
         d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
         d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&color_)));
-        check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&output_)));
-        upload_=buffer(image_bytes_,D3D12_HEAP_TYPE_UPLOAD);
+        if(!color_)check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&color_)));
+        if(!output_)check(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&output_)));
+        D3D12_FEATURE_DATA_D3D12_OPTIONS16 features{};
+        if(SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS16,&features,sizeof(features))) &&
+            features.GPUUploadHeapSupported) {
+            try {
+                upload_=buffer(image_bytes_,D3D12_HEAP_TYPE_GPU_UPLOAD);
+                gpu_upload_=true;
+            } catch(const std::runtime_error&) {
+                // The ordinary upload heap is still valid if GPU-local
+                // CPU-visible memory is unavailable for this allocation.
+            }
+        }
+        if(!upload_)upload_=buffer(image_bytes_,D3D12_HEAP_TYPE_UPLOAD);
         packed_=buffer(image_bytes_+4,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         readback_=buffer(image_bytes_+4,D3D12_HEAP_TYPE_READBACK);zero_=buffer(4,D3D12_HEAP_TYPE_UPLOAD);
         void* mapped=nullptr;D3D12_RANGE empty{};check(zero_->Map(0,&empty,&mapped));std::memset(mapped,0,4);zero_->Unmap(0,nullptr);
@@ -135,12 +184,21 @@ cbuffer Shape:register(b0){uint width,height;};
         if(mapped_readback_){D3D12_RANGE empty{};readback_->Unmap(0,&empty);}
     }
     ID3D12Resource* color()const{return color_.Get();}
-    ID3D12Resource* output()const{return output_.Get();}
+    ID3D12Resource* output(unsigned parity=0)const{return parity?alternate_output_.Get():output_.Get();}
     uint64_t image_bytes()const{return image_bytes_;}
+    bool gpu_upload()const{return gpu_upload_;}
     // Caller submits this list before native evaluation on the SAME queue.
     // It must retire before the upload buffer or allocator is reused.
-    void record_input(ID3D12GraphicsCommandList* list,const void* rgba) {
+    void record_input(ID3D12GraphicsCommandList* list,const void* rgba,bool refining=false) {
         std::memcpy(mapped_upload_,rgba,size_t(image_bytes_));
+        refining_=refining;
+        if (refining_) {
+            auto b=barrier(packed_.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+            list->ResourceBarrier(1,&b);
+            list->CopyBufferRegion(packed_.Get(),image_bytes_,zero_.Get(),0,4);
+            std::swap(b.Transition.StateBefore,b.Transition.StateAfter);
+            list->ResourceBarrier(1,&b);
+        }
         auto b=barrier(color(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);list->ResourceBarrier(1,&b);
         ID3D12DescriptorHeap* heaps[]={descriptors_.Get()};list->SetDescriptorHeaps(1,heaps);
         list->SetComputeRootSignature(root_.Get());list->SetPipelineState(input_pipeline_.Get());
@@ -150,15 +208,38 @@ cbuffer Shape:register(b0){uint width,height;};
         list->Dispatch((width_+7)/8,(height_+7)/8,1);
         std::swap(b.Transition.StateBefore,b.Transition.StateAfter);list->ResourceBarrier(1,&b);
     }
-    void record_output(ID3D12GraphicsCommandList* list) {
+    void record_refinement(ID3D12GraphicsCommandList* list,unsigned parity=0) {
+        D3D12_RESOURCE_BARRIER barriers[]{
+            barrier(output(parity),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+            barrier(color(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            barrier(packed_.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};
+        list->ResourceBarrier(3,barriers);
+        ID3D12DescriptorHeap* heaps[]={descriptors_.Get()};
+        list->SetDescriptorHeaps(1,heaps);
+        list->SetComputeRootSignature(root_.Get());
+        list->SetPipelineState(refinement_pipeline_.Get());
+        const auto start=descriptors_->GetGPUDescriptorHandleForHeapStart().ptr;
+        list->SetComputeRootDescriptorTable(0,{start+(parity?AlternateInputTable:InputTable)*increment_});
+        list->SetComputeRootDescriptorTable(1,{start+HalfInput*increment_});
+        const unsigned extent[]={width_,height_};
+        list->SetComputeRoot32BitConstants(2,2,extent,0);
+        list->SetComputeRootDescriptorTable(3,{start+Validation*increment_});
+        list->Dispatch((width_+7)/8,(height_+7)/8,1);
+        for (auto& entry : barriers)
+            std::swap(entry.Transition.StateBefore,entry.Transition.StateAfter);
+        list->ResourceBarrier(3,barriers);
+    }
+    void record_output(ID3D12GraphicsCommandList* list,unsigned parity=0) {
         auto b=barrier(packed_.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);list->ResourceBarrier(1,&b);
-        list->CopyBufferRegion(packed_.Get(),image_bytes_,zero_.Get(),0,4);
+        if (!refining_) list->CopyBufferRegion(packed_.Get(),image_bytes_,zero_.Get(),0,4);
         D3D12_RESOURCE_BARRIER barriers[]={barrier(packed_.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            barrier(output(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+            barrier(output(parity),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
             barrier(color(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)};
         list->ResourceBarrier(3,barriers);
         ID3D12DescriptorHeap* heaps[]={descriptors_.Get()};list->SetDescriptorHeaps(1,heaps);list->SetComputeRootSignature(root_.Get());list->SetPipelineState(pipeline_.Get());
-        auto gpu=descriptors_->GetGPUDescriptorHandleForHeapStart();list->SetComputeRootDescriptorTable(0,gpu);gpu.ptr+=Packed*increment_;list->SetComputeRootDescriptorTable(1,gpu);
+        const auto start=descriptors_->GetGPUDescriptorHandleForHeapStart().ptr;
+        list->SetComputeRootDescriptorTable(0,{start+(parity?AlternateEnhanced:Enhanced)*increment_});
+        list->SetComputeRootDescriptorTable(1,{start+Packed*increment_});
         const unsigned extent[]={width_,height_};list->SetComputeRoot32BitConstants(2,2,extent,0);list->Dispatch((width_+7)/8,(height_+7)/8,1);
         barriers[0]=barrier(packed_.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
         std::swap(barriers[1].Transition.StateBefore,barriers[1].Transition.StateAfter);std::swap(barriers[2].Transition.StateBefore,barriers[2].Transition.StateAfter);list->ResourceBarrier(3,barriers);

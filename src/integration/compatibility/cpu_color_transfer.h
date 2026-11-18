@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <vector>
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
@@ -64,6 +65,20 @@ __declspec(noinline) inline size_t vector_half_to_rgba8(const uint16_t* half,con
     }
     _mm256_zeroupper();return pixel;
 }
+__declspec(noinline) inline size_t vector_prepare_half_refinement(
+    uint16_t* color, const uint8_t* original, size_t count, const uint16_t* alpha) {
+    const auto exponent = _mm_set1_epi16(0x7c00);
+    size_t i = 0;
+    for (; i + 8 <= count; i += 8) {
+        const auto values = _mm_loadu_si128(reinterpret_cast<const __m128i*>(color + i));
+        const auto invalid = _mm_cmpeq_epi16(_mm_and_si128(values, exponent), exponent);
+        if ((_mm_movemask_epi8(invalid) & 0x3f3f) != 0)
+            throw std::runtime_error("Native refinement contains nonfinite pixels");
+        color[i + 3] = alpha[original[i + 3]];
+        color[i + 7] = alpha[original[i + 7]];
+    }
+    return i;
+}
 #else
 inline bool vector_half_conversion_available() noexcept {return false;}
 #endif
@@ -99,7 +114,7 @@ inline bool finite(float value) noexcept {
     return (std::bit_cast<uint32_t>(value) & 0x7f800000u) != 0x7f800000u;
 }
 
-inline void rgba8_to_half(const std::vector<uint8_t>& rgba, std::vector<uint16_t>& half) {
+inline void rgba8_to_half(std::span<const uint8_t> rgba, std::vector<uint16_t>& half) {
     if (rgba.empty() || rgba.size() % 4 || half.size() != rgba.size())
         throw std::runtime_error("Invalid RGBA8/half conversion extent");
     const auto& table = byte_half_table();
@@ -124,6 +139,23 @@ inline void half_rgba_to_rgb(const std::vector<uint16_t>& rgba, std::vector<floa
     }
 }
 
+inline void prepare_half_refinement(std::vector<uint16_t>& color, std::span<const uint8_t> original) {
+    if (color.empty() || color.size() % 4 || color.size() != original.size())
+        throw std::runtime_error("Invalid half refinement extent");
+    const auto& alpha = byte_half_table();
+    size_t first = 0;
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+    if (vector_half_conversion_available())
+        first = vector_prepare_half_refinement(color.data(), original.data(), color.size(), alpha.data());
+#endif
+    for (size_t pixel = first; pixel < color.size(); pixel += 4) {
+        for (unsigned channel = 0; channel < 3; ++channel)
+            if ((color[pixel + channel] & 0x7c00u) == 0x7c00u)
+                throw std::runtime_error("Native refinement contains nonfinite pixels");
+        color[pixel + 3] = alpha[original[pixel + 3]];
+    }
+}
+
 inline uint8_t unorm8(float value) {
     if (!finite(value)) throw std::runtime_error("Nonfinite portable output");
     const float clamped = value < 0 ? 0.f : value > 1 ? 1.f : value;
@@ -134,9 +166,9 @@ inline uint8_t unorm8(float value) {
 }
 
 inline void half_rgba_to_rgba8(const std::vector<uint16_t>& half,
-                               const std::vector<uint8_t>& input,
-                               std::vector<uint8_t>& output) {
-    if (half.empty() || half.size() % 4 || input.size() != half.size())
+                               std::span<const uint8_t> input,
+                               std::span<uint8_t> output) {
+    if (half.empty() || half.size() % 4 || input.size() != half.size() || output.size() != half.size())
         throw std::runtime_error("Invalid packed half/RGBA8 conversion extent");
     struct Table {
         std::array<uint8_t, 65536> values{};
@@ -147,7 +179,6 @@ inline void half_rgba_to_rgba8(const std::vector<uint16_t>& half,
         }
     };
     static const Table table;
-    output.resize(input.size());
     size_t first=0;
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
     if(vector_half_conversion_available())

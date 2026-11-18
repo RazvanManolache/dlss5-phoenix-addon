@@ -301,10 +301,7 @@ class D3D11Bridge {
     }
     bool protect_presentation(ID3D11Texture2D* back, uint64_t frame_number,
                               const phoenix_addon::phoenix::Settings& settings) {
-        if (!snapshot_) {
-            d3d11_record_loading(device_.Get(), back);
-            return false;
-        }
+        if (!snapshot_) return false;
         ContextScope state(context_.Get(), clean_state_.Get());
         ID3D11ShaderResourceView* views[]{current_view_.Get(), input_view_.Get(), output_view_.Get()};
         draw(presentation_target(back), compose_.Get(), views, 3,

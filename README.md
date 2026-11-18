@@ -6,15 +6,16 @@ I dislike how much of the software we add to our games is closed source. We rush
 
 I know DLSS5 hasn't exactly won a popularity contest. I'm curious about what it can do for the games we already love—and, eventually, looks less interested in counting pores. [Why I'm making this](docs/PROJECT.md#why-im-making-this).
 
-[Download 1.3.1](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.3.1) ·
+[Download 1.3.2](https://github.com/RazvanManolache/dlss5-phoenix-addon/releases/tag/1.3.2) ·
 [Installation](docs/INSTALLATION.md) · [User guide](docs/USER_GUIDE.md) · [All documentation](docs/README.md)
 
-## New in 1.3.1 — 2026-11-16
+## New in 1.3.2 — 2026-11-18
 
-- **Keep automation attached to the game.** The optional Phoenix Input companion can bind to a specific game executable in an install shared with its launcher.
-- **Follow viewport changes.** Phoenix Input follows the active game window and preserves each window’s original message handler.
+- **Keep supported DX11 and DX12 games presenting while Phoenix works.** The optional in-process async worker overlaps final-color capture and processing in 64-bit games on Native RTX.
+- **Faster refinement in 32-bit games.** Compatible native routes keep intermediate passes on the GPU, reuse pixel buffers, and pace work around DX9 presentation.
+- **Recover when a 32-bit game runs short of address space.** Phoenix can move processing to the external x64 helper. Same-device routes also check which GPU renders the game.
 
-[1.3.1 release notes](docs/RELEASE_1.3.1.md) · [Earlier changes](CHANGELOG.md).
+[1.3.2 release notes](docs/RELEASE_1.3.2.md) · [Earlier changes](CHANGELOG.md).
 
 <table><tr><td><a href="docs/features/overlay-play.png"><img src="docs/features/overlay-play.png" alt="Phoenix Play tab with model choices and separate game and processed FPS" width="420"></a></td><td><a href="docs/features/overlay-performance.png"><img src="docs/features/overlay-performance.png" alt="Phoenix timing and FPS comparisons" width="420"></a></td></tr></table>
 

@@ -150,7 +150,7 @@ inline const char* choice_help(std::string_view group, int option) {
     if(group=="Source A"||group=="Source B")return "Select the input or neural output shown on this side of the comparison. Evaluating both Phoenix and NVIDIA can add processing cost. Keep model, style and strengths matched when comparing implementations.";
     if(group=="Preset")return "Select one of four saved setting slots. Selecting a slot does not apply it: Load preset restores it and Save preset replaces it with the current configuration.";
     if(group=="Log level")return "Choose diagnostic detail. Normal is the everyday starting point. More verbose logging is useful for troubleshooting and can add overhead or disk activity.";
-    if(group=="Execution mechanism")return "Choose where inference runs. Automatic tries supported same-process routes before the isolated x64 helper. Explicit routes are for compatibility/testing; changing mechanism reinitializes processing.";
+    if(group=="Execution mechanism")return "Automatic tries supported same-process routes before the isolated x64 helper. In-process async worker uses fenced pixel transfers on DX11 and DX12, letting the game present while the worker is busy. Direct native GPU keeps engine-guide support and processes each frame on the presentation path. Changing the mechanism reinitializes processing.";
     if(group=="Helper transfer")return "Choose how frames reach the isolated helper. Automatic uses shared GPU textures where supported. CPU staging works on more APIs but adds capture, transfer and return latency. Shared textures currently require D3D11.";
     return "Select this option directly. The highlighted button is the current choice; disabled choices require capabilities unavailable on the active route.";
 }

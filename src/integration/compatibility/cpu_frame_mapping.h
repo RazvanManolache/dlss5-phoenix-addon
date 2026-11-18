@@ -16,29 +16,30 @@ class CpuFrameMapping {
     uint8_t* view_ = nullptr;
     size_t plane_bytes_ = 0;
     unsigned slots_ = 0;
+    unsigned planes_ = 3;
     struct alignas(8) SlotReady {
         volatile LONG64 frame;
         uint32_t depth_present;
         uint32_t depth_dims;
     };
     SlotReady* ready_ = nullptr;
-    static uint64_t mapping_size(size_t plane, unsigned slots, bool prefetch) {
-        const uint64_t pixels = uint64_t(plane) * 3 * slots;
+    uint64_t mapping_size(size_t plane, unsigned slots, bool prefetch) const {
+        const uint64_t pixels = uint64_t(plane) * planes_ * slots;
         return prefetch ? ((pixels + 7) & ~uint64_t(7)) + slots * sizeof(SlotReady) : pixels;
     }
 
     bool map(unsigned width, unsigned height, unsigned slots, bool prefetch) {
         const auto bytes = plane_size(width, height);
         if (!handle_ || !bytes || !slots || slots > maximum_slots ||
-            uint64_t(bytes) * 3 * slots > maximum_bytes * 2) { reset(); return false; }
+            uint64_t(bytes) * planes_ * slots > maximum_bytes * 2) { reset(); return false; }
         view_ = static_cast<uint8_t*>(MapViewOfFile(handle_, FILE_MAP_WRITE, 0, 0, size_t(mapping_size(bytes, slots, prefetch))));
         if (!view_) { reset(); return false; }
         plane_bytes_ = bytes;
         slots_ = slots;
-        if (prefetch) ready_ = reinterpret_cast<SlotReady*>(view_ + ((bytes * 3 * slots + 7) & ~size_t(7)));
+        if (prefetch) ready_ = reinterpret_cast<SlotReady*>(view_ + ((bytes * planes_ * slots + 7) & ~size_t(7)));
         return true;
     }
-    size_t slot_offset(unsigned slot) const { return size_t(slot) * plane_bytes_ * 3; }
+    size_t slot_offset(unsigned slot) const { return size_t(slot) * plane_bytes_ * planes_; }
 
 public:
     static size_t plane_size(unsigned width, unsigned height) {
@@ -57,13 +58,16 @@ public:
         handle_ = nullptr;
         plane_bytes_ = 0;
         slots_ = 0;
+        planes_ = 3;
         ready_ = nullptr;
     }
-    bool create(unsigned width, unsigned height, unsigned slots = 1, bool prefetch = false) {
+    bool create(unsigned width, unsigned height, unsigned slots = 1, bool prefetch = false,
+                bool with_depth = true) {
         reset();
+        planes_ = with_depth ? 3 : 2;
         const auto bytes = plane_size(width, height);
         if (!bytes || !slots || slots > maximum_slots ||
-            uint64_t(bytes) * 3 * slots > maximum_bytes * 2) return false;
+            uint64_t(bytes) * planes_ * slots > maximum_bytes * 2) return false;
         handle_ = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
                                      DWORD(mapping_size(bytes, slots, prefetch)), nullptr);
         return map(width, height, slots, prefetch);
@@ -101,7 +105,7 @@ public:
                              : std::span<uint8_t>{};
     }
     std::span<float> depth(unsigned slot = 0) const {
-        return slot < slots_ ? std::span<float>{reinterpret_cast<float*>(view_ + slot_offset(slot) +
+        return planes_ == 3 && slot < slots_ ? std::span<float>{reinterpret_cast<float*>(view_ + slot_offset(slot) +
                                         2 * plane_bytes_), plane_bytes_ / sizeof(float)}
                              : std::span<float>{};
     }

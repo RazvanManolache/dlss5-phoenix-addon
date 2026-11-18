@@ -47,6 +47,22 @@ int main() try {
         verify(choose_backbuffer_route(legacy,ExecutionPreference::NativeDriver).route==BackbufferRoute::Unsupported);
     }
     verify(execution_preference("auto") == automatic);
+    const auto staged = ExecutionPreference::Staged;
+    verify(execution_preference("in_process_staged") == staged);
+    for (const auto api : {A::d3d11,A::d3d12}) {
+        auto caps=base;
+        caps.api=api;
+        verify(choose_backbuffer_route(caps, staged).route==BackbufferRoute::InProcessStaging);
+        verify(choose_backbuffer_route(caps, automatic).route==BackbufferRoute::InProcess);
+        caps.staged_final_color=false;
+        verify(choose_backbuffer_route(caps, staged).route==BackbufferRoute::Unsupported);
+        caps.staged_final_color=true;
+        caps.format=F::r10g10b10a2_unorm;
+        verify(choose_backbuffer_route(caps, staged).route==BackbufferRoute::Unsupported);
+        caps.format=F::r8g8b8a8_unorm;
+        caps.bits=32;
+        verify(choose_backbuffer_route(caps, staged).route==BackbufferRoute::Unsupported);
+    }
     verify(execution_preference("bogus") == ExecutionPreference::Invalid);
     // DX11 x64 uses a local DX12 device on the same adapter. Invalid interop
     // layouts still fall back; explicitly choosing the helper remains strict.
@@ -235,9 +251,9 @@ int main() try {
     }
     verify(choose_backbuffer_route(ordered,automatic).route==BackbufferRoute::Helper);
     for (auto forced : {ExecutionPreference::NativeLibrary, ExecutionPreference::NativeDriver, ExecutionPreference::Portable}) {
-        verify(choose_backbuffer_route_with_fallback(ordered, forced, false, false).route == BackbufferRoute::Unsupported);
+        verify(choose_backbuffer_route_with_fallback(ordered, forced, false, false).route == BackbufferRoute::Helper);
         const bool portable = forced == ExecutionPreference::Portable;
-        verify(choose_backbuffer_route_with_fallback(ordered, forced, portable, !portable).route == BackbufferRoute::Unsupported);
+        verify(choose_backbuffer_route_with_fallback(ordered, forced, portable, !portable).route == BackbufferRoute::Helper);
         const auto recovered = choose_backbuffer_route_with_fallback(ordered, forced, !portable, portable);
         verify(recovered.route == BackbufferRoute::Helper);
         verify(recovered.reason.find(exhausted) != std::string::npos);
@@ -269,7 +285,7 @@ int main() try {
         verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Helper);
         for (auto forced : {ExecutionPreference::NativeLibrary, ExecutionPreference::NativeDriver, ExecutionPreference::Portable}) {
             verify(choose_backbuffer_route_with_fallback(memory, forced, true, true, true).route == BackbufferRoute::Helper);
-            verify(choose_backbuffer_route_with_fallback(memory, forced, false, false, true).route != BackbufferRoute::Helper);
+            verify(choose_backbuffer_route_with_fallback(memory, forced, false, false, true).route == BackbufferRoute::Helper);
         }
         memory.discovery_pending = true;
         verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Helper);
@@ -279,7 +295,8 @@ int main() try {
         verify(choose_backbuffer_route_with_fallback(memory, automatic, true, true, true).route == BackbufferRoute::Unsupported);
         memory.queue_matches = true; memory.discovery_pending = false;
         memory.native_library_available = false; memory.native_library_reason = exhausted;
-        verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::Helper);
+        verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::NativeLibrary, false, false).route == BackbufferRoute::Helper);
+        verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::Invalid, false, false, true).route == BackbufferRoute::Unsupported);
         // An unrelated native failure retains the ordinary ordered fallback.
         memory.native_library_reason = "Missing native runtime";
         verify(choose_backbuffer_route_with_fallback(memory, ExecutionPreference::NativeLibrary, true, true).route == BackbufferRoute::NativeDriver);
@@ -291,6 +308,15 @@ int main() try {
     verify(!terminal_route_refusal(ordered,blocked));
     ordered.discovery_pending=false;
     verify(!terminal_route_refusal(ordered,choose_backbuffer_route(ordered,automatic)));
+    auto radeon = base;
+    radeon.bits = 64;
+    radeon.local_api = true;
+    radeon.render_vendor = 0x1002;
+    verify(!native_same_device_adapter(radeon));
+    verify(choose_backbuffer_route(radeon, ExecutionPreference::InProcess).route == BackbufferRoute::Unsupported);
+    verify(choose_backbuffer_route(radeon, automatic).route == BackbufferRoute::Helper);
+    radeon.render_vendor = 0x10de;
+    verify(choose_backbuffer_route(radeon, ExecutionPreference::InProcess).route == BackbufferRoute::InProcess);
     auto opengl = base; opengl.bits = 32; opengl.api = A::opengl;
     auto coordinated_gl=opengl;coordinated_gl.native_tls_coordinated=true;
     verify(choose_backbuffer_route(coordinated_gl,automatic).route==BackbufferRoute::NativeLibrary);

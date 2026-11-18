@@ -3,6 +3,13 @@
 The [README](README.md) shows the latest dated release. Earlier highlights are
 kept here; each linked release note includes its validation details.
 
+## 1.3.1 — 2026-11-16
+
+- **Keep automation attached to the game.** The optional Phoenix Input companion can bind to a specific game executable in an install shared with its launcher.
+- **Follow viewport changes.** Phoenix Input follows the active game window and preserves each window’s original message handler.
+
+[1.3.1 release notes](docs/RELEASE_1.3.1.md).
+
 ## 1.3.0 — 2026-11-14
 
 - **Faster frame delivery for older games.** Capture, helper processing, and display can overlap on supported routes. DX9 avoids waiting on busy captures and keeps each processed result paired with its source frame.

@@ -177,6 +177,10 @@ class Models {
         try {static_cast<phoenix_wow64::Rgba8GpuTransport*>(context)->record_output(list);return 0;}
         catch(...) {return -1;}
     }
+    static int __cdecl prepare_refinement(void* context,ID3D12GraphicsCommandList* list) noexcept {
+        try {static_cast<phoenix_wow64::Rgba8GpuTransport*>(context)->record_refinement(list);return 0;}
+        catch(...) {return -1;}
+    }
     inline static std::string loaded_nvidia_sha_;
     void initialize_phoenix() {
         if(phoenix_) return;
@@ -350,6 +354,11 @@ class Models {
             options.motion_scale_y=controls.value("motion_y",1.f);
             options.local_tone=controls.at("tone"); options.local_structure=controls.at("structure");
             options.skin_structure=controls.at("skin"); options.auto_mask=controls.at("auto_mask").get<bool>();
+            const auto passes=controls.value("refinement_passes",1u);
+            require(passes==1 || (passes>=2&&passes<=10&&frame_services&&options.reset&&
+                packet.pixel_transport==phoenix_wow64::rgba8_gpu_transport_version&&
+                !controls.at("pipeline").value("MotionEstimation",false)&&
+                !controls.at("pipeline").value("SceneDetection",false)), "Invalid native GPU refinement request");
             const bool profiling=frame_services&&controls.at("pipeline").value("PipelineMonitoring",0)==2;
             bool batched_output=false;
             const auto started=profiling?Clock::now():Clock::time_point{};
@@ -357,7 +366,7 @@ class Models {
             double native_api_ms=0,input_fence_retire_ms=0;
             if(frame_services&&packet.pixel_transport==phoenix_wow64::rgba8_gpu_transport_version) {
                 if(!rgba8_)rgba8_=std::make_unique<phoenix_wow64::Rgba8GpuTransport>(gpu_.device.Get(),width_,height_);
-                rgba8_->record_input(gpu_.list.Get(),reinterpret_cast<const void*>(c.color));
+                rgba8_->record_input(gpu_.list.Get(),reinterpret_cast<const void*>(c.color),passes>1);
                 // Both owners use gpu_.queue. Ordering supplies the upload
                 // dependency; do not reset this allocator until evaluation has
                 // retired. No CPU upload wait is needed before the native call.
@@ -371,22 +380,31 @@ class Models {
                 const bool needs_appearance=appearance.intensity!=1.f || appearance.style!=0;
                 const bool batched=postprocess_&&postprocess_contract_&&postprocess_contract_(phoenix_)==1;
                 batched_output=batched;
-                const auto api_started=profiling?Clock::now():Clock::time_point{};
-                const int evaluated=batched
-                    ? postprocess_(phoenix_,&appearance,uint32_t(needs_appearance),pack_output,rgba8_.get())
-                    : needs_appearance
-                    ? symbol<decltype(&phoenix_native_frame_d3d12_v2)>(native_,"phoenix_native_frame_d3d12_v2")(phoenix_,&appearance)
-                    : symbol<decltype(&phoenix_native_frame_d3d12)>(native_,"phoenix_native_frame_d3d12")(phoenix_,
-                        rgba8_->color(),D3D12_RESOURCE_STATE_COMMON,nullptr,D3D12_RESOURCE_STATE_COMMON,
-                        rgba8_->output(),D3D12_RESOURCE_STATE_COMMON,&options);
-                // Retire even a rejected evaluation before any transport
-                // resource can be destroyed by exception unwinding.
-                const auto api_finished=profiling?Clock::now():Clock::time_point{};
-                gpu_.finish();require(evaluated==0,error());
-                if(profiling)evaluation_done=Clock::now();
-                if(profiling) {
-                    native_api_ms=std::chrono::duration<double,std::milli>(api_finished-api_started).count();
-                    input_fence_retire_ms=std::chrono::duration<double,std::milli>(evaluation_done-api_finished).count();
+                for(unsigned pass=0;pass<passes;++pass) {
+                    if(pass && !batched) {
+                        rgba8_->record_refinement(gpu_.list.Get());
+                        gpu_.enqueue();
+                    }
+                    const auto api_started=profiling?Clock::now():Clock::time_point{};
+                    // Record the next input conversion beside this pass's
+                    // inference. The SDK already waits for that submission.
+                    const int evaluated=batched
+                        ? postprocess_(phoenix_,&appearance,uint32_t(needs_appearance),
+                            pass+1==passes?pack_output:prepare_refinement,rgba8_.get())
+                        : needs_appearance
+                        ? symbol<decltype(&phoenix_native_frame_d3d12_v2)>(native_,"phoenix_native_frame_d3d12_v2")(phoenix_,&appearance)
+                        : symbol<decltype(&phoenix_native_frame_d3d12)>(native_,"phoenix_native_frame_d3d12")(phoenix_,
+                            rgba8_->color(),D3D12_RESOURCE_STATE_COMMON,nullptr,D3D12_RESOURCE_STATE_COMMON,
+                            rgba8_->output(),D3D12_RESOURCE_STATE_COMMON,&options);
+                    // Retire even a rejected evaluation before unwinding transport resources.
+                    const auto api_finished=profiling?Clock::now():Clock::time_point{};
+                    if(!batched || pass==0)gpu_.finish();
+                    require(evaluated==0,error());
+                    if(profiling) {
+                        evaluation_done=Clock::now();
+                        native_api_ms+=std::chrono::duration<double,std::milli>(api_finished-api_started).count();
+                        input_fence_retire_ms+=std::chrono::duration<double,std::milli>(evaluation_done-api_finished).count();
+                    }
                 }
                 if(!batched){rgba8_->record_output(gpu_.list.Get());gpu_.submit();}
                 rgba8_->read_output(reinterpret_cast<void*>(c.output));
@@ -426,6 +444,8 @@ class Models {
                     {"effective_intensity",result.at("effective_intensity")},
                     {"effective_style",result.at("effective_style")}};
                 report["pixel_transport"]=packet.pixel_transport?"rgba8_gpu":"rgba16f_cpu";
+                if(packet.pixel_transport)report["gpu_upload_heap"]=rgba8_->gpu_upload();
+                if(passes>1)report["gpu_refinement_passes"]=passes;
                 report["batched_output_submission"]=batched_output;
                 report["compact_frame_status"]=frame_status_!=nullptr;
                 report["motion_completion"]=result.value("motion_completion","legacy");

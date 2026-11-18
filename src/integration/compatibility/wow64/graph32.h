@@ -23,6 +23,8 @@ class FrameSession {
     std::unordered_map<std::string,unsigned> indices_;
     Json plan_;
     phoenix_native::PreflightInfo policy_;
+    std::array<std::vector<phoenix_driver_probe::Launch>,2> driver_launches_;
+    std::vector<phoenix_driver_probe::Launch> alternate_dispatch_;
     std::vector<uint8_t> weights_;
     std::vector<uint16_t> color_,output_;
     std::string config_,parameters_;
@@ -30,8 +32,12 @@ class FrameSession {
     Json parameter_pipeline_json_;
     ModelChannel packet_;
     bool driver_;
+    bool driver_gpu_output_seed_=false;
+    bool driver_packed_refinement_=false;
+    bool driver_batched_refinement_=false;
     bool frame_services_=false;
     bool rgba8_gpu_transport_=false;
+    bool gpu_refinement_=false;
     std::vector<char> status_buffer_;
     Json runtime_status_=Json::object();
     uint64_t frames_=0;
@@ -41,6 +47,51 @@ class FrameSession {
     void ensure_half_buffers() {
         const size_t components=size_t(packet_.base.width)*packet_.base.height*4;
         color_.resize(components);output_.resize(components);
+    }
+
+    void write_driver_launches(unsigned parity,phoenix_driver_probe::Launch* destination,
+        const phoenix_addon::ResolvedControls& controls) {
+        const auto& c=packet_.base;
+        auto& launches=driver_launches_[parity];
+        // Both output parities have stable bindings. Only the stem and
+        // head controls need patching on each evaluation.
+        if (launches.empty()) {
+            const std::array<phoenix_launch_plan::Arena,2> arenas{{{c.workspace_address,c.workspace_bytes},{c.weights_address,c.weight_bytes}}};
+            // Plan layout: index 0 clears counters, the last entry is the
+            // post-copy the driver performs itself; layers sit between.
+            const auto& plan_launches=plan_.at("launches");
+            phoenix_bundle::require(plan_launches.size()>=3,"Native driver plan has no layer launches");
+            const auto layer_count=unsigned(plan_launches.size())-2;
+            phoenix_bundle::require(layer_count<=phoenix_driver_probe::launch_count,"Native driver plan exceeds launch capacity");
+            launches.resize(layer_count);
+            for(unsigned i=0;i<layer_count;++i) {
+                const auto& source=plan_launches.at(i+1);
+                auto launch=phoenix_bundle::launch(source,[&](const Json& binding)->uint64_t {
+                    const auto role=binding.at("role").get<std::string>();
+                    const auto name=binding.at("binding").is_null()?"":binding.at("binding").get<std::string>();
+                    if(role=="color") return c.color_texture;
+                    if(role=="motion") return c.motion_texture;
+                    if(role=="history_previous") return c.history_texture[parity^1];
+                    if(role=="neural_output_surface") return c.surface[parity];
+                    // Optional guides the driver does not stage today map to
+                    // no texture; a scratch texture covers aux reads/writes.
+                    if(role=="depth_optional"||role=="aux_optional") return binding.at("binding").is_null()?0:c.aux_texture;
+                    if(name=="aux") return c.aux_texture;
+                    throw std::runtime_error("Unsupported native descriptor binding: role="+role+" binding="+name);
+                });
+                auto arguments=phoenix_launch_plan::materialize(launch,arenas);
+                auto& target=launches[i]; target.kernel=indices_.at(source.at("name").get<std::string>());
+                target.bytes=uint32_t(arguments.size()); target.barrier_after=policy_.barrier_after[i];
+                for(unsigned axis=0;axis<3;++axis) {target.grid[axis]=launch.grid[axis];target.block[axis]=launch.block[axis];}
+                phoenix_bundle::require(arguments.size()<=sizeof(target.arguments),"Native launch arguments exceed packet capacity");
+                memcpy(target.arguments,arguments.data(),arguments.size());
+            }
+        }
+        std::copy(launches.begin(),launches.end(),destination);
+        auto& stem=destination[0];
+        auto& head=destination[launches.size()-1];
+        phoenix_addon::patch_stem(stem.arguments,stem.bytes,controls);
+        phoenix_addon::patch_head(head.arguments,head.bytes,controls);
     }
 
   public:
@@ -53,10 +104,13 @@ class FrameSession {
             // The streamed x64-library path needs only small bounded CPU chunks.
             phoenix_compat::require_in_process_address_space((driver ? 160ull : 64ull) * 1024 * 1024);
             const auto profile=phoenix_bundle::json_file(root/"bootstrap.json");
+            driver_gpu_output_seed_=driver && profile.value("driver_gpu_output_seed",0u)==1;
+            driver_packed_refinement_=driver_gpu_output_seed_ && profile.value("driver_packed_refinement",0u)==1;
             frame_services_=!driver&&declared_library_frame_services(
                 profile.value("library_frame_services",0u),profile.value("model_channel_bytes",0u));
             rgba8_gpu_transport_=!driver&&declared_rgba8_gpu_transport(profile.value("library_rgba8_transport",0u),
                 profile.value("library_frame_services",0u),profile.value("model_channel_bytes",0u));
+            gpu_refinement_=rgba8_gpu_transport_&&profile.value("library_gpu_refinement",0u)==1;
             phoenix_compat::validate_native_settings(settings,driver,frame_services_,
                 frame_services_ && profile.value("library_appearance_controls",0u)==1);
             if(driver) {
@@ -75,7 +129,9 @@ class FrameSession {
             auto& c=packet_.base; c.caller_bits=32; c.width=width; c.height=height;
             stage="half-precision host image buffers";
             const bool deferred=rgba8_gpu_transport_&&profile.value("library_deferred_host_buffers",0u)==1;
-            if(deferred) {
+            if(driver_packed_refinement_) {
+                c.frame_flags=phoenix_driver_probe::packed_rgba8;
+            } else if(deferred) {
                 packet_.pixel_transport=rgba8_gpu_transport_version;
                 c.plane_bytes=uint64_t(width)*height*4;
             } else {
@@ -96,6 +152,8 @@ class FrameSession {
                 weights_=bundle_->load_weights();
                 plan_=bundle_->select_frame(width,height,[&](const Json& frame){phoenix_native::preflight(frame,kernels_);});
                 policy_=phoenix_native::preflight(plan_,kernels_);
+                driver_batched_refinement_=driver_packed_refinement_ &&
+                    profile.value("driver_batched_refinement",0u)==1;
                 c.weights=uint64_t(uintptr_t(weights_.data())); c.weight_bytes=weights_.size();
                 c.workspace_bytes=plan_.at("arenas").at("workspace").at("bytes"); c.clear_words=policy_.clear_words;
                 for(unsigned i=0;i<kernels_.size();++i) {
@@ -142,9 +200,12 @@ class FrameSession {
             throw std::runtime_error(std::string("FrameSession [")+stage+"]: "+error.what());
         }
     }
-    std::vector<float> evaluate(const std::vector<uint8_t>& rgba,const phoenix_compat::Settings& settings,unsigned backend,
+    enum class HalfRefinement { None, First, Next, Last };
+
+    std::vector<float> evaluate(std::span<const uint8_t> rgba,const phoenix_compat::Settings& settings,unsigned backend,
         const std::vector<float>* previous=nullptr,const NativeFrameContext* context=nullptr,
-        std::vector<uint8_t>* packed_output=nullptr) {
+        std::span<uint8_t> packed_output={}, HalfRefinement refinement=HalfRefinement::None,
+        unsigned gpu_passes=1) {
         auto& c=packet_.base;
         const auto address_tick=GetTickCount64();
         if(frames_==0 || address_tick>=next_address_check_) {
@@ -158,19 +219,38 @@ class FrameSession {
         using Clock=std::chrono::steady_clock;
         const auto pack_started=profiling?Clock::now():Clock::time_point{};
         phoenix_bundle::require(rgba.size()==size_t(c.width)*c.height*4,"Native bridge pixel extent mismatch");
-        const bool gpu_bytes=rgba8_gpu_transport_&&packed_output&&previous==nullptr&&backend==3;
+        const bool packed=!packed_output.empty();
+        phoenix_bundle::require(!packed||packed_output.size()==rgba.size(),"Invalid native packed output extent");
+        const bool driver_packed=driver_packed_refinement_&&!previous&&backend==3&&
+            (packed||refinement==HalfRefinement::First||refinement==HalfRefinement::Next);
+        const bool driver_reuse=driver_packed&&
+            (refinement==HalfRefinement::Next||refinement==HalfRefinement::Last);
+        const bool gpu_bytes=rgba8_gpu_transport_&&packed&&previous==nullptr&&backend==3&&
+            refinement==HalfRefinement::None;
+        const bool driver_batch=gpu_passes>1&&driver_batched_refinement_&&driver_packed&&packed&&
+            refinement==HalfRefinement::None;
+        phoenix_bundle::require(gpu_passes==1 || (((gpu_bytes&&gpu_refinement_)||driver_batch)&&gpu_passes>=2&&gpu_passes<=10&&
+            !settings.pipeline.motion_enabled&&!settings.pipeline.scene_detection), "Invalid native GPU refinements");
         packet_.pixel_transport=gpu_bytes?rgba8_gpu_transport_version:0;
-        if(gpu_bytes) {
+        if(gpu_bytes||driver_packed) {
             // A compact GPU frame never reads these legacy half planes. Free
             // them after a float-view transition rather than retaining tens of
             // MiB in the 32-bit game's fragmented address space.
             if(!color_.empty()){std::vector<uint16_t>().swap(color_);std::vector<uint16_t>().swap(output_);}
-            packed_output->resize(rgba.size());
-            c.color=uint64_t(uintptr_t(rgba.data()));c.output=uint64_t(uintptr_t(packed_output->data()));c.plane_bytes=rgba.size();
+            c.color=driver_reuse?0:uint64_t(uintptr_t(rgba.data()));
+            c.output=packed?uint64_t(uintptr_t(packed_output.data())):0;
+            c.plane_bytes=rgba.size();
         } else {
             ensure_half_buffers();
+            if (refinement==HalfRefinement::Next || refinement==HalfRefinement::Last) {
+                color_.swap(output_);
+                // Previous results already store the exact half RGB samples
+                // the next pass needs. Recreate only the original frame alpha.
+                phoenix_compat::cpu_color::prepare_half_refinement(color_,rgba);
+            } else {
+                phoenix_compat::cpu_color::rgba8_to_half(rgba,color_);
+            }
             c.color=uint64_t(uintptr_t(color_.data()));c.output=uint64_t(uintptr_t(output_.data()));c.plane_bytes=color_.size()*2;
-            phoenix_compat::cpu_color::rgba8_to_half(rgba,color_);
         }
         if(previous) {
             phoenix_bundle::require(previous->size()==size_t(c.width)*c.height*3,"Native refinement pixel extent mismatch");
@@ -180,43 +260,31 @@ class FrameSession {
                 color_[pixel*4+channel]=DirectX::PackedVector::XMConvertFloatToHalf(std::clamp(value,-65504.f,65504.f));
             }
         }
-        if(!gpu_bytes)std::fill(output_.begin(),output_.end(),uint16_t(0x7e00));
+        if(!gpu_bytes&&!driver_gpu_output_seed_)std::fill(output_.begin(),output_.end(),uint16_t(0x7e00));
         auto controls=settings.controls.apply(phoenix_addon::Controls{});
         if(settings.processing.enabled && !controls.auto_mask)controls.skin=0;
         if(driver_) {
             phoenix_bundle::require(backend==3,"Native x86 driver host is Phoenix DLSS5-only");
             const auto resolved=phoenix_addon::resolve_controls(controls,c.width,c.height,false,false,0);
-            c.target=unsigned(frames_%2); c.frame_flags=0;
-            const std::array<phoenix_launch_plan::Arena,2> arenas{{{c.workspace_address,c.workspace_bytes},{c.weights_address,c.weight_bytes}}};
-            // Plan layout: index 0 clears counters, the last entry is the
-            // post-copy the driver performs itself; layers sit between.
-            const auto& plan_launches=plan_.at("launches");
-            phoenix_bundle::require(plan_launches.size()>=3,"Native driver plan has no layer launches");
-            const auto layer_count=unsigned(plan_launches.size())-2;
-            phoenix_bundle::require(layer_count<=phoenix_driver_probe::launch_count,"Native driver plan exceeds launch capacity");
+            c.target=unsigned(frames_%2);
+            c.frame_flags=driver_gpu_output_seed_?phoenix_driver_probe::gpu_output_seed:0;
+            if(driver_packed) {
+                c.frame_flags|=phoenix_driver_probe::packed_rgba8;
+                if(driver_reuse)c.frame_flags|=phoenix_driver_probe::reuse_refinement;
+                if(!packed)c.frame_flags|=phoenix_driver_probe::skip_readback;
+            }
+            const auto layer_count=unsigned(plan_.at("launches").size())-2;
+            write_driver_launches(c.target,c.launches,resolved);
             c.launch_total=layer_count;
-            for(unsigned i=0;i<layer_count;++i) {
-                const auto& source=plan_launches.at(i+1);
-                auto launch=phoenix_bundle::launch(source,[&](const Json& binding)->uint64_t {
-                    const auto role=binding.at("role").get<std::string>();
-                    const auto name=binding.at("binding").is_null()?"":binding.at("binding").get<std::string>();
-                    if(role=="color") return c.color_texture;
-                    if(role=="motion") return c.motion_texture;
-                    if(role=="history_previous") return c.history_texture[c.target^1];
-                    if(role=="neural_output_surface") return c.surface[c.target];
-                    // Optional guides the driver does not stage today map to
-                    // no texture; a scratch texture covers aux reads/writes.
-                    if(role=="depth_optional"||role=="aux_optional") return binding.at("binding").is_null()?0:c.aux_texture;
-                    if(name=="aux") return c.aux_texture;
-                    throw std::runtime_error("Unsupported native descriptor binding: role="+role+" binding="+name);
-                });
-                auto arguments=phoenix_launch_plan::materialize(launch,arenas);
-                if(i==0) phoenix_addon::patch_stem(arguments.data(),arguments.size(),resolved);
-                if(i==layer_count-1) phoenix_addon::patch_head(arguments.data(),arguments.size(),resolved);
-                auto& target=c.launches[i]; target={}; target.kernel=indices_.at(source.at("name").get<std::string>());
-                target.bytes=uint32_t(arguments.size()); target.barrier_after=policy_.barrier_after[i];
-                for(unsigned axis=0;axis<3;++axis) {target.grid[axis]=launch.grid[axis];target.block[axis]=launch.block[axis];}
-                memcpy(target.arguments,arguments.data(),arguments.size());
+            if(driver_batch) {
+                alternate_dispatch_.resize(layer_count);
+                write_driver_launches(c.target^1,alternate_dispatch_.data(),resolved);
+                c.alternate_launches=uint64_t(uintptr_t(alternate_dispatch_.data()));
+                c.alternate_launch_count=layer_count;
+                c.frame_flags|=gpu_passes<<phoenix_driver_probe::packed_pass_shift;
+            } else {
+                c.weights=uint64_t(uintptr_t(weights_.data()));
+                c.weight_bytes=weights_.size();
             }
         } else {
             packet_.backend=backend;
@@ -235,6 +303,7 @@ class FrameSession {
                     parameter_pipeline_=settings.pipeline;
                 }
                 parameters["pipeline"]=parameter_pipeline_json_;
+                if(gpu_passes>1) parameters["refinement_passes"]=gpu_passes;
                 parameters["reset"]=frames_<unsigned(settings.reset_after_switch)||settings.force_reset||
                     (settings.reset_every>0&&(frames_+1)%unsigned(settings.reset_every)==0)||(context&&context->reset)||
                     (!settings.pipeline.motion_enabled&&!settings.pipeline.scene_detection);
@@ -247,8 +316,9 @@ class FrameSession {
             packet_.parameters_json=uint64_t(uintptr_t(parameters_.c_str()));
         }
         const auto dispatch_started=profiling?Clock::now():Clock::time_point{};
-        thread_.frame(); ++frames_;
-        if(frames_==1) {
+        const bool first_frame=frames_==0;
+        thread_.frame(); frames_+=gpu_passes;
+        if(first_frame) {
             // The motion provider and format resources may be lazy even after
             // model creation. Do not wait a full second to account for them.
             address_space_=phoenix_compat::require_in_process_address_space();
@@ -262,10 +332,14 @@ class FrameSession {
         }
         const auto unpack_started=profiling?Clock::now():Clock::time_point{};
         std::vector<float> output;
-        if(packed_output&&!gpu_bytes) {
+        if(driver_) {
+            runtime_status_["pixel_transport"]=driver_packed?"rgba8_gpu":"rgba16f_cpu";
+            runtime_status_["driver_batched_passes"]=driver_batch?gpu_passes:1;
+        }
+        if(packed&&!gpu_bytes&&!driver_packed) {
             phoenix_bundle::require(previous==nullptr,"Packed output does not support float refinements");
-            phoenix_compat::cpu_color::half_rgba_to_rgba8(output_,rgba,*packed_output);
-        } else if(!packed_output) {
+            phoenix_compat::cpu_color::half_rgba_to_rgba8(output_,rgba,packed_output);
+        } else if(!packed && refinement==HalfRefinement::None) {
             output.resize(size_t(c.width)*c.height*3);
             phoenix_compat::cpu_color::half_rgba_to_rgb(output_,output);
         }
@@ -276,7 +350,8 @@ class FrameSession {
                 {"native_call_and_wait",milliseconds(dispatch_started,dispatch_finished)},
                 {"status_decode",milliseconds(dispatch_finished,unpack_started)},
                 {"output_decode",milliseconds(unpack_started,Clock::now())}};
-            runtime_status_["output_format"]=gpu_bytes?"RGBA8-GPU":packed_output?"RGBA8":"RGB32F";
+            runtime_status_["output_format"]=gpu_bytes?"RGBA8-GPU":packed?"RGBA8":
+                refinement==HalfRefinement::None?"RGB32F":"RGBA16F";
         } else runtime_status_.erase("frame_stages_ms");
         return output;
     }
@@ -284,6 +359,8 @@ class FrameSession {
     double gpu_ms() const {return packet_.base.gpu_ms;}
     const Json& runtime_status() const {return runtime_status_;}
     bool frame_services() const {return frame_services_;}
+    bool gpu_refinement() const {return gpu_refinement_;}
+    bool driver_batched_refinement() const {return driver_batched_refinement_;}
     Json nvidia_status() const {
         return Json{{"ready",!driver_&&packet_.nvidia_creates>0&&packet_.nvidia_evaluates>0&&
             packet_.nvidia_create_result==1&&packet_.nvidia_evaluate_result==1},

@@ -115,6 +115,7 @@ enum class Phase : unsigned { Starting, OpenFences, Ready, Busy, Finished, Faile
 struct LocalGpuOptions {
     // Internal dependency injection for WARP fixtures, never an INI/UI override.
     Ptr<ID3D12Device> software_test_device;
+    bool frame_ring = false;
 };
 class HostState : public std::enable_shared_from_this<HostState> {
     std::mutex mutex_;
@@ -131,9 +132,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
     std::string native_mode_;
     FeedFrameMsg request_{};
     FeedGuideState request_guides_{};
-    // Shared-mapping ring (helper CPU route only). submit() queues frames and
-    // the pipe worker stages each into its ring slot before the prior ack, so
-    // the helper starts the next frame with no copy left on its wake path.
+    // Pixel slots let CPU-transfer workers start the next capture while the
+    // completed image is still waiting for the render thread.
     struct CpuQueuedFrame {
         FeedFrameMsg request{};
         std::vector<uint8_t> pixels;
@@ -149,7 +149,7 @@ class HostState : public std::enable_shared_from_this<HostState> {
         uint64_t tuning_revision = 0;
         double roundtrip_ms = 0;
     };
-    // The mapping lives here (created by the pipe worker) so the render
+    // The mapping lives here (created by the processing worker) so the render
     // thread can lease a slot and copy readback straight into it, and copy a
     // completed output straight out, instead of round-tripping CPU vectors.
     CpuFrameMapping cpu_mapping_;
@@ -160,9 +160,11 @@ class HostState : public std::enable_shared_from_this<HostState> {
     std::deque<CpuCompletedFrame> cpu_outputs_;
     CpuRingDepth cpu_ring_{1};
     std::atomic<bool> cpu_ring_mode_{false};
+    std::atomic<unsigned> native_present_gap_us_{4000};
+    std::atomic<unsigned> native_frame_budget_us_{0};
     std::atomic<Phase> cpu_phase_{Phase::Starting};
     Handle cpu_prefetch_wake_;
-    unsigned cpu_held_ = 0; // Frames the pipe worker owns outside the queue.
+    unsigned cpu_held_ = 0; // Frames the processing worker owns outside the queue.
     void refresh_cpu_phase() {
         const auto base = phase_.load();
         if (base == Phase::Starting || base == Phase::OpenFences || base == Phase::Failed ||
@@ -215,10 +217,20 @@ class HostState : public std::enable_shared_from_this<HostState> {
             D3D12LocalPixels renderer(nullptr, build.width, build.height, options.software_test_device.Get());
             Settings active_settings = settings;
             bool configured = false;
+            const bool ring = options.frame_ring &&
+                (cpu_mapping_.create(build.width, build.height, 3) ||
+                 cpu_mapping_.create(build.width, build.height, 2));
             std::unique_lock lock(mutex_);
+            if (ring) {
+                cpu_ring_.reset(cpu_mapping_.slots());
+                cpu_mapping_ready_ = true;
+                cpu_ring_mode_ = true;
+            }
             phase_ = Phase::Ready;
+            if (ring) refresh_cpu_phase();
             while (!stopping_) {
-                changed_.wait(lock, [&] { return stopping_ || phase_ == Phase::Busy || !ui_actions_.empty(); });
+                auto input_ready = [&] { return ring ? !cpu_queue_.empty() : phase_ == Phase::Busy; };
+                changed_.wait(lock, [&] { return stopping_ || input_ready() || !ui_actions_.empty(); });
                 if (stopping_) break;
                 while (!ui_actions_.empty()) {
                     const auto action = ui_actions_.front(); ui_actions_.pop_front();
@@ -227,15 +239,25 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     lock.lock();
                     ui_clear_revision_ = acknowledged_clear_revision(ui_clear_revision_, action, accepted);
                 }
-                if (phase_ != Phase::Busy) continue;
-                const auto request = request_;
+                if (!input_ready()) continue;
+                CpuQueuedFrame queued;
+                if (ring) {
+                    queued = std::move(cpu_queue_.front());
+                    cpu_queue_.pop_front();
+                    cpu_held_ = 1;
+                    refresh_cpu_phase();
+                }
+                const auto request = ring ? queued.request : request_;
                 settings = tuning_settings_; settings.uplift = request.nr_enabled != 0;
                 applied_tuning_revision_ = tuning_revision_; pending_tuning_.reset();
                 const auto revision = applied_tuning_revision_;
-                auto input = std::move(input_);
+                auto input = ring ? std::move(queued.pixels) : std::move(input_);
+                std::span<const uint8_t> pixels = ring && input.empty()
+                    ? std::span<const uint8_t>(cpu_mapping_.input(queued.slot))
+                    : std::span<const uint8_t>(input);
                 lock.unlock();
                 const auto started = std::chrono::steady_clock::now();
-                renderer.upload(input);
+                renderer.upload(pixels);
                 if (request.reset) renderer.bridge().reset_history();
                 const auto deadline = GetTickCount64() + 30000;
                 bool apply = !configured || helper_settings_changed(active_settings, settings);
@@ -251,8 +273,15 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     require(GetTickCount64() < deadline, "Local native inference produced no completed output within 30 seconds");
                     Sleep(2);
                 }
-                auto output = (!settings.uplift || settings.mode == phoenix_addon::phoenix::input)
-                    ? std::move(input) : renderer.download();
+                const bool bypass = !settings.uplift || settings.mode == phoenix_addon::phoenix::input;
+                std::vector<uint8_t> output;
+                if (ring) {
+                    const auto destination = cpu_mapping_.output(queued.slot);
+                    if (bypass) std::copy(pixels.begin(), pixels.end(), destination.begin());
+                    else renderer.download(destination);
+                } else {
+                    output = bypass ? std::move(input) : renderer.download();
+                }
                 auto snapshot = renderer.bridge().ui_snapshot();
                 const auto wall = std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
                 snapshot["processing_location"] = "in_process_staged";
@@ -262,9 +291,20 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 snapshot["ui_clear_revision"] = ui_clear_revision_;
                 snapshot["transport"] = "fenced_cpu_pixels";
                 lock.lock();
-                output_ = std::move(output); ui_snapshot_ = std::move(snapshot);
-                roundtrip_ms_ = wall; completed_at_ = GetTickCount64();
-                completed_tuning_revision_ = revision; phase_ = Phase::Finished;
+                ui_snapshot_ = std::move(snapshot);
+                if (ring) {
+                    cpu_outputs_.push_back({queued.slot, revision, wall});
+                    cpu_held_ = 0;
+                    if (cpu_queue_.empty()) cpu_ring_.starved();
+                    else if (std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - cpu_queue_.front().queued_at).count() > wall * 2)
+                        cpu_ring_.backlogged();
+                    refresh_cpu_phase();
+                } else {
+                    output_ = std::move(output);
+                    roundtrip_ms_ = wall; completed_at_ = GetTickCount64();
+                    completed_tuning_revision_ = revision; phase_ = Phase::Finished;
+                }
             }
 #endif
         } catch (const std::exception& error) {
@@ -547,9 +587,27 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 : phoenix_addon::phoenix::fit_resolution(build.width,build.height,build.width,build.height);
             stage="frame session initialization";
             phoenix_wow64::FrameSession renderer(options.root,bundle,source,working.image_width,working.image_height,settings,options.driver_host);
+            Handle present_gap;
+            if (options.d3d9_present && renderer.gpu_refinement())
+                present_gap.value = CreateWaitableTimerExW(nullptr, nullptr,
+                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
+            // Use only color planes here. Native x86 receives no CPU depth guide.
+            // If a fragmented process cannot map even two slots, keep its
+            // single-frame path.
+            const auto try_ring = [&](unsigned slots) {
+                if (!cpu_mapping_.create(build.width, build.height, slots, false, false)) return false;
+                if (in_process_address_space_safe(32, process_address_space())) return true;
+                cpu_mapping_.reset();
+                return false;
+            };
+            const bool ring = options.d3d9_present &&
+                ((!options.driver_host && try_ring(4)) || try_ring(3) || try_ring(2));
             uint64_t native_phoenix_frames = 0;
             uint64_t capture_sequence=0;
             bool temporal_reset=true;
+            std::chrono::steady_clock::time_point last_evaluation_finished{};
+            unsigned driver_pacing_passes=0, driver_batch_samples=0;
+            double driver_batch_ms=0;
             std::unique_lock lock(mutex_);
             auto snapshot=[&](double wall) {return Json{{"schema","phoenix-panel/1"},{"processing_location",native_mode_},
                 {"inference_pid",GetCurrentProcessId()},{"helper_pid",0},{"frame_wall_ms",wall},{"ui_clear_revision",ui_clear_revision_},
@@ -560,9 +618,16 @@ class HostState : public std::enable_shared_from_this<HostState> {
                 {"runtime",[&]{auto runtime=renderer.runtime_status();runtime["backend"]=native_mode_;
                     runtime["host_half_buffer_bytes"]=renderer.host_half_buffer_bytes();
                     runtime["gpu_processing_ms"]=renderer.gpu_ms();runtime["pipeline_frame_services"]=renderer.frame_services();return runtime;}()}};};
+            if (ring) {
+                cpu_ring_.reset(cpu_mapping_.slots());
+                cpu_mapping_ready_ = true;
+                cpu_ring_mode_ = true;
+            }
             ui_snapshot_=snapshot(0);phase_=Phase::Ready;
+            if (ring) refresh_cpu_phase();
             while(!stopping_) {
-                changed_.wait(lock,[&]{return stopping_||phase_==Phase::Busy||pending_tuning_||!ui_actions_.empty();});
+                const auto input_ready = [&] { return ring ? !cpu_queue_.empty() : phase_ == Phase::Busy; };
+                changed_.wait(lock,[&]{return stopping_||input_ready()||pending_tuning_||!ui_actions_.empty();});
                 if(stopping_) break;
                 if(pending_tuning_) {settings=tuning_settings_;pending_tuning_.reset();applied_tuning_revision_=tuning_revision_;}
                 for(const auto& action:ui_actions_) {
@@ -570,14 +635,29 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     if(action.action==uint32_t(phoenix_ui::Action::ResetHistory)) temporal_reset=true;
                 }
                 ui_actions_.clear();
-                if(phase_!=Phase::Busy) continue;
-                const auto request=request_; const auto revision=applied_tuning_revision_; const auto frame_settings=settings;
-                const auto timestamp=queued_at_ns_?queued_at_ns_:
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                if(!input_ready()) continue;
+                CpuQueuedFrame queued;
+                if (ring) {
+                    queued = std::move(cpu_queue_.front());
+                    cpu_queue_.pop_front();
+                    cpu_held_ = 1;
+                    refresh_cpu_phase();
+                }
+                const auto request=ring?queued.request:request_;
+                const auto revision=applied_tuning_revision_; const auto frame_settings=settings;
+                const auto timestamp=ring
+                    ? std::chrono::duration_cast<std::chrono::nanoseconds>(queued.queued_at.time_since_epoch()).count()
+                    : queued_at_ns_?queued_at_ns_:
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
                 const phoenix_wow64::NativeFrameContext frame_context{++capture_sequence,timestamp,temporal_reset||bool(request.reset)};
                 temporal_reset=false;
-                auto pixels=std::move(input_);
-                auto recycled=std::move(recycled_native_output_);lock.unlock();
+                auto input=ring?std::move(queued.pixels):std::move(input_);
+                const std::span<const uint8_t> pixels=ring&&input.empty()
+                    ? std::span<const uint8_t>(cpu_mapping_.input(queued.slot))
+                    : std::span<const uint8_t>(input);
+                std::vector<uint8_t> result;
+                if (!ring) result=std::move(recycled_native_output_);
+                lock.unlock();
                 const auto started=std::chrono::steady_clock::now();
                 stage="CPU input preprocessing";
                 const bool resize_pixels=frame_settings.processing.enabled &&
@@ -594,38 +674,98 @@ class HostState : public std::enable_shared_from_this<HostState> {
                     processing.emplace(phi,build.width,build.height,frame_settings.processing);
                     working_pixels.resize(size_t(processing->working_width)*processing->working_height*4,255);
                 }
+                const unsigned passes=request.iterations*unsigned(frame_settings.refinement_passes);
+                require(passes==1||(!frame_settings.pipeline.motion_enabled&&!frame_settings.pipeline.scene_detection),
+                    "Temporal x86 refinements require the helper");
                 auto evaluate=[&](unsigned backend) {
                     std::vector<float> result=processing?processing->encoded:std::vector<float>{};
-                    const unsigned passes=request.iterations*unsigned(frame_settings.refinement_passes);
-                    require(passes==1||(!frame_settings.pipeline.motion_enabled&&!frame_settings.pipeline.scene_detection),
-                        "Temporal x86 refinements require the helper");
                     for(unsigned i=0;i<passes;++i) {
                         require(!stopping_,"Native execution cancelled");
                         stage="native floating-point evaluation";
-                        result=renderer.evaluate(processing?working_pixels:pixels,frame_settings,backend,processing||i?&result:nullptr,&frame_context);
+                        result=renderer.evaluate(processing?std::span<const uint8_t>(working_pixels):pixels,
+                            frame_settings,backend,processing||i?&result:nullptr,&frame_context);
                         if (backend == 3) ++native_phoenix_frames;
                     }
                     return processing?processing->finish(std::move(result)):result;
                 };
-                std::vector<uint8_t> result=std::move(recycled);
-                const bool reused_output=result.size()==pixels.size();
                 const bool packed_view=frame_settings.mode==phoenix_addon::phoenix::ours &&
-                    !resize_pixels && phoenix_pipeline::comparison_view_bits(frame_settings.pipeline)==0 &&
-                    request.iterations*unsigned(frame_settings.refinement_passes)==1;
-                if(packed_view) {
+                    !resize_pixels && phoenix_pipeline::comparison_view_bits(frame_settings.pipeline)==0;
+                const bool reused_output=ring||result.size()==pixels.size();
+                if (packed_view && !ring) result.resize(pixels.size());
+                const auto packed=ring?cpu_mapping_.output(queued.slot):std::span<uint8_t>(result);
+                if (passes != driver_pacing_passes) {
+                    driver_pacing_passes=passes;
+                    driver_batch_samples=0;
+                    driver_batch_ms=0;
+                }
+                const auto driver_budget=native_frame_budget_us_.load(std::memory_order_relaxed);
+                // A long contiguous GPU submission can hold up D3D9 Present.
+                // Split its passes when batching cannot fit in a game interval.
+                const bool driver_batch=packed_view&&passes>1&&passes<=10&&renderer.driver_batched_refinement()&&
+                    (!driver_budget||driver_batch_samples<3||driver_batch_ms*1000<=driver_budget);
+                if(packed_view && passes>1 && passes<=10 &&
+                    (driver_batch ||
+                     (renderer.gpu_refinement() && (!options.d3d9_present || present_gap.value)))) {
+                    stage="native GPU refinement";
+                    if (present_gap.value) {
+                        // Leave a gap between GPU jobs for D3D9. Time already
+                        // spent waiting for a capture counts toward that gap.
+                        const auto gap = std::chrono::microseconds(native_present_gap_us_.load(std::memory_order_relaxed));
+                        using TimerTicks = std::chrono::duration<LONGLONG, std::ratio<1, 10000000>>;
+                        const auto remaining = last_evaluation_finished + gap - std::chrono::steady_clock::now();
+                        if (remaining > std::chrono::steady_clock::duration::zero()) {
+                            LARGE_INTEGER due{};
+                            due.QuadPart = -std::chrono::ceil<TimerTicks>(remaining).count();
+                            if (SetWaitableTimer(present_gap.value, &due, 0, nullptr, nullptr, FALSE))
+                                WaitForSingleObject(present_gap.value, DWORD(std::chrono::ceil<std::chrono::milliseconds>(gap).count() + 8));
+                        }
+                    }
+                    require(!stopping_, "Native execution cancelled");
+                    renderer.evaluate(pixels,frame_settings,3,nullptr,&frame_context,packed,
+                        phoenix_wow64::FrameSession::HalfRefinement::None,passes);
+                    native_phoenix_frames+=passes;
+                } else if(packed_view) {
                     stage="native compact evaluation";
-                    renderer.evaluate(pixels,frame_settings,3,nullptr,&frame_context,&result);
-                    ++native_phoenix_frames;
+                    using Refinement = phoenix_wow64::FrameSession::HalfRefinement;
+                    for (unsigned pass=0;pass<passes;++pass) {
+                        require(!stopping_,"Native execution cancelled");
+                        const bool last=pass+1==passes;
+                        const auto refinement=passes==1?Refinement::None:
+                            pass==0?Refinement::First:last?Refinement::Last:Refinement::Next;
+                        renderer.evaluate(pixels,frame_settings,3,nullptr,&frame_context,
+                            last?packed:std::span<uint8_t>{},refinement);
+                        ++native_phoenix_frames;
+                    }
                 } else {
                     if(phoenix_addon::phoenix::uses_ours(frame_settings.mode)) phi=evaluate(3);
                     if(needs_nvidia_dll(frame_settings)) nv=evaluate(1);
                     stage="CPU output composition";
                     result=portable_compose(pixels,phi,build.width,frame_settings,nv.empty()?nullptr:&nv);
+                    if (ring) std::copy(result.begin(),result.end(),packed.begin());
                 }
-                const auto wall=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+                last_evaluation_finished=std::chrono::steady_clock::now();
+                const auto wall=std::chrono::duration<double,std::milli>(last_evaluation_finished-started).count();
+                if (driver_batch) {
+                    if (driver_batch_samples==1)driver_batch_ms=wall;
+                    else if (driver_batch_samples>1)driver_batch_ms=(driver_batch_ms*3+wall)/4;
+                    driver_batch_samples=std::min(3u,driver_batch_samples+1);
+                }
                 auto status=snapshot(wall);status["runtime"]["output_buffer_reused"]=packed_view&&reused_output;
-                lock.lock();recycled_native_input_=std::move(pixels);output_=std::move(result);ui_snapshot_=std::move(status);
-                roundtrip_ms_=wall;completed_at_=GetTickCount64();completed_tuning_revision_=revision;phase_=Phase::Finished;
+                lock.lock();
+                ui_snapshot_=std::move(status);
+                if (ring) {
+                    cpu_outputs_.push_back({queued.slot,revision,wall});
+                    cpu_held_ = 0;
+                    if (cpu_queue_.empty()) cpu_ring_.starved();
+                    else if (std::chrono::duration<double,std::milli>(
+                        std::chrono::steady_clock::now()-cpu_queue_.front().queued_at).count()>wall*2)
+                        cpu_ring_.backlogged();
+                    refresh_cpu_phase();
+                } else {
+                    recycled_native_input_=std::move(input);
+                    output_=std::move(result);
+                    roundtrip_ms_=wall;completed_at_=GetTickCount64();completed_tuning_revision_=revision;phase_=Phase::Finished;
+                }
             }
             lock.unlock();
             renderer.retire();
@@ -1282,6 +1422,8 @@ class HostState : public std::enable_shared_from_this<HostState> {
     std::span<uint8_t> cpu_input_span(unsigned slot) { return cpu_mapping_.input(slot); }
     std::span<float> cpu_depth_span(unsigned slot) { return cpu_mapping_.depth(slot); }
     bool uses_cpu_ring() const { return cpu_ring_mode_; }
+    void set_native_present_gap(unsigned gap_us) { native_present_gap_us_.store(gap_us, std::memory_order_relaxed); }
+    void set_native_frame_budget(unsigned budget_us) { native_frame_budget_us_.store(budget_us, std::memory_order_relaxed); }
     bool has_pending_cpu_frames() {
         std::lock_guard lock(mutex_);
         return cpu_slots_.size() != 0;
@@ -1488,6 +1630,11 @@ class HostClient {
     std::span<uint8_t> cpu_input_span(unsigned slot) { return state_->cpu_input_span(slot); }
     std::span<float> cpu_depth_span(unsigned slot) { return state_->cpu_depth_span(slot); }
     bool uses_cpu_ring() const { return state_->uses_cpu_ring(); }
+    bool native_capture_ring() const { return native_.has_value() && uses_cpu_ring(); }
+    bool native_library_dx9() const { return native_ && native_->d3d9_present && !native_->driver_host; }
+    bool native_driver_dx9() const { return native_ && native_->d3d9_present && native_->driver_host; }
+    void set_native_present_gap(unsigned gap_us) { state_->set_native_present_gap(gap_us); }
+    void set_native_frame_budget(unsigned budget_us) { state_->set_native_frame_budget(budget_us); }
     bool has_pending_cpu_frames() { return state_->has_pending_cpu_frames(); }
     std::optional<HostState::CpuOutput> lease_cpu_output() { return state_->lease_cpu_output(); }
     void release_cpu_output() { state_->release_cpu_output(); }

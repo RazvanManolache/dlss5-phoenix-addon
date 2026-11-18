@@ -8,6 +8,7 @@
 #include <cmath>
 #include <algorithm>
 #include <memory>
+#include <span>
 
 namespace phoenix_compat {
 struct PortableGpuHandles;
@@ -105,7 +106,7 @@ inline SettingsJson portable_metadata(const Settings& settings, bool reset, bool
         metadata["pipeline"]=phoenix_pipeline::options_json(phoenix_pipeline::without_comparison(settings.pipeline));
     return metadata;
 }
-inline std::vector<float> portable_color(const std::vector<uint8_t>& rgba) {
+inline std::vector<float> portable_color(std::span<const uint8_t> rgba) {
     if (rgba.empty() || rgba.size() % 4)
         throw std::runtime_error("Incomplete portable input image");
     std::vector<float> result(rgba.size() / 4 * 3);
@@ -115,7 +116,7 @@ inline std::vector<float> portable_color(const std::vector<uint8_t>& rgba) {
     return result;
 }
 // Mirrors comparison.h's shader, using this evaluation's input/output pair.
-inline std::vector<uint8_t> portable_compose(const std::vector<uint8_t>& input,
+inline std::vector<uint8_t> portable_compose(std::span<const uint8_t> input,
                                             const std::vector<float>& output,
                                             unsigned width, const Settings& settings,
                                             const std::vector<float>* nvidia = nullptr) {

@@ -2,7 +2,11 @@
 #include "../session_policy.h"
 #include <filesystem>
 namespace phoenix_compat {
-struct NativeOptions { std::filesystem::path root; bool driver_host=false; };
+struct NativeOptions {
+    std::filesystem::path root;
+    bool driver_host=false;
+    bool d3d9_present=false;
+};
 inline const char* native_settings_unavailable_reason(const Settings& settings, bool driver_host,
                                                      bool library_frame_services=false, bool library_appearance=false) {
     if (settings.native_kernel_style != "auto" && phoenix_addon::phoenix::uses_ours(settings.mode))
